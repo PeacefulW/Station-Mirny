@@ -25,6 +25,7 @@ config/icon="res://icon.svg"
 EventBus="*res://core/autoloads/event_bus.gd"
 GameManager="*res://core/autoloads/game_manager.gd"
 TimeManager="*res://core/autoloads/time_manager.gd"
+WindRuntime="*res://core/autoloads/wind_runtime.gd"
 BiomeRegistry="*res://core/autoloads/biome_registry.gd"
 FloraDecorRegistry="*res://core/autoloads/flora_decor_registry.gd"
 ItemRegistry="*res://core/autoloads/item_registry.gd"
@@ -66,3 +67,22 @@ locale/translations=PackedStringArray("res://locale/ru/messages.po", "res://loca
 
 rendering_device/driver.windows="d3d12"
 environment/defaults/default_clear_color=Color(0.08, 0.1, 0.06, 1)
+
+[shader_globals]
+
+wind_time={
+"type": "float",
+"value": 0.0
+}
+wind_direction={
+"type": "vec2",
+"value": Vector2(1, 0)
+}
+wind_strength={
+"type": "float",
+"value": 0.0
+}
+wind_gust_scroll_px={
+"type": "vec2",
+"value": Vector2(0, 0)
+}

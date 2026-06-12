@@ -1,5 +1,5 @@
 shader_type canvas_item;
-render_mode unshaded, blend_mix;
+render_mode blend_mix;
 
 uniform sampler2D grass_texture : filter_linear_mipmap, repeat_enable;
 uniform sampler2D grass_texture_2 : filter_linear_mipmap, repeat_enable;

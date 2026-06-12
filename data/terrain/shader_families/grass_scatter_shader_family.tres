@@ -1,0 +1,12 @@
+[gd_resource type="Resource" script_class="TerrainShaderFamily" load_steps=3 format=3]
+
+[ext_resource type="Script" path="res://data/terrain/terrain_shader_family.gd" id="1"]
+[ext_resource type="Shader" path="res://assets/shaders/grass_scatter_batch.gdshader" id="2"]
+
+[resource]
+script = ExtResource("1")
+id = &"terrain.grass_scatter"
+render_layer_id = &"overlay"
+shader = ExtResource("2")
+shape_texture_params = {}
+material_texture_params = {}

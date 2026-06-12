@@ -1,0 +1,18 @@
+[gd_resource type="Resource" script_class="TerrainShaderFamily" load_steps=3 format=3]
+
+[ext_resource type="Script" path="res://data/terrain/terrain_shader_family.gd" id="1"]
+[ext_resource type="Shader" path="res://assets/shaders/mountain_top_mask_underlay.gdshader" id="2"]
+
+[resource]
+script = ExtResource("1")
+id = &"terrain.mountain_mask_underlay"
+render_layer_id = &"base"
+shader = ExtResource("2")
+shape_texture_params = {
+}
+material_texture_params = {
+"face_normal_texture": &"face_normal",
+"face_texture": &"face_albedo",
+"top_normal_texture": &"top_normal",
+"top_texture": &"top_albedo"
+}

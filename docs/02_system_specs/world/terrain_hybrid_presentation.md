@@ -111,6 +111,17 @@ resources, the active runtime uses a transitional native-mask presentation:
   `WorldStreamer` derives a small solid halo from loaded neighbour packets and
   local diffs, then asks `WorldCore.build_mountain_halo_mask` for a bounded
   native `L8` alpha mask.
+- Mountain mask presentation MATERIALS are authored data: the registry-resolved
+  `TerrainMaterialSet` `mountain:mask_underlay_material` (family
+  `terrain.mountain_mask_underlay`) owns the roof/wall albedo+normal maps, the
+  foothill and scree extra maps, and every dressing knob through
+  `sampling_params` (warp, flank shading, drift, veins, terraces, palette,
+  biofield rims). `ChunkView` applies `sampling_params` generically; only
+  per-mask dynamic parameters (origin, step, clip, sun) stay code-set. The
+  raster preset JSON and the hardcoded texture paths in the raster layer are
+  dev-raster-probe inputs only, not runtime presentation sources. The native
+  mask itself remains the transitional SHAPE source until generator-authored
+  shape sets land.
 - The native mask performs the expensive smoothing, displacement, and
   thresholding. `WorldStreamer` may only store returned mask bytes on
   publish/mining paths; `ImageTexture` creation/update belongs to the bounded
@@ -131,7 +142,10 @@ resources, the active runtime uses a transitional native-mask presentation:
   of the mask distance-to-edge (lit plateau lips over dark step shadows).
   Rim and cut highlights are derived from the rock albedo (brightened and
   warmed by the documented low-sun shadow-length parameter), never painted
-  with fixed colors; sparse orange biofield accents may creep onto lit rims,
+  with fixed colors; the sun-driven brightening and warmth are additionally
+  gated by the documented daylight shadow visibility (the same gate that
+  fades projected shadows), so rims dim to a faint neutral edge at night
+  instead of reading as neon glow against the night tint; sparse orange biofield accents may creep onto lit rims,
   gated by the same world-space field family as the ground's orange patches. These are presentation-only material cues; collision,
   resource, and mining checks keep reading the raw mask bytes, and they do not
   create new terrain ids, save data, collision ownership, or worldgen state.
@@ -188,6 +202,14 @@ by chunk-local masks or overlay sprites:
   exist in the ground field by construction. Per-chunk decorative overlay
   sprites for grass/rock breakup are retired; they were the proven source of
   ruler-straight cuts on chunk borders.
+- The wind-reactive grass tuft scatter layer
+  (`wind_and_grass_scatter_presentation.md`) is not a return of those overlay
+  sprites: tuft placement is a native-built per-chunk batch whose density is
+  sampled from the same aperiodic world-position fields the ground shader
+  paints (`grass_density`, `orange_region`, `rock_region`), so its coverage has
+  no chunk-local inputs and cannot seam on chunk borders by construction. It
+  renders above the ground composition and below object decor, and stays
+  presentation-only derived state.
 - Land-only chunks do not wait for any terrain-ground mask bytes. First
   visible publish depends on the ordinary chunk packet and tile material
   upload only. Shoreline masks are also non-blocking: chunks whose halo

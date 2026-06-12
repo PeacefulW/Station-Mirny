@@ -14,12 +14,12 @@ const WATER_SURFACE_SHADER = preload("res://assets/shaders/water_surface_materia
 const GRASS_BLOB_OVERLAY_SHADER = preload("res://assets/shaders/grass_blob_overlay.gdshader")
 const ROCK_PATCH_OVERLAY_SHADER = preload("res://assets/shaders/rock_patch_overlay.gdshader")
 
-# Visual south facade height for the mask underlay shader ("wall with roof").
 # Collision uses the same native mask plus a narrow lip for antialiased overhang.
-const MOUNTAIN_FACADE_HEIGHT_PX: float = 72.0
 const MOUNTAIN_FACADE_COLLISION_DEPTH_PX: float = 12.0
-const MOUNTAIN_FACE_TEXTURE_SCALE: float = 0.46
 const MOUNTAIN_NATIVE_MASK_SOLID_THRESHOLD: int = 107
+# Mountain mask presentation textures and dressing are authored data: the
+# registry-resolved material set below owns them (sampling_params = слайдеры).
+const MOUNTAIN_MASK_UNDERLAY_MATERIAL_SET_ID: StringName = &"mountain:mask_underlay_material"
 const MOUNTAIN_FOOTHILL_OVERLAY_ENABLED: bool = true
 const MOUNTAIN_FOOTHILL_TEXTURE_SCALE: float = 0.60
 const MOUNTAIN_FOOTHILL_OUTER_WIDTH_PX: float = 154.0
@@ -56,39 +56,8 @@ const ROCK_PATCH_ALPHA: float = 0.48
 const ROCK_PATCH_EDGE_CLEARANCE_PX: float = 28.0
 const MASK_UNDERLAY_CHUNK_OVERLAP_PX: float = 3.0
 const MASK_SHADOW_CHUNK_OVERLAP_PX: float = 48.0
-# Mountain presentation dressing (all cosmetic, raw mask bytes stay
-# authoritative for collision/resource/mining):
-# Art-direction pick: variant "drama" from the comparison grid session
-# (artifacts/mountain_variants/grid_*.png).
-const MOUNTAIN_VISUAL_MASK_WARP_PX: float = 12.0
-const MOUNTAIN_SIDE_SHADE_STRENGTH: float = 0.30
-const MOUNTAIN_SIDE_SHADE_REACH_PX: float = 26.0
-const MOUNTAIN_ROOF_DRIFT_SCALE_PX: float = 5200.0
-const MOUNTAIN_ROOF_DRIFT_STRENGTH: float = 0.12
-const MOUNTAIN_ROOF_VEIN_STRENGTH: float = 0.22
-# Terrace radii sized for the actual ridge widths the worldgen produces
-# (~120-300 px): the first step appears on any medium ridge, the second only
-# on fat massifs.
-const MOUNTAIN_TERRACE_STRENGTH: float = 1.0
-const MOUNTAIN_TERRACE_INNER_PX: float = 56.0
-const MOUNTAIN_TERRACE_UPPER_PX: float = 124.0
-const MOUNTAIN_TERRACE_WOBBLE_PX: float = 22.0
-# Explicit mountain rock palette (the shader defaults used to be the de-facto
-# art source; keep all colors tunable from here). Rim lips are derived from
-# the rock albedo in-shader; only the biofield creep accent is a color.
-const MOUNTAIN_TOP_DUST_TINT := Vector3(0.90, 0.84, 0.76)
-const MOUNTAIN_CLEFT_COLOR := Vector3(0.12, 0.045, 0.018)
-const MOUNTAIN_CRACK_COLOR := Vector3(0.055, 0.026, 0.012)
-const MOUNTAIN_BASE_DEBRIS_COLOR := Vector3(0.18, 0.075, 0.032)
-const MOUNTAIN_EAVE_SHADOW_COLOR := Vector3(0.13, 0.052, 0.022)
-const MOUNTAIN_BIOFIELD_RIM_COLOR := Vector3(0.88, 0.42, 0.12)
-const MOUNTAIN_BIOFIELD_RIM_STRENGTH: float = 1.0
-# Same scale family as the ground material's orange_field_scale_px, so rim
-# accents cluster near orange ground regions.
-const MOUNTAIN_BIOFIELD_RIM_SCALE_PX: float = 1450.0
-# Scree debris on the apron's outer fringe (rock rubble crumbling into the
-# steppe; presentation-only, same rock albedo the ground material uses).
-const MOUNTAIN_SCREE_TEXTURE: Texture2D = preload("res://assets/textures/world/biomes/plains/ground/rock_top_albedo.png")
+# Scree debris numeric knobs (texture comes from the mountain material set's
+# &"scree_albedo" extra slot; presentation-only).
 const MOUNTAIN_SCREE_STRENGTH: float = 1.0
 const MOUNTAIN_SCREE_TEXTURE_SCALE: float = 1.0
 const MOUNTAIN_SCREE_PATCH_SCALE_PX: float = 760.0
@@ -103,9 +72,9 @@ var _water_fill_sprite: Sprite2D = null
 var _water_fill_texture: ImageTexture = null
 var _water_fill_material: ShaderMaterial = null
 var _debug_layer: ChunkDebugVisualLayer = null
-var roof_layers_by_mountain: Dictionary = {}
-var _roof_mask_images_by_mountain: Dictionary = {}
-var _roof_mask_textures_by_mountain: Dictionary = {}
+var roof_layers_by_mountain: Dictionary = { }
+var _roof_mask_images_by_mountain: Dictionary = { }
+var _roof_mask_textures_by_mountain: Dictionary = { }
 var _pending_terrain_ids: PackedInt32Array = PackedInt32Array()
 var _pending_terrain_atlas_indices: PackedInt32Array = PackedInt32Array()
 var _pending_walkable_flags: PackedByteArray = PackedByteArray()
@@ -173,7 +142,9 @@ var _living_flora_atlas: Texture2D = null
 var _spiky_flora_atlases: Array[Texture2D] = []
 var _object_packet_layer: WorldObjectPacketLayer = null
 var _object_packet_visual_dirty: bool = false
-var _pending_object_packet_visual: Dictionary = {}
+var _pending_object_packet_visual: Dictionary = { }
+var _grass_scatter_layer: MultiMeshInstance2D = null
+var _grass_scatter_visual_dirty: bool = false
 var _object_depth_reference_enabled: bool = false
 var _object_depth_reference_world_y: float = 0.0
 var _mountain_page_hit_mask: PackedByteArray = PackedByteArray()
@@ -189,14 +160,17 @@ var _debug_solid_mask: PackedByteArray = PackedByteArray()
 var _debug_contour_vertices: PackedVector2Array = PackedVector2Array()
 var _debug_contour_indices: PackedInt32Array = PackedInt32Array()
 
+
 func _exit_tree() -> void:
 	_roof_mask_images_by_mountain.clear()
 	_roof_mask_textures_by_mountain.clear()
+
 
 func configure(new_chunk_coord: Vector2i) -> void:
 	chunk_coord = new_chunk_coord
 	position = WorldRuntimeConstants.chunk_origin_px(chunk_coord)
 	_ensure_layers()
+
 
 func begin_apply(packet: Dictionary, defer_object_visual: bool = false) -> void:
 	var step_started: int = WorldPerfProbe.begin()
@@ -232,19 +206,120 @@ func begin_apply(packet: Dictionary, defer_object_visual: bool = false) -> void:
 		_object_packet_visual_dirty = true
 	else:
 		_sync_object_packet_visual(packet)
+	_grass_scatter_visual_dirty = true
 	WorldPerfProbe.end("ChunkView.begin_apply.sync_objects", step_started)
 	step_started = WorldPerfProbe.begin()
 	_refresh_debug_solid_mask()
 	WorldPerfProbe.end("ChunkView.begin_apply.refresh_debug", step_started)
 
+
 func apply_pending_object_packet_visual() -> bool:
 	if not _object_packet_visual_dirty:
 		return false
 	var packet: Dictionary = _pending_object_packet_visual
-	_pending_object_packet_visual = {}
+	_pending_object_packet_visual = { }
 	_object_packet_visual_dirty = false
 	_sync_object_packet_visual(packet)
 	return true
+
+
+func apply_pending_grass_scatter_visual(
+		world_core: Object,
+		grass_params: PackedFloat32Array,
+		grass_atlas: Texture2D,
+		grass_material: ShaderMaterial,
+) -> bool:
+	if not _grass_scatter_visual_dirty:
+		return false
+	_grass_scatter_visual_dirty = false
+	assert(
+		world_core != null and world_core.has_method("build_grass_scatter_buffer"),
+		"WorldCore.build_grass_scatter_buffer required - build GDExtension first",
+	)
+	var result: Dictionary = world_core.call(
+		"build_grass_scatter_buffer",
+		_pending_world_seed,
+		chunk_coord,
+		_pending_terrain_ids,
+		_pending_lake_flags,
+		grass_params,
+	) as Dictionary
+	assert(
+		not result.has("error"),
+		"build_grass_scatter_buffer failed: %s" % str(result.get("error", "")),
+	)
+	var instance_count: int = int(result.get("instance_count", 0))
+	if instance_count <= 0:
+		if _grass_scatter_layer != null and is_instance_valid(_grass_scatter_layer):
+			_grass_scatter_layer.visible = false
+			_grass_scatter_layer.multimesh = null
+		return true
+	var buffer: PackedFloat32Array = result.get("multimesh_buffer", PackedFloat32Array()) as PackedFloat32Array
+	var layer: MultiMeshInstance2D = _ensure_grass_scatter_layer(grass_atlas, grass_material)
+	var multimesh: MultiMesh = layer.multimesh
+	if multimesh == null or multimesh.instance_count != instance_count:
+		multimesh = MultiMesh.new()
+		var quad := QuadMesh.new()
+		quad.size = Vector2.ONE
+		multimesh.mesh = quad
+		multimesh.transform_format = MultiMesh.TRANSFORM_2D
+		multimesh.use_colors = true
+		multimesh.instance_count = instance_count
+		layer.multimesh = multimesh
+	# Один bounded вызов на чанк: native уже отдал готовый interleaved буфер.
+	multimesh.buffer = buffer
+	layer.visible = true
+	return true
+
+
+## Zoom-LOD: native кладёт крупные пучки в голову буфера, поэтому доля
+## видимых инстансов режет только хвост мелкой детали.
+func set_grass_scatter_lod_fraction(fraction: float) -> void:
+	if _grass_scatter_layer == null or not is_instance_valid(_grass_scatter_layer):
+		return
+	var multimesh: MultiMesh = _grass_scatter_layer.multimesh
+	if multimesh == null or multimesh.instance_count <= 0:
+		return
+	multimesh.visible_instance_count = clampi(
+		ceili(float(multimesh.instance_count) * clampf(fraction, 0.0, 1.0)),
+		0,
+		multimesh.instance_count,
+	)
+
+
+func get_grass_scatter_debug_state() -> Dictionary:
+	var instance_count: int = 0
+	var visible_instance_count: int = 0
+	var layer_visible: bool = false
+	if _grass_scatter_layer != null and is_instance_valid(_grass_scatter_layer):
+		layer_visible = _grass_scatter_layer.visible
+		if _grass_scatter_layer.multimesh != null:
+			instance_count = _grass_scatter_layer.multimesh.instance_count
+			visible_instance_count = _grass_scatter_layer.multimesh.visible_instance_count
+			if visible_instance_count < 0:
+				visible_instance_count = instance_count
+	return {
+		"instance_count": instance_count,
+		"visible_instance_count": visible_instance_count,
+		"visible": layer_visible,
+		"pending": _grass_scatter_visual_dirty,
+	}
+
+
+func _ensure_grass_scatter_layer(grass_atlas: Texture2D, grass_material: ShaderMaterial) -> MultiMeshInstance2D:
+	if _grass_scatter_layer != null and is_instance_valid(_grass_scatter_layer):
+		return _grass_scatter_layer
+	_grass_scatter_layer = MultiMeshInstance2D.new()
+	_grass_scatter_layer.name = "GrassScatterBatch"
+	# Низкая трава: над землёй и блоб-оверлеями, под объектным декором и
+	# игроком; depth-бакеты ей не нужны.
+	_grass_scatter_layer.z_index = 3
+	_grass_scatter_layer.texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS
+	_grass_scatter_layer.texture = grass_atlas
+	_grass_scatter_layer.material = grass_material
+	add_child(_grass_scatter_layer)
+	return _grass_scatter_layer
+
 
 func apply_next_batch(batch_size: int) -> bool:
 	if _pending_terrain_ids.is_empty():
@@ -279,13 +354,14 @@ func apply_next_batch(batch_size: int) -> bool:
 		return false
 	return true
 
+
 func apply_runtime_cell(
-	local_coord: Vector2i,
-	terrain_id: int,
-	terrain_atlas_index: int,
-	walkable: bool = true,
-	mountain_id: int = 0,
-	mountain_flags: int = 0
+		local_coord: Vector2i,
+		terrain_id: int,
+		terrain_atlas_index: int,
+		walkable: bool = true,
+		mountain_id: int = 0,
+		mountain_flags: int = 0,
 ) -> void:
 	_ensure_layers()
 	var index: int = WorldRuntimeConstants.local_to_index(local_coord)
@@ -320,6 +396,7 @@ func apply_runtime_cell(
 	_apply_water_patch_around(local_coord)
 	_refresh_debug_solid_mask()
 
+
 func set_mountain_tile_visuals_enabled(enabled: bool) -> void:
 	if _mountain_tile_visuals_enabled == enabled:
 		return
@@ -327,17 +404,19 @@ func set_mountain_tile_visuals_enabled(enabled: bool) -> void:
 	if not _mountain_tile_visuals_enabled:
 		_clear_loaded_mountain_visuals()
 
+
 func set_debug_overlays(grid_visible: bool, solid_mask_visible: bool, contour_visible: bool) -> void:
 	_debug_grid_visible = grid_visible
 	_debug_solid_mask_visible = solid_mask_visible
 	_debug_contour_visible = contour_visible
 	_sync_debug_layer()
 
+
 func apply_sun_lighting(
-	light_angle_deg: float,
-	shadow_length_px: float,
-	shadow_opacity: float,
-	shadow_softness_px: float
+		light_angle_deg: float,
+		shadow_length_px: float,
+		shadow_opacity: float,
+		shadow_softness_px: float,
 ) -> void:
 	_sun_light_angle_deg = light_angle_deg
 	_sun_shadow_length_px = shadow_length_px
@@ -350,18 +429,21 @@ func apply_sun_lighting(
 	_apply_sun_lighting_to_object_packet_layer()
 	_apply_sun_lighting_to_mask_material(
 		_terrain_edge_mask_material,
-		WorldVisualLightingProfile.TERRAIN_EDGE_SHADOW_OPACITY_SCALE
+		WorldVisualLightingProfile.TERRAIN_EDGE_SHADOW_OPACITY_SCALE,
 	)
+
 
 func set_plains_rock_scatter_sources(atlases: Array[Texture2D]) -> void:
 	_rock_scatter_atlases = atlases.duplicate()
 	if _object_packet_layer != null and is_instance_valid(_object_packet_layer):
 		_object_packet_layer.set_rock_atlases(_rock_scatter_atlases)
 
+
 func set_living_flora_source(atlas: Texture2D) -> void:
 	_living_flora_atlas = atlas
 	if _object_packet_layer != null and is_instance_valid(_object_packet_layer):
 		_object_packet_layer.set_living_flora_atlas(_living_flora_atlas)
+
 
 func set_spiky_flora_source(atlas: Texture2D) -> void:
 	if atlas == null:
@@ -369,20 +451,23 @@ func set_spiky_flora_source(atlas: Texture2D) -> void:
 	else:
 		set_spiky_flora_sources([atlas])
 
+
 func set_spiky_flora_sources(atlases: Array[Texture2D]) -> void:
 	_spiky_flora_atlases = atlases.duplicate()
 	if _object_packet_layer != null and is_instance_valid(_object_packet_layer):
 		_object_packet_layer.set_spiky_flora_atlases(_spiky_flora_atlases)
+
 
 func apply_object_depth_sort_reference(reference_world_y: float) -> void:
 	_object_depth_reference_enabled = true
 	_object_depth_reference_world_y = reference_world_y
 	_apply_object_depth_sort_reference_to_layer()
 
+
 func apply_contour_debug_data(
-	solid_mask: PackedByteArray,
-	contour_vertices: PackedVector2Array,
-	contour_indices: PackedInt32Array
+		solid_mask: PackedByteArray,
+		contour_vertices: PackedVector2Array,
+		contour_indices: PackedInt32Array,
 ) -> void:
 	_debug_solid_mask = solid_mask.duplicate()
 	if _debug_solid_mask.size() != WorldRuntimeConstants.CHUNK_CELL_COUNT:
@@ -390,6 +475,7 @@ func apply_contour_debug_data(
 	_debug_contour_vertices = contour_vertices.duplicate()
 	_debug_contour_indices = contour_indices.duplicate()
 	_sync_debug_layer()
+
 
 func get_mountain_contour_debug_state() -> Dictionary:
 	if _debug_layer != null and is_instance_valid(_debug_layer):
@@ -404,6 +490,7 @@ func get_mountain_contour_debug_state() -> Dictionary:
 		"contour_index_count": _debug_contour_indices.size(),
 		"contour_triangle_count": _debug_contour_indices.size() / 3,
 	}
+
 
 func apply_mountain_render_page(result: Dictionary, top_texture: Texture2D = null, face_texture: Texture2D = null) -> void:
 	_ensure_mountain_page_sprite()
@@ -432,6 +519,7 @@ func apply_mountain_render_page(result: Dictionary, top_texture: Texture2D = nul
 	_mountain_page_debug["ready"] = true
 	_mountain_page_debug["chunk_coord"] = chunk_coord
 
+
 func apply_mountain_hit_page(result: Dictionary) -> void:
 	_ensure_mountain_page_sprite()
 	_mountain_interior_fill_active = false
@@ -453,6 +541,7 @@ func apply_mountain_hit_page(result: Dictionary) -> void:
 	_mountain_page_debug["ready"] = true
 	_mountain_page_debug["hit_only"] = true
 	_mountain_page_debug["chunk_coord"] = chunk_coord
+
 
 func apply_mountain_interior_fill(top_texture: Texture2D, face_texture: Texture2D = null, top_texture_scale: float = 0.70) -> void:
 	if top_texture == null:
@@ -478,6 +567,7 @@ func apply_mountain_interior_fill(top_texture: Texture2D, face_texture: Texture2
 		"chunk_coord": chunk_coord,
 		"interior_fill": true,
 	}
+
 
 func apply_mountain_mask_fill(packet: Dictionary, top_texture: Texture2D, face_texture: Texture2D = null, top_texture_scale: float = 0.70) -> void:
 	if top_texture == null:
@@ -506,12 +596,12 @@ func apply_mountain_mask_fill(packet: Dictionary, top_texture: Texture2D, face_t
 		WorldRuntimeConstants.CHUNK_SIZE,
 		false,
 		Image.FORMAT_L8,
-		mask
+		mask,
 	)
 	mask_image.resize(
 		WorldRuntimeConstants.CHUNK_SIZE * 8,
 		WorldRuntimeConstants.CHUNK_SIZE * 8,
-		Image.INTERPOLATE_CUBIC
+		Image.INTERPOLATE_CUBIC,
 	)
 	_apply_mountain_mask_image(
 		mask_image,
@@ -519,7 +609,7 @@ func apply_mountain_mask_fill(packet: Dictionary, top_texture: Texture2D, face_t
 		face_texture,
 		top_texture_scale,
 		float(WorldRuntimeConstants.TILE_SIZE_PX) / 8.0,
-		WorldRuntimeConstants.chunk_origin_px(chunk_coord)
+		WorldRuntimeConstants.chunk_origin_px(chunk_coord),
 	)
 	_mountain_interior_fill_active = false
 	_mountain_page_texture = null
@@ -539,21 +629,24 @@ func apply_mountain_mask_fill(packet: Dictionary, top_texture: Texture2D, face_t
 		"mask_size": mask_image.get_size(),
 	}
 
+
 func apply_mountain_halo_mask_fill(
-	solid_halo: PackedByteArray,
-	top_texture: Texture2D,
-	face_texture: Texture2D = null,
-	top_texture_scale: float = 0.70
+		solid_halo: PackedByteArray,
+		top_texture: Texture2D,
+		face_texture: Texture2D = null,
+		top_texture_scale: float = 0.70,
 ) -> void:
 	if top_texture == null:
 		clear_mountain_render_page()
 		return
 	var halo_side: int = WorldRuntimeConstants.CHUNK_SIZE + 2
 	if solid_halo.size() != halo_side * halo_side:
-		push_error("ChunkView received invalid mountain halo mask: expected %d byte(s), got %d." % [
-			halo_side * halo_side,
-			solid_halo.size(),
-		])
+		push_error(
+			"ChunkView received invalid mountain halo mask: expected %d byte(s), got %d." % [
+				halo_side * halo_side,
+				solid_halo.size(),
+			],
+		)
 		clear_mountain_render_page()
 		return
 	var mask_bytes := PackedByteArray()
@@ -565,12 +658,12 @@ func apply_mountain_halo_mask_fill(
 		halo_side,
 		false,
 		Image.FORMAT_L8,
-		mask_bytes
+		mask_bytes,
 	)
 	mask_image.resize(
 		halo_side * 8,
 		halo_side * 8,
-		Image.INTERPOLATE_CUBIC
+		Image.INTERPOLATE_CUBIC,
 	)
 	_apply_mountain_mask_image(
 		mask_image,
@@ -578,7 +671,7 @@ func apply_mountain_halo_mask_fill(
 		face_texture,
 		top_texture_scale,
 		float(WorldRuntimeConstants.TILE_SIZE_PX) / 8.0,
-		WorldRuntimeConstants.chunk_origin_px(chunk_coord) - Vector2.ONE * float(WorldRuntimeConstants.TILE_SIZE_PX)
+		WorldRuntimeConstants.chunk_origin_px(chunk_coord) - Vector2.ONE * float(WorldRuntimeConstants.TILE_SIZE_PX),
 	)
 	_mountain_interior_fill_active = false
 	_mountain_page_texture = null
@@ -598,12 +691,13 @@ func apply_mountain_halo_mask_fill(
 		"mask_size": mask_image.get_size(),
 	}
 
+
 func apply_mountain_native_mask_fill(
-	mask_result: Dictionary,
-	mask_origin_world: Vector2,
-	top_texture: Texture2D,
-	face_texture: Texture2D = null,
-	top_texture_scale: float = 0.70
+		mask_result: Dictionary,
+		mask_origin_world: Vector2,
+		top_texture: Texture2D,
+		face_texture: Texture2D = null,
+		top_texture_scale: float = 0.70,
 ) -> void:
 	if top_texture == null:
 		clear_mountain_render_page()
@@ -613,10 +707,11 @@ func apply_mountain_native_mask_fill(
 		return
 	apply_pending_mountain_native_mask_visual(top_texture, face_texture)
 
+
 func apply_mountain_native_mask_data(
-	mask_result: Dictionary,
-	mask_origin_world: Vector2,
-	top_texture_scale: float = 0.70
+		mask_result: Dictionary,
+		mask_origin_world: Vector2,
+		top_texture_scale: float = 0.70,
 ) -> bool:
 	var mask_bytes: PackedByteArray = mask_result.get("mask", PackedByteArray()) as PackedByteArray
 	var mask_width: int = int(mask_result.get("width", 0))
@@ -658,13 +753,14 @@ func apply_mountain_native_mask_data(
 	}
 	return true
 
+
 func apply_pending_mountain_native_mask_visual(
-	top_texture: Texture2D,
-	face_texture: Texture2D = null,
-	top_normal_texture: Texture2D = null,
-	face_normal_texture: Texture2D = null,
-	foothill_texture: Texture2D = null,
-	foothill_normal_texture: Texture2D = null
+		top_texture: Texture2D,
+		face_texture: Texture2D = null,
+		top_normal_texture: Texture2D = null,
+		face_normal_texture: Texture2D = null,
+		foothill_texture: Texture2D = null,
+		foothill_normal_texture: Texture2D = null,
 ) -> bool:
 	if not _mountain_top_mask_visual_dirty:
 		return false
@@ -680,7 +776,7 @@ func apply_pending_mountain_native_mask_visual(
 		_mountain_top_mask_height,
 		false,
 		Image.FORMAT_L8,
-		_mountain_top_mask_bytes
+		_mountain_top_mask_bytes,
 	)
 	WorldPerfProbe.end("ChunkView.mountain_visual.create_image", create_image_started)
 	var upload_started: int = WorldPerfProbe.begin()
@@ -694,7 +790,7 @@ func apply_pending_mountain_native_mask_visual(
 		top_normal_texture,
 		face_normal_texture,
 		foothill_texture,
-		foothill_normal_texture
+		foothill_normal_texture,
 	)
 	WorldPerfProbe.end("ChunkView.mountain_visual.upload_texture", upload_started)
 	_mountain_top_mask_image = mask_image
@@ -702,6 +798,7 @@ func apply_pending_mountain_native_mask_visual(
 	_mountain_page_debug["native_mask_visual_pending"] = false
 	_mountain_page_debug["native_mask_visual_ready"] = true
 	return true
+
 
 func apply_terrain_edge_mask_data(mask_result: Dictionary, mask_origin_world: Vector2) -> bool:
 	var mask_bytes: PackedByteArray = mask_result.get("mask", PackedByteArray()) as PackedByteArray
@@ -722,17 +819,18 @@ func apply_terrain_edge_mask_data(mask_result: Dictionary, mask_origin_world: Ve
 	_terrain_edge_mask_visual_dirty = true
 	return true
 
+
 func apply_pending_terrain_edge_mask_visual(
-	top_texture: Texture2D,
-	face_texture: Texture2D = null,
-	top_normal_texture: Texture2D = null,
-	face_normal_texture: Texture2D = null,
-	grass_overlay_texture: Texture2D = null,
-	grass_overlay_texture_2: Texture2D = null,
-	grass_overlay_texture_3: Texture2D = null,
-	grass_overlay_normal_texture: Texture2D = null,
-	rock_patch_texture: Texture2D = null,
-	rock_patch_normal_texture: Texture2D = null
+		top_texture: Texture2D,
+		face_texture: Texture2D = null,
+		top_normal_texture: Texture2D = null,
+		face_normal_texture: Texture2D = null,
+		grass_overlay_texture: Texture2D = null,
+		grass_overlay_texture_2: Texture2D = null,
+		grass_overlay_texture_3: Texture2D = null,
+		grass_overlay_normal_texture: Texture2D = null,
+		rock_patch_texture: Texture2D = null,
+		rock_patch_normal_texture: Texture2D = null,
 ) -> bool:
 	if not _terrain_edge_mask_visual_dirty:
 		return false
@@ -748,7 +846,7 @@ func apply_pending_terrain_edge_mask_visual(
 		_terrain_edge_mask_height,
 		false,
 		Image.FORMAT_L8,
-		_terrain_edge_mask_bytes
+		_terrain_edge_mask_bytes,
 	)
 	WorldPerfProbe.end("ChunkView.terrain_edge_visual.create_image", create_image_started)
 	var upload_started: int = WorldPerfProbe.begin()
@@ -763,12 +861,13 @@ func apply_pending_terrain_edge_mask_visual(
 		grass_overlay_texture_3,
 		grass_overlay_normal_texture,
 		rock_patch_texture,
-		rock_patch_normal_texture
+		rock_patch_normal_texture,
 	)
 	WorldPerfProbe.end("ChunkView.terrain_edge_visual.upload_texture", upload_started)
 	_terrain_edge_mask_image = mask_image
 	_terrain_edge_mask_visual_dirty = false
 	return true
+
 
 func invalidate_mountain_render_page_hit_mask_keep_visual() -> void:
 	_mountain_page_hit_mask = PackedByteArray()
@@ -779,12 +878,13 @@ func invalidate_mountain_render_page_hit_mask_keep_visual() -> void:
 	_mountain_page_debug["ready"] = false
 	_mountain_page_debug["visual_stale"] = true
 
+
 func _apply_mountain_top_mask(
-	result: Dictionary,
-	top_texture: Texture2D,
-	face_texture: Texture2D,
-	top_normal_texture: Texture2D = null,
-	face_normal_texture: Texture2D = null
+		result: Dictionary,
+		top_texture: Texture2D,
+		face_texture: Texture2D,
+		top_normal_texture: Texture2D = null,
+		face_normal_texture: Texture2D = null,
 ) -> void:
 	var top_mask: PackedByteArray = result.get("top_mask", PackedByteArray()) as PackedByteArray
 	var top_mask_width: int = int(result.get("top_mask_width", 0))
@@ -801,7 +901,7 @@ func _apply_mountain_top_mask(
 		top_mask_height,
 		false,
 		Image.FORMAT_L8,
-		top_mask
+		top_mask,
 	)
 	var top_mask_origin_world: Vector2 = result.get("top_mask_origin_world", Vector2.ZERO) as Vector2
 	var top_mask_step_px: float = float(result.get("top_mask_step_px", 1.0))
@@ -813,18 +913,19 @@ func _apply_mountain_top_mask(
 		top_mask_step_px,
 		top_mask_origin_world,
 		top_normal_texture,
-		face_normal_texture
+		face_normal_texture,
 	)
 
+
 func _apply_mountain_mask_image(
-	mask_image: Image,
-	top_texture: Texture2D,
-	face_texture: Texture2D,
-	top_texture_scale: float,
-	mask_step_px: float,
-	mask_origin_world: Vector2,
-	top_normal_texture: Texture2D = null,
-	face_normal_texture: Texture2D = null
+		mask_image: Image,
+		top_texture: Texture2D,
+		face_texture: Texture2D,
+		top_texture_scale: float,
+		mask_step_px: float,
+		mask_origin_world: Vector2,
+		top_normal_texture: Texture2D = null,
+		face_normal_texture: Texture2D = null,
 ) -> void:
 	_mountain_top_mask_image = mask_image
 	_mountain_top_mask_bytes = mask_image.get_data()
@@ -842,20 +943,21 @@ func _apply_mountain_mask_image(
 		mask_step_px,
 		mask_origin_world,
 		top_normal_texture,
-		face_normal_texture
+		face_normal_texture,
 	)
 
+
 func _upload_mountain_mask_texture(
-	mask_image: Image,
-	top_texture: Texture2D,
-	face_texture: Texture2D,
-	top_texture_scale: float,
-	mask_step_px: float,
-	mask_origin_world: Vector2,
-	top_normal_texture: Texture2D = null,
-	face_normal_texture: Texture2D = null,
-	foothill_texture: Texture2D = null,
-	foothill_normal_texture: Texture2D = null
+		mask_image: Image,
+		top_texture: Texture2D,
+		face_texture: Texture2D,
+		top_texture_scale: float,
+		mask_step_px: float,
+		mask_origin_world: Vector2,
+		top_normal_texture: Texture2D = null,
+		face_normal_texture: Texture2D = null,
+		foothill_texture: Texture2D = null,
+		foothill_normal_texture: Texture2D = null,
 ) -> void:
 	_capture_mountain_foothill_mask_if_needed(mask_image, mask_origin_world, mask_step_px)
 	if _mountain_top_mask_texture != null \
@@ -870,18 +972,24 @@ func _upload_mountain_mask_texture(
 	_mountain_top_mask_step_px = mask_step_px
 	_mountain_top_mask_texture_scale = top_texture_scale
 	material.set_shader_parameter("top_texture", top_texture)
-	material.set_shader_parameter("top_texture_size", Vector2(
-		maxf(1.0, float(top_texture.get_width())),
-		maxf(1.0, float(top_texture.get_height()))
-	))
+	material.set_shader_parameter(
+		"top_texture_size",
+		Vector2(
+			maxf(1.0, float(top_texture.get_width())),
+			maxf(1.0, float(top_texture.get_height())),
+		),
+	)
 	if face_texture == null:
 		face_texture = top_texture
 	if face_texture != null:
 		material.set_shader_parameter("face_texture", face_texture)
-		material.set_shader_parameter("face_texture_size", Vector2(
-			maxf(1.0, float(face_texture.get_width())),
-			maxf(1.0, float(face_texture.get_height()))
-		))
+		material.set_shader_parameter(
+			"face_texture_size",
+			Vector2(
+				maxf(1.0, float(face_texture.get_width())),
+				maxf(1.0, float(face_texture.get_height())),
+			),
+		)
 	if face_normal_texture == null:
 		face_normal_texture = top_normal_texture
 	if top_normal_texture != null and face_normal_texture != null:
@@ -893,40 +1001,17 @@ func _upload_mountain_mask_texture(
 		material.set_shader_parameter("material_normal_mix", 0.0)
 	material.set_shader_parameter("world_origin_px", mask_origin_world)
 	material.set_shader_parameter("sample_step_px", mask_step_px)
+	# All mountain dressing knobs are authored data on the material set; the
+	# per-mask dynamic parameters (origin/step/top scale/clip/sun) stay code-set.
+	_apply_mountain_material_sampling_params(material)
 	material.set_shader_parameter("top_texture_scale", top_texture_scale)
-	material.set_shader_parameter("face_texture_scale", MOUNTAIN_FACE_TEXTURE_SCALE)
-	material.set_shader_parameter("facade_height_px", MOUNTAIN_FACADE_HEIGHT_PX)
-	material.set_shader_parameter("normal_strength", 0.48)
-	material.set_shader_parameter("light_ambient", 0.58)
-	material.set_shader_parameter("light_diffuse", 0.44)
-	material.set_shader_parameter("mask_warp_px", MOUNTAIN_VISUAL_MASK_WARP_PX)
-	material.set_shader_parameter("side_shade_strength", MOUNTAIN_SIDE_SHADE_STRENGTH)
-	material.set_shader_parameter("side_shade_reach_px", MOUNTAIN_SIDE_SHADE_REACH_PX)
-	material.set_shader_parameter("roof_drift_scale_px", MOUNTAIN_ROOF_DRIFT_SCALE_PX)
-	material.set_shader_parameter("roof_drift_strength", MOUNTAIN_ROOF_DRIFT_STRENGTH)
-	material.set_shader_parameter("roof_vein_strength", MOUNTAIN_ROOF_VEIN_STRENGTH)
-	material.set_shader_parameter("terrace_strength", MOUNTAIN_TERRACE_STRENGTH)
-	material.set_shader_parameter("terrace_inner_px", MOUNTAIN_TERRACE_INNER_PX)
-	material.set_shader_parameter("terrace_upper_px", MOUNTAIN_TERRACE_UPPER_PX)
-	material.set_shader_parameter("terrace_wobble_px", MOUNTAIN_TERRACE_WOBBLE_PX)
-	material.set_shader_parameter("top_dust_tint", MOUNTAIN_TOP_DUST_TINT)
-	material.set_shader_parameter("cleft_color", MOUNTAIN_CLEFT_COLOR)
-	material.set_shader_parameter("crack_color", MOUNTAIN_CRACK_COLOR)
-	material.set_shader_parameter("base_debris_color", MOUNTAIN_BASE_DEBRIS_COLOR)
-	material.set_shader_parameter("eave_shadow_color", MOUNTAIN_EAVE_SHADOW_COLOR)
-	material.set_shader_parameter("biofield_rim_color", MOUNTAIN_BIOFIELD_RIM_COLOR)
-	material.set_shader_parameter("biofield_rim_strength", MOUNTAIN_BIOFIELD_RIM_STRENGTH)
-	material.set_shader_parameter("biofield_rim_scale_px", MOUNTAIN_BIOFIELD_RIM_SCALE_PX)
-	# No bottom trim on mountains: the wall stands directly on the scree apron.
-	material.set_shader_parameter("overhang_px", 0.0)
-	material.set_shader_parameter("base_outline_strength", 0.0)
 	_set_mask_shader_chunk_clip(
 		material,
 		mask_origin_world,
 		mask_image.get_width(),
 		mask_image.get_height(),
 		mask_step_px,
-		MASK_UNDERLAY_CHUNK_OVERLAP_PX
+		MASK_UNDERLAY_CHUNK_OVERLAP_PX,
 	)
 	_apply_sun_lighting_to_mask_material(material, 1.0)
 	sprite.material = material
@@ -936,18 +1021,19 @@ func _upload_mountain_mask_texture(
 	sprite.visible = true
 	_sync_mountain_foothill_overlay_visual(foothill_texture, foothill_normal_texture)
 
+
 func _upload_terrain_edge_mask_texture(
-	mask_image: Image,
-	top_texture: Texture2D,
-	face_texture: Texture2D,
-	top_normal_texture: Texture2D,
-	face_normal_texture: Texture2D,
-	grass_overlay_texture: Texture2D,
-	grass_overlay_texture_2: Texture2D,
-	grass_overlay_texture_3: Texture2D,
-	grass_overlay_normal_texture: Texture2D,
-	rock_patch_texture: Texture2D,
-	rock_patch_normal_texture: Texture2D
+		mask_image: Image,
+		top_texture: Texture2D,
+		face_texture: Texture2D,
+		top_normal_texture: Texture2D,
+		face_normal_texture: Texture2D,
+		grass_overlay_texture: Texture2D,
+		grass_overlay_texture_2: Texture2D,
+		grass_overlay_texture_3: Texture2D,
+		grass_overlay_normal_texture: Texture2D,
+		rock_patch_texture: Texture2D,
+		rock_patch_normal_texture: Texture2D,
 ) -> void:
 	if _terrain_edge_mask_texture != null \
 			and _terrain_edge_mask_texture.get_width() == _terrain_edge_mask_width \
@@ -962,15 +1048,21 @@ func _upload_terrain_edge_mask_texture(
 	if face_normal_texture == null:
 		face_normal_texture = top_normal_texture
 	material.set_shader_parameter("top_texture", top_texture)
-	material.set_shader_parameter("top_texture_size", Vector2(
-		maxf(1.0, float(top_texture.get_width())),
-		maxf(1.0, float(top_texture.get_height()))
-	))
+	material.set_shader_parameter(
+		"top_texture_size",
+		Vector2(
+			maxf(1.0, float(top_texture.get_width())),
+			maxf(1.0, float(top_texture.get_height())),
+		),
+	)
 	material.set_shader_parameter("face_texture", face_texture)
-	material.set_shader_parameter("face_texture_size", Vector2(
-		maxf(1.0, float(face_texture.get_width())),
-		maxf(1.0, float(face_texture.get_height()))
-	))
+	material.set_shader_parameter(
+		"face_texture_size",
+		Vector2(
+			maxf(1.0, float(face_texture.get_width())),
+			maxf(1.0, float(face_texture.get_height())),
+		),
+	)
 	if top_normal_texture != null and face_normal_texture != null:
 		material.set_shader_parameter("top_normal_texture", top_normal_texture)
 		material.set_shader_parameter("face_normal_texture", face_normal_texture)
@@ -1013,11 +1105,11 @@ func _upload_terrain_edge_mask_texture(
 		mask_image.get_width(),
 		mask_image.get_height(),
 		_terrain_edge_mask_step_px,
-		MASK_UNDERLAY_CHUNK_OVERLAP_PX
+		MASK_UNDERLAY_CHUNK_OVERLAP_PX,
 	)
 	_apply_sun_lighting_to_mask_material(
 		material,
-		WorldVisualLightingProfile.TERRAIN_EDGE_SHADOW_OPACITY_SCALE
+		WorldVisualLightingProfile.TERRAIN_EDGE_SHADOW_OPACITY_SCALE,
 	)
 	sprite.material = material
 	sprite.position = _terrain_edge_mask_origin_world - WorldRuntimeConstants.chunk_origin_px(chunk_coord)
@@ -1026,14 +1118,15 @@ func _upload_terrain_edge_mask_texture(
 	sprite.visible = true
 	_sync_rock_patch_overlay_visual(
 		rock_patch_texture,
-		rock_patch_normal_texture
+		rock_patch_normal_texture,
 	)
 	_sync_grass_blob_overlay_visual(
 		grass_overlay_texture,
 		grass_overlay_texture_2,
 		grass_overlay_texture_3,
-		grass_overlay_normal_texture
+		grass_overlay_normal_texture,
 	)
+
 
 func _clear_mountain_top_mask(preserve_foothill: bool = false) -> void:
 	if _mountain_top_mask_sprite != null and is_instance_valid(_mountain_top_mask_sprite):
@@ -1054,6 +1147,7 @@ func _clear_mountain_top_mask(preserve_foothill: bool = false) -> void:
 	_mountain_top_mask_texture_scale = 0.70
 	_mountain_top_mask_visual_dirty = false
 
+
 func clear_terrain_edge_mask() -> void:
 	if _terrain_edge_mask_sprite != null and is_instance_valid(_terrain_edge_mask_sprite):
 		_terrain_edge_mask_sprite.texture = null
@@ -1073,6 +1167,7 @@ func clear_terrain_edge_mask() -> void:
 	_clear_rock_patch_overlay()
 	_clear_grass_blob_overlay()
 
+
 func _apply_sun_lighting_to_mask_material(material: ShaderMaterial, shadow_opacity_scale: float) -> void:
 	if material == null:
 		return
@@ -1082,20 +1177,24 @@ func _apply_sun_lighting_to_mask_material(material: ShaderMaterial, shadow_opaci
 	material.set_shader_parameter("projected_shadow_opacity", _sun_shadow_opacity * shadow_opacity_scale)
 	material.set_shader_parameter("projected_shadow_softness_px", _sun_shadow_softness_px)
 
+
 func _apply_sun_lighting_to_foothill_material(material: ShaderMaterial) -> void:
 	if material == null:
 		return
 	material.set_shader_parameter("light_angle_deg", _sun_light_angle_deg)
+
 
 func _apply_sun_lighting_to_rock_patch_material(material: ShaderMaterial) -> void:
 	if material == null:
 		return
 	material.set_shader_parameter("light_angle_deg", _sun_light_angle_deg)
 
+
 func _apply_sun_lighting_to_grass_blob_material(material: ShaderMaterial) -> void:
 	if material == null:
 		return
 	material.set_shader_parameter("light_angle_deg", _sun_light_angle_deg)
+
 
 func _apply_sun_lighting_to_object_packet_layer() -> void:
 	if _object_packet_layer == null or not is_instance_valid(_object_packet_layer):
@@ -1104,8 +1203,9 @@ func _apply_sun_lighting_to_object_packet_layer() -> void:
 		_sun_light_angle_deg,
 		_sun_shadow_length_px,
 		_sun_shadow_opacity,
-		_sun_shadow_softness_px
+		_sun_shadow_softness_px,
 	)
+
 
 func _apply_mountain_full_top_fill(top_texture: Texture2D, face_texture: Texture2D, top_texture_scale: float) -> void:
 	var mask := PackedByteArray()
@@ -1116,7 +1216,7 @@ func _apply_mountain_full_top_fill(top_texture: Texture2D, face_texture: Texture
 		WorldRuntimeConstants.CHUNK_SIZE,
 		false,
 		Image.FORMAT_L8,
-		mask
+		mask,
 	)
 	var chunk_origin_world: Vector2 = WorldRuntimeConstants.chunk_origin_px(chunk_coord)
 	_apply_mountain_mask_image(
@@ -1125,8 +1225,9 @@ func _apply_mountain_full_top_fill(top_texture: Texture2D, face_texture: Texture
 		face_texture,
 		top_texture_scale,
 		float(WorldRuntimeConstants.TILE_SIZE_PX),
-		chunk_origin_world
+		chunk_origin_world,
 	)
+
 
 func clear_mountain_render_page(preserve_foothill: bool = false) -> void:
 	if _mountain_page_sprite != null and is_instance_valid(_mountain_page_sprite):
@@ -1150,12 +1251,13 @@ func clear_mountain_render_page(preserve_foothill: bool = false) -> void:
 		"chunk_coord": chunk_coord,
 	}
 
+
 func apply_mountain_local_dig_patch(local_coord: Vector2i, padding_px: int = 2) -> bool:
 	if not WorldRuntimeConstants.is_local_coord_valid(local_coord):
 		return false
 	var patched: bool = false
 	var tile_min_world: Vector2 = WorldRuntimeConstants.chunk_origin_px(chunk_coord) \
-		+ Vector2(float(local_coord.x), float(local_coord.y)) * float(WorldRuntimeConstants.TILE_SIZE_PX)
+			+ Vector2(float(local_coord.x), float(local_coord.y)) * float(WorldRuntimeConstants.TILE_SIZE_PX)
 	var tile_max_world: Vector2 = tile_min_world + Vector2.ONE * float(WorldRuntimeConstants.TILE_SIZE_PX)
 	if _clear_mountain_top_mask_rect(tile_min_world, tile_max_world, padding_px):
 		patched = true
@@ -1165,11 +1267,12 @@ func apply_mountain_local_dig_patch(local_coord: Vector2i, padding_px: int = 2) 
 		_mountain_page_debug["local_dig_patch_count"] = int(_mountain_page_debug.get("local_dig_patch_count", 0)) + 1
 	return patched
 
+
 func apply_mountain_world_dig_patch(world_tile: Vector2i, padding_px: int = 2) -> bool:
 	var patched: bool = false
 	var tile_min_world: Vector2 = Vector2(
 		float(world_tile.x * WorldRuntimeConstants.TILE_SIZE_PX),
-		float(world_tile.y * WorldRuntimeConstants.TILE_SIZE_PX)
+		float(world_tile.y * WorldRuntimeConstants.TILE_SIZE_PX),
 	)
 	var tile_max_world: Vector2 = tile_min_world + Vector2.ONE * float(WorldRuntimeConstants.TILE_SIZE_PX)
 	if _clear_mountain_top_mask_rect(tile_min_world, tile_max_world, padding_px):
@@ -1180,11 +1283,12 @@ func apply_mountain_world_dig_patch(world_tile: Vector2i, padding_px: int = 2) -
 		_mountain_page_debug["world_dig_patch_count"] = int(_mountain_page_debug.get("world_dig_patch_count", 0)) + 1
 	return patched
 
+
 func apply_mountain_world_dig_collision_patch(world_tile: Vector2i, padding_px: int = 2) -> bool:
 	var patched: bool = false
 	var tile_min_world: Vector2 = Vector2(
 		float(world_tile.x * WorldRuntimeConstants.TILE_SIZE_PX),
-		float(world_tile.y * WorldRuntimeConstants.TILE_SIZE_PX)
+		float(world_tile.y * WorldRuntimeConstants.TILE_SIZE_PX),
 	)
 	var tile_max_world: Vector2 = tile_min_world + Vector2.ONE * float(WorldRuntimeConstants.TILE_SIZE_PX)
 	if _clear_mountain_top_mask_rect(tile_min_world, tile_max_world, padding_px, false):
@@ -1195,14 +1299,16 @@ func apply_mountain_world_dig_collision_patch(world_tile: Vector2i, padding_px: 
 		_mountain_page_debug["world_dig_collision_patch_count"] = int(_mountain_page_debug.get("world_dig_collision_patch_count", 0)) + 1
 	return patched
 
+
 func has_mountain_render_page() -> bool:
 	return (_mountain_page_hit_mask_width > 0 \
-		and _mountain_page_hit_mask_height > 0 \
-		and not _mountain_page_hit_mask.is_empty()) \
-		or (_mountain_top_mask_width > 0 \
-		and _mountain_top_mask_height > 0 \
-		and not _mountain_top_mask_bytes.is_empty() \
-		and _mountain_top_mask_step_px > 0.0)
+				and _mountain_page_hit_mask_height > 0 \
+				and not _mountain_page_hit_mask.is_empty() ) \
+			or (_mountain_top_mask_width > 0 \
+						and _mountain_top_mask_height > 0 \
+						and not _mountain_top_mask_bytes.is_empty() \
+						and _mountain_top_mask_step_px > 0.0 )
+
 
 func sample_mountain_page_hit_at_world(world_pos: Vector2) -> Dictionary:
 	if _mountain_page_hit_mask_width > 0 \
@@ -1249,13 +1355,14 @@ func sample_mountain_page_hit_at_world(world_pos: Vector2) -> Dictionary:
 	var index: int = y * _mountain_top_mask_width + x
 	var mask: int = int(_mountain_top_mask_bytes[index]) if index >= 0 and index < _mountain_top_mask_bytes.size() else 0
 	var solid: bool = mask > MOUNTAIN_NATIVE_MASK_SOLID_THRESHOLD \
-		or _is_mountain_facade_band_solid(x, y)
+			or _is_mountain_facade_band_solid(x, y)
 	return {
 		"ready": true,
 		"in_bounds": true,
 		"solid": solid,
 		"chunk_coord": chunk_coord,
 	}
+
 
 func _is_mountain_facade_band_solid(mask_x: int, mask_y: int) -> bool:
 	if mask_x < 0 \
@@ -1276,15 +1383,17 @@ func _is_mountain_facade_band_solid(mask_x: int, mask_y: int) -> bool:
 			return true
 	return false
 
+
 func get_mountain_render_page_debug_state() -> Dictionary:
 	return _mountain_page_debug.duplicate(true)
+
 
 func get_mountain_native_mask_debug_state() -> Dictionary:
 	var debug := _mountain_page_debug.duplicate(true)
 	var active: bool = _mountain_top_mask_width > 0 \
-		and _mountain_top_mask_height > 0 \
-		and _mountain_top_mask_step_px > 0.0 \
-		and not _mountain_top_mask_bytes.is_empty()
+			and _mountain_top_mask_height > 0 \
+			and _mountain_top_mask_step_px > 0.0 \
+			and not _mountain_top_mask_bytes.is_empty()
 	debug["native_mask_active"] = active
 	debug["mask_width"] = _mountain_top_mask_width
 	debug["mask_height"] = _mountain_top_mask_height
@@ -1294,20 +1403,21 @@ func get_mountain_native_mask_debug_state() -> Dictionary:
 	debug["native_mask_visual_pending"] = _mountain_top_mask_visual_dirty
 	debug["native_mask_visual_ready"] = _mountain_top_mask_texture != null and not _mountain_top_mask_visual_dirty
 	debug["foothill_mask_active"] = _mountain_foothill_mask_texture != null \
-		and _mountain_foothill_mask_width > 0 \
-		and _mountain_foothill_mask_height > 0 \
-		and _mountain_foothill_mask_step_px > 0.0
+			and _mountain_foothill_mask_width > 0 \
+			and _mountain_foothill_mask_height > 0 \
+			and _mountain_foothill_mask_step_px > 0.0
 	debug["foothill_overlay_visible"] = _mountain_foothill_overlay_sprite != null \
-		and is_instance_valid(_mountain_foothill_overlay_sprite) \
-		and _mountain_foothill_overlay_sprite.visible
+			and is_instance_valid(_mountain_foothill_overlay_sprite) \
+			and _mountain_foothill_overlay_sprite.visible
 	debug["chunk_coord"] = chunk_coord
 	return debug
 
+
 func get_terrain_edge_mask_debug_state() -> Dictionary:
 	var active: bool = _terrain_edge_mask_width > 0 \
-		and _terrain_edge_mask_height > 0 \
-		and _terrain_edge_mask_step_px > 0.0 \
-		and not _terrain_edge_mask_bytes.is_empty()
+			and _terrain_edge_mask_height > 0 \
+			and _terrain_edge_mask_step_px > 0.0 \
+			and not _terrain_edge_mask_bytes.is_empty()
 	return {
 		"terrain_edge_mask_active": active,
 		"mask_width": _terrain_edge_mask_width,
@@ -1318,10 +1428,11 @@ func get_terrain_edge_mask_debug_state() -> Dictionary:
 		"visual_pending": _terrain_edge_mask_visual_dirty,
 		"visual_ready": _terrain_edge_mask_texture != null and not _terrain_edge_mask_visual_dirty,
 		"grass_overlay_visible": _grass_blob_overlay_sprite != null \
-			and is_instance_valid(_grass_blob_overlay_sprite) \
-			and _grass_blob_overlay_sprite.visible,
+				and is_instance_valid(_grass_blob_overlay_sprite) \
+				and _grass_blob_overlay_sprite.visible,
 		"chunk_coord": chunk_coord,
 	}
+
 
 func apply_cover_visibility(visible_mask: PackedByteArray) -> void:
 	_ensure_layers()
@@ -1329,7 +1440,7 @@ func apply_cover_visibility(visible_mask: PackedByteArray) -> void:
 	if resolved_mask.size() != WorldRuntimeConstants.CHUNK_CELL_COUNT:
 		resolved_mask = PackedByteArray()
 		resolved_mask.resize(WorldRuntimeConstants.CHUNK_CELL_COUNT)
-	var updated_mountains: Dictionary = {}
+	var updated_mountains: Dictionary = { }
 	for mountain_id_variant: Variant in roof_layers_by_mountain.keys():
 		var mountain_id: int = int(mountain_id_variant)
 		var image: Image = _ensure_roof_mask_image(mountain_id)
@@ -1351,6 +1462,7 @@ func apply_cover_visibility(visible_mask: PackedByteArray) -> void:
 		if texture != null and image != null:
 			texture.update(image)
 
+
 func _ensure_layers() -> void:
 	if _base_layer != null \
 			and is_instance_valid(_base_layer) \
@@ -1371,6 +1483,7 @@ func _ensure_layers() -> void:
 		_overlay_layer.z_index = 1
 		add_child(_overlay_layer)
 
+
 func _ensure_water_layer() -> TileMapLayer:
 	if _water_layer != null and is_instance_valid(_water_layer):
 		return _water_layer
@@ -1381,6 +1494,7 @@ func _ensure_water_layer() -> TileMapLayer:
 	_water_layer.z_index = 1
 	add_child(_water_layer)
 	return _water_layer
+
 
 func _ensure_water_fill_sprite() -> Sprite2D:
 	if _water_fill_sprite != null and is_instance_valid(_water_fill_sprite):
@@ -1394,6 +1508,7 @@ func _ensure_water_fill_sprite() -> Sprite2D:
 	add_child(_water_fill_sprite)
 	return _water_fill_sprite
 
+
 func _ensure_water_fill_texture() -> ImageTexture:
 	if _water_fill_texture != null:
 		return _water_fill_texture
@@ -1401,6 +1516,7 @@ func _ensure_water_fill_texture() -> ImageTexture:
 	image.set_pixel(0, 0, Color(1.0, 1.0, 1.0, 1.0))
 	_water_fill_texture = ImageTexture.create_from_image(image)
 	return _water_fill_texture
+
 
 func _ensure_water_fill_material() -> ShaderMaterial:
 	if _water_fill_material != null:
@@ -1410,6 +1526,7 @@ func _ensure_water_fill_material() -> ShaderMaterial:
 	_water_fill_material.set_shader_parameter("water_world_scale_px", 1024.0)
 	_water_fill_material.set_shader_parameter("land_mask_enabled", 0.0)
 	return _water_fill_material
+
 
 func _apply_land_mask_to_water_fill() -> void:
 	# Clip the chunk water fill by the shoreline mask so the visible water
@@ -1423,24 +1540,31 @@ func _apply_land_mask_to_water_fill() -> void:
 		return
 	var chunk_origin: Vector2 = WorldRuntimeConstants.chunk_origin_px(chunk_coord)
 	var chunk_size_px: float = float(
-		WorldRuntimeConstants.CHUNK_SIZE * WorldRuntimeConstants.TILE_SIZE_PX
+		WorldRuntimeConstants.CHUNK_SIZE * WorldRuntimeConstants.TILE_SIZE_PX,
 	)
 	var mask_world_size := Vector2(
 		float(_terrain_edge_mask_width) * _terrain_edge_mask_step_px,
-		float(_terrain_edge_mask_height) * _terrain_edge_mask_step_px
+		float(_terrain_edge_mask_height) * _terrain_edge_mask_step_px,
 	)
 	material.set_shader_parameter("land_mask", _terrain_edge_mask_texture)
 	material.set_shader_parameter("land_mask_enabled", 1.0)
-	material.set_shader_parameter("land_mask_uv_scale", Vector2(
-		chunk_size_px / mask_world_size.x,
-		chunk_size_px / mask_world_size.y
-	))
-	material.set_shader_parameter("land_mask_uv_offset", Vector2(
-		(chunk_origin.x - _terrain_edge_mask_origin_world.x) / mask_world_size.x,
-		(chunk_origin.y - _terrain_edge_mask_origin_world.y) / mask_world_size.y
-	))
+	material.set_shader_parameter(
+		"land_mask_uv_scale",
+		Vector2(
+			chunk_size_px / mask_world_size.x,
+			chunk_size_px / mask_world_size.y,
+		),
+	)
+	material.set_shader_parameter(
+		"land_mask_uv_offset",
+		Vector2(
+			(chunk_origin.x - _terrain_edge_mask_origin_world.x) / mask_world_size.x,
+			(chunk_origin.y - _terrain_edge_mask_origin_world.y) / mask_world_size.y,
+		),
+	)
 	material.set_shader_parameter("land_threshold_low", TERRAIN_EDGE_CONTOUR_THRESHOLD_LOW)
 	material.set_shader_parameter("land_threshold_high", TERRAIN_EDGE_CONTOUR_THRESHOLD_HIGH)
+
 
 func _ensure_debug_layer() -> ChunkDebugVisualLayer:
 	if _debug_layer != null and is_instance_valid(_debug_layer):
@@ -1450,6 +1574,7 @@ func _ensure_debug_layer() -> ChunkDebugVisualLayer:
 	_debug_layer.configure(chunk_coord)
 	add_child(_debug_layer)
 	return _debug_layer
+
 
 func _ensure_mountain_page_sprite() -> Sprite2D:
 	if _mountain_page_sprite != null and is_instance_valid(_mountain_page_sprite):
@@ -1462,6 +1587,7 @@ func _ensure_mountain_page_sprite() -> Sprite2D:
 	_mountain_page_sprite.z_index = 8
 	add_child(_mountain_page_sprite)
 	return _mountain_page_sprite
+
 
 func _clear_mountain_page_hit_rect(tile_min_world: Vector2, tile_max_world: Vector2, padding_px: int) -> bool:
 	if _mountain_page_hit_mask.is_empty() \
@@ -1482,11 +1608,12 @@ func _clear_mountain_page_hit_rect(tile_min_world: Vector2, tile_max_world: Vect
 			_mountain_page_hit_mask[row_start + x] = 0
 	return true
 
+
 func _clear_mountain_top_mask_rect(
-	tile_min_world: Vector2,
-	tile_max_world: Vector2,
-	padding_px: int,
-	mark_visual_dirty: bool = true
+		tile_min_world: Vector2,
+		tile_max_world: Vector2,
+		padding_px: int,
+		mark_visual_dirty: bool = true,
 ) -> bool:
 	if _mountain_top_mask_width <= 0 \
 			or _mountain_top_mask_height <= 0 \
@@ -1503,8 +1630,8 @@ func _clear_mountain_top_mask_rect(
 		return false
 	var feather_px: float = maxf(step_px * 2.0, float(padding_px) * 2.0 + 6.0)
 	var image_changed: bool = mark_visual_dirty \
-		and _mountain_top_mask_image != null \
-		and not _mountain_top_mask_image.is_empty()
+			and _mountain_top_mask_image != null \
+			and not _mountain_top_mask_image.is_empty()
 	var changed: bool = false
 	for y: int in range(min_y, max_y + 1):
 		for x: int in range(min_x, max_x + 1):
@@ -1512,12 +1639,12 @@ func _clear_mountain_top_mask_rect(
 			if index < 0 or index >= _mountain_top_mask_bytes.size():
 				continue
 			var pixel_world: Vector2 = _mountain_top_mask_origin_world \
-				+ Vector2(float(x) + 0.5, float(y) + 0.5) * step_px
+					+ Vector2(float(x) + 0.5, float(y) + 0.5) * step_px
 			var clear_strength: float = _organic_dig_clear_strength(
 				pixel_world,
 				tile_min_world,
 				tile_max_world,
-				feather_px
+				feather_px,
 			)
 			if clear_strength <= 0.0:
 				continue
@@ -1534,6 +1661,7 @@ func _clear_mountain_top_mask_rect(
 		_mountain_page_debug["native_mask_visual_pending"] = true
 	return changed
 
+
 func _organic_dig_clear_strength(pixel_world: Vector2, tile_min_world: Vector2, tile_max_world: Vector2, feather_px: float) -> float:
 	var center: Vector2 = (tile_min_world + tile_max_world) * 0.5
 	var half_extent: Vector2 = (tile_max_world - tile_min_world) * 0.5 + Vector2.ONE * (feather_px * 0.45)
@@ -1547,6 +1675,7 @@ func _organic_dig_clear_strength(pixel_world: Vector2, tile_min_world: Vector2, 
 		return 0.0
 	return 1.0 - smoothstep(-feather_px, feather_px, sdf)
 
+
 func _ensure_mountain_top_mask_sprite() -> Sprite2D:
 	if _mountain_top_mask_sprite != null and is_instance_valid(_mountain_top_mask_sprite):
 		return _mountain_top_mask_sprite
@@ -1559,6 +1688,26 @@ func _ensure_mountain_top_mask_sprite() -> Sprite2D:
 	add_child(_mountain_top_mask_sprite)
 	return _mountain_top_mask_sprite
 
+
+func _resolve_mountain_material_set() -> TerrainMaterialSet:
+	var material_set: TerrainMaterialSet = TerrainPresentationRegistry.get_material_set(
+		MOUNTAIN_MASK_UNDERLAY_MATERIAL_SET_ID,
+	)
+	assert(material_set != null, "Missing TerrainMaterialSet %s for mountain mask presentation." % MOUNTAIN_MASK_UNDERLAY_MATERIAL_SET_ID)
+	return material_set
+
+
+func _apply_mountain_material_sampling_params(material: ShaderMaterial) -> void:
+	var material_set: TerrainMaterialSet = _resolve_mountain_material_set()
+	if material_set == null:
+		return
+	for parameter_name_variant: Variant in material_set.sampling_params.keys():
+		material.set_shader_parameter(
+			parameter_name_variant,
+			material_set.sampling_params[parameter_name_variant],
+		)
+
+
 func _ensure_mountain_top_mask_material() -> ShaderMaterial:
 	if _mountain_top_mask_material != null:
 		return _mountain_top_mask_material
@@ -1566,10 +1715,11 @@ func _ensure_mountain_top_mask_material() -> ShaderMaterial:
 	_mountain_top_mask_material.shader = MOUNTAIN_TOP_MASK_UNDERLAY_SHADER
 	return _mountain_top_mask_material
 
+
 func _capture_mountain_foothill_mask_if_needed(
-	mask_image: Image,
-	mask_origin_world: Vector2,
-	mask_step_px: float
+		mask_image: Image,
+		mask_origin_world: Vector2,
+		mask_step_px: float,
 ) -> void:
 	if not MOUNTAIN_FOOTHILL_OVERLAY_ENABLED \
 			or mask_image == null \
@@ -1581,10 +1731,10 @@ func _capture_mountain_foothill_mask_if_needed(
 	if width <= 0 or height <= 0:
 		return
 	var needs_capture: bool = _mountain_foothill_mask_texture == null \
-		or _mountain_foothill_mask_width != width \
-		or _mountain_foothill_mask_height != height \
-		or not _mountain_foothill_mask_origin_world.is_equal_approx(mask_origin_world) \
-		or not is_equal_approx(_mountain_foothill_mask_step_px, mask_step_px)
+			or _mountain_foothill_mask_width != width \
+			or _mountain_foothill_mask_height != height \
+			or not _mountain_foothill_mask_origin_world.is_equal_approx(mask_origin_world) \
+			or not is_equal_approx(_mountain_foothill_mask_step_px, mask_step_px)
 	if not needs_capture:
 		return
 	_mountain_foothill_mask_texture = ImageTexture.create_from_image(mask_image)
@@ -1593,6 +1743,7 @@ func _capture_mountain_foothill_mask_if_needed(
 	_mountain_foothill_mask_origin_world = mask_origin_world
 	_mountain_foothill_mask_step_px = mask_step_px
 
+
 func _clear_mountain_foothill_mask() -> void:
 	_mountain_foothill_mask_texture = null
 	_mountain_foothill_mask_width = 0
@@ -1600,9 +1751,10 @@ func _clear_mountain_foothill_mask() -> void:
 	_mountain_foothill_mask_origin_world = Vector2.ZERO
 	_mountain_foothill_mask_step_px = 0.0
 
+
 func _sync_mountain_foothill_overlay_visual(
-	foothill_texture: Texture2D,
-	foothill_normal_texture: Texture2D
+		foothill_texture: Texture2D,
+		foothill_normal_texture: Texture2D,
 ) -> void:
 	if not MOUNTAIN_FOOTHILL_OVERLAY_ENABLED \
 			or foothill_texture == null \
@@ -1616,14 +1768,20 @@ func _sync_mountain_foothill_overlay_visual(
 	var material: ShaderMaterial = _ensure_mountain_foothill_overlay_material()
 	material.set_shader_parameter("foothill_texture", foothill_texture)
 	material.set_shader_parameter("mask_texture", _mountain_foothill_mask_texture)
-	material.set_shader_parameter("foothill_texture_size", Vector2(
-		maxf(1.0, float(foothill_texture.get_width())),
-		maxf(1.0, float(foothill_texture.get_height()))
-	))
-	material.set_shader_parameter("mask_texture_size", Vector2(
-		maxf(1.0, float(_mountain_foothill_mask_width)),
-		maxf(1.0, float(_mountain_foothill_mask_height))
-	))
+	material.set_shader_parameter(
+		"foothill_texture_size",
+		Vector2(
+			maxf(1.0, float(foothill_texture.get_width())),
+			maxf(1.0, float(foothill_texture.get_height())),
+		),
+	)
+	material.set_shader_parameter(
+		"mask_texture_size",
+		Vector2(
+			maxf(1.0, float(_mountain_foothill_mask_width)),
+			maxf(1.0, float(_mountain_foothill_mask_height)),
+		),
+	)
 	if foothill_normal_texture != null:
 		material.set_shader_parameter("foothill_normal_texture", foothill_normal_texture)
 		material.set_shader_parameter("normal_mix", 1.0)
@@ -1636,11 +1794,16 @@ func _sync_mountain_foothill_overlay_visual(
 	material.set_shader_parameter("outer_width_variation_px", MOUNTAIN_FOOTHILL_OUTER_WIDTH_VARIATION_PX)
 	material.set_shader_parameter("inner_width_px", MOUNTAIN_FOOTHILL_INNER_WIDTH_PX)
 	material.set_shader_parameter("foothill_alpha", MOUNTAIN_FOOTHILL_ALPHA)
-	material.set_shader_parameter("scree_texture", MOUNTAIN_SCREE_TEXTURE)
-	material.set_shader_parameter("scree_texture_size", Vector2(
-		maxf(1.0, float(MOUNTAIN_SCREE_TEXTURE.get_width())),
-		maxf(1.0, float(MOUNTAIN_SCREE_TEXTURE.get_height()))
-	))
+	var scree_texture: Texture2D = _resolve_mountain_material_set().get_texture_slot(&"scree_albedo")
+	assert(scree_texture != null, "Mountain material set requires extra texture scree_albedo.")
+	material.set_shader_parameter("scree_texture", scree_texture)
+	material.set_shader_parameter(
+		"scree_texture_size",
+		Vector2(
+			maxf(1.0, float(scree_texture.get_width())),
+			maxf(1.0, float(scree_texture.get_height())),
+		),
+	)
 	material.set_shader_parameter("scree_strength", MOUNTAIN_SCREE_STRENGTH)
 	material.set_shader_parameter("scree_texture_scale", MOUNTAIN_SCREE_TEXTURE_SCALE)
 	material.set_shader_parameter("scree_patch_scale_px", MOUNTAIN_SCREE_PATCH_SCALE_PX)
@@ -1651,17 +1814,18 @@ func _sync_mountain_foothill_overlay_visual(
 		_mountain_foothill_mask_width,
 		_mountain_foothill_mask_height,
 		_mountain_foothill_mask_step_px,
-		0.0
+		0.0,
 	)
 	_apply_sun_lighting_to_foothill_material(material)
 	sprite.material = material
 	sprite.position = _mountain_foothill_mask_origin_world - WorldRuntimeConstants.chunk_origin_px(chunk_coord)
 	sprite.scale = Vector2(
 		float(_mountain_foothill_mask_width) * _mountain_foothill_mask_step_px,
-		float(_mountain_foothill_mask_height) * _mountain_foothill_mask_step_px
+		float(_mountain_foothill_mask_height) * _mountain_foothill_mask_step_px,
 	)
 	sprite.texture = _ensure_mountain_foothill_overlay_canvas_texture()
 	sprite.visible = true
+
 
 func _clear_mountain_foothill_overlay() -> void:
 	if _mountain_foothill_overlay_sprite != null and is_instance_valid(_mountain_foothill_overlay_sprite):
@@ -1669,6 +1833,7 @@ func _clear_mountain_foothill_overlay() -> void:
 		_mountain_foothill_overlay_sprite.visible = false
 		_mountain_foothill_overlay_sprite.scale = Vector2.ONE
 		_mountain_foothill_overlay_sprite.material = null
+
 
 func _ensure_mountain_foothill_overlay_sprite() -> Sprite2D:
 	if _mountain_foothill_overlay_sprite != null and is_instance_valid(_mountain_foothill_overlay_sprite):
@@ -1682,12 +1847,14 @@ func _ensure_mountain_foothill_overlay_sprite() -> Sprite2D:
 	add_child(_mountain_foothill_overlay_sprite)
 	return _mountain_foothill_overlay_sprite
 
+
 func _ensure_mountain_foothill_overlay_material() -> ShaderMaterial:
 	if _mountain_foothill_overlay_material != null:
 		return _mountain_foothill_overlay_material
 	_mountain_foothill_overlay_material = ShaderMaterial.new()
 	_mountain_foothill_overlay_material.shader = MOUNTAIN_FOOTHILL_OVERLAY_SHADER
 	return _mountain_foothill_overlay_material
+
 
 func _ensure_mountain_foothill_overlay_canvas_texture() -> ImageTexture:
 	if _mountain_foothill_overlay_canvas_texture != null:
@@ -1696,6 +1863,7 @@ func _ensure_mountain_foothill_overlay_canvas_texture() -> ImageTexture:
 	image.fill(Color(1.0, 1.0, 1.0, 0.0))
 	_mountain_foothill_overlay_canvas_texture = ImageTexture.create_from_image(image)
 	return _mountain_foothill_overlay_canvas_texture
+
 
 func _ensure_terrain_edge_mask_sprite() -> Sprite2D:
 	if _terrain_edge_mask_sprite != null and is_instance_valid(_terrain_edge_mask_sprite):
@@ -1709,6 +1877,7 @@ func _ensure_terrain_edge_mask_sprite() -> Sprite2D:
 	add_child(_terrain_edge_mask_sprite)
 	return _terrain_edge_mask_sprite
 
+
 func _ensure_terrain_edge_mask_material() -> ShaderMaterial:
 	if _terrain_edge_mask_material != null:
 		return _terrain_edge_mask_material
@@ -1716,9 +1885,10 @@ func _ensure_terrain_edge_mask_material() -> ShaderMaterial:
 	_terrain_edge_mask_material.shader = MOUNTAIN_TOP_MASK_UNDERLAY_SHADER
 	return _terrain_edge_mask_material
 
+
 func _sync_rock_patch_overlay_visual(
-	rock_patch_texture: Texture2D,
-	rock_patch_normal_texture: Texture2D
+		rock_patch_texture: Texture2D,
+		rock_patch_normal_texture: Texture2D,
 ) -> void:
 	if not ROCK_PATCH_OVERLAY_ENABLED \
 			or rock_patch_texture == null \
@@ -1732,14 +1902,20 @@ func _sync_rock_patch_overlay_visual(
 	var material: ShaderMaterial = _ensure_rock_patch_overlay_material()
 	material.set_shader_parameter("rock_texture", rock_patch_texture)
 	material.set_shader_parameter("mask_texture", _terrain_edge_mask_texture)
-	material.set_shader_parameter("rock_texture_size", Vector2(
-		maxf(1.0, float(rock_patch_texture.get_width())),
-		maxf(1.0, float(rock_patch_texture.get_height()))
-	))
-	material.set_shader_parameter("mask_texture_size", Vector2(
-		maxf(1.0, float(_terrain_edge_mask_width)),
-		maxf(1.0, float(_terrain_edge_mask_height))
-	))
+	material.set_shader_parameter(
+		"rock_texture_size",
+		Vector2(
+			maxf(1.0, float(rock_patch_texture.get_width())),
+			maxf(1.0, float(rock_patch_texture.get_height())),
+		),
+	)
+	material.set_shader_parameter(
+		"mask_texture_size",
+		Vector2(
+			maxf(1.0, float(_terrain_edge_mask_width)),
+			maxf(1.0, float(_terrain_edge_mask_height)),
+		),
+	)
 	if rock_patch_normal_texture != null:
 		material.set_shader_parameter("rock_normal_texture", rock_patch_normal_texture)
 		material.set_shader_parameter("normal_mix", 1.0)
@@ -1758,17 +1934,18 @@ func _sync_rock_patch_overlay_visual(
 		_terrain_edge_mask_width,
 		_terrain_edge_mask_height,
 		_terrain_edge_mask_step_px,
-		0.0
+		0.0,
 	)
 	_apply_sun_lighting_to_rock_patch_material(material)
 	sprite.material = material
 	sprite.position = _terrain_edge_mask_origin_world - WorldRuntimeConstants.chunk_origin_px(chunk_coord)
 	sprite.scale = Vector2(
 		float(_terrain_edge_mask_width) * _terrain_edge_mask_step_px,
-		float(_terrain_edge_mask_height) * _terrain_edge_mask_step_px
+		float(_terrain_edge_mask_height) * _terrain_edge_mask_step_px,
 	)
 	sprite.texture = _ensure_rock_patch_overlay_canvas_texture()
 	sprite.visible = true
+
 
 func _clear_rock_patch_overlay() -> void:
 	if _rock_patch_overlay_sprite != null and is_instance_valid(_rock_patch_overlay_sprite):
@@ -1776,6 +1953,7 @@ func _clear_rock_patch_overlay() -> void:
 		_rock_patch_overlay_sprite.visible = false
 		_rock_patch_overlay_sprite.scale = Vector2.ONE
 		_rock_patch_overlay_sprite.material = null
+
 
 func _ensure_rock_patch_overlay_sprite() -> Sprite2D:
 	if _rock_patch_overlay_sprite != null and is_instance_valid(_rock_patch_overlay_sprite):
@@ -1789,12 +1967,14 @@ func _ensure_rock_patch_overlay_sprite() -> Sprite2D:
 	add_child(_rock_patch_overlay_sprite)
 	return _rock_patch_overlay_sprite
 
+
 func _ensure_rock_patch_overlay_material() -> ShaderMaterial:
 	if _rock_patch_overlay_material != null:
 		return _rock_patch_overlay_material
 	_rock_patch_overlay_material = ShaderMaterial.new()
 	_rock_patch_overlay_material.shader = ROCK_PATCH_OVERLAY_SHADER
 	return _rock_patch_overlay_material
+
 
 func _ensure_rock_patch_overlay_canvas_texture() -> ImageTexture:
 	if _rock_patch_overlay_canvas_texture != null:
@@ -1804,11 +1984,12 @@ func _ensure_rock_patch_overlay_canvas_texture() -> ImageTexture:
 	_rock_patch_overlay_canvas_texture = ImageTexture.create_from_image(image)
 	return _rock_patch_overlay_canvas_texture
 
+
 func _sync_grass_blob_overlay_visual(
-	grass_overlay_texture: Texture2D,
-	grass_overlay_texture_2: Texture2D,
-	grass_overlay_texture_3: Texture2D,
-	grass_overlay_normal_texture: Texture2D
+		grass_overlay_texture: Texture2D,
+		grass_overlay_texture_2: Texture2D,
+		grass_overlay_texture_3: Texture2D,
+		grass_overlay_normal_texture: Texture2D,
 ) -> void:
 	if not GRASS_BLOB_OVERLAY_ENABLED \
 			or grass_overlay_texture == null \
@@ -1831,22 +2012,34 @@ func _sync_grass_blob_overlay_visual(
 		material.set_shader_parameter("normal_mix", GRASS_BLOB_NORMAL_MIX)
 	else:
 		material.set_shader_parameter("normal_mix", 0.0)
-	material.set_shader_parameter("grass_texture_size", Vector2(
-		maxf(1.0, float(grass_overlay_texture.get_width())),
-		maxf(1.0, float(grass_overlay_texture.get_height()))
-	))
-	material.set_shader_parameter("grass_texture_size_2", Vector2(
-		maxf(1.0, float(grass_overlay_texture_2.get_width())),
-		maxf(1.0, float(grass_overlay_texture_2.get_height()))
-	))
-	material.set_shader_parameter("grass_texture_size_3", Vector2(
-		maxf(1.0, float(grass_overlay_texture_3.get_width())),
-		maxf(1.0, float(grass_overlay_texture_3.get_height()))
-	))
-	material.set_shader_parameter("mask_texture_size", Vector2(
-		maxf(1.0, float(_terrain_edge_mask_width)),
-		maxf(1.0, float(_terrain_edge_mask_height))
-	))
+	material.set_shader_parameter(
+		"grass_texture_size",
+		Vector2(
+			maxf(1.0, float(grass_overlay_texture.get_width())),
+			maxf(1.0, float(grass_overlay_texture.get_height())),
+		),
+	)
+	material.set_shader_parameter(
+		"grass_texture_size_2",
+		Vector2(
+			maxf(1.0, float(grass_overlay_texture_2.get_width())),
+			maxf(1.0, float(grass_overlay_texture_2.get_height())),
+		),
+	)
+	material.set_shader_parameter(
+		"grass_texture_size_3",
+		Vector2(
+			maxf(1.0, float(grass_overlay_texture_3.get_width())),
+			maxf(1.0, float(grass_overlay_texture_3.get_height())),
+		),
+	)
+	material.set_shader_parameter(
+		"mask_texture_size",
+		Vector2(
+			maxf(1.0, float(_terrain_edge_mask_width)),
+			maxf(1.0, float(_terrain_edge_mask_height)),
+		),
+	)
 	material.set_shader_parameter("world_origin_px", _terrain_edge_mask_origin_world)
 	material.set_shader_parameter("sample_step_px", _terrain_edge_mask_step_px)
 	material.set_shader_parameter("grass_texture_scale", GRASS_BLOB_TEXTURE_SCALE)
@@ -1865,16 +2058,17 @@ func _sync_grass_blob_overlay_visual(
 		_terrain_edge_mask_width,
 		_terrain_edge_mask_height,
 		_terrain_edge_mask_step_px,
-		0.0
+		0.0,
 	)
 	sprite.material = material
 	sprite.position = _terrain_edge_mask_origin_world - WorldRuntimeConstants.chunk_origin_px(chunk_coord)
 	sprite.scale = Vector2(
 		float(_terrain_edge_mask_width) * _terrain_edge_mask_step_px,
-		float(_terrain_edge_mask_height) * _terrain_edge_mask_step_px
+		float(_terrain_edge_mask_height) * _terrain_edge_mask_step_px,
 	)
 	sprite.texture = _ensure_grass_blob_overlay_canvas_texture()
 	sprite.visible = true
+
 
 func _clear_grass_blob_overlay() -> void:
 	if _grass_blob_overlay_sprite != null and is_instance_valid(_grass_blob_overlay_sprite):
@@ -1882,6 +2076,7 @@ func _clear_grass_blob_overlay() -> void:
 		_grass_blob_overlay_sprite.visible = false
 		_grass_blob_overlay_sprite.scale = Vector2.ONE
 		_grass_blob_overlay_sprite.material = null
+
 
 func _ensure_grass_blob_overlay_sprite() -> Sprite2D:
 	if _grass_blob_overlay_sprite != null and is_instance_valid(_grass_blob_overlay_sprite):
@@ -1895,12 +2090,14 @@ func _ensure_grass_blob_overlay_sprite() -> Sprite2D:
 	add_child(_grass_blob_overlay_sprite)
 	return _grass_blob_overlay_sprite
 
+
 func _ensure_grass_blob_overlay_material() -> ShaderMaterial:
 	if _grass_blob_overlay_material != null:
 		return _grass_blob_overlay_material
 	_grass_blob_overlay_material = ShaderMaterial.new()
 	_grass_blob_overlay_material.shader = GRASS_BLOB_OVERLAY_SHADER
 	return _grass_blob_overlay_material
+
 
 func _ensure_grass_blob_overlay_canvas_texture() -> ImageTexture:
 	if _grass_blob_overlay_canvas_texture != null:
@@ -1909,6 +2106,7 @@ func _ensure_grass_blob_overlay_canvas_texture() -> ImageTexture:
 	image.fill(Color(1.0, 1.0, 1.0, 0.0))
 	_grass_blob_overlay_canvas_texture = ImageTexture.create_from_image(image)
 	return _grass_blob_overlay_canvas_texture
+
 
 func _sync_object_packet_visual(packet: Dictionary) -> void:
 	if _rock_scatter_atlases.is_empty() \
@@ -1924,6 +2122,7 @@ func _sync_object_packet_visual(packet: Dictionary) -> void:
 	layer.configure_packet(packet)
 	_apply_sun_lighting_to_object_packet_layer()
 
+
 func _ensure_object_packet_layer() -> WorldObjectPacketLayer:
 	if _object_packet_layer != null and is_instance_valid(_object_packet_layer):
 		return _object_packet_layer
@@ -1936,9 +2135,11 @@ func _ensure_object_packet_layer() -> WorldObjectPacketLayer:
 	_apply_object_depth_sort_reference_to_layer()
 	return _object_packet_layer
 
+
 func _clear_object_packet_visual() -> void:
 	if _object_packet_layer != null and is_instance_valid(_object_packet_layer):
 		_object_packet_layer.visible = false
+
 
 func _apply_object_depth_sort_reference_to_layer() -> void:
 	if not _object_depth_reference_enabled \
@@ -1947,12 +2148,13 @@ func _apply_object_depth_sort_reference_to_layer() -> void:
 		return
 	_object_packet_layer.set_depth_sort_reference(
 		WorldRuntimeConstants.chunk_origin_px(chunk_coord).y,
-		_object_depth_reference_world_y
+		_object_depth_reference_world_y,
 	)
+
 
 func _ensure_roof_layer(mountain_id: int, terrain_id: int) -> TileMapLayer:
 	var roof_terrain_id: int = _resolve_roof_terrain_id(terrain_id)
-	var terrain_layers: Dictionary = roof_layers_by_mountain.get(mountain_id, {}) as Dictionary
+	var terrain_layers: Dictionary = roof_layers_by_mountain.get(mountain_id, { }) as Dictionary
 	if terrain_layers.has(roof_terrain_id):
 		return terrain_layers[roof_terrain_id] as TileMapLayer
 	var layer := TileMapLayer.new()
@@ -1966,6 +2168,7 @@ func _ensure_roof_layer(mountain_id: int, terrain_id: int) -> TileMapLayer:
 	roof_layers_by_mountain[mountain_id] = terrain_layers
 	return layer
 
+
 func _is_dry_lake_bed_index(index: int, terrain_id: int) -> bool:
 	if terrain_id != WorldRuntimeConstants.TERRAIN_LAKE_BED_SHALLOW \
 			and terrain_id != WorldRuntimeConstants.TERRAIN_LAKE_BED_DEEP:
@@ -1973,6 +2176,7 @@ func _is_dry_lake_bed_index(index: int, terrain_id: int) -> bool:
 	if index < 0 or index >= _pending_lake_flags.size():
 		return true
 	return (int(_pending_lake_flags[index]) & WorldRuntimeConstants.LAKE_FLAG_WATER_PRESENT) == 0
+
 
 func _apply_cell(local_coord: Vector2i, terrain_id: int, terrain_atlas_index: int) -> void:
 	if not WorldRuntimeConstants.is_local_coord_valid(local_coord):
@@ -1983,7 +2187,7 @@ func _apply_cell(local_coord: Vector2i, terrain_id: int, terrain_atlas_index: in
 		_overlay_layer.set_cell(
 			local_coord,
 			WorldTileSetFactory.get_source_id(terrain_id),
-			WorldTileSetFactory.get_atlas_coords(terrain_id, terrain_atlas_index)
+			WorldTileSetFactory.get_atlas_coords(terrain_id, terrain_atlas_index),
 		)
 		return
 	if not _bulk_apply_layers_pristine:
@@ -1991,8 +2195,9 @@ func _apply_cell(local_coord: Vector2i, terrain_id: int, terrain_atlas_index: in
 	_base_layer.set_cell(
 		local_coord,
 		WorldTileSetFactory.get_source_id(terrain_id),
-		WorldTileSetFactory.get_atlas_coords(terrain_id, terrain_atlas_index)
+		WorldTileSetFactory.get_atlas_coords(terrain_id, terrain_atlas_index),
 	)
+
 
 func _apply_roof_cell(local_coord: Vector2i, index: int) -> void:
 	if not _mountain_tile_visuals_enabled:
@@ -2013,8 +2218,9 @@ func _apply_roof_cell(local_coord: Vector2i, index: int) -> void:
 	layer.set_cell(
 		local_coord,
 		WorldTileSetFactory.get_roof_source_id(roof_terrain_id),
-		WorldTileSetFactory.get_atlas_coords(roof_terrain_id, terrain_atlas_index)
+		WorldTileSetFactory.get_atlas_coords(roof_terrain_id, terrain_atlas_index),
 	)
+
 
 func _apply_water_patch_around(local_coord: Vector2i) -> void:
 	for offset: Vector2i in [
@@ -2029,12 +2235,14 @@ func _apply_water_patch_around(local_coord: Vector2i) -> void:
 			continue
 		_apply_water_cell(patch_coord, WorldRuntimeConstants.local_to_index(patch_coord))
 
+
 func _apply_water_cell(local_coord: Vector2i, index: int) -> void:
 	if not WorldRuntimeConstants.is_local_coord_valid(local_coord):
 		return
 	if _bulk_apply_layers_pristine:
 		return
 	_clear_cell(_water_layer, local_coord)
+
 
 func _sync_water_fill_visual() -> void:
 	var water_texture: Texture2D = _resolve_water_fill_texture()
@@ -2052,17 +2260,19 @@ func _sync_water_fill_visual() -> void:
 	sprite.material = material
 	sprite.texture = _ensure_water_fill_texture()
 	var chunk_size_px: float = float(
-		WorldRuntimeConstants.CHUNK_SIZE * WorldRuntimeConstants.TILE_SIZE_PX
+		WorldRuntimeConstants.CHUNK_SIZE * WorldRuntimeConstants.TILE_SIZE_PX,
 	)
 	sprite.position = Vector2.ZERO
 	sprite.scale = Vector2.ONE * chunk_size_px
 	sprite.visible = true
+
 
 func _pending_has_visible_water() -> bool:
 	for index: int in range(_pending_lake_flags.size()):
 		if (int(_pending_lake_flags[index]) & WorldRuntimeConstants.LAKE_FLAG_WATER_PRESENT) != 0:
 			return true
 	return false
+
 
 func _resolve_water_fill_texture() -> Texture2D:
 	if _pending_terrain_ids.is_empty() or _pending_lake_flags.is_empty():
@@ -2076,16 +2286,18 @@ func _resolve_water_fill_texture() -> Texture2D:
 	if not has_water:
 		return null
 	var material_set: TerrainMaterialSet = TerrainPresentationRegistry.get_material_set(
-		WorldTileSetFactory.WATER_SURFACE_DARK_MATERIAL_ID
+		WorldTileSetFactory.WATER_SURFACE_DARK_MATERIAL_ID,
 	)
 	if material_set == null:
 		return null
 	return material_set.get_texture_slot(&"top_albedo")
 
+
 func _clear_cell(layer: TileMapLayer, local_coord: Vector2i) -> void:
 	if layer == null or not is_instance_valid(layer):
 		return
 	layer.set_cell(local_coord, -1, Vector2i(-1, -1))
+
 
 func _clear_loaded_mountain_visuals() -> void:
 	_ensure_layers()
@@ -2095,11 +2307,13 @@ func _clear_loaded_mountain_visuals() -> void:
 			continue
 		_clear_mountain_visual_cell(WorldRuntimeConstants.index_to_local(index))
 
+
 func _clear_mountain_visual_cell(local_coord: Vector2i) -> void:
 	_apply_ground_underlay_cell(local_coord)
 	_clear_cell(_overlay_layer, local_coord)
 	_clear_cell(_water_layer, local_coord)
 	_clear_roof_surface_cell(local_coord)
+
 
 func _apply_ground_underlay_cell(local_coord: Vector2i) -> void:
 	# The ground material owns the whole dry surface; the shoreline underlay
@@ -2109,14 +2323,16 @@ func _apply_ground_underlay_cell(local_coord: Vector2i) -> void:
 	_base_layer.set_cell(
 		local_coord,
 		WorldTileSetFactory.get_source_id(WorldRuntimeConstants.TERRAIN_PLAINS_GROUND),
-		WorldTileSetFactory.get_atlas_coords(WorldRuntimeConstants.TERRAIN_PLAINS_GROUND, 0)
+		WorldTileSetFactory.get_atlas_coords(WorldRuntimeConstants.TERRAIN_PLAINS_GROUND, 0),
 	)
+
 
 func _clear_roof_surface_cell(local_coord: Vector2i) -> void:
 	for terrain_layers_variant: Variant in roof_layers_by_mountain.values():
 		var terrain_layers: Dictionary = terrain_layers_variant as Dictionary
 		for layer_variant: Variant in terrain_layers.values():
 			_clear_cell(layer_variant as TileMapLayer, local_coord)
+
 
 func _should_suppress_mountain_visual(index: int, terrain_id: int) -> bool:
 	if _mountain_tile_visuals_enabled:
@@ -2125,10 +2341,12 @@ func _should_suppress_mountain_visual(index: int, terrain_id: int) -> bool:
 		return false
 	return true
 
+
 func _is_mountain_visual_terrain(terrain_id: int) -> bool:
 	return terrain_id == WorldRuntimeConstants.TERRAIN_MOUNTAIN_WALL \
-		or terrain_id == WorldRuntimeConstants.TERRAIN_MOUNTAIN_FOOT \
-		or terrain_id == WorldRuntimeConstants.TERRAIN_LEGACY_BLOCKED
+			or terrain_id == WorldRuntimeConstants.TERRAIN_MOUNTAIN_FOOT \
+			or terrain_id == WorldRuntimeConstants.TERRAIN_LEGACY_BLOCKED
+
 
 func _is_pending_full_mountain_surface() -> bool:
 	if _pending_terrain_ids.size() < WorldRuntimeConstants.CHUNK_CELL_COUNT:
@@ -2145,9 +2363,11 @@ func _is_pending_full_mountain_surface() -> bool:
 				return false
 	return true
 
+
 func _refresh_debug_solid_mask() -> void:
 	_debug_solid_mask = _build_debug_solid_mask()
 	_sync_debug_layer_data()
+
 
 func _build_debug_solid_mask() -> PackedByteArray:
 	var mask := PackedByteArray()
@@ -2156,6 +2376,7 @@ func _build_debug_solid_mask() -> PackedByteArray:
 		if _is_debug_solid_mountain_index(index):
 			mask[index] = 1
 	return mask
+
 
 func _is_debug_solid_mountain_index(index: int) -> bool:
 	if index < 0 or index >= _pending_terrain_ids.size():
@@ -2174,6 +2395,7 @@ func _is_debug_solid_mountain_index(index: int) -> bool:
 		return (flags & (WorldRuntimeConstants.MOUNTAIN_FLAG_WALL | WorldRuntimeConstants.MOUNTAIN_FLAG_FOOT)) != 0
 	return true
 
+
 func _sync_debug_layer() -> void:
 	if not _debug_grid_visible and not _debug_solid_mask_visible and not _debug_contour_visible:
 		if _debug_layer != null and is_instance_valid(_debug_layer):
@@ -2183,26 +2405,28 @@ func _sync_debug_layer() -> void:
 	layer.set_debug_visibility(_debug_grid_visible, _debug_solid_mask_visible, _debug_contour_visible)
 	_sync_debug_layer_data()
 
+
 func _sync_debug_layer_data() -> void:
 	if _debug_layer == null or not is_instance_valid(_debug_layer):
 		return
 	_debug_layer.set_debug_data(_debug_solid_mask, _debug_contour_vertices, _debug_contour_indices)
 
+
 func _set_mask_shader_chunk_clip(
-	material: ShaderMaterial,
-	mask_origin_world: Vector2,
-	mask_width: int,
-	mask_height: int,
-	mask_step_px: float,
-	overlap_px: float
+		material: ShaderMaterial,
+		mask_origin_world: Vector2,
+		mask_width: int,
+		mask_height: int,
+		mask_step_px: float,
+		overlap_px: float,
 ) -> void:
 	var mask_world_size := Vector2(
 		maxf(1.0, float(mask_width) * mask_step_px),
-		maxf(1.0, float(mask_height) * mask_step_px)
+		maxf(1.0, float(mask_height) * mask_step_px),
 	)
 	var mask_chunk_origin: Vector2 = WorldRuntimeConstants.chunk_origin_px(chunk_coord)
 	var mask_chunk_size_world: float = float(
-		WorldRuntimeConstants.CHUNK_SIZE * WorldRuntimeConstants.TILE_SIZE_PX
+		WorldRuntimeConstants.CHUNK_SIZE * WorldRuntimeConstants.TILE_SIZE_PX,
 	)
 	var chunk_min: Vector2 = mask_chunk_origin - Vector2.ONE * overlap_px
 	var chunk_max: Vector2 = mask_chunk_origin + Vector2.ONE * (mask_chunk_size_world + overlap_px)
@@ -2212,34 +2436,53 @@ func _set_mask_shader_chunk_clip(
 	var shadow_draw_chunk_max: Vector2 = mask_chunk_origin + Vector2.ONE * (
 		mask_chunk_size_world + MASK_SHADOW_CHUNK_OVERLAP_PX
 	)
-	material.set_shader_parameter("chunk_uv_min", Vector2(
-		(chunk_min.x - mask_origin_world.x) / mask_world_size.x,
-		(chunk_min.y - mask_origin_world.y) / mask_world_size.y
-	))
-	material.set_shader_parameter("chunk_uv_max", Vector2(
-		(chunk_max.x - mask_origin_world.x) / mask_world_size.x,
-		(chunk_max.y - mask_origin_world.y) / mask_world_size.y
-	))
-	material.set_shader_parameter("shadow_uv_min", Vector2(
-		(shadow_chunk_min.x - mask_origin_world.x) / mask_world_size.x,
-		(shadow_chunk_min.y - mask_origin_world.y) / mask_world_size.y
-	))
-	material.set_shader_parameter("shadow_uv_max", Vector2(
-		(shadow_chunk_max.x - mask_origin_world.x) / mask_world_size.x,
-		(shadow_chunk_max.y - mask_origin_world.y) / mask_world_size.y
-	))
-	material.set_shader_parameter("shadow_draw_uv_min", Vector2(
-		(shadow_draw_chunk_min.x - mask_origin_world.x) / mask_world_size.x,
-		(shadow_draw_chunk_min.y - mask_origin_world.y) / mask_world_size.y
-	))
-	material.set_shader_parameter("shadow_draw_uv_max", Vector2(
-		(shadow_draw_chunk_max.x - mask_origin_world.x) / mask_world_size.x,
-		(shadow_draw_chunk_max.y - mask_origin_world.y) / mask_world_size.y
-	))
+	material.set_shader_parameter(
+		"chunk_uv_min",
+		Vector2(
+			(chunk_min.x - mask_origin_world.x) / mask_world_size.x,
+			(chunk_min.y - mask_origin_world.y) / mask_world_size.y,
+		),
+	)
+	material.set_shader_parameter(
+		"chunk_uv_max",
+		Vector2(
+			(chunk_max.x - mask_origin_world.x) / mask_world_size.x,
+			(chunk_max.y - mask_origin_world.y) / mask_world_size.y,
+		),
+	)
+	material.set_shader_parameter(
+		"shadow_uv_min",
+		Vector2(
+			(shadow_chunk_min.x - mask_origin_world.x) / mask_world_size.x,
+			(shadow_chunk_min.y - mask_origin_world.y) / mask_world_size.y,
+		),
+	)
+	material.set_shader_parameter(
+		"shadow_uv_max",
+		Vector2(
+			(shadow_chunk_max.x - mask_origin_world.x) / mask_world_size.x,
+			(shadow_chunk_max.y - mask_origin_world.y) / mask_world_size.y,
+		),
+	)
+	material.set_shader_parameter(
+		"shadow_draw_uv_min",
+		Vector2(
+			(shadow_draw_chunk_min.x - mask_origin_world.x) / mask_world_size.x,
+			(shadow_draw_chunk_min.y - mask_origin_world.y) / mask_world_size.y,
+		),
+	)
+	material.set_shader_parameter(
+		"shadow_draw_uv_max",
+		Vector2(
+			(shadow_draw_chunk_max.x - mask_origin_world.x) / mask_world_size.x,
+			(shadow_draw_chunk_max.y - mask_origin_world.y) / mask_world_size.y,
+		),
+	)
 	material.set_shader_parameter(
 		"shadow_blend_texels",
-		maxf(1.0, MASK_SHADOW_CHUNK_OVERLAP_PX / maxf(mask_step_px, 0.001))
+		maxf(1.0, MASK_SHADOW_CHUNK_OVERLAP_PX / maxf(mask_step_px, 0.001)),
 	)
+
 
 func _count_debug_solid_tiles() -> int:
 	var count: int = 0
@@ -2248,8 +2491,9 @@ func _count_debug_solid_tiles() -> int:
 			count += 1
 	return count
 
+
 func _compact_mountain_page_result(result: Dictionary) -> Dictionary:
-	var compact: Dictionary = {}
+	var compact: Dictionary = { }
 	for key_variant: Variant in result.keys():
 		var key: Variant = key_variant
 		if key in [
@@ -2267,6 +2511,7 @@ func _compact_mountain_page_result(result: Dictionary) -> Dictionary:
 		compact[key] = result[key]
 	return compact
 
+
 func _should_render_water_at(index: int) -> bool:
 	if index < 0 \
 			or index >= _pending_lake_flags.size() \
@@ -2276,12 +2521,15 @@ func _should_render_water_at(index: int) -> bool:
 		return false
 	return _is_lake_bed_terrain(int(_pending_terrain_ids[index]))
 
+
 func _resolve_water_atlas_index(_local_coord: Vector2i) -> int:
 	return 0
 
+
 func _is_lake_bed_terrain(terrain_id: int) -> bool:
 	return terrain_id == WorldRuntimeConstants.TERRAIN_LAKE_BED_SHALLOW \
-		or terrain_id == WorldRuntimeConstants.TERRAIN_LAKE_BED_DEEP
+			or terrain_id == WorldRuntimeConstants.TERRAIN_LAKE_BED_DEEP
+
 
 func _build_roof_material(mountain_id: int, terrain_id: int) -> ShaderMaterial:
 	var material := ShaderMaterial.new()
@@ -2289,20 +2537,21 @@ func _build_roof_material(mountain_id: int, terrain_id: int) -> ShaderMaterial:
 	material.set_shader_parameter("cover_mask", _ensure_roof_mask_texture(mountain_id))
 	material.set_shader_parameter(
 		"mask_tile_count",
-		Vector2(float(WorldRuntimeConstants.CHUNK_SIZE), float(WorldRuntimeConstants.CHUNK_SIZE))
+		Vector2(float(WorldRuntimeConstants.CHUNK_SIZE), float(WorldRuntimeConstants.CHUNK_SIZE)),
 	)
 	material.set_shader_parameter("tile_size_px", float(WorldRuntimeConstants.TILE_SIZE_PX))
 	material.set_shader_parameter("chunk_origin_px", WorldRuntimeConstants.chunk_origin_px(chunk_coord))
 	_apply_roof_presentation_params(material, terrain_id)
 	return material
 
+
 func _apply_roof_presentation_params(material: ShaderMaterial, terrain_id: int) -> void:
 	var roof_terrain_id: int = _resolve_roof_terrain_id(terrain_id)
 	var shape_set: TerrainShapeSet = TerrainPresentationRegistry.get_shape_set_for_terrain(
-		roof_terrain_id
+		roof_terrain_id,
 	)
 	var material_set: TerrainMaterialSet = TerrainPresentationRegistry.get_material_set_for_terrain(
-		roof_terrain_id
+		roof_terrain_id,
 	)
 	material.set_shader_parameter("shape_normal_atlas", shape_set.get_texture_slot(&"shape_normal_atlas"))
 	material.set_shader_parameter("top_albedo_tex", material_set.get_texture_slot(&"top_albedo"))
@@ -2314,22 +2563,25 @@ func _apply_roof_presentation_params(material: ShaderMaterial, terrain_id: int) 
 	for parameter_name_variant: Variant in material_set.sampling_params.keys():
 		material.set_shader_parameter(
 			parameter_name_variant,
-			material_set.sampling_params[parameter_name_variant]
+			material_set.sampling_params[parameter_name_variant],
 		)
+
 
 func _get_roof_layer(mountain_id: int, terrain_id: int) -> TileMapLayer:
 	var roof_terrain_id: int = _resolve_roof_terrain_id(terrain_id)
-	var terrain_layers: Dictionary = roof_layers_by_mountain.get(mountain_id, {}) as Dictionary
+	var terrain_layers: Dictionary = roof_layers_by_mountain.get(mountain_id, { }) as Dictionary
 	return terrain_layers.get(roof_terrain_id, null) as TileMapLayer
+
 
 func _clear_other_roof_surface_cell(mountain_id: int, terrain_id: int, local_coord: Vector2i) -> void:
 	var roof_terrain_id: int = _resolve_roof_terrain_id(terrain_id)
-	var terrain_layers: Dictionary = roof_layers_by_mountain.get(mountain_id, {}) as Dictionary
+	var terrain_layers: Dictionary = roof_layers_by_mountain.get(mountain_id, { }) as Dictionary
 	for layer_terrain_id_variant: Variant in terrain_layers.keys():
 		var layer_terrain_id: int = int(layer_terrain_id_variant)
 		if layer_terrain_id == roof_terrain_id:
 			continue
 		_clear_cell(terrain_layers.get(layer_terrain_id, null) as TileMapLayer, local_coord)
+
 
 func _resolve_roof_terrain_id_from_flags(mountain_flags: int) -> int:
 	if (mountain_flags & WorldRuntimeConstants.MOUNTAIN_FLAG_WALL) != 0:
@@ -2338,15 +2590,18 @@ func _resolve_roof_terrain_id_from_flags(mountain_flags: int) -> int:
 		return WorldRuntimeConstants.TERRAIN_MOUNTAIN_FOOT
 	return WorldRuntimeConstants.TERRAIN_MOUNTAIN_WALL
 
+
 func _resolve_roof_terrain_id(terrain_id: int) -> int:
 	if terrain_id == WorldRuntimeConstants.TERRAIN_MOUNTAIN_FOOT:
 		return WorldRuntimeConstants.TERRAIN_MOUNTAIN_FOOT
 	return WorldRuntimeConstants.TERRAIN_MOUNTAIN_WALL
 
+
 func _get_roof_terrain_name(terrain_id: int) -> String:
 	if _resolve_roof_terrain_id(terrain_id) == WorldRuntimeConstants.TERRAIN_MOUNTAIN_FOOT:
 		return "foot"
 	return "wall"
+
 
 func _ensure_roof_mask_image(mountain_id: int) -> Image:
 	if _roof_mask_images_by_mountain.has(mountain_id):
@@ -2355,11 +2610,12 @@ func _ensure_roof_mask_image(mountain_id: int) -> Image:
 		WorldRuntimeConstants.CHUNK_SIZE,
 		WorldRuntimeConstants.CHUNK_SIZE,
 		false,
-		Image.FORMAT_L8
+		Image.FORMAT_L8,
 	)
 	image.fill(Color(1.0, 0.0, 0.0, 1.0))
 	_roof_mask_images_by_mountain[mountain_id] = image
 	return image
+
 
 func _ensure_roof_mask_texture(mountain_id: int) -> ImageTexture:
 	if _roof_mask_textures_by_mountain.has(mountain_id):
@@ -2367,6 +2623,7 @@ func _ensure_roof_mask_texture(mountain_id: int) -> ImageTexture:
 	var texture: ImageTexture = ImageTexture.create_from_image(_ensure_roof_mask_image(mountain_id))
 	_roof_mask_textures_by_mountain[mountain_id] = texture
 	return texture
+
 
 func get_cover_render_debug(local_coord: Vector2i, mountain_id: int = 0, expected_open_bit: int = -1) -> Dictionary:
 	var result := {
@@ -2419,6 +2676,7 @@ func get_cover_render_debug(local_coord: Vector2i, mountain_id: int = 0, expecte
 	result["ready"] = true
 	return result
 
+
 func _is_roof_bearing_mountain_tile(mountain_id: int, mountain_flags: int) -> bool:
 	return mountain_id > 0 \
-		and (mountain_flags & (WorldRuntimeConstants.MOUNTAIN_FLAG_WALL | WorldRuntimeConstants.MOUNTAIN_FLAG_FOOT)) != 0
+			and (mountain_flags & (WorldRuntimeConstants.MOUNTAIN_FLAG_WALL | WorldRuntimeConstants.MOUNTAIN_FLAG_FOOT)) != 0

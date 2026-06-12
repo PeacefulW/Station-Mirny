@@ -1,0 +1,12 @@
+[gd_resource type="Resource" script_class="TerrainPresentationProfile" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://data/terrain/terrain_presentation_profile.gd" id="1"]
+
+[resource]
+script = ExtResource("1")
+id = &"plains:grass_scatter_profile"
+terrain_class_id = &"plains:grass_scatter"
+terrain_ids = []
+shape_set_id = &"base:plains_ground_shape"
+material_set_id = &"plains:grass_scatter_material"
+shader_family_id = &"terrain.grass_scatter"

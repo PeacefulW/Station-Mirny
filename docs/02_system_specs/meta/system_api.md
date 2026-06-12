@@ -124,6 +124,39 @@ Current code note:
 - the code-confirmed state-transition paths that also emit sync events are the
   documented mutation methods above plus internal helpers
 
+### WindRuntime
+
+Owner file: `core/autoloads/wind_runtime.gd`
+
+Role:
+- environment-runtime wind state owner (ADR-0007 layer 3) and the single
+  writer of the `wind_*` global shader uniforms
+- governing spec:
+  `docs/02_system_specs/world/wind_and_grass_scatter_presentation.md`
+
+Confirmed readable state (presentation/dev surface, not gameplay truth):
+
+| Surface | Kind | Notes |
+|---|---|---|
+| `get_wind_time()` | method | Accumulated pause-aware wind seconds |
+| `get_wind_strength()` | method | Current normalized strength `0..1` |
+| `get_wind_direction()` | method | Current normalized direction vector |
+| `get_wind_direction_deg()` | method | Current direction in degrees |
+| `has_debug_wind_override()` | method | Whether a dev override is active |
+
+Confirmed mutation entrypoints (dev-only: probes and dev scenes, never a
+gameplay path):
+
+| Surface | Kind | Notes |
+|---|---|---|
+| `set_debug_strength_override(strength)` | method | Clamped `0..1` dev override |
+| `set_debug_direction_override_deg(deg)` | method | Dev direction override |
+| `clear_debug_wind_override()` | method | Returns to profile-driven wind |
+
+Not documented here as safe entrypoints:
+- direct writes to `wind_*` global shader uniforms by any other system
+- `_current_strength()`, `_current_direction()`, `_publish_globals()`
+
 ### ItemRegistry
 
 Owner file: `core/autoloads/item_registry.gd`
@@ -299,6 +332,7 @@ Confirmed public native surface:
 | `make_world_preview_patch_image(packet: Dictionary, render_mode: StringName)` | `Image` | Builds a lightweight preview patch image from an existing `ChunkPacketV1`; current modes are terrain, mountain id, and mountain classification. Terrain mode reads ground, mountain, and lake-bed packet terrain ids; it does not generate chunks. |
 | `build_mountain_contour_debug(solid_halo: PackedByteArray, chunk_size: int, tile_size_px: int)` | `Dictionary` | Debug-only native marching-squares helper for Mountain Contour Mesh L1. Input is a compact `(chunk_size + 2)^2` solid mask with a one-tile halo; output contains derived `vertices: PackedVector2Array` and `indices: PackedInt32Array`. This is visual/debug data only, not packet truth, save state, collision, or walkability. |
 | `resolve_world_foundation_spawn_tile(seed: int, world_version: int, settings_packed: PackedFloat32Array)` | `Dictionary` | Resolves the V1 foundation spawn tile from the substrate and returns the shape documented as `WorldFoundationSpawnResult` in `packet_schemas.md` |
+| `build_grass_scatter_buffer(seed: int, chunk_coord: Vector2i, terrain_ids: PackedInt32Array, lake_flags: PackedByteArray, params: PackedFloat32Array)` | `Dictionary` | Presentation-only deterministic grass tuft placement for one chunk; returns the `GrassScatterBufferResult` shape from `packet_schemas.md` (ready `MultiMesh` buffer). Density mirrors the ground material's aperiodic world fields; never packet truth, save state, collision, or walkability. |
 
 Dev-only native surface:
 

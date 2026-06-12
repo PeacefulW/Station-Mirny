@@ -460,15 +460,19 @@ void fragment() {
 		// Lit rock instead of painted color: the exposed upper cut is the wall
 		// albedo brightened and warmed by the low sun (shadow length is the
 		// documented low-sun proxy from WorldVisualLightingProfile).
+		// Ночной гейт: projected_shadow_opacity уже несёт дневную видимость
+		// солнца (профиль гасит тени к ночи) — солнечная подсветка кромок
+		// гаснет с ним же, иначе rim ночью читается как неоновое свечение.
+		float sun_daylight = smoothstep(0.05, 0.45, projected_shadow_opacity);
 		float low_sun_warmth = clamp((projected_shadow_length_px - 80.0) / 280.0, 0.0, 1.0);
-		vec3 sun_warm_tint = mix(vec3(1.0), vec3(1.16, 0.93, 0.76), 0.35 + low_sun_warmth * 0.65);
-		color = mix(color, face_col.rgb * 1.30 * sun_warm_tint, cut_highlight * 0.22);
+		vec3 sun_warm_tint = mix(vec3(1.0), vec3(1.16, 0.93, 0.76), (0.35 + low_sun_warmth * 0.65) * sun_daylight);
+		color = mix(color, face_col.rgb * mix(1.10, 1.30, sun_daylight) * sun_warm_tint, cut_highlight * 0.22);
 		color = mix(color, cleft_color, cleft * 0.28);
 		color = mix(color, crack_color, crack * 0.38);
 		color = mix(color, base_debris_color, base_debris * 0.55);
 		float top_rim = smoothstep(0.77, 1.0, wall_depth);
 		float base_outline = 1.0 - smoothstep(0.0, 1.0 / max(sample_step_px, 1.0), edge_below);
-		vec3 rim_lip = face_col.rgb * 1.45 * sun_warm_tint;
+		vec3 rim_lip = face_col.rgb * mix(1.12, 1.45, sun_daylight) * sun_warm_tint;
 		if (biofield_rim_strength > 0.001) {
 			// Sparse biofield creep onto lit wall lips, clustered by the same
 			// world-space field family as the ground's orange patches.
@@ -499,9 +503,11 @@ void fragment() {
 	float silhouette = body_area * smoothstep(0.08, 0.5, top_here) * (1.0 - smoothstep(0.5, 0.82, top_here));
 	float inner_rim = body_area * smoothstep(0.42, 0.72, top_here) * (1.0 - smoothstep(0.76, 0.96, top_here));
 	color = mix(color, vec3(0.03, 0.02, 0.012), silhouette * 0.64);
+	// Тот же ночной гейт, что у верхней кромки стены (см. sun_daylight выше).
+	float lip_daylight = smoothstep(0.05, 0.45, projected_shadow_opacity);
 	float lip_low_sun = clamp((projected_shadow_length_px - 80.0) / 280.0, 0.0, 1.0);
-	vec3 lip_warm_tint = mix(vec3(1.0), vec3(1.16, 0.93, 0.76), 0.35 + lip_low_sun * 0.65);
-	vec3 inner_lip = top_col.rgb * 1.32 * lip_warm_tint;
+	vec3 lip_warm_tint = mix(vec3(1.0), vec3(1.16, 0.93, 0.76), (0.35 + lip_low_sun * 0.65) * lip_daylight);
+	vec3 inner_lip = top_col.rgb * mix(1.10, 1.32, lip_daylight) * lip_warm_tint;
 	float lip_mix = 0.12;
 	if (biofield_rim_strength > 0.001) {
 		float lip_bio_field = fbm2(world_px / max(biofield_rim_scale_px, 1.0) + vec2(-27.3, 8.1));

@@ -1,9 +1,10 @@
-[gd_scene load_steps=5 format=3]
+[gd_scene load_steps=6 format=3]
 
 [ext_resource type="Script" path="res://scenes/world/world_runtime_v0_scene.gd" id="1"]
 [ext_resource type="Script" path="res://core/systems/world/world_streamer.gd" id="2"]
 [ext_resource type="PackedScene" path="res://scenes/player/player.tscn" id="3"]
 [ext_resource type="Script" path="res://scenes/ui/hud/hud_manager.gd" id="4"]
+[ext_resource type="Script" path="res://core/systems/daylight/daylight_system.gd" id="5"]
 
 [node name="WorldRuntimeV0" type="Node2D"]
 script = ExtResource("1")
@@ -13,6 +14,9 @@ script = ExtResource("2")
 
 [node name="Player" parent="." instance=ExtResource("3")]
 position = Vector2(512, 512)
+
+[node name="Daylight" type="CanvasModulate" parent="."]
+script = ExtResource("5")
 
 [node name="HudLayer" type="CanvasLayer" parent="."]
 

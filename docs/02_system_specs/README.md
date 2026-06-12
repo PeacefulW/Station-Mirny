@@ -75,6 +75,7 @@ Current transition strategy:
 - [Mountain Generation V1](world/mountain_generation.md)
 - [Lake Generation V1](world/lake_generation.md) (draft)
 - [Terrain Hybrid Presentation](world/terrain_hybrid_presentation.md)
+- [Wind Runtime V0 and Grass Scatter Presentation](world/wind_and_grass_scatter_presentation.md) (draft)
 - [Runtime SDF Terrain Contours](world/runtime_sdf_terrain_contours.md) (draft)
 - [Runtime SDF Contours - Iteration 01 Generator Recipe Export](world/runtime_sdf_contours_iteration_01_generator_recipe_export.md) (draft)
 - [Runtime SDF Contours - Iteration 02 Native Contour Field](world/runtime_sdf_contours_iteration_02_native_contour_field.md) (draft)

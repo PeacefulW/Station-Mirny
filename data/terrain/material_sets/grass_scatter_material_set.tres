@@ -1,0 +1,41 @@
+[gd_resource type="Resource" script_class="TerrainMaterialSet" load_steps=3 format=3]
+
+[ext_resource type="Script" path="res://data/terrain/terrain_material_set.gd" id="1"]
+[ext_resource type="Texture2D" path="res://assets/textures/world/biomes/plains/flora/grass_tuft_atlas.png" id="2"]
+
+[resource]
+script = ExtResource("1")
+id = &"plains:grass_scatter_material"
+shader_family_id = &"terrain.grass_scatter"
+extra_textures = {
+&"grass_tuft_atlas": ExtResource("2")
+}
+sampling_params = {
+"alpha_max": 0.97,
+"alpha_min": 0.82,
+"atlas_columns": 4.0,
+"atlas_frame_count": 32.0,
+"atlas_rows": 8.0,
+"base_tint_max": 1.16,
+"base_tint_min": 0.8,
+"candidate_grid_side": 80.0,
+"density_scale": 1.35,
+"dry_frame_count": 16.0,
+"height_scale": 0.7,
+"instance_cap": 8192.0,
+"lod_full_zoom": 0.8,
+"lod_min_fraction": 1.0,
+"lod_min_zoom": 0.18,
+"orange_bank_high": 0.45,
+"orange_bank_low": 0.12,
+"orange_density_boost": 0.65,
+"orange_frame_base": 16.0,
+"orange_frame_count": 16.0,
+"orange_tint_boost": 0.18,
+"storm_lean_fraction": 0.35,
+"tuft_max_height_px": 52.0,
+"tuft_max_width_px": 58.0,
+"tuft_min_height_px": 30.0,
+"tuft_min_width_px": 34.0,
+"wind_sway_fraction": 0.085
+}

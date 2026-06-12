@@ -1,0 +1,381 @@
+#include "grass_scatter.h"
+
+#include "world_utils.h"
+
+#include <algorithm>
+#include <cmath>
+#include <vector>
+
+#include <godot_cpp/variant/string.hpp>
+#include <godot_cpp/variant/variant.hpp>
+
+using namespace godot;
+
+namespace grass_scatter {
+namespace {
+
+// --- GLSL field mirror -------------------------------------------------------
+// One formula, two transcriptions: these functions mirror the aperiodic world
+// fields of assets/shaders/ground_hybrid_material.gdshader. Any change to the
+// field math there must be mirrored here in the same task (spec law).
+
+struct Vec2 {
+	float x = 0.0f;
+	float y = 0.0f;
+};
+
+inline float fract_f(float p_value) {
+	return p_value - std::floor(p_value);
+}
+
+inline float clamp01(float p_value) {
+	return world_utils::saturate(p_value);
+}
+
+inline float smoothstep_f(float p_edge0, float p_edge1, float p_value) {
+	const float t = clamp01((p_value - p_edge0) / (p_edge1 - p_edge0));
+	return t * t * (3.0f - 2.0f * t);
+}
+
+inline float lerp_f(float p_from, float p_to, float p_weight) {
+	return p_from + (p_to - p_from) * p_weight;
+}
+
+inline float remap_contrast(float p_value, float p_amount) {
+	return clamp01((p_value - 0.5f) * p_amount + 0.5f);
+}
+
+inline float hash12(Vec2 p_point) {
+	float px = fract_f(p_point.x * 0.1031f);
+	float py = fract_f(p_point.y * 0.1031f);
+	float pz = px;
+	const float d = px * (py + 33.33f) + py * (pz + 33.33f) + pz * (px + 33.33f);
+	px += d;
+	py += d;
+	pz += d;
+	return fract_f((px + py) * pz);
+}
+
+inline Vec2 random_gradient(Vec2 p_point) {
+	const float hx = hash12(p_point) * 2.0f - 1.0f;
+	const float hy = hash12({ p_point.x + 17.31f, p_point.y - 41.77f }) * 2.0f - 1.0f;
+	const float gx = hx + 0.001f;
+	const float gy = hy - 0.001f;
+	const float len = std::sqrt(gx * gx + gy * gy);
+	if (len <= 0.000001f) {
+		return { 1.0f, 0.0f };
+	}
+	return { gx / len, gy / len };
+}
+
+inline float gradient_noise(Vec2 p_point) {
+	const float ix = std::floor(p_point.x);
+	const float iy = std::floor(p_point.y);
+	const float fx = p_point.x - ix;
+	const float fy = p_point.y - iy;
+	const float ux = fx * fx * fx * (fx * (fx * 6.0f - 15.0f) + 10.0f);
+	const float uy = fy * fy * fy * (fy * (fy * 6.0f - 15.0f) + 10.0f);
+	const Vec2 g00 = random_gradient({ ix, iy });
+	const Vec2 g10 = random_gradient({ ix + 1.0f, iy });
+	const Vec2 g01 = random_gradient({ ix, iy + 1.0f });
+	const Vec2 g11 = random_gradient({ ix + 1.0f, iy + 1.0f });
+	const float a = g00.x * fx + g00.y * fy;
+	const float b = g10.x * (fx - 1.0f) + g10.y * fy;
+	const float c = g01.x * fx + g01.y * (fy - 1.0f);
+	const float d = g11.x * (fx - 1.0f) + g11.y * (fy - 1.0f);
+	const float mixed = lerp_f(lerp_f(a, b, ux), lerp_f(c, d, ux), uy);
+	return clamp01(mixed * 1.42f * 0.5f + 0.5f);
+}
+
+inline float fbm3(Vec2 p_point) {
+	float value = 0.0f;
+	float amplitude = 0.56f;
+	float total = 0.0f;
+	Vec2 p = p_point;
+	for (int i = 0; i < 3; i++) {
+		value += gradient_noise(p) * amplitude;
+		total += amplitude;
+		p = { p.x * 2.07f + 17.1f, p.y * 2.07f - 9.4f };
+		amplitude *= 0.48f;
+	}
+	return value / std::max(total, 0.0001f);
+}
+
+inline float fbm2(Vec2 p_point) {
+	float value = 0.0f;
+	float amplitude = 0.60f;
+	float total = 0.0f;
+	Vec2 p = p_point;
+	for (int i = 0; i < 2; i++) {
+		value += gradient_noise(p) * amplitude;
+		total += amplitude;
+		p = { p.x * 2.11f - 13.7f, p.y * 2.11f + 21.3f };
+		amplitude *= 0.50f;
+	}
+	return value / std::max(total, 0.0001f);
+}
+
+struct FieldSample {
+	float grass_density = 0.0f;
+	float orange_region = 0.0f;
+};
+
+FieldSample sample_fields(float p_world_x, float p_world_y, const float *p_params) {
+	const Vec2 wp = { p_world_x, p_world_y };
+	const float warp_x = fbm2({ wp.x / 1800.0f + 11.7f, wp.y / 1800.0f - 4.3f }) - 0.5f;
+	const float warp_y = fbm2({ wp.x / 1650.0f - 7.9f, wp.y / 1650.0f + 23.1f }) - 0.5f;
+	const float jitter_x = fbm2({ wp.x / 420.0f + 53.0f, wp.y / 420.0f + 19.0f }) - 0.5f;
+	const float jitter_y = fbm2({ wp.x / 390.0f - 22.0f, wp.y / 390.0f + 67.0f }) - 0.5f;
+	const Vec2 organic = {
+		wp.x + warp_x * 660.0f + jitter_x * 170.0f,
+		wp.y + warp_y * 660.0f + jitter_y * 170.0f,
+	};
+
+	const float grass_scale = std::max(p_params[PARAM_GRASS_FIELD_SCALE_PX], 1.0f);
+	const float orange_scale = std::max(p_params[PARAM_ORANGE_FIELD_SCALE_PX], 1.0f);
+	const float rock_scale = std::max(p_params[PARAM_ROCK_FIELD_SCALE_PX], 1.0f);
+
+	float grass_field = remap_contrast(
+			fbm3({ organic.x / grass_scale + 4.7f, organic.y / grass_scale + 13.9f }), 2.10f);
+	grass_field = clamp01(grass_field + (p_params[PARAM_GRASS_COVERAGE] - 0.5f) * 0.9f);
+
+	const float orange_field = remap_contrast(
+			fbm3({ organic.x / orange_scale - 27.3f, organic.y / orange_scale + 8.1f }), 1.30f);
+	const float rock_field = fbm3({ organic.x / rock_scale + 15.5f, organic.y / rock_scale - 31.7f });
+
+	const float rock_threshold = lerp_f(0.86f, 0.52f, clamp01(p_params[PARAM_ROCK_COVERAGE]));
+	float rock_region = smoothstep_f(rock_threshold - 0.24f, rock_threshold + 0.24f, rock_field);
+	rock_region *= 1.0f - smoothstep_f(0.30f, 0.62f, grass_field) * 0.78f;
+
+	FieldSample sample;
+	sample.grass_density = clamp01(grass_field * (1.0f - rock_region * 0.85f));
+	const float orange_threshold = lerp_f(0.88f, 0.50f, clamp01(p_params[PARAM_ORANGE_COVERAGE]));
+	sample.orange_region = smoothstep_f(orange_threshold - 0.22f, orange_threshold + 0.22f, orange_field) *
+			smoothstep_f(0.44f, 0.80f, sample.grass_density);
+	return sample;
+}
+
+// Поля гладкие (характерные масштабы сотни‑тысячи px), поэтому семплируются
+// на грубой чанковой решётке и билинейно интерполируются по кандидатам:
+// прямой per-candidate sample_fields стоил ~7 мс на чанк в debug-сборке.
+constexpr int32_t FIELD_GRID_NODES = 13;
+
+struct FieldGrid {
+	float density[FIELD_GRID_NODES * FIELD_GRID_NODES] = {};
+	float orange[FIELD_GRID_NODES * FIELD_GRID_NODES] = {};
+	float step_px = 1.0f;
+};
+
+void build_field_grid(
+		double p_chunk_origin_x,
+		double p_chunk_origin_y,
+		float p_chunk_size_px,
+		const float *p_params,
+		FieldGrid &r_grid) {
+	r_grid.step_px = p_chunk_size_px / static_cast<float>(FIELD_GRID_NODES - 1);
+	for (int32_t node_y = 0; node_y < FIELD_GRID_NODES; node_y++) {
+		for (int32_t node_x = 0; node_x < FIELD_GRID_NODES; node_x++) {
+			const float world_x = static_cast<float>(p_chunk_origin_x) + static_cast<float>(node_x) * r_grid.step_px;
+			const float world_y = static_cast<float>(p_chunk_origin_y) + static_cast<float>(node_y) * r_grid.step_px;
+			const FieldSample sample = sample_fields(world_x, world_y, p_params);
+			const int32_t index = node_y * FIELD_GRID_NODES + node_x;
+			r_grid.density[index] = sample.grass_density;
+			r_grid.orange[index] = sample.orange_region;
+		}
+	}
+}
+
+FieldSample sample_field_grid(const FieldGrid &p_grid, float p_local_x, float p_local_y) {
+	const float gx = world_utils::clamp_value(p_local_x / p_grid.step_px, 0.0f, static_cast<float>(FIELD_GRID_NODES - 1) - 0.0001f);
+	const float gy = world_utils::clamp_value(p_local_y / p_grid.step_px, 0.0f, static_cast<float>(FIELD_GRID_NODES - 1) - 0.0001f);
+	const int32_t ix = static_cast<int32_t>(gx);
+	const int32_t iy = static_cast<int32_t>(gy);
+	const float fx = gx - static_cast<float>(ix);
+	const float fy = gy - static_cast<float>(iy);
+	const int32_t i00 = iy * FIELD_GRID_NODES + ix;
+	const int32_t i10 = i00 + 1;
+	const int32_t i01 = i00 + FIELD_GRID_NODES;
+	const int32_t i11 = i01 + 1;
+	FieldSample sample;
+	sample.grass_density = lerp_f(
+			lerp_f(p_grid.density[i00], p_grid.density[i10], fx),
+			lerp_f(p_grid.density[i01], p_grid.density[i11], fx),
+			fy);
+	sample.orange_region = lerp_f(
+			lerp_f(p_grid.orange[i00], p_grid.orange[i10], fx),
+			lerp_f(p_grid.orange[i01], p_grid.orange[i11], fx),
+			fy);
+	return sample;
+}
+
+// --- deterministic per-candidate hashing -------------------------------------
+
+inline uint64_t candidate_hash(int64_t p_seed, int64_t p_chunk_x, int64_t p_chunk_y, int64_t p_cell_index) {
+	uint64_t mixed = world_utils::splitmix64(static_cast<uint64_t>(p_seed) ^ 0x6772417353634154ULL);
+	mixed = world_utils::splitmix64(mixed ^ static_cast<uint64_t>(p_chunk_x) * 0x9e3779b185ebca87ULL);
+	mixed = world_utils::splitmix64(mixed ^ static_cast<uint64_t>(p_chunk_y) * 0xc2b2ae3d27d4eb4fULL);
+	return world_utils::splitmix64(mixed ^ static_cast<uint64_t>(p_cell_index) * 0x165667b19e3779f9ULL);
+}
+
+inline float hash_unit(uint64_t p_hash, uint64_t p_salt) {
+	return static_cast<float>(world_utils::splitmix64(p_hash ^ p_salt) >> 40U) / 16777216.0f;
+}
+
+} // namespace
+
+Dictionary build_buffer(
+		int64_t p_seed,
+		int64_t p_chunk_x,
+		int64_t p_chunk_y,
+		const PackedInt32Array &p_terrain_ids,
+		const PackedByteArray &p_lake_flags,
+		const PackedFloat32Array &p_params) {
+	Dictionary result;
+	result["multimesh_buffer"] = PackedFloat32Array();
+	result["instance_count"] = 0;
+	if (p_params.size() < PARAM_COUNT) {
+		result["error"] = "grass_scatter: params размер меньше PARAM_COUNT";
+		return result;
+	}
+	const float *params = p_params.ptr();
+	const int32_t chunk_size_tiles = static_cast<int32_t>(params[PARAM_CHUNK_SIZE_TILES]);
+	const float tile_size_px = params[PARAM_TILE_SIZE_PX];
+	const int32_t plains_terrain_id = static_cast<int32_t>(params[PARAM_PLAINS_TERRAIN_ID]);
+	const int32_t grid_side = std::max(1, static_cast<int32_t>(params[PARAM_CANDIDATE_GRID_SIDE]));
+	const int32_t instance_cap = std::max(0, static_cast<int32_t>(params[PARAM_INSTANCE_CAP]));
+	const int64_t cell_count = static_cast<int64_t>(chunk_size_tiles) * chunk_size_tiles;
+	if (chunk_size_tiles <= 0 || tile_size_px <= 0.0f) {
+		result["error"] = "grass_scatter: некорректные размеры чанка";
+		return result;
+	}
+	if (p_terrain_ids.size() < cell_count) {
+		result["error"] = "grass_scatter: terrain_ids меньше площади чанка";
+		return result;
+	}
+
+	const float chunk_size_px = static_cast<float>(chunk_size_tiles) * tile_size_px;
+	const float cell_px = chunk_size_px / static_cast<float>(grid_side);
+	const double chunk_origin_x = static_cast<double>(p_chunk_x) * chunk_size_px;
+	const double chunk_origin_y = static_cast<double>(p_chunk_y) * chunk_size_px;
+
+	const int32_t *terrain_ids = p_terrain_ids.ptr();
+	const uint8_t *lake_flags = p_lake_flags.size() >= cell_count ? p_lake_flags.ptr() : nullptr;
+
+	// Две корзины важности: крупные пучки уходят в голову буфера, мелкая
+	// деталь — в хвост; zoom-LOD режет хвост через visible_instance_count.
+	std::vector<float> large_bucket;
+	std::vector<float> small_bucket;
+	large_bucket.reserve(static_cast<size_t>(instance_cap) * 12U);
+	small_bucket.reserve(static_cast<size_t>(instance_cap) * 12U);
+	int32_t emitted = 0;
+	int32_t truncated = 0;
+
+	FieldGrid field_grid;
+	build_field_grid(chunk_origin_x, chunk_origin_y, chunk_size_px, params, field_grid);
+
+	const float dry_frame_count = std::max(params[PARAM_DRY_FRAME_COUNT], 1.0f);
+	const float orange_frame_base = std::max(params[PARAM_ORANGE_FRAME_BASE], 0.0f);
+	const float orange_frame_count = std::max(params[PARAM_ORANGE_FRAME_COUNT], 1.0f);
+	for (int32_t grid_y = 0; grid_y < grid_side && emitted < instance_cap; grid_y++) {
+		for (int32_t grid_x = 0; grid_x < grid_side; grid_x++) {
+			if (emitted >= instance_cap) {
+				truncated++;
+				continue;
+			}
+			const int64_t cell_index = static_cast<int64_t>(grid_y) * grid_side + grid_x;
+			const uint64_t hash = candidate_hash(p_seed, p_chunk_x, p_chunk_y, cell_index);
+			const float local_x = (static_cast<float>(grid_x) + 0.5f +
+					(hash_unit(hash, 0x11ULL) - 0.5f) * 0.92f) * cell_px;
+			const float local_y = (static_cast<float>(grid_y) + 0.5f +
+					(hash_unit(hash, 0x13ULL) - 0.5f) * 0.92f) * cell_px;
+
+			const int32_t tile_x = world_utils::clamp_value(
+					static_cast<int32_t>(local_x / tile_size_px), 0, chunk_size_tiles - 1);
+			const int32_t tile_y = world_utils::clamp_value(
+					static_cast<int32_t>(local_y / tile_size_px), 0, chunk_size_tiles - 1);
+			const int64_t tile_index = static_cast<int64_t>(tile_y) * chunk_size_tiles + tile_x;
+			if (terrain_ids[tile_index] != plains_terrain_id) {
+				continue;
+			}
+			if (lake_flags != nullptr && (lake_flags[tile_index] & 0x1U) != 0) {
+				continue;
+			}
+
+			const FieldSample fields = sample_field_grid(field_grid, local_x, local_y);
+
+			float acceptance = smoothstep_f(0.30f, 0.62f, fields.grass_density) * 0.34f +
+					smoothstep_f(0.62f, 0.86f, fields.grass_density) * 0.30f;
+			acceptance += fields.orange_region * params[PARAM_ORANGE_DENSITY_BOOST];
+			acceptance = clamp01(acceptance * params[PARAM_DENSITY_SCALE]);
+			if (hash_unit(hash, 0x17ULL) >= acceptance) {
+				continue;
+			}
+
+			const float size_unit = hash_unit(hash, 0x1dULL);
+			const float width = lerp_f(
+					params[PARAM_TUFT_MIN_WIDTH_PX],
+					params[PARAM_TUFT_MAX_WIDTH_PX],
+					size_unit);
+			const float height = lerp_f(
+						params[PARAM_TUFT_MIN_HEIGHT_PX],
+						params[PARAM_TUFT_MAX_HEIGHT_PX],
+						hash_unit(hash, 0x1fULL)) *
+					params[PARAM_HEIGHT_SCALE] * (1.0f + fields.orange_region * 0.15f);
+			const float rotation = (hash_unit(hash, 0x25ULL) - 0.5f) * 2.0f * (8.0f * 3.14159265f / 180.0f);
+			const float cos_r = std::cos(rotation);
+			const float sin_r = std::sin(rotation);
+
+			// Внутри биополя пучок берёт кадры оранжевого банка; окно отклика
+			// авторское: ground-поле orange_region редко превышает ~0.5, а
+			// земля читается оранжевой уже на слабых значениях.
+			const float biofield_pick = smoothstep_f(
+					params[PARAM_ORANGE_BANK_LOW], params[PARAM_ORANGE_BANK_HIGH], fields.orange_region);
+			const bool use_biofield_bank = hash_unit(hash, 0x35ULL) < biofield_pick;
+			float frame_index = 0.0f;
+			float tint = lerp_f(params[PARAM_BASE_TINT_MIN], params[PARAM_BASE_TINT_MAX], hash_unit(hash, 0x2bULL));
+			if (use_biofield_bank) {
+				frame_index = orange_frame_base + std::floor(hash_unit(hash, 0x29ULL) * orange_frame_count);
+			} else {
+				frame_index = std::floor(hash_unit(hash, 0x29ULL) * dry_frame_count);
+				tint *= 1.0f + fields.orange_region * params[PARAM_ORANGE_TINT_BOOST];
+			}
+			tint = world_utils::clamp_value(tint, 0.0f, 1.35f);
+			const float phase = hash_unit(hash, 0x2fULL);
+			const float alpha = lerp_f(params[PARAM_ALPHA_MIN], params[PARAM_ALPHA_MAX], hash_unit(hash, 0x31ULL));
+
+			// MultiMesh TRANSFORM_2D + color layout (verified by buffer dump):
+			// row0 = (x.x, y.x, 0, origin.x), row1 = (x.y, y.y, 0, origin.y).
+			std::vector<float> &bucket = size_unit >= 0.55f ? large_bucket : small_bucket;
+			const float instance[12] = {
+				cos_r * width,
+				-sin_r * height,
+				0.0f,
+				local_x,
+				sin_r * width,
+				cos_r * height,
+				0.0f,
+				local_y,
+				frame_index / 255.0f,
+				tint,
+				phase,
+				alpha,
+			};
+			bucket.insert(bucket.end(), instance, instance + 12);
+			emitted++;
+		}
+	}
+
+	PackedFloat32Array buffer;
+	buffer.resize(static_cast<int64_t>(emitted) * 12);
+	float *out = buffer.ptrw();
+	std::copy(large_bucket.begin(), large_bucket.end(), out);
+	std::copy(small_bucket.begin(), small_bucket.end(), out + large_bucket.size());
+	result["multimesh_buffer"] = buffer;
+	result["instance_count"] = emitted;
+	if (truncated > 0) {
+		result["truncated_count"] = truncated;
+	}
+	return result;
+}
+
+} // namespace grass_scatter

@@ -749,6 +749,46 @@ Current code notes:
   component
 - this result is not part of `ChunkPacketV1` and must not be persisted
 
+### `GrassScatterBufferResult`
+
+Returned by native
+`WorldCore.build_grass_scatter_buffer(seed, chunk_coord, terrain_ids, lake_flags, params)`.
+Governing spec:
+`docs/02_system_specs/world/wind_and_grass_scatter_presentation.md`.
+
+```text
+{
+  "multimesh_buffer": PackedFloat32Array,  # 12 floats per instance:
+                                           # row0 = (x.x, y.x, 0, origin.x),
+                                           # row1 = (x.y, y.y, 0, origin.y),
+                                           # color = (frame/255, tint, phase, alpha)
+  "instance_count": int,
+  "truncated_count": int,                  # present only when the authored
+                                           # instance cap dropped candidates
+  "error": String,                         # present only on contract violation
+}
+```
+
+Current code notes:
+- `params` is a packed float layout owned by `grass_scatter::ParamIndex`
+  (`gdextension/src/grass_scatter.h`): chunk geometry, the shared ground field
+  params (`grass/orange/rock` scale+coverage mirrored from the ground material
+  `sampling_params`), and grass-only authored knobs (grid, cap, sizes,
+  density/tint/alpha curves)
+- the buffer is presentation-only derived data assigned directly to a chunk
+  grass `MultiMesh`; it is never persisted and never enters `ChunkPacketV1`
+- placement is deterministic for the same seed, chunk, inputs, and params;
+  origins are chunk-local pixels (the grass layer node sits at the chunk
+  origin)
+- instances are importance-ordered (large tufts first, small detail last):
+  consumers may trim the tail via `MultiMesh.visible_instance_count` for zoom
+  LOD without rebuilding the buffer; trimming order is part of this contract
+- tufts inside strong `orange_region` pick frames from the biofield atlas
+  bank (`orange_frame_base..+orange_frame_count`), gated by the authored
+  `orange_bank_low/high` response window
+- an `error` key means the caller violated the input contract; consumers must
+  fail explicitly instead of masking it
+
 ## Not Currently Confirmed
 
 The current code still does not confirm packet fields for future biome,

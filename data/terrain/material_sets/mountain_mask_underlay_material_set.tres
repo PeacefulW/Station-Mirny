@@ -1,0 +1,52 @@
+[gd_resource type="Resource" script_class="TerrainMaterialSet" load_steps=9 format=3]
+
+[ext_resource type="Script" path="res://data/terrain/terrain_material_set.gd" id="1"]
+[ext_resource type="Texture2D" path="res://assets/textures/world/biomes/plains/mountain/rock_top_albedo.png" id="2"]
+[ext_resource type="Texture2D" path="res://assets/textures/world/biomes/plains/mountain/rock_face_albedo.png" id="3"]
+[ext_resource type="Texture2D" path="res://assets/textures/world/biomes/plains/mountain/rock_top_normal.png" id="4"]
+[ext_resource type="Texture2D" path="res://assets/textures/world/biomes/plains/mountain/rock_face_normal.png" id="5"]
+[ext_resource type="Texture2D" path="res://assets/textures/world/biomes/plains/mountain/foothill_albedo.png" id="6"]
+[ext_resource type="Texture2D" path="res://assets/textures/world/biomes/plains/mountain/foothill_normal.png" id="7"]
+[ext_resource type="Texture2D" path="res://assets/textures/world/biomes/plains/ground/rock_top_albedo.png" id="8"]
+
+[resource]
+script = ExtResource("1")
+id = &"mountain:mask_underlay_material"
+shader_family_id = &"terrain.mountain_mask_underlay"
+top_albedo = ExtResource("2")
+face_albedo = ExtResource("3")
+top_normal = ExtResource("4")
+face_normal = ExtResource("5")
+extra_textures = {
+&"foothill_albedo": ExtResource("6"),
+&"foothill_normal": ExtResource("7"),
+&"scree_albedo": ExtResource("8")
+}
+sampling_params = {
+"face_texture_scale": 0.46,
+"facade_height_px": 72.0,
+"texture_zoom": 0.7,
+"normal_strength": 0.48,
+"light_ambient": 0.58,
+"light_diffuse": 0.44,
+"mask_warp_px": 12.0,
+"side_shade_strength": 0.3,
+"side_shade_reach_px": 26.0,
+"roof_drift_scale_px": 5200.0,
+"roof_drift_strength": 0.12,
+"roof_vein_strength": 0.22,
+"terrace_strength": 1.0,
+"terrace_inner_px": 56.0,
+"terrace_upper_px": 124.0,
+"terrace_wobble_px": 22.0,
+"top_dust_tint": Color(0.9, 0.84, 0.76, 1),
+"cleft_color": Color(0.12, 0.045, 0.018, 1),
+"crack_color": Color(0.055, 0.026, 0.012, 1),
+"base_debris_color": Color(0.18, 0.075, 0.032, 1),
+"eave_shadow_color": Color(0.13, 0.052, 0.022, 1),
+"biofield_rim_color": Color(0.88, 0.42, 0.12, 1),
+"biofield_rim_strength": 1.0,
+"biofield_rim_scale_px": 1450.0,
+"overhang_px": 0.0,
+"base_outline_strength": 0.0
+}
