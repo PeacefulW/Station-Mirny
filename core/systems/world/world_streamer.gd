@@ -22,6 +22,7 @@ const WorldBoundsSettings = preload("res://core/resources/world_bounds_settings.
 const DefaultLakeGenSettings = preload("res://data/balance/lake_gen_settings.tres")
 
 const INVALID_CHUNK_COORD: Vector2i = Vector2i(2147483647, 2147483647)
+const LADDER_ANCHOR_UNSET: int = 1 << 30
 const MAX_SPAWN_RESULTS_PER_TICK: int = 1
 const PACKET_WORKER_COUNT: int = 3
 const MOUNTAIN_MASK_WORKER_COUNT: int = 3
@@ -56,7 +57,6 @@ const MOUNTAIN_NATIVE_MASK_RUNTIME_ENABLED: bool = true
 # contains both dry land and visible water, and its shader paints only the
 # organic contour band plus the bank facade, never the dry interior.
 const TERRAIN_EDGE_MASK_RUNTIME_ENABLED: bool = true
-const OBJECT_DEPTH_REFERENCE_QUANTUM_PX: float = 16.0
 # Same cross-chunk sampling-reach requirement as MOUNTAIN_HALO_MASK_RADIUS_TILES:
 # the shoreline underlay projects the same WorldVisualLightingProfile shadows.
 const TERRAIN_EDGE_HALO_MASK_RADIUS_TILES: int = 8
@@ -76,7 +76,9 @@ const PLAINS_VOLCANIC_ROCK_ATLAS: Texture2D = preload("res://assets/sprites/reso
 const PLAINS_RARE_ROCK_FORMATION_ATLAS: Texture2D = preload("res://assets/sprites/resources/atlases/plains_rare_rock_formation_atlas.png")
 const PLAINS_LIVING_FLORA_ENABLED: bool = false
 const PLAINS_LIVING_FLORA_ATLAS_PATH: String = "res://assets/sprites/flora/atlases/brown_seaweed_living_4views_16frames_256.png"
-const PLAINS_SPIKY_FLORA_ENABLED: bool = true
+# Спайки-колючки отключены по визуальному решению: идентичность биополя
+# несёт густой травяной слой (grass scatter), а не точечные растения.
+const PLAINS_SPIKY_FLORA_ENABLED: bool = false
 const PLAINS_SPIKY_FLORA_ATLAS_PATH: String = "res://assets/sprites/flora/atlases/orange_spiky_plant_spritesheet_4x512.png"
 const PLAINS_BROWN_SEAWEED_STATIC_FLORA_ATLAS_PATH: String = "res://assets/sprites/flora/atlases/brown_seaweed_static_biofield_4x512.png"
 # Mountain mask presentation textures and dressing are authored data, resolved
@@ -98,7 +100,6 @@ var _requested_chunks: Dictionary = { }
 var _pending_publish_queue: Array[Vector2i] = []
 var _active_publish_chunk: Vector2i = INVALID_CHUNK_COORD
 var _player_chunk_coord: Vector2i = INVALID_CHUNK_COORD
-var _object_depth_reference_world_y: float = INF
 var _current_stream_radius_chunks: int = WorldRuntimeConstants.STREAM_RADIUS_CHUNKS
 var _desired_source_chunk_coords: Array[Vector2i] = []
 var _desired_visible_chunk_coords: Array[Vector2i] = []
@@ -194,6 +195,7 @@ var _grass_lod_full_zoom: float = 0.8
 var _grass_lod_min_zoom: float = 0.18
 var _grass_lod_min_fraction: float = 0.35
 var _grass_lod_fraction: float = 1.0
+var _ladder_anchor_stripe: int = LADDER_ANCHOR_UNSET
 var _mountain_native_mask_visual_upload_count_total: int = 0
 var _mountain_native_mask_visual_upload_count_last_tick: int = 0
 var _mountain_native_mask_visual_upload_elapsed_ms_last: float = 0.0
@@ -798,7 +800,6 @@ func _streaming_tick() -> bool:
 	timing_step_usec = _record_streaming_step_timing(timing_records, "wrap", timing_step_usec)
 	_update_player_chunk_coord()
 	timing_step_usec = _record_streaming_step_timing(timing_records, "player_chunk", timing_step_usec)
-	_sync_object_depth_sort_reference_from_player()
 	timing_step_usec = _record_streaming_step_timing(timing_records, "object_depth", timing_step_usec)
 	_begin_mountain_native_mask_tick_metrics()
 	_enqueue_desired_chunks()
@@ -1042,6 +1043,8 @@ func _mountain_native_mask_visual_apply_tick() -> bool:
 			continue
 		var object_started: int = WorldPerfProbe.begin()
 		var object_applied: bool = chunk_view.apply_pending_object_packet_visual()
+		if object_applied and _ladder_anchor_stripe != LADDER_ANCHOR_UNSET:
+			chunk_view.update_mid_ladder_z(_ladder_anchor_stripe)
 		WorldPerfProbe.end("WorldStreamer.visual_upload.object_packet", object_started)
 		if object_applied and Time.get_ticks_usec() - tick_started_usec >= budget_usec:
 			return false
@@ -1061,6 +1064,8 @@ func _mountain_native_mask_visual_apply_tick() -> bool:
 		)
 		if grass_applied:
 			chunk_view.set_grass_scatter_lod_fraction(_grass_lod_fraction)
+			if _ladder_anchor_stripe != LADDER_ANCHOR_UNSET:
+				chunk_view.update_mid_ladder_z(_ladder_anchor_stripe)
 		WorldPerfProbe.end("WorldStreamer.visual_upload.grass_scatter", grass_started)
 		if grass_applied and Time.get_ticks_usec() - tick_started_usec >= budget_usec:
 			return false
@@ -1091,11 +1096,31 @@ func _update_player_chunk_coord() -> void:
 		_current_stream_radius_chunks = next_radius
 		_rebuild_desired_chunk_cache()
 	_update_grass_scatter_lod()
+	_update_mid_ladder_anchor()
 
 
 ## Zoom-LOD травы: буфер чанка отсортирован native-кодом по важности (крупные
 ## пучки в голове), поэтому дальний зум режет хвост мелочи одним числом —
 ## visible_instance_count — без пересборки буфера.
+## Якорь player-relative depth-лесенки: полоса ног игрока. При смене полосы
+## (раз в DEPTH_STRIPE_PX пути по Y) все чанки переставляют z своих mid-полос
+## — это только присваивания z существующим нодам, без пересборки буферов.
+func _update_mid_ladder_anchor() -> void:
+	var player: Player = PlayerAuthority.get_local_player()
+	if player == null:
+		return
+	var anchor_stripe: int = WorldRuntimeConstants.depth_stripe_for_world_y(
+		player.global_position.y + Player.PLAYER_FEET_OFFSET_PX,
+	)
+	if anchor_stripe == _ladder_anchor_stripe:
+		return
+	_ladder_anchor_stripe = anchor_stripe
+	for chunk_view_variant: Variant in _chunk_views.values():
+		var chunk_view: ChunkView = chunk_view_variant as ChunkView
+		if chunk_view != null:
+			chunk_view.update_mid_ladder_z(anchor_stripe)
+
+
 func _update_grass_scatter_lod() -> void:
 	var camera: Camera2D = get_viewport().get_camera_2d()
 	if camera == null or not is_instance_valid(camera):
@@ -1830,8 +1855,6 @@ func _ensure_chunk_view(chunk_coord: Vector2i) -> ChunkView:
 	chunk_view.set_plains_rock_scatter_sources(_plains_rock_scatter_atlases)
 	chunk_view.set_living_flora_source(_plains_living_flora_atlas)
 	chunk_view.set_spiky_flora_sources(_plains_spiky_flora_atlases)
-	if not is_inf(_object_depth_reference_world_y):
-		chunk_view.apply_object_depth_sort_reference(_object_depth_reference_world_y)
 	chunk_view.apply_sun_lighting(
 		_sun_light_angle_deg,
 		_sun_shadow_length_px,
@@ -1843,29 +1866,13 @@ func _ensure_chunk_view(chunk_coord: Vector2i) -> ChunkView:
 	return chunk_view
 
 
-func _sync_object_depth_sort_reference_from_player() -> void:
-	var player: Player = PlayerAuthority.get_local_player()
-	if player == null:
-		return
-	var reference_y: float = floorf(player.global_position.y / OBJECT_DEPTH_REFERENCE_QUANTUM_PX) \
-			* OBJECT_DEPTH_REFERENCE_QUANTUM_PX
-	if is_equal_approx(reference_y, _object_depth_reference_world_y):
-		return
-	_object_depth_reference_world_y = reference_y
-	for chunk_view_variant: Variant in _chunk_views.values():
-		var chunk_view: ChunkView = chunk_view_variant as ChunkView
-		if chunk_view == null:
-			continue
-		chunk_view.apply_object_depth_sort_reference(_object_depth_reference_world_y)
-
-
 func _ensure_mining_feedback_layer() -> MiningFeedbackLayer:
 	if _mining_feedback_layer != null and is_instance_valid(_mining_feedback_layer):
 		return _mining_feedback_layer
 	_mining_feedback_layer = MiningFeedbackLayer.new()
 	_mining_feedback_layer.name = "MiningFeedbackLayer"
 	_mining_feedback_layer.z_as_relative = false
-	_mining_feedback_layer.z_index = 12
+	_mining_feedback_layer.z_index = WorldRuntimeConstants.Z_MINING_FEEDBACK
 	add_child(_mining_feedback_layer)
 	return _mining_feedback_layer
 

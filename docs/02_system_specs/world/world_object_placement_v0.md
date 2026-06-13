@@ -327,9 +327,12 @@ Required direction:
   not per-frame CPU buffer rebuilds;
 - contact-shadow, dynamic sun-shadow, or wind changes update shader uniforms,
   not per-object CPU geometry;
-- depth ordering may use bounded depth buckets per chunk, including a bounded
-  player-reference split for object/player occlusion, but not one node per
-  object;
+- depth ordering uses the shared player-relative mid-layer depth ladder
+  (`WorldRuntimeConstants.DEPTH_STRIPE_PX` / `DEPTH_STRIPES_PER_CHUNK`,
+  anchor owned by `WorldStreamer`): bounded sparse per-stripe batch layers
+  interleaved with the grass scatter stripes, the player constant at the
+  ladder center — not one node per object, no periodic stripe classes, no
+  separate player-reference split;
 - source textures are preloaded or boot-prepared before runtime publish;
 - `ChunkView` may host the batch helper, but it must not compute canonical
   placement truth.

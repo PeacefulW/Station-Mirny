@@ -143,10 +143,10 @@ var _spiky_flora_atlases: Array[Texture2D] = []
 var _object_packet_layer: WorldObjectPacketLayer = null
 var _object_packet_visual_dirty: bool = false
 var _pending_object_packet_visual: Dictionary = { }
-var _grass_scatter_layer: MultiMeshInstance2D = null
+var _grass_scatter_layers: Array[MultiMeshInstance2D] = []
 var _grass_scatter_visual_dirty: bool = false
-var _object_depth_reference_enabled: bool = false
-var _object_depth_reference_world_y: float = 0.0
+const LADDER_ANCHOR_UNSET: int = 1 << 30
+var _applied_ladder_anchor_stripe: int = LADDER_ANCHOR_UNSET
 var _mountain_page_hit_mask: PackedByteArray = PackedByteArray()
 var _mountain_page_hit_mask_width: int = 0
 var _mountain_page_hit_mask_height: int = 0
@@ -220,6 +220,8 @@ func apply_pending_object_packet_visual() -> bool:
 	_pending_object_packet_visual = { }
 	_object_packet_visual_dirty = false
 	_sync_object_packet_visual(packet)
+	# Свежие decor-ноды должны получить z лесенки при следующем апдейте.
+	_applied_ladder_anchor_stripe = LADDER_ANCHOR_UNSET
 	return true
 
 
@@ -249,55 +251,93 @@ func apply_pending_grass_scatter_visual(
 		"build_grass_scatter_buffer failed: %s" % str(result.get("error", "")),
 	)
 	var instance_count: int = int(result.get("instance_count", 0))
-	if instance_count <= 0:
-		if _grass_scatter_layer != null and is_instance_valid(_grass_scatter_layer):
-			_grass_scatter_layer.visible = false
-			_grass_scatter_layer.multimesh = null
-		return true
-	var buffer: PackedFloat32Array = result.get("multimesh_buffer", PackedFloat32Array()) as PackedFloat32Array
-	var layer: MultiMeshInstance2D = _ensure_grass_scatter_layer(grass_atlas, grass_material)
-	var multimesh: MultiMesh = layer.multimesh
-	if multimesh == null or multimesh.instance_count != instance_count:
-		multimesh = MultiMesh.new()
-		var quad := QuadMesh.new()
-		quad.size = Vector2.ONE
-		multimesh.mesh = quad
-		multimesh.transform_format = MultiMesh.TRANSFORM_2D
-		multimesh.use_colors = true
-		multimesh.instance_count = instance_count
-		layer.multimesh = multimesh
-	# Один bounded вызов на чанк: native уже отдал готовый interleaved буфер.
-	multimesh.buffer = buffer
-	layer.visible = true
+	var bucket_buffers: Array = result.get("bucket_buffers", []) as Array
+	_ensure_grass_scatter_layer_slots()
+	for stripe_index: int in range(_grass_scatter_layers.size()):
+		var layer: MultiMeshInstance2D = _grass_scatter_layers[stripe_index]
+		var buffer: PackedFloat32Array = PackedFloat32Array()
+		if instance_count > 0 and stripe_index < bucket_buffers.size():
+			buffer = bucket_buffers[stripe_index] as PackedFloat32Array
+		var stripe_count: int = buffer.size() / 12
+		if stripe_count <= 0:
+			if layer != null and is_instance_valid(layer):
+				layer.visible = false
+				layer.multimesh = null
+			continue
+		if layer == null or not is_instance_valid(layer):
+			layer = _create_grass_scatter_layer(stripe_index, grass_atlas, grass_material)
+			_grass_scatter_layers[stripe_index] = layer
+		var multimesh: MultiMesh = layer.multimesh
+		if multimesh == null or multimesh.instance_count != stripe_count:
+			multimesh = MultiMesh.new()
+			var quad := QuadMesh.new()
+			quad.size = Vector2.ONE
+			multimesh.mesh = quad
+			multimesh.transform_format = MultiMesh.TRANSFORM_2D
+			multimesh.use_colors = true
+			multimesh.instance_count = stripe_count
+			layer.multimesh = multimesh
+		# Bounded apply: native уже отдал готовые interleaved буферы полос.
+		multimesh.buffer = buffer
+		layer.visible = true
+	# Свежие полосы должны получить z лесенки даже при неизменном якоре.
+	var anchor_to_reapply: int = _applied_ladder_anchor_stripe
+	_applied_ladder_anchor_stripe = LADDER_ANCHOR_UNSET
+	if anchor_to_reapply != LADDER_ANCHOR_UNSET:
+		update_mid_ladder_z(anchor_to_reapply)
 	return true
 
 
-## Zoom-LOD: native кладёт крупные пучки в голову буфера, поэтому доля
-## видимых инстансов режет только хвост мелкой детали.
+## Перестановка всех mid-полос чанка (трава + объектный декор) на
+## player-relative depth-лесенке. Дёшево: присваивания z существующим нодам.
+func update_mid_ladder_z(anchor_stripe: int) -> void:
+	if anchor_stripe == _applied_ladder_anchor_stripe:
+		return
+	_applied_ladder_anchor_stripe = anchor_stripe
+	var chunk_stripe_base: int = floori(position.y / float(WorldRuntimeConstants.DEPTH_STRIPE_PX))
+	for stripe_index: int in range(_grass_scatter_layers.size()):
+		var layer: MultiMeshInstance2D = _grass_scatter_layers[stripe_index]
+		if layer == null or not is_instance_valid(layer):
+			continue
+		layer.z_index = WorldRuntimeConstants.z_for_stripe_vs_anchor(
+			chunk_stripe_base + stripe_index,
+			anchor_stripe,
+			false,
+		)
+	if _object_packet_layer != null and is_instance_valid(_object_packet_layer):
+		_object_packet_layer.update_ladder_z(anchor_stripe)
+
+
+## Zoom-LOD: внутри каждой полосы native кладёт крупные пучки в голову,
+## поэтому доля видимых инстансов режет только хвост мелкой детали.
 func set_grass_scatter_lod_fraction(fraction: float) -> void:
-	if _grass_scatter_layer == null or not is_instance_valid(_grass_scatter_layer):
-		return
-	var multimesh: MultiMesh = _grass_scatter_layer.multimesh
-	if multimesh == null or multimesh.instance_count <= 0:
-		return
-	multimesh.visible_instance_count = clampi(
-		ceili(float(multimesh.instance_count) * clampf(fraction, 0.0, 1.0)),
-		0,
-		multimesh.instance_count,
-	)
+	for layer: MultiMeshInstance2D in _grass_scatter_layers:
+		if layer == null or not is_instance_valid(layer):
+			continue
+		var multimesh: MultiMesh = layer.multimesh
+		if multimesh == null or multimesh.instance_count <= 0:
+			continue
+		multimesh.visible_instance_count = clampi(
+			ceili(float(multimesh.instance_count) * clampf(fraction, 0.0, 1.0)),
+			0,
+			multimesh.instance_count,
+		)
 
 
 func get_grass_scatter_debug_state() -> Dictionary:
 	var instance_count: int = 0
 	var visible_instance_count: int = 0
 	var layer_visible: bool = false
-	if _grass_scatter_layer != null and is_instance_valid(_grass_scatter_layer):
-		layer_visible = _grass_scatter_layer.visible
-		if _grass_scatter_layer.multimesh != null:
-			instance_count = _grass_scatter_layer.multimesh.instance_count
-			visible_instance_count = _grass_scatter_layer.multimesh.visible_instance_count
-			if visible_instance_count < 0:
-				visible_instance_count = instance_count
+	for layer: MultiMeshInstance2D in _grass_scatter_layers:
+		if layer == null or not is_instance_valid(layer) or layer.multimesh == null:
+			continue
+		if layer.visible:
+			layer_visible = true
+		instance_count += layer.multimesh.instance_count
+		var layer_visible_count: int = layer.multimesh.visible_instance_count
+		if layer_visible_count < 0:
+			layer_visible_count = layer.multimesh.instance_count
+		visible_instance_count += layer_visible_count
 	return {
 		"instance_count": instance_count,
 		"visible_instance_count": visible_instance_count,
@@ -306,19 +346,23 @@ func get_grass_scatter_debug_state() -> Dictionary:
 	}
 
 
-func _ensure_grass_scatter_layer(grass_atlas: Texture2D, grass_material: ShaderMaterial) -> MultiMeshInstance2D:
-	if _grass_scatter_layer != null and is_instance_valid(_grass_scatter_layer):
-		return _grass_scatter_layer
-	_grass_scatter_layer = MultiMeshInstance2D.new()
-	_grass_scatter_layer.name = "GrassScatterBatch"
-	# Низкая трава: над землёй и блоб-оверлеями, под объектным декором и
-	# игроком; depth-бакеты ей не нужны.
-	_grass_scatter_layer.z_index = 3
-	_grass_scatter_layer.texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS
-	_grass_scatter_layer.texture = grass_atlas
-	_grass_scatter_layer.material = grass_material
-	add_child(_grass_scatter_layer)
-	return _grass_scatter_layer
+func _ensure_grass_scatter_layer_slots() -> void:
+	while _grass_scatter_layers.size() < WorldRuntimeConstants.DEPTH_STRIPES_PER_CHUNK:
+		_grass_scatter_layers.append(null)
+
+
+func _create_grass_scatter_layer(
+		stripe_index: int,
+		grass_atlas: Texture2D,
+		grass_material: ShaderMaterial,
+) -> MultiMeshInstance2D:
+	var layer := MultiMeshInstance2D.new()
+	layer.name = "GrassScatterBatchB%d" % stripe_index
+	layer.texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS
+	layer.texture = grass_atlas
+	layer.material = grass_material
+	add_child(layer)
+	return layer
 
 
 func apply_next_batch(batch_size: int) -> bool:
@@ -456,12 +500,6 @@ func set_spiky_flora_sources(atlases: Array[Texture2D]) -> void:
 	_spiky_flora_atlases = atlases.duplicate()
 	if _object_packet_layer != null and is_instance_valid(_object_packet_layer):
 		_object_packet_layer.set_spiky_flora_atlases(_spiky_flora_atlases)
-
-
-func apply_object_depth_sort_reference(reference_world_y: float) -> void:
-	_object_depth_reference_enabled = true
-	_object_depth_reference_world_y = reference_world_y
-	_apply_object_depth_sort_reference_to_layer()
 
 
 func apply_contour_debug_data(
@@ -1584,7 +1622,7 @@ func _ensure_mountain_page_sprite() -> Sprite2D:
 	_mountain_page_sprite.centered = false
 	_mountain_page_sprite.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
 	_mountain_page_sprite.z_as_relative = false
-	_mountain_page_sprite.z_index = 8
+	_mountain_page_sprite.z_index = WorldRuntimeConstants.Z_MOUNTAIN_PAGE
 	add_child(_mountain_page_sprite)
 	return _mountain_page_sprite
 
@@ -1684,7 +1722,7 @@ func _ensure_mountain_top_mask_sprite() -> Sprite2D:
 	_mountain_top_mask_sprite.centered = false
 	_mountain_top_mask_sprite.texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR
 	_mountain_top_mask_sprite.z_as_relative = false
-	_mountain_top_mask_sprite.z_index = 7
+	_mountain_top_mask_sprite.z_index = WorldRuntimeConstants.Z_MOUNTAIN_TOP
 	add_child(_mountain_top_mask_sprite)
 	return _mountain_top_mask_sprite
 
@@ -2118,7 +2156,7 @@ func _sync_object_packet_visual(packet: Dictionary) -> void:
 	layer.set_rock_atlases(_rock_scatter_atlases)
 	layer.set_living_flora_atlas(_living_flora_atlas)
 	layer.set_spiky_flora_atlases(_spiky_flora_atlases)
-	_apply_object_depth_sort_reference_to_layer()
+	_object_packet_layer.set_world_origin_y(position.y)
 	layer.configure_packet(packet)
 	_apply_sun_lighting_to_object_packet_layer()
 
@@ -2132,24 +2170,13 @@ func _ensure_object_packet_layer() -> WorldObjectPacketLayer:
 	_object_packet_layer.z_index = 0
 	_object_packet_layer.texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS
 	add_child(_object_packet_layer)
-	_apply_object_depth_sort_reference_to_layer()
+	_object_packet_layer.set_world_origin_y(position.y)
 	return _object_packet_layer
 
 
 func _clear_object_packet_visual() -> void:
 	if _object_packet_layer != null and is_instance_valid(_object_packet_layer):
 		_object_packet_layer.visible = false
-
-
-func _apply_object_depth_sort_reference_to_layer() -> void:
-	if not _object_depth_reference_enabled \
-			or _object_packet_layer == null \
-			or not is_instance_valid(_object_packet_layer):
-		return
-	_object_packet_layer.set_depth_sort_reference(
-		WorldRuntimeConstants.chunk_origin_px(chunk_coord).y,
-		_object_depth_reference_world_y,
-	)
 
 
 func _ensure_roof_layer(mountain_id: int, terrain_id: int) -> TileMapLayer:
@@ -2161,7 +2188,7 @@ func _ensure_roof_layer(mountain_id: int, terrain_id: int) -> TileMapLayer:
 	layer.name = "RoofLayer_%d_%s" % [mountain_id, _get_roof_terrain_name(roof_terrain_id)]
 	layer.tile_set = WorldTileSetFactory.get_roof_tile_set(roof_terrain_id)
 	layer.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
-	layer.z_index = 10
+	layer.z_index = WorldRuntimeConstants.Z_DEBUG_OVERLAY
 	layer.material = _build_roof_material(mountain_id, roof_terrain_id)
 	add_child(layer)
 	terrain_layers[roof_terrain_id] = layer

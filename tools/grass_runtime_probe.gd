@@ -114,10 +114,13 @@ func _run() -> void:
 	var hidden_layers: Array[MultiMeshInstance2D] = []
 	for chunk_view_variant: Variant in _streamer._chunk_views.values():
 		var chunk_view: Node = chunk_view_variant as Node
-		var layer: MultiMeshInstance2D = chunk_view.get_node_or_null("GrassScatterBatch") as MultiMeshInstance2D
-		if layer != null and layer.visible:
-			layer.visible = false
-			hidden_layers.append(layer)
+		for child: Node in chunk_view.get_children():
+			if not str(child.name).begins_with("GrassScatterBatchB"):
+				continue
+			var layer: MultiMeshInstance2D = child as MultiMeshInstance2D
+			if layer != null and layer.visible:
+				layer.visible = false
+				hidden_layers.append(layer)
 	await _wait_frames(4)
 	var without_grass: Image = await _capture()
 	for layer: MultiMeshInstance2D in hidden_layers:
@@ -144,6 +147,29 @@ func _run() -> void:
 		var img: Image = await _capture()
 		img.save_png("%s/dense_zoom_%03d.png" % [OUTPUT_DIR, int(zoom * 100.0)])
 		print("grass_runtime_probe: saved dense_zoom_%03d.png" % int(zoom * 100.0))
+
+	# --- depth-перекрытие: камень в густой траве крупным планом ---
+	var rock_world: Vector2 = _find_rock_in_grass()
+	if rock_world != Vector2.INF:
+		player.global_position = rock_world
+		_streamer._update_player_chunk_coord()
+		camera.zoom = Vector2(1.6, 1.6)
+		camera.set("_target_zoom", 1.6)
+		await _stream_until_stable()
+		_streamer._sync_sun_lighting_from_time(true)
+		camera.force_update_scroll()
+		await _wait_frames(10)
+		var overlap_img: Image = await _capture()
+		overlap_img.save_png("%s/overlap_rock_closeup.png" % OUTPUT_DIR)
+		var crop_size := Vector2i(420, 300)
+		var crop_origin := Vector2i(
+			(overlap_img.get_width() - crop_size.x) / 2,
+			(overlap_img.get_height() - crop_size.y) / 2,
+		)
+		overlap_img.get_region(Rect2i(crop_origin, crop_size)).save_png(
+			"%s/overlap_rock_crop.png" % OUTPUT_DIR,
+		)
+		print("grass_runtime_probe: saved overlap_rock_closeup.png at %s" % str(rock_world))
 
 	# --- zoom-LOD: на дальнем зуме хвост мелких пучков скрыт без пересборки ---
 	player.global_position = home
@@ -196,6 +222,29 @@ func _capture() -> Image:
 func _wait_frames(count: int) -> void:
 	for _frame: int in range(count):
 		await process_frame
+
+
+# Первый камень в чанке с плотной травой: точка для кадра перекрытия.
+func _find_rock_in_grass() -> Vector2:
+	for chunk_coord_variant: Variant in _streamer._chunk_views.keys():
+		var chunk_coord: Vector2i = chunk_coord_variant as Vector2i
+		var chunk_view: Node = _streamer._chunk_views[chunk_coord] as Node
+		var grass_state: Dictionary = chunk_view.get_grass_scatter_debug_state()
+		if int(grass_state.get("instance_count", 0)) < 800:
+			continue
+		var packet: Dictionary = _streamer._chunk_packets.get(chunk_coord, { }) as Dictionary
+		var kinds: PackedByteArray = packet.get("object_kind", PackedByteArray()) as PackedByteArray
+		var xs: PackedByteArray = packet.get("object_local_x_px_q4", PackedByteArray()) as PackedByteArray
+		var ys: PackedByteArray = packet.get("object_local_y_px_q4", PackedByteArray()) as PackedByteArray
+		for index: int in range(kinds.size()):
+			if int(kinds[index]) != 1:
+				continue
+			var local := Vector2(
+				float(int(xs[index])) * 4.0 + 2.0,
+				float(int(ys[index])) * 4.0 + 2.0,
+			)
+			return WorldRuntimeConstants.chunk_origin_px(chunk_coord) + local
+	return Vector2.INF
 
 
 func _stream_until_stable() -> void:

@@ -18,15 +18,17 @@ const BUFFER_WIND_AMPLITUDE: int = 9
 const BUFFER_WIND_PHASE: int = 10
 const BUFFER_SHADOW_SCALE: int = 11
 
-const DEPTH_BUCKET_COUNT: int = 8
+const WorldRuntimeConstants = preload("res://core/systems/world/world_runtime_constants.gd")
+
+# Полосы — абсолютные chunk-local stripes depth-лесенки; z назначается
+# относительно якорной полосы игрока (update_ladder_z), без периодики.
+const DEPTH_STRIPE_COUNT: int = WorldRuntimeConstants.DEPTH_STRIPES_PER_CHUNK
+const LADDER_ANCHOR_UNSET: int = 1 << 30
 const DEFAULT_ATLAS_COLUMNS: int = 8
 const DEFAULT_ATLAS_ROWS: int = 4
 const DEFAULT_ATLAS_FRAME_COUNT: int = 32
 const FRAME_COLOR_SCALE: float = 255.0
 const CONTACT_SHADOW_Z_INDEX: int = 4
-const DECOR_SPRITE_Z_INDEX: int = 5
-const DECOR_SPRITE_BEHIND_PLAYER_Z_INDEX: int = 5
-const DECOR_SPRITE_FRONT_PLAYER_Z_INDEX: int = 7
 const CONTACT_SHADOW_BASE_OPACITY: float = 0.30
 const CONTACT_SHADOW_SUN_OPACITY_SCALE: float = 0.08
 const CONTACT_SHADOW_MAX_OPACITY: float = 0.40
@@ -44,9 +46,9 @@ var _atlas_frame_count: int = DEFAULT_ATLAS_FRAME_COUNT
 var _chunk_size_px: float = 1024.0
 var _animation_frames_per_group: int = 1
 var _animation_fps: float = 0.0
-var _depth_reference_enabled: bool = false
-var _depth_chunk_origin_y: float = 0.0
-var _depth_reference_world_y: float = 0.0
+var _world_origin_y: float = 0.0
+var _applied_anchor_stripe: int = LADDER_ANCHOR_UNSET
+
 
 func set_atlas_layout(columns: int, rows: int, frame_count: int) -> void:
 	_atlas_columns = maxi(1, columns)
@@ -54,40 +56,47 @@ func set_atlas_layout(columns: int, rows: int, frame_count: int) -> void:
 	_atlas_frame_count = maxi(1, frame_count)
 	_update_sprite_material_layouts()
 
+
 func set_chunk_size_px(chunk_size_px: float) -> void:
 	_chunk_size_px = maxf(1.0, chunk_size_px)
-	_update_sprite_layer_depth_indices()
 
-func set_depth_sort_reference(chunk_origin_world_y: float, reference_world_y: float) -> void:
-	_depth_reference_enabled = true
-	_depth_chunk_origin_y = chunk_origin_world_y
-	_depth_reference_world_y = reference_world_y
-	_update_sprite_layer_depth_indices()
+
+## Мировой Y начала локальных координат буферов: даёт мировую полосу
+## (chunk_stripe_base + локальная полоса) для z-лесенки.
+func set_world_origin_y(world_origin_y: float) -> void:
+	_world_origin_y = world_origin_y
+
 
 func set_animation(frames_per_group: int, fps: float) -> void:
 	_animation_frames_per_group = maxi(1, frames_per_group)
 	_animation_fps = maxf(0.0, fps)
 	_update_sprite_material_layouts()
 
+
 func clear_batches() -> void:
 	_instance_count = 0
 	_shadow_instance_count = 0
 	visible = false
 	for layer_group: Array in _sprite_layers_by_atlas:
-		for layer: MultiMeshInstance2D in layer_group:
-			layer.visible = false
-			layer.multimesh = null
+		for layer_variant: Variant in layer_group:
+			var layer: MultiMeshInstance2D = layer_variant as MultiMeshInstance2D
+			if layer != null and is_instance_valid(layer):
+				layer.visible = false
+				layer.multimesh = null
 	if _shadow_layer != null and is_instance_valid(_shadow_layer):
 		_shadow_layer.visible = false
 		_shadow_layer.multimesh = null
 
+
 func set_batches(
-	atlases: Array[Texture2D],
-	instance_buffers_by_atlas: Array,
-	shadow_buffer: PackedFloat32Array
+		atlases: Array[Texture2D],
+		instance_buffers_by_atlas: Array,
+		shadow_buffer: PackedFloat32Array,
 ) -> void:
 	_instance_count = 0
 	_shadow_instance_count = _buffer_instance_count(shadow_buffer)
+	# Свежесозданные полосы-ноды должны получить z даже при неизменном якоре.
+	_applied_anchor_stripe = LADDER_ANCHOR_UNSET
 	_sync_shadow_batch(shadow_buffer)
 	for atlas_index: int in range(maxi(_sprite_layers_by_atlas.size(), atlases.size())):
 		if atlas_index >= atlases.size():
@@ -100,11 +109,31 @@ func set_batches(
 		_sync_sprite_atlas_batch(atlas_index, atlas, buffer)
 	visible = _instance_count > 0 or _shadow_instance_count > 0
 
+
+## Перестановка полос на player-relative depth-лесенке. Дёшево: только
+## присваивания z существующим (непустым) полосам-нодам.
+func update_ladder_z(anchor_stripe: int) -> void:
+	if anchor_stripe == _applied_anchor_stripe:
+		return
+	_applied_anchor_stripe = anchor_stripe
+	var chunk_stripe_base: int = floori(_world_origin_y / float(WorldRuntimeConstants.DEPTH_STRIPE_PX))
+	for layer_group: Array in _sprite_layers_by_atlas:
+		for stripe_index: int in range(layer_group.size()):
+			var layer: MultiMeshInstance2D = layer_group[stripe_index] as MultiMeshInstance2D
+			if layer == null or not is_instance_valid(layer):
+				continue
+			layer.z_index = WorldRuntimeConstants.z_for_stripe_vs_anchor(
+				chunk_stripe_base + stripe_index,
+				anchor_stripe,
+				true,
+			)
+
+
 func set_sun_lighting(
-	light_angle_deg: float,
-	shadow_length_px: float,
-	shadow_opacity: float,
-	shadow_softness_px: float
+		light_angle_deg: float,
+		shadow_length_px: float,
+		shadow_opacity: float,
+		shadow_softness_px: float,
 ) -> void:
 	var material: ShaderMaterial = _ensure_shadow_material()
 	material.set_shader_parameter("shadow_angle_rad", deg_to_rad(light_angle_deg + 180.0))
@@ -114,23 +143,28 @@ func set_sun_lighting(
 		clampf(
 			CONTACT_SHADOW_BASE_OPACITY + shadow_opacity * CONTACT_SHADOW_SUN_OPACITY_SCALE,
 			0.0,
-			CONTACT_SHADOW_MAX_OPACITY
-		)
+			CONTACT_SHADOW_MAX_OPACITY,
+		),
 	)
 	material.set_shader_parameter("shadow_softness_px", maxf(1.0, shadow_softness_px))
+
 
 func set_wind(wind_time: float, wind_direction: Vector2, wind_strength_px: float) -> void:
 	var safe_direction: Vector2 = wind_direction.normalized()
 	if safe_direction == Vector2.ZERO:
 		safe_direction = Vector2.RIGHT
 	for layer_group: Array in _sprite_layers_by_atlas:
-		for layer: MultiMeshInstance2D in layer_group:
+		for layer_variant: Variant in layer_group:
+			var layer: MultiMeshInstance2D = layer_variant as MultiMeshInstance2D
+			if layer == null or not is_instance_valid(layer):
+				continue
 			var material: ShaderMaterial = layer.material as ShaderMaterial
 			if material == null:
 				continue
 			material.set_shader_parameter("wind_time", wind_time)
 			material.set_shader_parameter("wind_direction", safe_direction)
 			material.set_shader_parameter("wind_strength_px", maxf(0.0, wind_strength_px))
+
 
 func get_debug_state() -> Dictionary:
 	return {
@@ -140,15 +174,16 @@ func get_debug_state() -> Dictionary:
 		"uses_multimesh": true,
 	}
 
+
 static func append_instance(
-	buffer: PackedFloat32Array,
-	position: Vector2,
-	size: Vector2,
-	frame_index: int,
-	tint: Color,
-	wind_amplitude: float,
-	wind_phase: float,
-	shadow_scale: float
+		buffer: PackedFloat32Array,
+		position: Vector2,
+		size: Vector2,
+		frame_index: int,
+		tint: Color,
+		wind_amplitude: float,
+		wind_phase: float,
+		shadow_scale: float,
 ) -> void:
 	buffer.append(position.x)
 	buffer.append(position.y)
@@ -163,25 +198,36 @@ static func append_instance(
 	buffer.append(wind_phase)
 	buffer.append(shadow_scale)
 
+
 func _sync_sprite_atlas_batch(atlas_index: int, atlas: Texture2D, buffer: PackedFloat32Array) -> void:
-	var layers: Array = _ensure_sprite_layers_for_atlas(atlas_index)
-	var bucket_buffers: Array = _split_buffer_by_depth_bucket(buffer)
-	for bucket_index: int in range(DEPTH_BUCKET_COUNT):
-		var layer: MultiMeshInstance2D = layers[bucket_index] as MultiMeshInstance2D
-		var bucket_buffer: PackedFloat32Array = bucket_buffers[bucket_index] as PackedFloat32Array
-		var count: int = _buffer_instance_count(bucket_buffer)
+	var layers: Array = _ensure_sprite_layer_slots(atlas_index)
+	var stripe_buffers: Array = _split_buffer_by_depth_stripe(buffer)
+	for stripe_index: int in range(DEPTH_STRIPE_COUNT):
+		var stripe_buffer: PackedFloat32Array = stripe_buffers[stripe_index] as PackedFloat32Array
+		var count: int = _buffer_instance_count(stripe_buffer)
+		var layer: MultiMeshInstance2D = layers[stripe_index] as MultiMeshInstance2D
+		if count <= 0:
+			if layer != null and is_instance_valid(layer):
+				layer.visible = false
+				layer.multimesh = null
+			continue
+		if layer == null or not is_instance_valid(layer):
+			layer = _create_sprite_layer(atlas_index, stripe_index)
+			layers[stripe_index] = layer
 		_instance_count += count
-		_apply_buffer_to_layer(layer, atlas, bucket_buffer, false)
+		_apply_buffer_to_layer(layer, atlas, stripe_buffer, false)
+
 
 func _sync_shadow_batch(shadow_buffer: PackedFloat32Array) -> void:
 	var layer: MultiMeshInstance2D = _ensure_shadow_layer()
 	_apply_buffer_to_layer(layer, _get_unit_texture(), shadow_buffer, true)
 
+
 func _apply_buffer_to_layer(
-	layer: MultiMeshInstance2D,
-	texture: Texture2D,
-	buffer: PackedFloat32Array,
-	is_shadow: bool
+		layer: MultiMeshInstance2D,
+		texture: Texture2D,
+		buffer: PackedFloat32Array,
+		is_shadow: bool,
 ) -> void:
 	var count: int = _buffer_instance_count(buffer)
 	if count <= 0 or texture == null:
@@ -201,60 +247,79 @@ func _apply_buffer_to_layer(
 			+ buffer[offset + BUFFER_TINT_B]
 		) / 3.0
 		if is_shadow:
-			multimesh.set_instance_color(instance_index, Color(
-				clampf(buffer[offset + BUFFER_SHADOW_SCALE] / 4.0, 0.0, 1.0),
-				1.0 / maxf(1.0, size.x),
-				1.0 / maxf(1.0, size.y),
-				clampf(buffer[offset + BUFFER_TINT_A], 0.0, 1.0)
-			))
+			multimesh.set_instance_color(
+				instance_index,
+				Color(
+					clampf(buffer[offset + BUFFER_SHADOW_SCALE] / 4.0, 0.0, 1.0),
+					1.0 / maxf(1.0, size.x),
+					1.0 / maxf(1.0, size.y),
+					clampf(buffer[offset + BUFFER_TINT_A], 0.0, 1.0),
+				),
+			)
 		else:
-			multimesh.set_instance_color(instance_index, Color(
-				clampf(buffer[offset + BUFFER_FRAME_INDEX] / FRAME_COLOR_SCALE, 0.0, 1.0),
-				clampf(tint, 0.0, 1.0),
-				clampf(buffer[offset + BUFFER_WIND_PHASE], 0.0, 1.0),
-				clampf(buffer[offset + BUFFER_TINT_A], 0.0, 1.0)
-			))
+			multimesh.set_instance_color(
+				instance_index,
+				Color(
+					clampf(buffer[offset + BUFFER_FRAME_INDEX] / FRAME_COLOR_SCALE, 0.0, 1.0),
+					clampf(tint, 0.0, 1.0),
+					clampf(buffer[offset + BUFFER_WIND_PHASE], 0.0, 1.0),
+					clampf(buffer[offset + BUFFER_TINT_A], 0.0, 1.0),
+				),
+			)
 	layer.texture = texture
 	layer.multimesh = multimesh
 	layer.visible = true
 	if is_shadow:
 		layer.material = _ensure_shadow_material()
 
-func _split_buffer_by_depth_bucket(buffer: PackedFloat32Array) -> Array:
-	var bucket_buffers: Array = []
-	for _bucket_index: int in range(DEPTH_BUCKET_COUNT):
-		bucket_buffers.append(PackedFloat32Array())
+
+func _split_buffer_by_depth_stripe(buffer: PackedFloat32Array) -> Array:
+	var stripe_buffers: Array = []
+	for _stripe_index: int in range(DEPTH_STRIPE_COUNT):
+		stripe_buffers.append(PackedFloat32Array())
 	var count: int = _buffer_instance_count(buffer)
 	for instance_index: int in range(count):
 		var offset: int = instance_index * BUFFER_STRIDE
+		# Опора спрайта — почти низ квада (центр + 45% высоты).
 		var y_position: float = buffer[offset + BUFFER_Y] + buffer[offset + BUFFER_SIZE_Y] * 0.45
-		var bucket_index: int = clampi(
-			floori((y_position / _chunk_size_px) * float(DEPTH_BUCKET_COUNT)),
+		var stripe_index: int = clampi(
+			floori(y_position / float(WorldRuntimeConstants.DEPTH_STRIPE_PX)),
 			0,
-			DEPTH_BUCKET_COUNT - 1
+			DEPTH_STRIPE_COUNT - 1,
 		)
-		var target_buffer: PackedFloat32Array = bucket_buffers[bucket_index]
+		var target_buffer: PackedFloat32Array = stripe_buffers[stripe_index]
 		for stride_offset: int in range(BUFFER_STRIDE):
 			target_buffer.append(buffer[offset + stride_offset])
-		bucket_buffers[bucket_index] = target_buffer
-	return bucket_buffers
+		stripe_buffers[stripe_index] = target_buffer
+	return stripe_buffers
 
-func _ensure_sprite_layers_for_atlas(atlas_index: int) -> Array:
+
+func _ensure_sprite_layer_slots(atlas_index: int) -> Array:
 	while _sprite_layers_by_atlas.size() <= atlas_index:
 		_sprite_layers_by_atlas.append([])
 	var layers: Array = _sprite_layers_by_atlas[atlas_index] as Array
-	while layers.size() < DEPTH_BUCKET_COUNT:
-		var layer := MultiMeshInstance2D.new()
-		layer.name = "DecorAtlas%dDepth%d" % [atlas_index, layers.size()]
-		layer.z_as_relative = true
-		layer.z_index = DECOR_SPRITE_Z_INDEX
-		layer.texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS
-		layer.material = _make_sprite_material()
-		layer.visible = false
-		add_child(layer)
-		layers.append(layer)
-	_update_sprite_layer_depth_indices()
+	while layers.size() < DEPTH_STRIPE_COUNT:
+		layers.append(null)
 	return layers
+
+
+func _create_sprite_layer(atlas_index: int, stripe_index: int) -> MultiMeshInstance2D:
+	var layer := MultiMeshInstance2D.new()
+	layer.name = "DecorAtlas%dStripe%d" % [atlas_index, stripe_index]
+	layer.z_as_relative = true
+	layer.texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS
+	layer.material = _make_sprite_material()
+	layer.visible = false
+	if _applied_anchor_stripe != LADDER_ANCHOR_UNSET:
+		var chunk_stripe_base: int = floori(_world_origin_y / float(WorldRuntimeConstants.DEPTH_STRIPE_PX))
+		layer.z_index = WorldRuntimeConstants.z_for_stripe_vs_anchor(
+			chunk_stripe_base + stripe_index,
+			_applied_anchor_stripe,
+			true,
+		)
+	add_child(layer)
+	return layer
+
 
 func _ensure_shadow_layer() -> MultiMeshInstance2D:
 	if _shadow_layer != null and is_instance_valid(_shadow_layer):
@@ -269,6 +334,7 @@ func _ensure_shadow_layer() -> MultiMeshInstance2D:
 	add_child(_shadow_layer)
 	return _shadow_layer
 
+
 func _make_sprite_material() -> ShaderMaterial:
 	var material := ShaderMaterial.new()
 	material.shader = ATLAS_BATCH_SHADER
@@ -280,6 +346,7 @@ func _make_sprite_material() -> ShaderMaterial:
 	material.set_shader_parameter("wind_direction", Vector2.RIGHT)
 	return material
 
+
 func _ensure_shadow_material() -> ShaderMaterial:
 	if _shadow_material != null:
 		return _shadow_material
@@ -287,9 +354,13 @@ func _ensure_shadow_material() -> ShaderMaterial:
 	_shadow_material.shader = SHADOW_BATCH_SHADER
 	return _shadow_material
 
+
 func _update_sprite_material_layouts() -> void:
 	for layer_group: Array in _sprite_layers_by_atlas:
-		for layer: MultiMeshInstance2D in layer_group:
+		for layer_variant: Variant in layer_group:
+			var layer: MultiMeshInstance2D = layer_variant as MultiMeshInstance2D
+			if layer == null or not is_instance_valid(layer):
+				continue
 			var material: ShaderMaterial = layer.material as ShaderMaterial
 			if material == null:
 				continue
@@ -299,13 +370,17 @@ func _update_sprite_material_layouts() -> void:
 			material.set_shader_parameter("animation_frames_per_group", float(_animation_frames_per_group))
 			material.set_shader_parameter("animation_fps", _animation_fps)
 
+
 func _hide_sprite_layers_for_atlas(atlas_index: int) -> void:
 	if atlas_index < 0 or atlas_index >= _sprite_layers_by_atlas.size():
 		return
 	var layers: Array = _sprite_layers_by_atlas[atlas_index] as Array
-	for layer: MultiMeshInstance2D in layers:
-		layer.visible = false
-		layer.multimesh = null
+	for layer_variant: Variant in layers:
+		var layer: MultiMeshInstance2D = layer_variant as MultiMeshInstance2D
+		if layer != null and is_instance_valid(layer):
+			layer.visible = false
+			layer.multimesh = null
+
 
 static func _create_multimesh(instance_count: int) -> MultiMesh:
 	var quad := QuadMesh.new()
@@ -318,15 +393,18 @@ static func _create_multimesh(instance_count: int) -> MultiMesh:
 	multimesh.visible_instance_count = instance_count
 	return multimesh
 
+
 static func _make_transform(position: Vector2, size: Vector2) -> Transform2D:
 	return Transform2D(
 		Vector2(size.x, 0.0),
 		Vector2(0.0, size.y),
-		position
+		position,
 	)
+
 
 static func _buffer_instance_count(buffer: PackedFloat32Array) -> int:
 	return buffer.size() / BUFFER_STRIDE
+
 
 static func _get_unit_texture() -> Texture2D:
 	if _shared_unit_texture != null:
@@ -335,18 +413,3 @@ static func _get_unit_texture() -> Texture2D:
 	image.fill(Color.WHITE)
 	_shared_unit_texture = ImageTexture.create_from_image(image)
 	return _shared_unit_texture
-
-func _update_sprite_layer_depth_indices() -> void:
-	for layer_group: Array in _sprite_layers_by_atlas:
-		for bucket_index: int in range(layer_group.size()):
-			var layer: MultiMeshInstance2D = layer_group[bucket_index] as MultiMeshInstance2D
-			if layer == null:
-				continue
-			if not _depth_reference_enabled:
-				layer.z_index = DECOR_SPRITE_Z_INDEX
-				continue
-			var bucket_center_y: float = _depth_chunk_origin_y \
-				+ (float(bucket_index) + 0.5) / float(DEPTH_BUCKET_COUNT) * _chunk_size_px
-			layer.z_index = DECOR_SPRITE_FRONT_PLAYER_Z_INDEX \
-				if bucket_center_y > _depth_reference_world_y \
-				else DECOR_SPRITE_BEHIND_PLAYER_Z_INDEX

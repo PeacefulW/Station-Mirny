@@ -45,13 +45,23 @@ enum ParamIndex {
 	PARAM_COUNT = 28,
 };
 
-// Builds a ready-to-assign MultiMesh buffer (TRANSFORM_2D + colors, 12 floats
+// Depth ladder contract: tufts are split by the ABSOLUTE chunk-local depth
+// stripe of their root (DEPTH_STRIPE_PX tall, DEPTH_STRIPES_PER_CHUNK per
+// chunk, no wrap-around). The consumer assigns each stripe a z relative to
+// the player's stripe (clamped player-relative ladder), so there is no
+// periodic class wrap that could flip overlap order anywhere on screen.
+constexpr int32_t DEPTH_STRIPE_PX = 16;
+constexpr int32_t DEPTH_STRIPES_PER_CHUNK = 64;
+
+// Builds ready-to-assign MultiMesh buffers (TRANSFORM_2D + colors, 12 floats
 // per instance: row0 = (x.x, y.x, 0, origin.x), row1 = (x.y, y.y, 0, origin.y),
 // color = (frame/255, tint, phase, alpha)). Deterministic from inputs.
-// Instances are importance-ordered (large tufts first, small detail last), so
-// zoom LOD can trim the tail via MultiMesh.visible_instance_count without a
-// rebuild. Tufts inside strong orange_region pick frames from the biofield
-// atlas bank.
+// Result key "bucket_buffers" is an Array of DEPTH_STRIPES_PER_CHUNK
+// PackedFloat32Array entries (one per chunk-local depth stripe). Inside each
+// stripe instances are importance-ordered (large tufts first, small detail
+// last), so zoom LOD can trim each stripe's tail via visible_instance_count
+// without a rebuild. Tufts inside strong orange_region pick frames from the
+// biofield atlas bank.
 godot::Dictionary build_buffer(
 		int64_t p_seed,
 		int64_t p_chunk_x,

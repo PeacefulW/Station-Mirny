@@ -4,8 +4,8 @@ doc_type: system_spec
 status: draft
 owner: engineering+design
 source_of_truth: true
-version: 0.7
-last_updated: 2026-06-12
+version: 0.9
+last_updated: 2026-06-13
 related_docs:
   - ../../00_governance/ENGINEERING_STANDARDS.md
   - ../../00_governance/WORKFLOW.md
@@ -318,12 +318,32 @@ painting is forbidden.
 5. The grass shader animates vertices from globals + per-instance data. No
    per-frame CPU work touches grass.
 
-### Z-order and layering
+### Z-order and layering: the player-relative mid-layer depth ladder
 
-Low grass renders above the ground material and terrain-edge bands, below
-object decor, buildings, and the player. One `MultiMeshInstance2D` per chunk
-(or two: low/mid bands) — no 8-bucket depth split, because low grass never
-occludes the player.
+Grass, object decor, and the player share one **player-relative depth
+ladder**. The world is cut into absolute horizontal stripes
+(`WorldRuntimeConstants.DEPTH_STRIPE_PX`, 64 per chunk); a stripe's z is
+assigned relative to the player's feet stripe (the anchor), clamped to
+±`DEPTH_LADDER_HALF_RANGE_STRIPES`: grass at `base + (rel+K)*2`, objects at
+`+1`, the player constant at the ladder center. Southern stripes overdraw
+northern ones with 16 px precision, so grass in front of a rock or the
+player's boots covers them while everything behind stays behind.
+
+A periodic (modulo) ladder is **forbidden**: class wrap-around at every
+period boundary flips overlap order anywhere on screen (a rock slightly
+north of a boundary draws over a player slightly south of it). The
+player-relative anchor has no wrap; beyond the clamp range (±768 px, larger
+than the screen at gameplay zooms) stripes pin to the ladder edges where
+relative errors are no longer distinguishable.
+
+`WorldStreamer` owns the anchor: when the player's feet stripe changes, it
+re-assigns z on all chunk mid-layer stripe nodes (plain `z_index` writes on
+existing nodes, no buffer rebuilds; layers cache the applied anchor and
+reset it when their batches rebuild). Native returns the tuft buffer
+pre-split per chunk-local stripe (`bucket_buffers`, sparse
+`MultiMeshInstance2D` nodes per non-empty stripe). Mountain presentation
+sits above the whole ladder (`Z_MOUNTAIN_TOP/PAGE`), ground/edge/blob layers
+below it, contact shadows just below the ladder.
 
 ### Diff refresh
 

@@ -231,7 +231,7 @@ Dictionary build_buffer(
 		const PackedByteArray &p_lake_flags,
 		const PackedFloat32Array &p_params) {
 	Dictionary result;
-	result["multimesh_buffer"] = PackedFloat32Array();
+	result["bucket_buffers"] = Array();
 	result["instance_count"] = 0;
 	if (p_params.size() < PARAM_COUNT) {
 		result["error"] = "grass_scatter: params размер меньше PARAM_COUNT";
@@ -261,12 +261,10 @@ Dictionary build_buffer(
 	const int32_t *terrain_ids = p_terrain_ids.ptr();
 	const uint8_t *lake_flags = p_lake_flags.size() >= cell_count ? p_lake_flags.ptr() : nullptr;
 
-	// Две корзины важности: крупные пучки уходят в голову буфера, мелкая
-	// деталь — в хвост; zoom-LOD режет хвост через visible_instance_count.
-	std::vector<float> large_bucket;
-	std::vector<float> small_bucket;
-	large_bucket.reserve(static_cast<size_t>(instance_cap) * 12U);
-	small_bucket.reserve(static_cast<size_t>(instance_cap) * 12U);
+	// Разрез по абсолютным чанковым Y-полосам depth-лесенки; внутри полосы —
+	// две корзины важности (крупные в голову, мелочь в хвост) для zoom-LOD.
+	std::vector<float> large_buckets[DEPTH_STRIPES_PER_CHUNK];
+	std::vector<float> small_buckets[DEPTH_STRIPES_PER_CHUNK];
 	int32_t emitted = 0;
 	int32_t truncated = 0;
 
@@ -299,6 +297,28 @@ Dictionary build_buffer(
 			}
 			if (lake_flags != nullptr && (lake_flags[tile_index] & 0x1U) != 0) {
 				continue;
+			}
+			// Клиренс от горы: пучок у подножия верхушкой залез бы ПОД фасад
+			// (гора рисуется поверх всей лесенки) и читался бы обрезанным.
+			// Тайл строго над кандидатом и оба диагональных верхних соседа
+			// должны быть не горой (ids зеркалят WorldRuntimeConstants).
+			if (tile_y > 0) {
+				constexpr int32_t TERRAIN_MOUNTAIN_WALL_ID = 3;
+				constexpr int32_t TERRAIN_MOUNTAIN_FOOT_ID = 4;
+				bool mountain_above = false;
+				for (int32_t dx = -1; dx <= 1 && !mountain_above; dx++) {
+					const int32_t above_x = tile_x + dx;
+					if (above_x < 0 || above_x >= chunk_size_tiles) {
+						continue;
+					}
+					const int32_t above_id =
+							terrain_ids[static_cast<int64_t>(tile_y - 1) * chunk_size_tiles + above_x];
+					mountain_above = above_id == TERRAIN_MOUNTAIN_WALL_ID ||
+							above_id == TERRAIN_MOUNTAIN_FOOT_ID;
+				}
+				if (mountain_above) {
+					continue;
+				}
 			}
 
 			const FieldSample fields = sample_field_grid(field_grid, local_x, local_y);
@@ -345,7 +365,17 @@ Dictionary build_buffer(
 
 			// MultiMesh TRANSFORM_2D + color layout (verified by buffer dump):
 			// row0 = (x.x, y.x, 0, origin.x), row1 = (x.y, y.y, 0, origin.y).
-			std::vector<float> &bucket = size_unit >= 0.55f ? large_bucket : small_bucket;
+			// Квад центрирован, поэтому КОРЕНЬ пучка (опора depth-лесенки) —
+			// центр + полвысоты; бакет по центру систематически нырял под
+			// объекты в зоне визуального контакта.
+			const float root_local_y = local_y + height * 0.5f;
+			const int64_t depth_stripe = world_utils::clamp_value<int64_t>(
+					static_cast<int64_t>(std::floor(root_local_y / static_cast<float>(DEPTH_STRIPE_PX))),
+					0,
+					DEPTH_STRIPES_PER_CHUNK - 1);
+			std::vector<float> &bucket = size_unit >= 0.55f
+					? large_buckets[depth_stripe]
+					: small_buckets[depth_stripe];
 			const float instance[12] = {
 				cos_r * width,
 				-sin_r * height,
@@ -365,12 +395,18 @@ Dictionary build_buffer(
 		}
 	}
 
-	PackedFloat32Array buffer;
-	buffer.resize(static_cast<int64_t>(emitted) * 12);
-	float *out = buffer.ptrw();
-	std::copy(large_bucket.begin(), large_bucket.end(), out);
-	std::copy(small_bucket.begin(), small_bucket.end(), out + large_bucket.size());
-	result["multimesh_buffer"] = buffer;
+	Array bucket_buffers;
+	for (int32_t depth_stripe = 0; depth_stripe < DEPTH_STRIPES_PER_CHUNK; depth_stripe++) {
+		const std::vector<float> &large = large_buckets[depth_stripe];
+		const std::vector<float> &small = small_buckets[depth_stripe];
+		PackedFloat32Array buffer;
+		buffer.resize(static_cast<int64_t>(large.size() + small.size()));
+		float *out = buffer.ptrw();
+		std::copy(large.begin(), large.end(), out);
+		std::copy(small.begin(), small.end(), out + large.size());
+		bucket_buffers.append(buffer);
+	}
+	result["bucket_buffers"] = bucket_buffers;
 	result["instance_count"] = emitted;
 	if (truncated > 0) {
 		result["truncated_count"] = truncated;

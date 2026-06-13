@@ -1,6 +1,5 @@
 class_name Player
 extends CharacterBody2D
-
 ## Игрок (Инженер). Управляет движением, атакой,
 ## сбором ресурсов. Компоненты (O₂, здоровье, инвентарь) — дочерние ноды.
 
@@ -12,6 +11,10 @@ const WorldStreamer = preload("res://core/systems/world/world_streamer.gd")
 const SCRAP_ITEM_ID: String = "base:scrap"
 const WOOD_ITEM_ID: String = "base:wood"
 const SHOW_MOUNTAIN_DEBUG_OVERLAY: bool = false
+## Низ ВИДИМОГО спрайта (Visual: 256px * scale 0.32 / 2 = 41) относительно
+## origin: опора depth-лесенки — визуальные ноги, не низ коллайдера, иначе
+## трава у ног классифицируется «южнее» и накрывает корпус целиком.
+const PLAYER_FEET_OFFSET_PX: float = 41.0
 const PLAYER_RUN_ATLAS_COLUMNS: int = 16
 const PLAYER_RUN_ATLAS_ROWS: int = 16
 const PLAYER_RUN_ATLAS_FRAME_SIZE: int = 256
@@ -41,6 +44,7 @@ var _visual: Sprite2D = null
 var _run_visual_time: float = 0.0
 var _run_visual_direction: int = PLAYER_RUN_ATLAS_DEFAULT_DIRECTION
 
+
 func _ready() -> void:
 	if not balance:
 		push_error(Localization.t("SYSTEM_PLAYER_BALANCE_MISSING"))
@@ -68,8 +72,12 @@ func _ready() -> void:
 	_configure_player_visual()
 	_ensure_mountain_debug_overlay()
 	_mountain_resolver = MountainResolver.new()
+	# Игрок — якорь player-relative depth-лесенки: его z постоянен (центр),
+	# мир переставляет полосы вокруг него (WorldStreamer).
+	z_index = WorldRuntimeConstants.z_for_stripe_vs_anchor(0, 0, true)
 	call_deferred("_find_chunk_manager")
 	call_deferred("_emit_scrap_state")
+
 
 func _physics_process(delta: float) -> void:
 	_state_machine.physics_update(delta)
@@ -81,11 +89,13 @@ func _physics_process(delta: float) -> void:
 		_mountain_resolver.update_from_player_position(global_position, streamer)
 	_update_mountain_debug_overlay(global_position, streamer)
 
+
 func _unhandled_input(event: InputEvent) -> void:
 	if _camera and _camera.handle_zoom_input(event):
 		get_viewport().set_input_as_handled()
 		return
 	_state_machine.handle_input(event)
+
 
 # --- Добыча ресурсов ---
 func perform_harvest() -> bool:
@@ -117,9 +127,11 @@ func perform_harvest() -> bool:
 	_flash_harvest()
 	return true
 
+
 func _get_harvest_position() -> Vector2:
 	var dir: Vector2 = (get_global_mouse_position() - global_position).normalized()
 	return global_position + dir * balance.harvest_range
+
 
 func _find_harvest_target_position() -> Vector2:
 	var chunk_manager: Node = _get_chunk_manager()
@@ -129,17 +141,19 @@ func _find_harvest_target_position() -> Vector2:
 		return Vector2.INF
 	var dir: Vector2 = get_global_mouse_position() - global_position
 	var end_world: Vector2 = global_position if dir.length_squared() <= 0.0001 \
-		else global_position + dir.normalized() * balance.harvest_range
+	else global_position + dir.normalized() * balance.harvest_range
 	return HarvestQuery.find_target_on_ray(
 		global_position,
 		end_world,
 		Callable(chunk_manager, "has_resource_at_world"),
-		Callable(chunk_manager, "is_walkable_at_world")
+		Callable(chunk_manager, "is_walkable_at_world"),
 	)
+
 
 func tick_harvest_cooldown(delta: float) -> void:
 	if _harvest_timer > 0.0:
 		_harvest_timer -= delta
+
 
 func _flash_harvest() -> void:
 	var visual: Node2D = get_node_or_null("Visual") as Node2D
@@ -153,6 +167,7 @@ func _flash_harvest() -> void:
 
 # --- Сбор предметов ---
 
+
 func collect_item(item_id: String, amount: int) -> int:
 	if not _inventory:
 		return 0
@@ -164,22 +179,27 @@ func collect_item(item_id: String, amount: int) -> int:
 	if collected_amount > 0:
 		EventBus.item_collected.emit(item_id, collected_amount)
 	if leftover > 0:
-		push_warning(Localization.t("SYSTEM_INVENTORY_OVERFLOW", {"amount": leftover}))
+		push_warning(Localization.t("SYSTEM_INVENTORY_OVERFLOW", { "amount": leftover }))
 	return collected_amount
+
 
 func collect_scrap(amount: int) -> int:
 	if not _inventory:
 		return 0
 	return collect_item(SCRAP_ITEM_ID, amount)
 
+
 func get_oxygen_system() -> OxygenSystem:
 	return _oxygen_system
+
 
 func get_inventory() -> InventoryComponent:
 	return _inventory
 
+
 func get_scrap_count() -> int:
 	return _count_item_amount(SCRAP_ITEM_ID)
+
 
 func spend_scrap(amount: int) -> bool:
 	if not _inventory or amount <= 0:
@@ -188,6 +208,7 @@ func spend_scrap(amount: int) -> bool:
 	if not scrap_item:
 		return false
 	return _inventory.remove_item(scrap_item, amount)
+
 
 func spend_item(item_id: String, amount: int) -> bool:
 	if not _inventory or amount <= 0:
@@ -199,9 +220,11 @@ func spend_item(item_id: String, amount: int) -> bool:
 
 # --- Приватные ---
 
+
 func _find_chunk_manager() -> void:
 	_chunk_manager = get_tree().get_first_node_in_group("chunk_manager")
 	_world_streamer = _chunk_manager as WorldStreamer
+
 
 func _get_chunk_manager() -> Node:
 	if _chunk_manager != null and is_instance_valid(_chunk_manager):
@@ -211,6 +234,7 @@ func _get_chunk_manager() -> Node:
 		return _chunk_manager
 	return null
 
+
 func _get_world_streamer() -> WorldStreamer:
 	if _world_streamer != null and is_instance_valid(_world_streamer):
 		return _world_streamer
@@ -219,11 +243,13 @@ func _get_world_streamer() -> WorldStreamer:
 		return _world_streamer
 	return null
 
+
 func _on_world_initialized(_seed_value: int) -> void:
 	_mountain_resolver = MountainResolver.new()
 	_chunk_manager = null
 	_world_streamer = null
 	call_deferred("_find_chunk_manager")
+
 
 func _apply_terrain_blocking(delta: float) -> void:
 	if velocity == Vector2.ZERO:
@@ -253,6 +279,7 @@ func _apply_terrain_blocking(delta: float) -> void:
 			adjusted_velocity.x = velocity.x
 	velocity = adjusted_velocity
 
+
 func _can_occupy_world(target_pos: Vector2) -> bool:
 	var chunk_manager: Node = _get_chunk_manager()
 	if not chunk_manager or not chunk_manager.has_method("is_walkable_at_world"):
@@ -262,6 +289,7 @@ func _can_occupy_world(target_pos: Vector2) -> bool:
 		if not chunk_manager.is_walkable_at_world(point):
 			return false
 	return true
+
 
 func _build_occupancy_sample_points(target_pos: Vector2) -> Array[Vector2]:
 	var half_extents: Vector2 = _resolve_blocking_half_extents()
@@ -280,6 +308,7 @@ func _build_occupancy_sample_points(target_pos: Vector2) -> Array[Vector2]:
 		target_pos + Vector2(edge_x, edge_y),
 	]
 
+
 func _resolve_blocking_half_extents() -> Vector2:
 	var collision_shape_node: CollisionShape2D = get_node_or_null("CollisionShape2D") as CollisionShape2D
 	if collision_shape_node == null or collision_shape_node.shape == null:
@@ -295,9 +324,11 @@ func _resolve_blocking_half_extents() -> Vector2:
 		return Vector2(capsule.radius, capsule.radius + capsule.height * 0.5)
 	return Vector2(20.0, 20.0)
 
+
 func update_movement_velocity() -> void:
 	var direction: Vector2 = get_move_input()
 	velocity = direction * balance.move_speed * _speed_modifier
+
 
 func get_move_input() -> Vector2:
 	var direction := Vector2.ZERO
@@ -311,6 +342,7 @@ func get_move_input() -> Vector2:
 		direction.x += 1.0
 	return direction.normalized() if direction.length() > 0.0 else Vector2.ZERO
 
+
 func _configure_player_visual() -> void:
 	if _visual == null:
 		return
@@ -318,6 +350,7 @@ func _configure_player_visual() -> void:
 	_visual.region_enabled = true
 	_visual.rotation = 0.0
 	_apply_player_visual_frame(0, _run_visual_direction)
+
 
 func _update_player_visual(delta: float) -> void:
 	if _visual == null:
@@ -329,20 +362,22 @@ func _update_player_visual(delta: float) -> void:
 	if is_running:
 		_run_visual_time = fposmod(
 			_run_visual_time + delta * PLAYER_RUN_ATLAS_FPS,
-			float(PLAYER_RUN_ATLAS_COLUMNS)
+			float(PLAYER_RUN_ATLAS_COLUMNS),
 		)
 	else:
 		_run_visual_time = 0.0
 	var frame_index: int = int(floor(_run_visual_time)) % PLAYER_RUN_ATLAS_COLUMNS
 	_apply_player_visual_frame(frame_index, _run_visual_direction)
 
+
 func _atlas_direction_index_from_vector(direction: Vector2) -> int:
 	var angle_degrees: float = fposmod(
 		PLAYER_RUN_ATLAS_DIRECTION_OFFSET_DEGREES - rad_to_deg(direction.angle()),
-		360.0
+		360.0,
 	)
 	var raw_index: int = int(floor(angle_degrees / PLAYER_RUN_ATLAS_DIRECTION_STEP_DEGREES + 0.5))
 	return raw_index % PLAYER_RUN_ATLAS_ROWS
+
 
 func _apply_player_visual_frame(frame_index: int, direction_index: int) -> void:
 	if _visual == null:
@@ -354,13 +389,15 @@ func _apply_player_visual_frame(frame_index: int, direction_index: int) -> void:
 		safe_frame * PLAYER_RUN_ATLAS_FRAME_SIZE,
 		safe_direction * PLAYER_RUN_ATLAS_FRAME_SIZE,
 		PLAYER_RUN_ATLAS_FRAME_SIZE,
-		PLAYER_RUN_ATLAS_FRAME_SIZE
+		PLAYER_RUN_ATLAS_FRAME_SIZE,
 	)
+
 
 func _setup_camera() -> void:
 	_camera = get_node_or_null("Camera2D") as PlayerCamera
 	if _camera:
 		_camera.setup(balance)
+
 
 func _ensure_mountain_debug_overlay() -> void:
 	# Keep the overlay wiring available, but hide it until we need it again.
@@ -400,9 +437,10 @@ func _ensure_mountain_debug_overlay() -> void:
 	_mountain_debug_label.add_theme_color_override("font_color", Color(0.96, 0.98, 1.0))
 	_mountain_debug_panel.add_child(_mountain_debug_label)
 
+
 func _update_mountain_debug_overlay(
-	world_pos: Vector2,
-	streamer: WorldStreamer
+		world_pos: Vector2,
+		streamer: WorldStreamer,
 ) -> void:
 	if not SHOW_MOUNTAIN_DEBUG_OVERLAY:
 		if _mountain_debug_layer != null and is_instance_valid(_mountain_debug_layer):
@@ -432,10 +470,10 @@ func _update_mountain_debug_overlay(
 	var last_component_before: int = int(resolver_debug.get("last_component_id_before_update", 0))
 	var last_after: int = int(resolver_debug.get("last_mountain_id_after_update", last_before))
 	var last_component_after: int = int(resolver_debug.get("last_component_id_after_update", last_component_before))
-	var cover_debug: Dictionary = {}
+	var cover_debug: Dictionary = { }
 	if streamer != null:
 		cover_debug = streamer.get_mountain_cover_debug_snapshot(tile_coord)
-	var render_debug: Dictionary = {}
+	var render_debug: Dictionary = { }
 	if streamer != null:
 		render_debug = streamer.get_mountain_cover_render_debug_snapshot(tile_coord)
 	var terrain_debug: Dictionary = _get_mountain_debug_tile_state(tile_coord, streamer)
@@ -462,68 +500,72 @@ func _update_mountain_debug_overlay(
 	var probe_roof_cell_atlas: Vector2i = render_debug.get("roof_cell_atlas_coords", Vector2i(-1, -1)) as Vector2i
 	var probe_roof_tile_material_present: bool = bool(render_debug.get("roof_tile_material_present", false))
 	var probe_chunk_view_ready: bool = bool(render_debug.get("chunk_view_ready", false))
-	_mountain_debug_label.text = "\n".join([
-		"Mountain debug: %s | tile=(%d,%d) | world_version=%d" % [state_text, tile_coord.x, tile_coord.y, world_version],
-		"terrain_id=%d (%s) | packet_ready=%s" % [terrain_id, terrain_name, str(terrain_ready)],
-		"sample_mountain_id=%d | sample_flags=%d | sample_interior=%s | sample_component_id=%d | sample_opening=%s" % [
-			sample_mountain_id,
-			sample_mountain_flags,
-			str(sample_is_interior),
-			sample_component_id,
-			str(sample_is_opening),
+	_mountain_debug_label.text = "\n".join(
+		[
+			"Mountain debug: %s | tile=(%d,%d) | world_version=%d" % [state_text, tile_coord.x, tile_coord.y, world_version],
+			"terrain_id=%d (%s) | packet_ready=%s" % [terrain_id, terrain_name, str(terrain_ready)],
+			"sample_mountain_id=%d | sample_flags=%d | sample_interior=%s | sample_component_id=%d | sample_opening=%s" % [
+				sample_mountain_id,
+				sample_mountain_flags,
+				str(sample_is_interior),
+				sample_component_id,
+				str(sample_is_opening),
+			],
+			"resolved_mountain_id=%d | resolved_component_id=%d | last_before=(%d,%d) | last_after=(%d,%d)" % [
+				resolved_mountain_id,
+				resolved_component_id,
+				last_before,
+				last_component_before,
+				last_after,
+				last_component_after,
+			],
+			"cover_mountain_id=%d | cover_component_id=%d | cover_opening=%s | active=(%d,%d) | roof_layers_per_chunk_max=%d" % [
+				cover_mountain_id,
+				cover_component_id,
+				str(cover_is_opening),
+				active_mountain_id,
+				active_component_id,
+				roof_layer_metric,
+			],
+			"render_probe_tile=(%d,%d) | probe_mountain_id=%d | expected_open=%d | mask=%.2f | chunk_view_ready=%s" % [
+				probe_tile.x,
+				probe_tile.y,
+				probe_mountain_id,
+				probe_expected_open,
+				probe_mask_value,
+				str(probe_chunk_view_ready),
+			],
+			"roof_layer=%s | cover_material=%s | roof_cell_source=%d | roof_cell_atlas=(%d,%d) | tile_material=%s | pending=(%d,%d)" % [
+				str(probe_has_roof_layer),
+				str(probe_layer_has_cover_material),
+				probe_roof_cell_source_id,
+				probe_roof_cell_atlas.x,
+				probe_roof_cell_atlas.y,
+				str(probe_roof_tile_material_present),
+				probe_pending_mountain_id,
+				probe_pending_flags,
+			],
 		],
-		"resolved_mountain_id=%d | resolved_component_id=%d | last_before=(%d,%d) | last_after=(%d,%d)" % [
-			resolved_mountain_id,
-			resolved_component_id,
-			last_before,
-			last_component_before,
-			last_after,
-			last_component_after,
-		],
-		"cover_mountain_id=%d | cover_component_id=%d | cover_opening=%s | active=(%d,%d) | roof_layers_per_chunk_max=%d" % [
-			cover_mountain_id,
-			cover_component_id,
-			str(cover_is_opening),
-			active_mountain_id,
-			active_component_id,
-			roof_layer_metric,
-		],
-		"render_probe_tile=(%d,%d) | probe_mountain_id=%d | expected_open=%d | mask=%.2f | chunk_view_ready=%s" % [
-			probe_tile.x,
-			probe_tile.y,
-			probe_mountain_id,
-			probe_expected_open,
-			probe_mask_value,
-			str(probe_chunk_view_ready),
-		],
-		"roof_layer=%s | cover_material=%s | roof_cell_source=%d | roof_cell_atlas=(%d,%d) | tile_material=%s | pending=(%d,%d)" % [
-			str(probe_has_roof_layer),
-			str(probe_layer_has_cover_material),
-			probe_roof_cell_source_id,
-			probe_roof_cell_atlas.x,
-			probe_roof_cell_atlas.y,
-			str(probe_roof_tile_material_present),
-			probe_pending_mountain_id,
-			probe_pending_flags,
-		],
-	])
+	)
+
 
 func _get_mountain_debug_tile_state(tile_coord: Vector2i, streamer: WorldStreamer) -> Dictionary:
 	if streamer == null:
-		return {"ready": false}
+		return { "ready": false }
 	var chunk_coord: Vector2i = WorldRuntimeConstants.tile_to_chunk(tile_coord)
 	var local_coord: Vector2i = WorldRuntimeConstants.tile_to_local(tile_coord)
 	var packet: Dictionary = streamer.get_chunk_packet(chunk_coord)
 	if packet.is_empty():
-		return {"ready": false}
+		return { "ready": false }
 	var index: int = WorldRuntimeConstants.local_to_index(local_coord)
 	var terrain_ids: PackedInt32Array = packet.get("terrain_ids", PackedInt32Array()) as PackedInt32Array
 	if index < 0 or index >= terrain_ids.size():
-		return {"ready": false}
+		return { "ready": false }
 	return {
 		"ready": true,
 		"terrain_id": int(terrain_ids[index]),
 	}
+
 
 func _terrain_debug_name(terrain_id: int) -> String:
 	match terrain_id:
@@ -540,9 +582,11 @@ func _terrain_debug_name(terrain_id: int) -> String:
 		_:
 			return "UNKNOWN"
 
+
 func reset_camera_smoothing() -> void:
 	if _camera:
 		_camera.reset_smoothing()
+
 
 func perform_attack() -> bool:
 	if _attack_timer > 0.0 or not _attack_area:
@@ -564,21 +608,26 @@ func perform_attack() -> bool:
 				health.take_damage(balance.attack_damage)
 	return true
 
+
 func tick_attack_cooldown(delta: float) -> void:
 	if _attack_timer > 0.0:
 		_attack_timer -= delta
 
+
 func _on_speed_modifier_changed(modifier: float) -> void:
 	_speed_modifier = modifier
+
 
 func _on_died() -> void:
 	_is_dead = true
 	_state_machine.transition_to(&"dead")
 
+
 func _on_inventory_updated(inventory_node: Node) -> void:
 	if inventory_node != _inventory:
 		return
 	_emit_scrap_state()
+
 
 func _apply_attack_range() -> void:
 	if not _attack_area:
@@ -590,6 +639,7 @@ func _apply_attack_range() -> void:
 	if attack_shape:
 		attack_shape.radius = balance.attack_range
 
+
 func _count_item_amount(item_id: String) -> int:
 	if not _inventory:
 		return 0
@@ -599,8 +649,10 @@ func _count_item_amount(item_id: String) -> int:
 			total += slot.amount
 	return total
 
+
 func _emit_scrap_state() -> void:
 	EventBus.scrap_collected.emit(get_scrap_count())
+
 
 func _try_refuel_nearby_burner() -> bool:
 	var burners: Array[Node] = get_tree().get_nodes_in_group("buildings")
@@ -622,28 +674,43 @@ func _try_refuel_nearby_burner() -> bool:
 	if accepted <= 0.0:
 		collect_item(WOOD_ITEM_ID, 1)
 		return false
-	PlayerPopup.spawn_context(self, Localization.t("UI_BURNER_REFUELED", {"amount": roundi(accepted)}), Color(0.95, 0.75, 0.35))
+	PlayerPopup.spawn_context(self, Localization.t("UI_BURNER_REFUELED", { "amount": roundi(accepted) }), Color(0.95, 0.75, 0.35))
 	return true
+
 
 func stop_movement() -> void:
 	velocity = Vector2.ZERO
+
+
 func has_move_input() -> bool:
 	return get_move_input() != Vector2.ZERO
+
+
 func can_attack() -> bool:
 	return not _is_dead and _attack_timer <= 0.0 and _attack_area != null
+
+
 func can_harvest() -> bool:
 	return not _is_dead and _harvest_timer <= 0.0 and _get_chunk_manager() != null and _inventory != null
+
+
 func is_attack_busy() -> bool:
 	return _attack_timer > 0.0
+
+
 func is_harvest_busy() -> bool:
 	return _harvest_timer > 0.0
+
+
 func is_dead() -> bool:
 	return _is_dead
+
 
 func handle_death() -> void:
 	stop_movement()
 	EventBus.player_died.emit()
 	EventBus.game_over.emit()
+
 
 func _setup_state_machine() -> void:
 	_state_machine.setup(self)

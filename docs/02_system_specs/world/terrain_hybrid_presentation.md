@@ -208,8 +208,10 @@ by chunk-local masks or overlay sprites:
   sampled from the same aperiodic world-position fields the ground shader
   paints (`grass_density`, `orange_region`, `rock_region`), so its coverage has
   no chunk-local inputs and cannot seam on chunk borders by construction. It
-  renders above the ground composition and below object decor, and stays
-  presentation-only derived state.
+  renders above the ground composition and participates in the shared
+  mid-layer depth ladder with object decor and the player (see
+  `wind_and_grass_scatter_presentation.md`), staying presentation-only
+  derived state.
 - Land-only chunks do not wait for any terrain-ground mask bytes. First
   visible publish depends on the ordinary chunk packet and tile material
   upload only. Shoreline masks are also non-blocking: chunks whose halo

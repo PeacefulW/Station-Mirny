@@ -6,7 +6,7 @@ const CHUNK_SIZE: int = 16
 const CHUNK_CELL_COUNT: int = CHUNK_SIZE * CHUNK_SIZE
 const STREAM_RADIUS_CHUNKS: int = 1
 # Tiles applied to the active publish chunk per streaming tick. 64 set_cell
-# applies cost well under a millisecond, so a chunk becomes visible in ~4 ticks;
+# applies cost well under a millisecond, so a chunk becomes visible in ~4 ticks
 # the old value of 4 stretched one chunk over 64 ticks (~1 s) and let a running
 # player outrace the streamer.
 const PUBLISH_BATCH_SIZE: int = 64
@@ -60,54 +60,99 @@ const SETTINGS_PACKED_LAYOUT_FIELD_COUNT: int = 22
 
 const DEFAULT_SAVE_SLOT: String = "save_001"
 
+## Depth-лесенка mid-слоя (трава, объектный декор, игрок): мир режется
+## горизонтальными полосами по DEPTH_STRIPE_PX (абсолютными, без периода —
+## периодические классы оборачивались на границе периода и ломали порядок
+## где угодно на экране). z полосы считается ОТНОСИТЕЛЬНО якорной полосы
+## игрока с клампом ±DEPTH_LADDER_HALF_RANGE_STRIPES: внутри точной зоны
+## (±768 px — больше экрана на игровых зумах) южное перекрывает северное с
+## точностью 16 px; за её пределами полосы прижаты к краям лесенки, где
+## взаимные ошибки уже не различимы. Якорь обновляет WorldStreamer при
+## смене полосы ног игрока. Трава полосы — z = base + (rel+K)*2, объекты и
+## игрок — +1. Зеркало native: grass_scatter::DEPTH_STRIPE_PX /
+## DEPTH_STRIPES_PER_CHUNK (полосы в чанке — chunk-local, 0..63).
+const DEPTH_STRIPE_PX: int = 16
+const DEPTH_STRIPES_PER_CHUNK: int = 64
+const DEPTH_LADDER_HALF_RANGE_STRIPES: int = 48
+const Z_MID_LADDER_BASE: int = 20
+const Z_MOUNTAIN_TOP: int = 300
+const Z_MOUNTAIN_PAGE: int = 301
+const Z_MINING_FEEDBACK: int = 320
+const Z_DEBUG_OVERLAY: int = 350
+
+
+static func depth_stripe_for_world_y(world_y: float) -> int:
+	return floori(world_y / float(DEPTH_STRIPE_PX))
+
+
+static func z_for_stripe_vs_anchor(world_stripe: int, anchor_stripe: int, is_object_layer: bool) -> int:
+	var relative: int = clampi(
+		world_stripe - anchor_stripe,
+		-DEPTH_LADDER_HALF_RANGE_STRIPES,
+		DEPTH_LADDER_HALF_RANGE_STRIPES,
+	)
+	var z: int = Z_MID_LADDER_BASE + (relative + DEPTH_LADDER_HALF_RANGE_STRIPES) * 2
+	return z + 1 if is_object_layer else z
+
+
 static func chunk_origin_px(chunk_coord: Vector2i) -> Vector2:
 	return Vector2(
 		chunk_coord.x * CHUNK_SIZE * TILE_SIZE_PX,
-		chunk_coord.y * CHUNK_SIZE * TILE_SIZE_PX
+		chunk_coord.y * CHUNK_SIZE * TILE_SIZE_PX,
 	)
+
 
 static func world_to_tile(world_pos: Vector2) -> Vector2i:
 	return Vector2i(
 		floori(world_pos.x / float(TILE_SIZE_PX)),
-		floori(world_pos.y / float(TILE_SIZE_PX))
+		floori(world_pos.y / float(TILE_SIZE_PX)),
 	)
+
 
 static func tile_to_world_center(tile_coord: Vector2i) -> Vector2:
 	return Vector2(
 		(float(tile_coord.x) + 0.5) * float(TILE_SIZE_PX),
-		(float(tile_coord.y) + 0.5) * float(TILE_SIZE_PX)
+		(float(tile_coord.y) + 0.5) * float(TILE_SIZE_PX),
 	)
+
 
 static func tile_to_chunk(tile_coord: Vector2i) -> Vector2i:
 	return Vector2i(
 		int(floor(float(tile_coord.x) / float(CHUNK_SIZE))),
-		int(floor(float(tile_coord.y) / float(CHUNK_SIZE)))
+		int(floor(float(tile_coord.y) / float(CHUNK_SIZE))),
 	)
+
 
 static func tile_to_local(tile_coord: Vector2i) -> Vector2i:
 	var chunk_coord: Vector2i = tile_to_chunk(tile_coord)
 	return Vector2i(
 		tile_coord.x - chunk_coord.x * CHUNK_SIZE,
-		tile_coord.y - chunk_coord.y * CHUNK_SIZE
+		tile_coord.y - chunk_coord.y * CHUNK_SIZE,
 	)
+
 
 static func chunk_file_name(chunk_coord: Vector2i) -> String:
 	return "%d_%d.json" % [chunk_coord.x, chunk_coord.y]
 
+
 static func index_to_local(index: int) -> Vector2i:
 	return Vector2i(index % CHUNK_SIZE, index / CHUNK_SIZE)
+
 
 static func local_to_index(local_coord: Vector2i) -> int:
 	return local_coord.y * CHUNK_SIZE + local_coord.x
 
+
 static func is_local_coord_valid(local_coord: Vector2i) -> bool:
 	return local_coord.x >= 0 \
-		and local_coord.x < CHUNK_SIZE \
-		and local_coord.y >= 0 \
-		and local_coord.y < CHUNK_SIZE
+			and local_coord.x < CHUNK_SIZE \
+			and local_coord.y >= 0 \
+			and local_coord.y < CHUNK_SIZE
+
 
 static func uses_world_foundation(version: int) -> bool:
 	return version >= WORLD_FOUNDATION_VERSION
+
 
 static func is_current_world_version(version: int) -> bool:
 	return version == WORLD_VERSION

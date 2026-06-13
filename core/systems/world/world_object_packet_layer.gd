@@ -52,19 +52,20 @@ var _rock_count: int = 0
 var _living_flora_count: int = 0
 var _spiky_flora_count: int = 0
 var _collider_count: int = 0
-var _depth_reference_enabled: bool = false
-var _depth_chunk_origin_world_y: float = 0.0
-var _depth_reference_world_y: float = 0.0
+var _world_origin_y: float = 0.0
+
 
 func set_rock_atlases(atlases: Array[Texture2D]) -> void:
 	_rock_atlases = atlases.duplicate()
 	if _rock_batch_layer != null and is_instance_valid(_rock_batch_layer):
 		_rock_batch_layer.clear_batches()
 
+
 func set_living_flora_atlas(atlas: Texture2D) -> void:
 	_living_flora_atlas = atlas
 	if _living_flora_batch_layer != null and is_instance_valid(_living_flora_batch_layer):
 		_living_flora_batch_layer.clear_batches()
+
 
 func set_spiky_flora_atlas(atlas: Texture2D) -> void:
 	if atlas == null:
@@ -72,39 +73,52 @@ func set_spiky_flora_atlas(atlas: Texture2D) -> void:
 	else:
 		set_spiky_flora_atlases([atlas])
 
+
 func set_spiky_flora_atlases(atlases: Array[Texture2D]) -> void:
 	_spiky_flora_atlases = atlases.duplicate()
 	if _spiky_flora_batch_layer != null and is_instance_valid(_spiky_flora_batch_layer):
 		_spiky_flora_batch_layer.clear_batches()
 
+
 func set_sun_lighting(
-	light_angle_deg: float,
-	shadow_length_px: float,
-	shadow_opacity: float,
-	shadow_softness_px: float
+		light_angle_deg: float,
+		shadow_length_px: float,
+		shadow_opacity: float,
+		shadow_softness_px: float,
 ) -> void:
 	if _rock_batch_layer != null and is_instance_valid(_rock_batch_layer):
 		_rock_batch_layer.set_sun_lighting(
 			light_angle_deg,
 			shadow_length_px,
 			shadow_opacity,
-			shadow_softness_px
+			shadow_softness_px,
 		)
 	if _living_flora_batch_layer != null and is_instance_valid(_living_flora_batch_layer):
 		_living_flora_batch_layer.set_sun_lighting(
 			light_angle_deg,
 			shadow_length_px,
 			shadow_opacity,
-			shadow_softness_px
+			shadow_softness_px,
 		)
 
-func set_depth_sort_reference(chunk_origin_world_y: float, reference_world_y: float) -> void:
-	_depth_reference_enabled = true
-	_depth_chunk_origin_world_y = chunk_origin_world_y
-	_depth_reference_world_y = reference_world_y
-	_apply_depth_reference_to_batch_layer(_rock_batch_layer)
-	_apply_depth_reference_to_batch_layer(_living_flora_batch_layer)
-	_apply_depth_reference_to_batch_layer(_spiky_flora_batch_layer)
+
+## Мировой Y чанка для глобальных полос depth-лесенки.
+func set_world_origin_y(world_origin_y: float) -> void:
+	_world_origin_y = world_origin_y
+	_apply_world_origin_to_batch_layer(_rock_batch_layer)
+	_apply_world_origin_to_batch_layer(_living_flora_batch_layer)
+	_apply_world_origin_to_batch_layer(_spiky_flora_batch_layer)
+
+
+## Перестановка полос объектного декора на player-relative лесенке.
+func update_ladder_z(anchor_stripe: int) -> void:
+	if _rock_batch_layer != null and is_instance_valid(_rock_batch_layer):
+		_rock_batch_layer.update_ladder_z(anchor_stripe)
+	if _living_flora_batch_layer != null and is_instance_valid(_living_flora_batch_layer):
+		_living_flora_batch_layer.update_ladder_z(anchor_stripe)
+	if _spiky_flora_batch_layer != null and is_instance_valid(_spiky_flora_batch_layer):
+		_spiky_flora_batch_layer.update_ladder_z(anchor_stripe)
+
 
 func configure_packet(packet: Dictionary) -> void:
 	_rock_count = 0
@@ -121,17 +135,19 @@ func configure_packet(packet: Dictionary) -> void:
 	var object_flags: PackedByteArray = packet.get("object_flags", PackedByteArray()) as PackedByteArray
 	var object_tint: PackedByteArray = packet.get("object_tint", PackedByteArray()) as PackedByteArray
 	var object_phase: PackedByteArray = packet.get("object_phase", PackedByteArray()) as PackedByteArray
-	var object_count: int = _valid_object_count([
-		object_kind,
-		object_x,
-		object_y,
-		object_size,
-		object_atlas,
-		object_variant,
-		object_flags,
-		object_tint,
-		object_phase,
-	])
+	var object_count: int = _valid_object_count(
+		[
+			object_kind,
+			object_x,
+			object_y,
+			object_size,
+			object_atlas,
+			object_variant,
+			object_flags,
+			object_tint,
+			object_phase,
+		],
+	)
 	if object_count <= 0:
 		_clear_batches()
 		return
@@ -168,7 +184,7 @@ func configure_packet(packet: Dictionary) -> void:
 					phase,
 					rock_buffers,
 					rock_shadow_buffer,
-					rock_collision_records
+					rock_collision_records,
 				)
 			OBJECT_KIND_LIVING_FLORA:
 				_append_living_flora(position, size_px, frame_index, tint_factor, phase, living_buffer, living_shadow_buffer)
@@ -180,6 +196,7 @@ func configure_packet(packet: Dictionary) -> void:
 	_sync_spiky_flora_batch(spiky_buffers, empty_shadow_buffer)
 	visible = _rock_count > 0 or _living_flora_count > 0 or _spiky_flora_count > 0
 
+
 func get_debug_state() -> Dictionary:
 	return {
 		"rock_count": _rock_count,
@@ -188,17 +205,18 @@ func get_debug_state() -> Dictionary:
 		"collider_count": _collider_count,
 	}
 
+
 func _append_rock(
-	position: Vector2,
-	size_px: float,
-	atlas_index: int,
-	frame_index: int,
-	flags: int,
-	tint_factor: float,
-	phase: float,
-	rock_buffers: Array,
-	rock_shadow_buffer: PackedFloat32Array,
-	collision_records: Array[Dictionary]
+		position: Vector2,
+		size_px: float,
+		atlas_index: int,
+		frame_index: int,
+		flags: int,
+		tint_factor: float,
+		phase: float,
+		rock_buffers: Array,
+		rock_shadow_buffer: PackedFloat32Array,
+		collision_records: Array[Dictionary],
 ) -> void:
 	if atlas_index < 0 or atlas_index >= rock_buffers.size():
 		return
@@ -216,12 +234,12 @@ func _append_rock(
 		Color(tint_factor, tint_factor, tint_factor, 0.96),
 		0.0,
 		phase,
-		visual_size_px / 64.0
+		visual_size_px / 64.0,
 	)
 	rock_buffers[atlas_index] = sprite_buffer
 	var shadow_size := Vector2(
 		maxf(size_px * ROCK_SHADOW_WIDTH_SCALE, ROCK_SHADOW_MIN_WIDTH_PX),
-		maxf(size_px * ROCK_SHADOW_HEIGHT_SCALE, ROCK_SHADOW_MIN_HEIGHT_PX)
+		maxf(size_px * ROCK_SHADOW_HEIGHT_SCALE, ROCK_SHADOW_MIN_HEIGHT_PX),
 	)
 	WorldDecorBatchLayer.append_instance(
 		rock_shadow_buffer,
@@ -231,7 +249,7 @@ func _append_rock(
 		Color(1.0, 1.0, 1.0, 0.58 if atlas_index == RARE_ROCK_FORMATION_ATLAS_INDEX else 0.92),
 		0.0,
 		phase,
-		maxf(size_px / 64.0, ROCK_SHADOW_MIN_PROJECTED_SCALE)
+		maxf(size_px / 64.0, ROCK_SHADOW_MIN_PROJECTED_SCALE),
 	)
 	if (flags & OBJECT_FLAG_COLLIDER) != 0:
 		var collision_radius: float = clampf(size_px * ROCK_COLLISION_RADIUS_SCALE, 10.0, 18.0)
@@ -239,20 +257,23 @@ func _append_rock(
 		if atlas_index == RARE_ROCK_FORMATION_ATLAS_INDEX:
 			collision_radius = clampf(size_px * RARE_ROCK_FORMATION_COLLISION_RADIUS_SCALE, 12.0, 24.0)
 			collision_position = position + Vector2(0.0, size_px * RARE_ROCK_FORMATION_COLLISION_CENTER_Y_SCALE)
-		collision_records.append({
-			"position": collision_position,
-			"radius": collision_radius,
-		})
+		collision_records.append(
+			{
+				"position": collision_position,
+				"radius": collision_radius,
+			},
+		)
 	_rock_count += 1
 
+
 func _append_living_flora(
-	position: Vector2,
-	size_px: float,
-	frame_index: int,
-	tint_factor: float,
-	phase: float,
-	living_buffer: PackedFloat32Array,
-	living_shadow_buffer: PackedFloat32Array
+		position: Vector2,
+		size_px: float,
+		frame_index: int,
+		tint_factor: float,
+		phase: float,
+		living_buffer: PackedFloat32Array,
+		living_shadow_buffer: PackedFloat32Array,
 ) -> void:
 	if _living_flora_atlas == null:
 		return
@@ -264,11 +285,11 @@ func _append_living_flora(
 		Color(tint_factor, tint_factor, tint_factor, 0.96),
 		0.0,
 		phase,
-		size_px / 64.0
+		size_px / 64.0,
 	)
 	var shadow_size := Vector2(
 		maxf(size_px * LIVING_FLORA_SHADOW_WIDTH_SCALE, LIVING_FLORA_SHADOW_MIN_WIDTH_PX),
-		maxf(size_px * LIVING_FLORA_SHADOW_HEIGHT_SCALE, LIVING_FLORA_SHADOW_MIN_HEIGHT_PX)
+		maxf(size_px * LIVING_FLORA_SHADOW_HEIGHT_SCALE, LIVING_FLORA_SHADOW_MIN_HEIGHT_PX),
 	)
 	WorldDecorBatchLayer.append_instance(
 		living_shadow_buffer,
@@ -278,18 +299,19 @@ func _append_living_flora(
 		Color(1.0, 1.0, 1.0, 0.58),
 		0.0,
 		phase,
-		maxf(size_px / 96.0, 0.36)
+		maxf(size_px / 96.0, 0.36),
 	)
 	_living_flora_count += 1
 
+
 func _append_spiky_flora(
-	position: Vector2,
-	size_px: float,
-	atlas_index: int,
-	frame_index: int,
-	tint_factor: float,
-	phase: float,
-	spiky_buffers: Array
+		position: Vector2,
+		size_px: float,
+		atlas_index: int,
+		frame_index: int,
+		tint_factor: float,
+		phase: float,
+		spiky_buffers: Array,
 ) -> void:
 	if atlas_index < 0 or atlas_index >= spiky_buffers.size():
 		return
@@ -302,15 +324,16 @@ func _append_spiky_flora(
 		Color(tint_factor, tint_factor, tint_factor, 0.98),
 		0.0,
 		phase,
-		size_px / 64.0
+		size_px / 64.0,
 	)
 	spiky_buffers[atlas_index] = spiky_buffer
 	_spiky_flora_count += 1
 
+
 func _sync_rock_batches(
-	rock_buffers: Array,
-	rock_shadow_buffer: PackedFloat32Array,
-	collision_records: Array[Dictionary]
+		rock_buffers: Array,
+		rock_shadow_buffer: PackedFloat32Array,
+		collision_records: Array[Dictionary],
 ) -> void:
 	if _rock_atlases.is_empty() or _rock_count <= 0:
 		if _rock_batch_layer != null and is_instance_valid(_rock_batch_layer):
@@ -323,6 +346,7 @@ func _sync_rock_batches(
 	batch_layer.set_batches(_rock_atlases, rock_buffers, rock_shadow_buffer)
 	_sync_collision_shapes(collision_records)
 
+
 func _sync_living_flora_batch(living_buffer: PackedFloat32Array, living_shadow_buffer: PackedFloat32Array) -> void:
 	if _living_flora_atlas == null or _living_flora_count <= 0:
 		if _living_flora_batch_layer != null and is_instance_valid(_living_flora_batch_layer):
@@ -332,6 +356,7 @@ func _sync_living_flora_batch(living_buffer: PackedFloat32Array, living_shadow_b
 	batch_layer.set_atlas_layout(LIVING_FLORA_FRAME_COLUMNS, LIVING_FLORA_FRAME_ROWS, LIVING_FLORA_FRAME_COUNT)
 	batch_layer.set_animation(LIVING_FLORA_FRAMES_PER_VIEW, LIVING_FLORA_ANIMATION_FPS)
 	batch_layer.set_batches([_living_flora_atlas], [living_buffer], living_shadow_buffer)
+
 
 func _sync_spiky_flora_batch(spiky_buffers: Array, spiky_shadow_buffer: PackedFloat32Array) -> void:
 	if _spiky_flora_atlases.is_empty() or _spiky_flora_count <= 0:
@@ -343,14 +368,16 @@ func _sync_spiky_flora_batch(spiky_buffers: Array, spiky_shadow_buffer: PackedFl
 	batch_layer.set_animation(1, 0.0)
 	batch_layer.set_batches(_spiky_flora_atlases, spiky_buffers, spiky_shadow_buffer)
 
+
 func _ensure_rock_batch_layer() -> WorldDecorBatchLayer:
 	if _rock_batch_layer != null and is_instance_valid(_rock_batch_layer):
 		return _rock_batch_layer
 	_rock_batch_layer = WorldDecorBatchLayer.new()
 	_rock_batch_layer.name = "RockObjectPacketBatchLayer"
 	add_child(_rock_batch_layer)
-	_apply_depth_reference_to_batch_layer(_rock_batch_layer)
+	_apply_world_origin_to_batch_layer(_rock_batch_layer)
 	return _rock_batch_layer
+
 
 func _ensure_living_flora_batch_layer() -> WorldDecorBatchLayer:
 	if _living_flora_batch_layer != null and is_instance_valid(_living_flora_batch_layer):
@@ -358,8 +385,9 @@ func _ensure_living_flora_batch_layer() -> WorldDecorBatchLayer:
 	_living_flora_batch_layer = WorldDecorBatchLayer.new()
 	_living_flora_batch_layer.name = "LivingFloraObjectPacketBatchLayer"
 	add_child(_living_flora_batch_layer)
-	_apply_depth_reference_to_batch_layer(_living_flora_batch_layer)
+	_apply_world_origin_to_batch_layer(_living_flora_batch_layer)
 	return _living_flora_batch_layer
+
 
 func _ensure_spiky_flora_batch_layer() -> WorldDecorBatchLayer:
 	if _spiky_flora_batch_layer != null and is_instance_valid(_spiky_flora_batch_layer):
@@ -367,8 +395,9 @@ func _ensure_spiky_flora_batch_layer() -> WorldDecorBatchLayer:
 	_spiky_flora_batch_layer = WorldDecorBatchLayer.new()
 	_spiky_flora_batch_layer.name = "SpikyFloraObjectPacketBatchLayer"
 	add_child(_spiky_flora_batch_layer)
-	_apply_depth_reference_to_batch_layer(_spiky_flora_batch_layer)
+	_apply_world_origin_to_batch_layer(_spiky_flora_batch_layer)
 	return _spiky_flora_batch_layer
+
 
 func _ensure_collision_body() -> StaticBody2D:
 	if _collision_body != null and is_instance_valid(_collision_body):
@@ -379,6 +408,7 @@ func _ensure_collision_body() -> StaticBody2D:
 	_collision_body.collision_mask = 0
 	add_child(_collision_body)
 	return _collision_body
+
 
 func _sync_collision_shapes(collision_records: Array[Dictionary]) -> void:
 	_clear_collision_shapes()
@@ -392,10 +422,11 @@ func _sync_collision_shapes(collision_records: Array[Dictionary]) -> void:
 		body.shape_owner_add_shape(owner_id, shape)
 		body.shape_owner_set_transform(
 			owner_id,
-			Transform2D(0.0, record.get("position", Vector2.ZERO) as Vector2)
+			Transform2D(0.0, record.get("position", Vector2.ZERO) as Vector2),
 		)
 		_collision_shape_owner_ids.append(owner_id)
 	_collider_count = _collision_shape_owner_ids.size()
+
 
 func _clear_collision_shapes() -> void:
 	_collider_count = 0
@@ -405,6 +436,7 @@ func _clear_collision_shapes() -> void:
 	for owner_id: int in _collision_shape_owner_ids:
 		_collision_body.remove_shape_owner(owner_id)
 	_collision_shape_owner_ids.clear()
+
 
 func _clear_batches() -> void:
 	_rock_count = 0
@@ -419,8 +451,10 @@ func _clear_batches() -> void:
 	if _spiky_flora_batch_layer != null and is_instance_valid(_spiky_flora_batch_layer):
 		_spiky_flora_batch_layer.clear_batches()
 
+
 static func _decode_local_px(value: int) -> float:
 	return float(value) * OBJECT_LOCAL_PX_QUANTUM + OBJECT_LOCAL_PX_QUANTUM * 0.5
+
 
 static func _valid_object_count(arrays: Array) -> int:
 	if arrays.is_empty():
@@ -431,7 +465,8 @@ static func _valid_object_count(arrays: Array) -> int:
 			return 0
 	return count
 
-func _apply_depth_reference_to_batch_layer(batch_layer: WorldDecorBatchLayer) -> void:
-	if batch_layer == null or not is_instance_valid(batch_layer) or not _depth_reference_enabled:
+
+func _apply_world_origin_to_batch_layer(batch_layer: WorldDecorBatchLayer) -> void:
+	if batch_layer == null or not is_instance_valid(batch_layer):
 		return
-	batch_layer.set_depth_sort_reference(_depth_chunk_origin_world_y, _depth_reference_world_y)
+	batch_layer.set_world_origin_y(_world_origin_y)
