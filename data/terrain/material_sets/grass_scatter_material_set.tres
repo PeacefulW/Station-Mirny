@@ -21,7 +21,7 @@ sampling_params = {
 "candidate_grid_side": 80.0,
 "density_scale": 1.35,
 "dry_frame_count": 16.0,
-"height_scale": 0.7,
+"height_scale": 0.58,
 "instance_cap": 8192.0,
 "lod_full_zoom": 0.8,
 "lod_min_fraction": 1.0,

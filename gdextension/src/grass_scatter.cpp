@@ -341,7 +341,8 @@ Dictionary build_buffer(
 						params[PARAM_TUFT_MAX_HEIGHT_PX],
 						hash_unit(hash, 0x1fULL)) *
 					params[PARAM_HEIGHT_SCALE] * (1.0f + fields.orange_region * 0.15f);
-			const float rotation = (hash_unit(hash, 0x25ULL) - 0.5f) * 2.0f * (8.0f * 3.14159265f / 180.0f);
+			// Полёгшая трава: больше разброса наклона всего пучка.
+			const float rotation = (hash_unit(hash, 0x25ULL) - 0.5f) * 2.0f * (14.0f * 3.14159265f / 180.0f);
 			const float cos_r = std::cos(rotation);
 			const float sin_r = std::sin(rotation);
 

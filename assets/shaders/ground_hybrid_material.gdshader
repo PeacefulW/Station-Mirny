@@ -229,11 +229,15 @@ void fragment() {
 			);
 			grass_density *= 1.0 - rock_region * 0.85;
 
+			// Пороги травяной лестницы сдвинуты вниз так, чтобы зона, где
+			// native ставит пучки (grass_density ~0.30+), уже была плотным
+			// травяным ковром: пучки врастают в землю, а не торчат из голого
+			// грунта. Пучки сэмплят то же grass_density, поля синхронны.
 			vec3 grass_color = top_color;
-			grass_color = mix(grass_color, transition_color, smoothstep(0.16, 0.36, grass_density));
-			grass_color = mix(grass_color, sparse_color, smoothstep(0.34, 0.54, grass_density));
-			grass_color = mix(grass_color, medium_color, smoothstep(0.52, 0.70, grass_density));
-			grass_color = mix(grass_color, dense_color, smoothstep(0.68, 0.86, grass_density));
+			grass_color = mix(grass_color, transition_color, smoothstep(0.12, 0.30, grass_density));
+			grass_color = mix(grass_color, sparse_color, smoothstep(0.26, 0.44, grass_density));
+			grass_color = mix(grass_color, medium_color, smoothstep(0.40, 0.58, grass_density));
+			grass_color = mix(grass_color, dense_color, smoothstep(0.56, 0.78, grass_density));
 
 			// --- orange biofield cores inside healthy grass ---
 			vec3 orange_color = texture(orange_biofield_albedo_tex, detail_uv * 0.84 + vec2(0.33, 0.12)).rgb;

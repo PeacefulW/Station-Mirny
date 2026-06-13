@@ -45,16 +45,18 @@ static func _paint_grass_frame(
 	for i: int in range(blade_count):
 		var root := Vector2(
 			float(origin.x) + FRAME_SIZE.x * atlas_rng.randf_range(0.18, 0.82),
-			float(origin.y) + FRAME_SIZE.y * atlas_rng.randf_range(0.80, 0.98),
+			float(origin.y) + FRAME_SIZE.y * atlas_rng.randf_range(0.82, 0.99),
 		)
-		var lean := atlas_rng.randf_range(-22.0, 22.0) + sin(float(frame_index) * 1.7 + float(i)) * 6.0
+		# Приземистая раскидистая форма: больше наклона, верхушки ниже —
+		# степные кустики веером, а не вертикальные «языки пламени».
+		var lean := atlas_rng.randf_range(-30.0, 30.0) + sin(float(frame_index) * 1.7 + float(i)) * 7.0
 		var tip := Vector2(
 			root.x + lean,
-			float(origin.y) + FRAME_SIZE.y * atlas_rng.randf_range(0.04, 0.46),
+			float(origin.y) + FRAME_SIZE.y * atlas_rng.randf_range(0.24, 0.60),
 		)
-		var mid := root.lerp(tip, atlas_rng.randf_range(0.42, 0.64)) \
-				+ Vector2(atlas_rng.randf_range(-8.0, 8.0), atlas_rng.randf_range(-4.0, 4.0))
-		var width := atlas_rng.randf_range(2.0, 4.8)
+		var mid := root.lerp(tip, atlas_rng.randf_range(0.40, 0.62)) \
+				+ Vector2(atlas_rng.randf_range(-12.0, 12.0), atlas_rng.randf_range(-3.0, 5.0))
+		var width := atlas_rng.randf_range(2.2, 5.2)
 		var hue := atlas_rng.randf_range(-0.020, 0.018)
 		var color: Color
 		if is_biofield:
@@ -76,8 +78,21 @@ static func _paint_grass_frame(
 			)
 			if i % 5 == 0:
 				color = Color.from_hsv(0.060 + hue, 0.90, 0.52, 0.72)
-		_paint_blade_segment(image, root, mid, width, color)
-		_paint_blade_segment(image, mid, tip, width * 0.62, color.lightened(0.08))
+		# Вертикальный AO: корень тёмный и сдвинут к грунтовому тону (свет не
+		# достаёт до основания + плавный переход «земля -> трава»); верхушка
+		# светлее. Так пучок «врастает» в землю, а не висит языком.
+		var root_color := _grounded_root_color(color)
+		var tip_color := color.lightened(0.14)
+		_paint_blade_segment(image, root, mid, width, root_color, color)
+		_paint_blade_segment(image, mid, tip, width * 0.62, color, tip_color)
+
+
+## Цвет основания блейда: темнее, менее насыщенный, чуть теплее к грунту.
+static func _grounded_root_color(blade_color: Color) -> Color:
+	var root_color := blade_color.darkened(0.52)
+	root_color.s = clampf(blade_color.s * 0.58, 0.0, 1.0)
+	root_color.h = lerpf(blade_color.h, 0.082, 0.35)
+	return root_color
 
 
 static func _paint_blade_segment(
@@ -85,7 +100,8 @@ static func _paint_blade_segment(
 		start: Vector2,
 		finish: Vector2,
 		width: float,
-		color: Color,
+		start_color: Color,
+		finish_color: Color,
 ) -> void:
 	var min_x: int = clampi(floori(minf(start.x, finish.x) - width - 2.0), 0, image.get_width() - 1)
 	var max_x: int = clampi(ceili(maxf(start.x, finish.x) + width + 2.0), 0, image.get_width() - 1)
@@ -103,6 +119,7 @@ static func _paint_blade_segment(
 			var alpha := 1.0 - smoothstep(maxf(0.15, radius - 0.80), radius + 0.95, dist)
 			if alpha <= 0.001:
 				continue
+			var color := start_color.lerp(finish_color, t)
 			_blend_pixel(image, x, y, Color(color.r, color.g, color.b, color.a * alpha))
 
 
