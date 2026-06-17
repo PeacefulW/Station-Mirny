@@ -140,18 +140,23 @@ Current world generation extension:
   boundary. It changes deterministic native visual object placement by allowing
   rock atlas index `3` on the same rocky ground patch mask used by presentation.
   It does not change save payload or chunk-diff shape.
-- `world_version == 51` is the current rare rocky-patch rock pillar presentation
+- `world_version == 51` is the historical rare rocky-patch rock pillar presentation
   boundary. It keeps the same rock atlas index `3` placement mask, but native
   packets may now choose among eight `45 degree` deterministic atlas variants.
   Presentation scales that atlas taller than the compact byte-packed
   `object_size_px`, keeps collision narrow at the base, and depth-sorts object
   batches against the player reference. It does not change save payload or
   chunk-diff shape.
+- `world_version == 52` is the current mountain-edge object clearance boundary.
+  It changes deterministic native visual object placement by suppressing rocks,
+  living flora, and spiky flora when their placement center or local clearance
+  samples overlap canonical mountain wall/foot terrain. It does not change save
+  payload or chunk-diff shape.
 - Current native visual object packet fields for rocks and flora are immutable
   generated presentation records plus the loaded large-rock collision proof.
   They are regenerated from `world_seed + chunk_coord + world_version` and do
   not extend `world.json` or per-chunk diff files.
-- `WorldRuntimeConstants.WORLD_VERSION` is therefore `51` for current saves;
+- `WorldRuntimeConstants.WORLD_VERSION` is therefore `52` for current saves;
   `38` remains the historical L2 packet boundary and `42` remains the
   historical L7 shore-warp boundary.
 - `worldgen_settings.lakes` stores the embedded per-save lake input copy

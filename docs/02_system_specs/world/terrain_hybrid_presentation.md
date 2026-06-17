@@ -171,18 +171,26 @@ resources, the active runtime uses a transitional native-mask presentation:
   mountain mask for the current chunk view as a visual footprint source, uses
   preloaded foothill albedo/normal material maps, and follows the mountain
   silhouette without adding terrain ids, collision, mining targets, save data,
-  packet fields, or a separate topology owner. The captured footprint may fill
-  the former mountain area so mined-out mountains leave a visible rocky trace.
+  packet fields, or a separate topology owner. The captured footprint may keep
+  a narrow trace along the former mountain edge so mined-out cuts still read as
+  worked rock.
   The apron may use world-space shader noise to locally widen the outer band,
   and may scatter sparse rock-scree debris patches on its outer fringe (gated
   by aperiodic world-space fields and dissolved by the rock texture's own
   luma), as long as the authoritative mask and dirty owner stay unchanged. Mining may
   clear the live mountain mask but must not clear the captured footprint in the
-  same chunk view; full chunk unload/reset may clear it. Refreshing it belongs
-  to the existing bounded native-mask visual upload path.
+  same chunk view; full chunk unload/reset may clear it. The apron may keep a
+  narrow inner edge trace, but it must not fill mined-out mountain interiors:
+  full interior footprint fills are chunk-local visual pages and can surface as
+  hard rectangular stains in caves/passages. Refreshing it belongs to the
+  existing bounded native-mask visual upload path.
 - The FHD raster/dev-scene path remains an authoring/probe tool. It is not the
   normal runtime streaming presentation path and must not be reintroduced as a
-  per-frame or per-chunk fallback.
+  per-frame or per-chunk fallback. Any legacy raster request used only for
+  chunk hit data must keep `runtime_ground_patch = false`: the runtime ground
+  is already owned by the terrain material shader, and a raster-generated
+  ground surface is a hidden visual fallback that can leak as an untextured
+  coloured blob inside mined mountain cavities.
 - This native-mask bridge is a transitional presentation product, not a new
   canonical terrain geometry authoring model.
 
@@ -245,7 +253,16 @@ by chunk-local masks or overlay sprites:
   lateral softness, foothill outer search), and split shadow ownership across a
   seam must composite to exactly the full shadow value
   (`alpha = 1 - (1 - s)^w` with axis-multiplied weights). Ground composition
-  itself has no such seams because it has no chunk-local inputs.
+  itself has no such seams because it has no chunk-local inputs. Projected
+  mountain shadows must also fade out at the outer draw rectangle before clip
+  discard, so a shadow that is not picked up by a neighbouring mask sprite
+  cannot leave a hard rectangular tint on the ground. Projected mountain
+  shadows must not paint mined-out cavities or other open floor as a flat fill:
+  by default `projected_shadow_open_fill_strength = 0`, so shadow-only pixels
+  with no roof/wall/overhang coverage discard and the floor is owned by the
+  terrain ground material. If outdoor cast-shadow fill is reintroduced later,
+  it must be gated by an explicit exterior-connectivity proof, not by a local
+  radius guess that can fail in large caves.
 
 ## Core Terms
 

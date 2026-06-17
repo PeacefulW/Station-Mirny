@@ -16,6 +16,7 @@ const OBJECT_KIND_LIVING_FLORA: int = 2
 const OBJECT_KIND_SPIKY_FLORA: int = 3
 const ROCK_ATLAS_RARE_FORMATION: int = 3
 const SPIKY_FLORA_ATLAS_BROWN_SEAWEED: int = 1
+const OBJECT_MOUNTAIN_CLEARANCE_PX: float = 48.0
 const OBJECT_FIELD_NAMES: Array[String] = [
 	"object_kind",
 	"object_local_x_px_q4",
@@ -35,6 +36,7 @@ func _init() -> void:
 	if not packet.is_empty():
 		_assert_packet_arrays(packet)
 		_assert_packet_layer_consumes_packet(packet)
+	_assert_native_objects_keep_mountain_clearance()
 
 	if _failed:
 		quit(1)
@@ -143,10 +145,124 @@ func _assert_packet_layer_consumes_packet(packet: Dictionary) -> void:
 	print("WORLD_OBJECT_PACKET_LAYER_STATE ", state)
 	layer.free()
 
+func _assert_native_objects_keep_mountain_clearance() -> void:
+	var world_core: Object = ClassDB.instantiate("WorldCore")
+	_assert(world_core != null, "WorldCore must be available for native object mountain-clearance checks.")
+	if world_core == null:
+		return
+
+	var coords := PackedVector2Array()
+	var center_chunk := Vector2i(112, 48)
+	for y_offset: int in range(48):
+		for x_offset: int in range(48):
+			coords.append(Vector2(center_chunk.x + x_offset, center_chunk.y + y_offset))
+
+	var packets_variant: Variant = world_core.call(
+		"generate_chunk_packets_batch",
+		WorldRuntimeConstants.DEFAULT_WORLD_SEED,
+		coords,
+		WorldRuntimeConstants.WORLD_VERSION,
+		_build_mountain_settings_packed()
+	)
+	_assert(packets_variant is Array, "WorldCore must return an Array for object mountain-clearance checks.")
+	if not (packets_variant is Array):
+		return
+
+	var checked_object_count: int = 0
+	var mountain_packet_count: int = 0
+	for packet_variant: Variant in packets_variant as Array:
+		var packet: Dictionary = packet_variant as Dictionary
+		if _packet_has_mountain_surface(packet):
+			mountain_packet_count += 1
+		var object_kind: PackedByteArray = packet.get("object_kind", PackedByteArray()) as PackedByteArray
+		var object_x: PackedByteArray = packet.get("object_local_x_px_q4", PackedByteArray()) as PackedByteArray
+		var object_y: PackedByteArray = packet.get("object_local_y_px_q4", PackedByteArray()) as PackedByteArray
+		var object_count: int = mini(object_kind.size(), mini(object_x.size(), object_y.size()))
+		for index: int in range(object_count):
+			var local_x: float = float(int(object_x[index]) * 4)
+			var local_y: float = float(int(object_y[index]) * 4)
+			checked_object_count += 1
+			_assert(
+				_object_has_mountain_clearance(packet, local_x, local_y, OBJECT_MOUNTAIN_CLEARANCE_PX),
+				"Native object packet placed object kind %d inside mountain clearance at chunk %s local=(%.1f, %.1f)." % [
+					int(object_kind[index]),
+					str(packet.get("chunk_coord", Vector2i.ZERO)),
+					local_x,
+					local_y,
+				]
+			)
+
+	_assert(mountain_packet_count > 0, "Mountain-clearance scan must include mountain surface packets.")
+	_assert(checked_object_count > 0, "Mountain-clearance scan must include native object records.")
+
+func _packet_has_mountain_surface(packet: Dictionary) -> bool:
+	var mountain_ids: PackedInt32Array = packet.get("mountain_id_per_tile", PackedInt32Array()) as PackedInt32Array
+	var mountain_flags: PackedByteArray = packet.get("mountain_flags", PackedByteArray()) as PackedByteArray
+	for index: int in range(mini(mountain_ids.size(), mountain_flags.size())):
+		if int(mountain_ids[index]) <= 0:
+			continue
+		var flags: int = int(mountain_flags[index])
+		if (flags & (WorldRuntimeConstants.MOUNTAIN_FLAG_WALL | WorldRuntimeConstants.MOUNTAIN_FLAG_FOOT)) != 0:
+			return true
+	return false
+
+func _object_has_mountain_clearance(packet: Dictionary, local_x: float, local_y: float, clearance_px: float) -> bool:
+	var diagonal_clearance: float = clearance_px * 0.72
+	for offset: Vector2 in [
+		Vector2.ZERO,
+		Vector2(clearance_px, 0.0),
+		Vector2(-clearance_px, 0.0),
+		Vector2(0.0, clearance_px),
+		Vector2(0.0, -clearance_px),
+		Vector2(diagonal_clearance, diagonal_clearance),
+		Vector2(-diagonal_clearance, diagonal_clearance),
+		Vector2(diagonal_clearance, -diagonal_clearance),
+		Vector2(-diagonal_clearance, -diagonal_clearance),
+	]:
+		if not _sample_allows_object(packet, local_x + offset.x, local_y + offset.y):
+			return false
+	return true
+
+func _sample_allows_object(packet: Dictionary, local_x: float, local_y: float) -> bool:
+	if local_x < 0.0 \
+			or local_y < 0.0 \
+			or local_x >= float(WorldRuntimeConstants.CHUNK_SIZE * WorldRuntimeConstants.TILE_SIZE_PX) \
+			or local_y >= float(WorldRuntimeConstants.CHUNK_SIZE * WorldRuntimeConstants.TILE_SIZE_PX):
+		return true
+	var local_coord := Vector2i(
+		floori(local_x / float(WorldRuntimeConstants.TILE_SIZE_PX)),
+		floori(local_y / float(WorldRuntimeConstants.TILE_SIZE_PX)),
+	)
+	var index: int = WorldRuntimeConstants.local_to_index(local_coord)
+	var terrain_ids: PackedInt32Array = packet.get("terrain_ids", PackedInt32Array()) as PackedInt32Array
+	var lake_flags: PackedByteArray = packet.get("lake_flags", PackedByteArray()) as PackedByteArray
+	if index < 0 or index >= terrain_ids.size():
+		return false
+	if int(terrain_ids[index]) != WorldRuntimeConstants.TERRAIN_PLAINS_GROUND:
+		return false
+	return index >= lake_flags.size() \
+			or (int(lake_flags[index]) & WorldRuntimeConstants.LAKE_FLAG_WATER_PRESENT) == 0
+
 func _build_settings_packed() -> PackedFloat32Array:
 	var world_bounds: WorldBoundsSettings = WorldBoundsSettings.hard_coded_defaults()
 	var mountain_settings: MountainGenSettings = MountainGenSettings.from_save_dict(DefaultMountainGenSettings.to_save_dict())
 	mountain_settings.density = 0.0
+	var foundation_settings: FoundationGenSettings = FoundationGenSettings.from_save_dict(
+		DefaultFoundationGenSettings.to_save_dict(),
+		world_bounds
+	)
+	var lake_settings: LakeGenSettings = LakeGenSettings.from_save_dict(DefaultLakeGenSettings.to_save_dict())
+	lake_settings.density = 0.0
+	var packed: PackedFloat32Array = mountain_settings.flatten_to_packed()
+	packed = foundation_settings.write_to_settings_packed(packed, world_bounds)
+	return lake_settings.write_to_settings_packed(packed)
+
+func _build_mountain_settings_packed() -> PackedFloat32Array:
+	var world_bounds: WorldBoundsSettings = WorldBoundsSettings.hard_coded_defaults()
+	var mountain_settings: MountainGenSettings = MountainGenSettings.from_save_dict(DefaultMountainGenSettings.to_save_dict())
+	mountain_settings.density = 0.45
+	mountain_settings.scale = 256.0
+	mountain_settings.foot_band = 0.30
 	var foundation_settings: FoundationGenSettings = FoundationGenSettings.from_save_dict(
 		DefaultFoundationGenSettings.to_save_dict(),
 		world_bounds

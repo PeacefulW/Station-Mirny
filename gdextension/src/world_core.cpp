@@ -114,6 +114,7 @@ constexpr uint8_t OBJECT_KIND_LIVING_FLORA = 2U;
 constexpr uint8_t OBJECT_KIND_SPIKY_FLORA = 3U;
 constexpr uint8_t OBJECT_FLAG_COLLIDER = 1U << 0U;
 constexpr int32_t OBJECT_LOCAL_PX_QUANTUM = 4;
+constexpr float OBJECT_MOUNTAIN_CLEARANCE_PX = 64.0f;
 
 constexpr int32_t ROCK_FRAME_COUNT = 32;
 constexpr int32_t ROCK_ATLAS_COUNT = 4;
@@ -713,6 +714,44 @@ bool object_position_is_plain(
 	return (read_byte_at(p_lake_flags, index, 0) & LAKE_FLAG_WATER_PRESENT) == 0;
 }
 
+bool object_position_is_mountain_surface(
+	float p_local_x_px,
+	float p_local_y_px,
+	const PackedInt32Array &p_terrain_ids
+) {
+	if (p_local_x_px < 0.0f || p_local_y_px < 0.0f || p_local_x_px >= static_cast<float>(CHUNK_SIZE_PX) || p_local_y_px >= static_cast<float>(CHUNK_SIZE_PX)) {
+		return false;
+	}
+	const int32_t local_x = static_cast<int32_t>(std::floor(p_local_x_px / static_cast<float>(TILE_SIZE_PX)));
+	const int32_t local_y = static_cast<int32_t>(std::floor(p_local_y_px / static_cast<float>(TILE_SIZE_PX)));
+	if (local_x < 0 || local_y < 0 || local_x >= CHUNK_SIZE || local_y >= CHUNK_SIZE) {
+		return false;
+	}
+	const int32_t index = local_y * static_cast<int32_t>(CHUNK_SIZE) + local_x;
+	const int32_t terrain_id = read_int32_at(p_terrain_ids, index, TERRAIN_MOUNTAIN_WALL);
+	return terrain_id == TERRAIN_MOUNTAIN_WALL || terrain_id == TERRAIN_MOUNTAIN_FOOT;
+}
+
+bool object_position_has_mountain_clearance(
+	float p_local_x_px,
+	float p_local_y_px,
+	const PackedInt32Array &p_terrain_ids,
+	float p_clearance_px
+) {
+	if (object_position_is_mountain_surface(p_local_x_px, p_local_y_px, p_terrain_ids)) {
+		return false;
+	}
+	const float diagonal_clearance = p_clearance_px * 0.72f;
+	return !object_position_is_mountain_surface(p_local_x_px + p_clearance_px, p_local_y_px, p_terrain_ids) &&
+			!object_position_is_mountain_surface(p_local_x_px - p_clearance_px, p_local_y_px, p_terrain_ids) &&
+			!object_position_is_mountain_surface(p_local_x_px, p_local_y_px + p_clearance_px, p_terrain_ids) &&
+			!object_position_is_mountain_surface(p_local_x_px, p_local_y_px - p_clearance_px, p_terrain_ids) &&
+			!object_position_is_mountain_surface(p_local_x_px + diagonal_clearance, p_local_y_px + diagonal_clearance, p_terrain_ids) &&
+			!object_position_is_mountain_surface(p_local_x_px - diagonal_clearance, p_local_y_px + diagonal_clearance, p_terrain_ids) &&
+			!object_position_is_mountain_surface(p_local_x_px + diagonal_clearance, p_local_y_px - diagonal_clearance, p_terrain_ids) &&
+			!object_position_is_mountain_surface(p_local_x_px - diagonal_clearance, p_local_y_px - diagonal_clearance, p_terrain_ids);
+}
+
 bool object_position_is_plain_with_clearance(
 	float p_local_x_px,
 	float p_local_y_px,
@@ -771,7 +810,8 @@ void append_native_rock_object(
 			p_local_y_px < ROCK_EDGE_PADDING_PX ||
 			p_local_x_px > static_cast<float>(CHUNK_SIZE_PX) - ROCK_EDGE_PADDING_PX ||
 			p_local_y_px > static_cast<float>(CHUNK_SIZE_PX) - ROCK_EDGE_PADDING_PX ||
-			!object_position_is_plain(p_local_x_px, p_local_y_px, p_terrain_ids, p_lake_flags)) {
+			!object_position_is_plain(p_local_x_px, p_local_y_px, p_terrain_ids, p_lake_flags) ||
+			!object_position_has_mountain_clearance(p_local_x_px, p_local_y_px, p_terrain_ids, OBJECT_MOUNTAIN_CLEARANCE_PX)) {
 		return;
 	}
 	const float atlas_roll = object_unit(p_salt, 0x79ULL);
@@ -964,7 +1004,8 @@ void append_native_object_placements(
 					local_y < LIVING_FLORA_EDGE_PADDING_PX ||
 					local_x > static_cast<float>(CHUNK_SIZE_PX) - LIVING_FLORA_EDGE_PADDING_PX ||
 					local_y > static_cast<float>(CHUNK_SIZE_PX) - LIVING_FLORA_EDGE_PADDING_PX ||
-					!object_position_is_plain(local_x, local_y, p_terrain_ids, p_lake_flags)) {
+					!object_position_is_plain(local_x, local_y, p_terrain_ids, p_lake_flags) ||
+					!object_position_has_mountain_clearance(local_x, local_y, p_terrain_ids, OBJECT_MOUNTAIN_CLEARANCE_PX)) {
 				continue;
 			}
 			const float world_px_x = static_cast<float>(p_coord.x * CHUNK_SIZE_PX) + local_x;
@@ -989,7 +1030,8 @@ void append_native_object_placements(
 		}
 		const float local_x = lerp_float(SPIKY_FLORA_EDGE_PADDING_PX, static_cast<float>(CHUNK_SIZE_PX) - SPIKY_FLORA_EDGE_PADDING_PX, object_unit(candidate_hash, 0x41ULL));
 		const float local_y = lerp_float(SPIKY_FLORA_EDGE_PADDING_PX, static_cast<float>(CHUNK_SIZE_PX) - SPIKY_FLORA_EDGE_PADDING_PX, object_unit(candidate_hash, 0x53ULL));
-		if (!object_position_is_plain(local_x, local_y, p_terrain_ids, p_lake_flags)) {
+		if (!object_position_is_plain(local_x, local_y, p_terrain_ids, p_lake_flags) ||
+				!object_position_has_mountain_clearance(local_x, local_y, p_terrain_ids, OBJECT_MOUNTAIN_CLEARANCE_PX)) {
 			continue;
 		}
 		const float world_px_x = static_cast<float>(p_coord.x * CHUNK_SIZE_PX) + local_x;
@@ -1037,7 +1079,8 @@ void append_native_object_placements(
 		}
 		const float local_x = lerp_float(BIOFIELD_SEAWEED_EDGE_PADDING_PX, static_cast<float>(CHUNK_SIZE_PX) - BIOFIELD_SEAWEED_EDGE_PADDING_PX, object_unit(candidate_hash, 0x41ULL));
 		const float local_y = lerp_float(BIOFIELD_SEAWEED_EDGE_PADDING_PX, static_cast<float>(CHUNK_SIZE_PX) - BIOFIELD_SEAWEED_EDGE_PADDING_PX, object_unit(candidate_hash, 0x53ULL));
-		if (!object_position_is_plain(local_x, local_y, p_terrain_ids, p_lake_flags)) {
+		if (!object_position_is_plain(local_x, local_y, p_terrain_ids, p_lake_flags) ||
+				!object_position_has_mountain_clearance(local_x, local_y, p_terrain_ids, OBJECT_MOUNTAIN_CLEARANCE_PX)) {
 			continue;
 		}
 		const float world_px_x = static_cast<float>(p_coord.x * CHUNK_SIZE_PX) + local_x;

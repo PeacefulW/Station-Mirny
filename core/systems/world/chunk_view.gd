@@ -189,7 +189,9 @@ func begin_apply(packet: Dictionary, defer_object_visual: bool = false) -> void:
 	_pending_mountain_atlas_indices = (packet.get("mountain_atlas_indices", PackedInt32Array()) as PackedInt32Array).duplicate()
 	WorldPerfProbe.end("ChunkView.begin_apply.copy_packet", step_started)
 	step_started = WorldPerfProbe.begin()
-	_skip_full_mountain_surface_apply = not _mountain_tile_visuals_enabled and _is_pending_full_mountain_surface()
+	# Even a chunk that is all mountain surface needs the ordinary ground
+	# underlay, because the native mountain mask has organic transparent edges.
+	_skip_full_mountain_surface_apply = false
 	_apply_index = 0
 	_bulk_apply_layers_pristine = not _has_applied_cells
 	visible = false
@@ -2336,6 +2338,10 @@ func _clear_loaded_mountain_visuals() -> void:
 
 
 func _clear_mountain_visual_cell(local_coord: Vector2i) -> void:
+	# Mountain renders via the silhouette sprite, so fill the base with the organic
+	# ground_hybrid underlay -- it paints aperiodically (no square seams) and never
+	# leaves the base empty, so organic edges / dug holes show ground instead of the
+	# green viewport clear_color bleeding through.
 	_apply_ground_underlay_cell(local_coord)
 	_clear_cell(_overlay_layer, local_coord)
 	_clear_cell(_water_layer, local_coord)
@@ -2507,6 +2513,10 @@ func _set_mask_shader_chunk_clip(
 	)
 	material.set_shader_parameter(
 		"shadow_blend_texels",
+		maxf(1.0, MASK_SHADOW_CHUNK_OVERLAP_PX / maxf(mask_step_px, 0.001)),
+	)
+	material.set_shader_parameter(
+		"shadow_draw_edge_fade_texels",
 		maxf(1.0, MASK_SHADOW_CHUNK_OVERLAP_PX / maxf(mask_step_px, 0.001)),
 	)
 

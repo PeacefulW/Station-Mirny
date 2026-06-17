@@ -1,0 +1,100 @@
+Godot Engine v4.6.2.stable.official.71f334935 - https://godotengine.org
+
+[   0% ] first_scan_filesystem | Started Инициализация проекта (5 steps)
+[   0% ] first_scan_filesystem | Сканирование структуры файлов…
+[  16% ] first_scan_filesystem | Загрузка глобальных имен классов…
+[  33% ] first_scan_filesystem | Проверка GDExtensions…
+[  50% ] first_scan_filesystem | Создание скриптов автозагрузки…
+[  66% ] first_scan_filesystem | Инициализация плагинов…
+It was recognized that GdUnit4 is running in a test environment, therefore the GdUnit4 plugin will not be executed!
+[  83% ] first_scan_filesystem | Начало сканирование файлов…
+[ DONE ] first_scan_filesystem
+
+[   0% ] update_scripts_classes | Started Регистрация глобальных классов… (2 steps)
+[   0% ] update_scripts_classes | MountainPlateau2DRasterLayer
+[  33% ] update_scripts_classes | 
+[ DONE ] update_scripts_classes
+
+[   0% ] _update_scan_actions | Started Сканирование действий… (30 steps)
+[   0% ] _update_scan_actions | brown_seaweed_living_view_000deg.webp
+[   3% ] _update_scan_actions | brown_seaweed_living_view_045deg.webp
+[   6% ] _update_scan_actions | brown_seaweed_living_view_090deg.webp
+[   9% ] _update_scan_actions | brown_seaweed_living_view_135deg.webp
+[  12% ] _update_scan_actions | cavity.png
+[  16% ] _update_scan_actions | fresh_dig.png
+[  19% ] _update_scan_actions | running_source_preview.webp
+[  22% ] _update_scan_actions | source_run_dir_00_000deg.webp
+[  25% ] _update_scan_actions | source_run_dir_04_090deg.webp
+[  29% ] _update_scan_actions | source_run_dir_08_180deg.webp
+[  32% ] _update_scan_actions | source_run_dir_12_270deg.webp
+[  35% ] _update_scan_actions | space_suit_run_preview.webp
+[  38% ] _update_scan_actions | autotile_47.windows.template_debug.x86_64.obj
+[  41% ] _update_scan_actions | autotile_47.windows.template_release.x86_64.obj
+[  45% ] _update_scan_actions | grass_scatter.windows.template_debug.x86_64.obj
+[  48% ] _update_scan_actions | grass_scatter.windows.template_release.x86_64.obj
+[  51% ] _update_scan_actions | lake_field.windows.template_debug.x86_64.obj
+[  54% ] _update_scan_actions | lake_field.windows.template_release.x86_64.obj
+[  58% ] _update_scan_actions | mountain_contour.windows.template_debug.x86_64.obj
+[  61% ] _update_scan_actions | mountain_contour.windows.template_release.x86_64.obj
+[  64% ] _update_scan_actions | mountain_field.windows.template_debug.x86_64.obj
+[  67% ] _update_scan_actions | mountain_field.windows.template_release.x86_64.obj
+[  70% ] _update_scan_actions | mountain_plateau_raster.windows.template_debug.x86_64.obj
+[  74% ] _update_scan_actions | mountain_plateau_raster.windows.template_release.x86_64.obj
+[  77% ] _update_scan_actions | register_types.windows.template_debug.x86_64.obj
+[  80% ] _update_scan_actions | register_types.windows.template_release.x86_64.obj
+[  83% ] _update_scan_actions | world_core.windows.template_debug.x86_64.obj
+[  87% ] _update_scan_actions | world_core.windows.template_release.x86_64.obj
+[  90% ] _update_scan_actions | world_prepass.windows.template_debug.x86_64.obj
+[  93% ] _update_scan_actions | world_prepass.windows.template_release.x86_64.obj
+[ DONE ] _update_scan_actions
+
+[   0% ] reimport | Started Импорт или повторный импорт ассетов (2 steps)
+[   0% ] reimport | Подготовка файлов к повторному импорту…
+[  33% ] reimport | Подготовка файлов к повторному импорту…
+[   0% ] reimport | Выполнение предимпортных операций…
+[   0% ] reimport | cavity.png
+[  33% ] reimport | fresh_dig.png
+[  66% ] reimport | Завершение импорта активов…
+[ DONE ] reimport
+
+[   0% ] reimport | Started Импорт или повторный импорт ассетов (2 steps)
+[   0% ] reimport | Выполнение операций после реимпорта…
+[ DONE ] reimport
+
+[   0% ] loading_editor_layout | Started Загрузка редактора (5 steps)
+[   0% ] loading_editor_layout | Загрузка макета редактора…
+[  16% ] loading_editor_layout | Загрузка док-панели…
+[  33% ] loading_editor_layout | Повторное открытие сцен…
+[  50% ] loading_editor_layout | Загрузка макета центрального редактора…
+[  66% ] loading_editor_layout | Загрузка макета окна плагина…
+ERROR: Could not create child process: "C:\Users\Мирный\AppData\Local\Programs\Microsoft VS Code\Code.exe" "C:/Users/peaceful/Station Peaceful/Station Peaceful" --goto "C:/Users/peaceful/Station Peaceful/Station Peaceful/scenes/ui/new_game_panel.gd:1:1"
+   at: create_process (platform/windows/os_windows.cpp:1590)
+ERROR: Couldn't open external text editor, falling back to the internal editor. Review your `text_editor/external/` editor settings.
+   at: edit (editor/script/script_editor_plugin.cpp:2604)
+ERROR: Could not create child process: "C:\Users\Мирный\AppData\Local\Programs\Microsoft VS Code\Code.exe" "C:/Users/peaceful/Station Peaceful/Station Peaceful" --goto "C:/Users/peaceful/Station Peaceful/Station Peaceful/core/entities/player/player.gd:1:1"
+   at: create_process (platform/windows/os_windows.cpp:1590)
+ERROR: Couldn't open external text editor, falling back to the internal editor. Review your `text_editor/external/` editor settings.
+   at: edit (editor/script/script_editor_plugin.cpp:2604)
+ERROR: Could not create child process: "C:\Users\Мирный\AppData\Local\Programs\Microsoft VS Code\Code.exe" "C:/Users/peaceful/Station Peaceful/Station Peaceful" --goto "C:/Users/peaceful/Station Peaceful/Station Peaceful/core/systems/world/terrain_presentation_registry.gd:1:1"
+   at: create_process (platform/windows/os_windows.cpp:1590)
+ERROR: Couldn't open external text editor, falling back to the internal editor. Review your `text_editor/external/` editor settings.
+   at: edit (editor/script/script_editor_plugin.cpp:2604)
+ERROR: Could not create child process: "C:\Users\Мирный\AppData\Local\Programs\Microsoft VS Code\Code.exe" "C:/Users/peaceful/Station Peaceful/Station Peaceful" --goto "C:/Users/peaceful/Station Peaceful/Station Peaceful/core/systems/world/world_preview_palette.gd:1:1"
+   at: create_process (platform/windows/os_windows.cpp:1590)
+ERROR: Couldn't open external text editor, falling back to the internal editor. Review your `text_editor/external/` editor settings.
+   at: edit (editor/script/script_editor_plugin.cpp:2604)
+ERROR: Could not create child process: "C:\Users\Мирный\AppData\Local\Programs\Microsoft VS Code\Code.exe" "C:/Users/peaceful/Station Peaceful/Station Peaceful" --goto "C:/Users/peaceful/Station Peaceful/Station Peaceful/scenes/world/world_runtime_v0_scene.gd:1:1"
+   at: create_process (platform/windows/os_windows.cpp:1590)
+ERROR: Couldn't open external text editor, falling back to the internal editor. Review your `text_editor/external/` editor settings.
+   at: edit (editor/script/script_editor_plugin.cpp:2604)
+ERROR: Could not create child process: "C:\Users\Мирный\AppData\Local\Programs\Microsoft VS Code\Code.exe" "C:/Users/peaceful/Station Peaceful/Station Peaceful" --goto "C:/Users/peaceful/Station Peaceful/Station Peaceful/core/systems/world/world_streamer.gd:1:1"
+   at: create_process (platform/windows/os_windows.cpp:1590)
+ERROR: Couldn't open external text editor, falling back to the internal editor. Review your `text_editor/external/` editor settings.
+   at: edit (editor/script/script_editor_plugin.cpp:2604)
+ERROR: Could not create child process: "C:\Users\Мирный\AppData\Local\Programs\Microsoft VS Code\Code.exe" "C:/Users/peaceful/Station Peaceful/Station Peaceful" --goto "C:/Users/peaceful/Station Peaceful/Station Peaceful/core/systems/world/world_tile_set_factory.gd:1:1"
+   at: create_process (platform/windows/os_windows.cpp:1590)
+ERROR: Couldn't open external text editor, falling back to the internal editor. Review your `text_editor/external/` editor settings.
+   at: edit (editor/script/script_editor_plugin.cpp:2604)
+[  83% ] loading_editor_layout | Макет редактора готов.
+[ DONE ] loading_editor_layout
+

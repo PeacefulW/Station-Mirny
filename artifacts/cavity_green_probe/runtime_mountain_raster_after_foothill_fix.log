@@ -1,0 +1,104 @@
+Godot Engine v4.6.2.stable.official.71f334935 - https://godotengine.org
+
+ERROR: WorldStreamer must build native runtime page presets explicitly.
+   at: push_error (core/variant/variant_utility.cpp:1024)
+   GDScript backtrace (most recent call first):
+       [0] _assert (res://tools/runtime_mountain_raster_smoke_test.gd:197)
+       [1] _run (res://tools/runtime_mountain_raster_smoke_test.gd:29)
+ERROR: WorldStreamer must request native top masks for the runtime split payload.
+   at: push_error (core/variant/variant_utility.cpp:1024)
+   GDScript backtrace (most recent call first):
+       [0] _assert (res://tools/runtime_mountain_raster_smoke_test.gd:197)
+       [1] _run (res://tools/runtime_mountain_raster_smoke_test.gd:45)
+ERROR: WorldStreamer must request cropped edge/facade overlays instead of full top RGBA pages.
+   at: push_error (core/variant/variant_utility.cpp:1024)
+   GDScript backtrace (most recent call first):
+       [0] _assert (res://tools/runtime_mountain_raster_smoke_test.gd:197)
+       [1] _run (res://tools/runtime_mountain_raster_smoke_test.gd:49)
+ERROR: WorldStreamer must tell native raster pages to clip visual overlay ownership to the target chunk.
+   at: push_error (core/variant/variant_utility.cpp:1024)
+   GDScript backtrace (most recent call first):
+       [0] _assert (res://tools/runtime_mountain_raster_smoke_test.gd:197)
+       [1] _run (res://tools/runtime_mountain_raster_smoke_test.gd:53)
+ERROR: WorldStreamer must prebuild mountain pages outside the visible ring.
+   at: push_error (core/variant/variant_utility.cpp:1024)
+   GDScript backtrace (most recent call first):
+       [0] _assert (res://tools/runtime_mountain_raster_smoke_test.gd:197)
+       [1] _run (res://tools/runtime_mountain_raster_smoke_test.gd:61)
+ERROR: WorldStreamer must use bounded per-page dirty invalidation for mining.
+   at: push_error (core/variant/variant_utility.cpp:1024)
+   GDScript backtrace (most recent call first):
+       [0] _assert (res://tools/runtime_mountain_raster_smoke_test.gd:197)
+       [1] _run (res://tools/runtime_mountain_raster_smoke_test.gd:66)
+ERROR: Condition "!actions.custom_samplers.has(function->arguments[j].tex_builtin)" is true. Continuing.
+   at: _dump_node_code (servers/rendering/shader_compiler.cpp:1294)
+   GDScript backtrace (most recent call first):
+       [0] _ensure_mountain_top_mask_material (res://core/systems/world/chunk_view.gd:1753)
+       [1] _upload_mountain_mask_texture (res://core/systems/world/chunk_view.gd:1008)
+       [2] _apply_mountain_mask_image (res://core/systems/world/chunk_view.gd:976)
+       [3] _apply_mountain_top_mask (res://core/systems/world/chunk_view.gd:946)
+       [4] apply_mountain_render_page (res://core/systems/world/chunk_view.gd:541)
+       [5] _run (res://tools/runtime_mountain_raster_smoke_test.gd:103)
+ERROR: Condition "!actions.custom_samplers.has(function->arguments[j].tex_builtin)" is true. Continuing.
+   at: _dump_node_code (servers/rendering/shader_compiler.cpp:1294)
+   GDScript backtrace (most recent call first):
+       [0] _ensure_mountain_top_mask_material (res://core/systems/world/chunk_view.gd:1753)
+       [1] _upload_mountain_mask_texture (res://core/systems/world/chunk_view.gd:1008)
+       [2] _apply_mountain_mask_image (res://core/systems/world/chunk_view.gd:976)
+       [3] _apply_mountain_top_mask (res://core/systems/world/chunk_view.gd:946)
+       [4] apply_mountain_render_page (res://core/systems/world/chunk_view.gd:541)
+       [5] _run (res://tools/runtime_mountain_raster_smoke_test.gd:103)
+ERROR: Condition "!actions.custom_samplers.has(function->arguments[j].tex_builtin)" is true. Continuing.
+   at: _dump_node_code (servers/rendering/shader_compiler.cpp:1294)
+   GDScript backtrace (most recent call first):
+       [0] _ensure_mountain_top_mask_material (res://core/systems/world/chunk_view.gd:1753)
+       [1] _upload_mountain_mask_texture (res://core/systems/world/chunk_view.gd:1008)
+       [2] _apply_mountain_mask_image (res://core/systems/world/chunk_view.gd:976)
+       [3] _apply_mountain_top_mask (res://core/systems/world/chunk_view.gd:946)
+       [4] apply_mountain_render_page (res://core/systems/world/chunk_view.gd:541)
+       [5] _run (res://tools/runtime_mountain_raster_smoke_test.gd:103)
+ERROR: Condition "!actions.custom_samplers.has(function->arguments[j].tex_builtin)" is true. Continuing.
+   at: _dump_node_code (servers/rendering/shader_compiler.cpp:1294)
+   GDScript backtrace (most recent call first):
+       [0] _ensure_mountain_top_mask_material (res://core/systems/world/chunk_view.gd:1753)
+       [1] _upload_mountain_mask_texture (res://core/systems/world/chunk_view.gd:1008)
+       [2] _apply_mountain_mask_image (res://core/systems/world/chunk_view.gd:976)
+       [3] _apply_mountain_top_mask (res://core/systems/world/chunk_view.gd:946)
+       [4] apply_mountain_render_page (res://core/systems/world/chunk_view.gd:541)
+       [5] _run (res://tools/runtime_mountain_raster_smoke_test.gd:103)
+ERROR: Condition "!actions.custom_samplers.has(function->arguments[j].tex_builtin)" is true. Continuing.
+   at: _dump_node_code (servers/rendering/shader_compiler.cpp:1294)
+   GDScript backtrace (most recent call first):
+       [0] _ensure_mountain_top_mask_material (res://core/systems/world/chunk_view.gd:1753)
+       [1] _upload_mountain_mask_texture (res://core/systems/world/chunk_view.gd:1008)
+       [2] _apply_mountain_mask_image (res://core/systems/world/chunk_view.gd:976)
+       [3] _apply_mountain_top_mask (res://core/systems/world/chunk_view.gd:946)
+       [4] apply_mountain_render_page (res://core/systems/world/chunk_view.gd:541)
+       [5] _run (res://tools/runtime_mountain_raster_smoke_test.gd:103)
+ERROR: Condition "!actions.custom_samplers.has(function->arguments[j].tex_builtin)" is true. Continuing.
+   at: _dump_node_code (servers/rendering/shader_compiler.cpp:1294)
+   GDScript backtrace (most recent call first):
+       [0] _ensure_mountain_top_mask_material (res://core/systems/world/chunk_view.gd:1753)
+       [1] _upload_mountain_mask_texture (res://core/systems/world/chunk_view.gd:1008)
+       [2] _apply_mountain_mask_image (res://core/systems/world/chunk_view.gd:976)
+       [3] _apply_mountain_top_mask (res://core/systems/world/chunk_view.gd:946)
+       [4] apply_mountain_render_page (res://core/systems/world/chunk_view.gd:541)
+       [5] _run (res://tools/runtime_mountain_raster_smoke_test.gd:103)
+ERROR: Condition "!actions.custom_samplers.has(function->arguments[j].tex_builtin)" is true. Continuing.
+   at: _dump_node_code (servers/rendering/shader_compiler.cpp:1294)
+   GDScript backtrace (most recent call first):
+       [0] _ensure_mountain_top_mask_material (res://core/systems/world/chunk_view.gd:1753)
+       [1] _upload_mountain_mask_texture (res://core/systems/world/chunk_view.gd:1008)
+       [2] _apply_mountain_mask_image (res://core/systems/world/chunk_view.gd:976)
+       [3] _apply_mountain_top_mask (res://core/systems/world/chunk_view.gd:946)
+       [4] apply_mountain_render_page (res://core/systems/world/chunk_view.gd:541)
+       [5] _run (res://tools/runtime_mountain_raster_smoke_test.gd:103)
+ERROR: Condition "!actions.custom_samplers.has(function->arguments[j].tex_builtin)" is true. Continuing.
+   at: _dump_node_code (servers/rendering/shader_compiler.cpp:1294)
+   GDScript backtrace (most recent call first):
+       [0] _ensure_mountain_top_mask_material (res://core/systems/world/chunk_view.gd:1753)
+       [1] _upload_mountain_mask_texture (res://core/systems/world/chunk_view.gd:1008)
+       [2] _apply_mountain_mask_image (res://core/systems/world/chunk_view.gd:976)
+       [3] _apply_mountain_top_mask (res://core/systems/world/chunk_view.gd:946)
+       [4] apply_mountain_render_page (res://core/systems/world/chunk_view.gd:541)
+       [5] _run (res://tools/runtime_mountain_raster_smoke_test.gd:103)

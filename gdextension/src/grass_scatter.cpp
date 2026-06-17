@@ -14,6 +14,10 @@ using namespace godot;
 namespace grass_scatter {
 namespace {
 
+constexpr int32_t TERRAIN_MOUNTAIN_WALL_ID = 3;
+constexpr int32_t TERRAIN_MOUNTAIN_FOOT_ID = 4;
+constexpr float GRASS_MOUNTAIN_CLEARANCE_PX = 64.0f;
+
 // --- GLSL field mirror -------------------------------------------------------
 // One formula, two transcriptions: these functions mirror the aperiodic world
 // fields of assets/shaders/ground_hybrid_material.gdshader. Any change to the
@@ -221,6 +225,52 @@ inline float hash_unit(uint64_t p_hash, uint64_t p_salt) {
 	return static_cast<float>(world_utils::splitmix64(p_hash ^ p_salt) >> 40U) / 16777216.0f;
 }
 
+inline bool is_mountain_terrain(int32_t p_terrain_id) {
+	return p_terrain_id == TERRAIN_MOUNTAIN_WALL_ID ||
+			p_terrain_id == TERRAIN_MOUNTAIN_FOOT_ID;
+}
+
+bool sample_hits_mountain_surface(
+		float p_local_x,
+		float p_local_y,
+		const int32_t *p_terrain_ids,
+		int32_t p_chunk_size_tiles,
+		float p_tile_size_px) {
+	const float chunk_size_px = static_cast<float>(p_chunk_size_tiles) * p_tile_size_px;
+	if (p_local_x < 0.0f || p_local_y < 0.0f || p_local_x >= chunk_size_px || p_local_y >= chunk_size_px) {
+		return false;
+	}
+	const int32_t tile_x = world_utils::clamp_value(
+			static_cast<int32_t>(std::floor(p_local_x / p_tile_size_px)),
+			0,
+			p_chunk_size_tiles - 1);
+	const int32_t tile_y = world_utils::clamp_value(
+			static_cast<int32_t>(std::floor(p_local_y / p_tile_size_px)),
+			0,
+			p_chunk_size_tiles - 1);
+	const int64_t tile_index = static_cast<int64_t>(tile_y) * p_chunk_size_tiles + tile_x;
+	return is_mountain_terrain(p_terrain_ids[tile_index]);
+}
+
+bool has_grass_mountain_clearance(
+		float p_local_x,
+		float p_local_y,
+		const int32_t *p_terrain_ids,
+		int32_t p_chunk_size_tiles,
+		float p_tile_size_px,
+		float p_clearance_px) {
+	const float diagonal_clearance = p_clearance_px * 0.72f;
+	return !sample_hits_mountain_surface(p_local_x, p_local_y, p_terrain_ids, p_chunk_size_tiles, p_tile_size_px) &&
+			!sample_hits_mountain_surface(p_local_x + p_clearance_px, p_local_y, p_terrain_ids, p_chunk_size_tiles, p_tile_size_px) &&
+			!sample_hits_mountain_surface(p_local_x - p_clearance_px, p_local_y, p_terrain_ids, p_chunk_size_tiles, p_tile_size_px) &&
+			!sample_hits_mountain_surface(p_local_x, p_local_y + p_clearance_px, p_terrain_ids, p_chunk_size_tiles, p_tile_size_px) &&
+			!sample_hits_mountain_surface(p_local_x, p_local_y - p_clearance_px, p_terrain_ids, p_chunk_size_tiles, p_tile_size_px) &&
+			!sample_hits_mountain_surface(p_local_x + diagonal_clearance, p_local_y + diagonal_clearance, p_terrain_ids, p_chunk_size_tiles, p_tile_size_px) &&
+			!sample_hits_mountain_surface(p_local_x - diagonal_clearance, p_local_y + diagonal_clearance, p_terrain_ids, p_chunk_size_tiles, p_tile_size_px) &&
+			!sample_hits_mountain_surface(p_local_x + diagonal_clearance, p_local_y - diagonal_clearance, p_terrain_ids, p_chunk_size_tiles, p_tile_size_px) &&
+			!sample_hits_mountain_surface(p_local_x - diagonal_clearance, p_local_y - diagonal_clearance, p_terrain_ids, p_chunk_size_tiles, p_tile_size_px);
+}
+
 } // namespace
 
 Dictionary build_buffer(
@@ -298,27 +348,17 @@ Dictionary build_buffer(
 			if (lake_flags != nullptr && (lake_flags[tile_index] & 0x1U) != 0) {
 				continue;
 			}
-			// Клиренс от горы: пучок у подножия верхушкой залез бы ПОД фасад
-			// (гора рисуется поверх всей лесенки) и читался бы обрезанным.
-			// Тайл строго над кандидатом и оба диагональных верхних соседа
-			// должны быть не горой (ids зеркалят WorldRuntimeConstants).
-			if (tile_y > 0) {
-				constexpr int32_t TERRAIN_MOUNTAIN_WALL_ID = 3;
-				constexpr int32_t TERRAIN_MOUNTAIN_FOOT_ID = 4;
-				bool mountain_above = false;
-				for (int32_t dx = -1; dx <= 1 && !mountain_above; dx++) {
-					const int32_t above_x = tile_x + dx;
-					if (above_x < 0 || above_x >= chunk_size_tiles) {
-						continue;
-					}
-					const int32_t above_id =
-							terrain_ids[static_cast<int64_t>(tile_y - 1) * chunk_size_tiles + above_x];
-					mountain_above = above_id == TERRAIN_MOUNTAIN_WALL_ID ||
-							above_id == TERRAIN_MOUNTAIN_FOOT_ID;
-				}
-				if (mountain_above) {
-					continue;
-				}
+			// Grass is only presentation, but mountain masks draw above it with
+			// organic edges. Keep roots clear of the canonical mountain surface
+			// so tufts cannot peek out under the overlay.
+			if (!has_grass_mountain_clearance(
+						local_x,
+						local_y,
+						terrain_ids,
+						chunk_size_tiles,
+						tile_size_px,
+						GRASS_MOUNTAIN_CLEARANCE_PX)) {
+				continue;
 			}
 
 			const FieldSample fields = sample_field_grid(field_grid, local_x, local_y);

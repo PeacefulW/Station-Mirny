@@ -12,10 +12,10 @@ uniform sampler2D face_modulation : repeat_enable, filter_linear;
 uniform sampler2D top_normal_tex : repeat_enable, filter_linear;
 uniform sampler2D face_normal_tex : repeat_enable, filter_linear;
 
-uniform vec4 top_dark_color : source_color = vec4(0.30, 0.24, 0.20, 1.0);
-uniform vec4 top_light_color : source_color = vec4(0.49, 0.41, 0.34, 1.0);
-uniform vec4 face_dark_color : source_color = vec4(0.22, 0.18, 0.16, 1.0);
-uniform vec4 face_light_color : source_color = vec4(0.39, 0.33, 0.28, 1.0);
+uniform vec4 top_dark_color : source_color = vec4(0.23, 0.19, 0.15, 1.0);
+uniform vec4 top_light_color : source_color = vec4(0.40, 0.335, 0.265, 1.0);
+uniform vec4 face_dark_color : source_color = vec4(0.16, 0.12, 0.095, 1.0);
+uniform vec4 face_light_color : source_color = vec4(0.32, 0.255, 0.205, 1.0);
 uniform vec4 dust_color : source_color = vec4(0.62, 0.53, 0.42, 1.0);
 
 uniform float top_world_scale_px = 224.0;

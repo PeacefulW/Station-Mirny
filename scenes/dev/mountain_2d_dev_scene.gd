@@ -537,6 +537,10 @@ func _ensure_raster_layer() -> MountainPlateau2DRasterLayer:
 	_raster_layer = MountainPlateau2DRasterLayer.new()
 	_raster_layer.name = "MountainPlateau2DRasterLayer"
 	_raster_layer.z_index = 30
+	# Зелёная GROUND_COLOR-подложка под горой — дев-плейсхолдер, которого нет в
+	# рантайме (ChunkView рисует только mountain_image). Гасим её, чтобы дев-картинка
+	# не вводила в заблуждение чужой "землёй" в проходах/полостях горы.
+	_raster_layer.set_ground_surface_enabled(false)
 	_raster_layer.set_display_normal_map(show_raster_normal_preview)
 	_raster_layer.set_display_light_map(show_raster_light_preview)
 	add_child(_raster_layer)

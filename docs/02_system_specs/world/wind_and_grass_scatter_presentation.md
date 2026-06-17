@@ -312,7 +312,9 @@ painting is forbidden.
 2. `WorldStreamer` enqueues a grass build for the chunk on the same bounded
    decorative path used for shoreline/mountain mask work.
 3. Native returns the finished buffer; the visual upload job assigns it to the
-   chunk's grass `MultiMesh` (one bounded copy).
+   chunk's grass `MultiMesh` (one bounded copy). Native placement rejects
+   candidates inside local mountain-edge clearance, so decorative grass cannot
+   peek from under the organic runtime mountain mask.
 4. Every frame, `WindRuntime` advances wind state and writes the three global
    uniforms once.
 5. The grass shader animates vertices from globals + per-instance data. No

@@ -67,8 +67,9 @@ boundary, `WORLD_VERSION = 47` carries the strengthened satellite-outcrop
 boundary, `WORLD_VERSION = 48` carries the mountain passage/outcrop refinement
 boundary, `WORLD_VERSION = 49` carries the static biofield flora placement
 boundary, `WORLD_VERSION = 50` carries the rare rocky-patch rock formation
-placement boundary, and current `WORLD_VERSION = 51` carries the rare
-rocky-patch rock pillar presentation boundary.
+placement boundary, `WORLD_VERSION = 51` carries the rare rocky-patch rock
+pillar presentation boundary, and current `WORLD_VERSION = 52` carries the
+mountain-edge object clearance boundary.
 L3 water presentation is landed:
 `ChunkView` now owns the derived
 `WaterSurfaceLayer`, populated from `lake_flags` and current resolved
@@ -156,9 +157,12 @@ The static biofield flora placement boundary advances new worlds to
 The rare rocky-patch rock formation placement boundary advances new worlds to
 `WORLD_VERSION = 50`, also without changing lake packet fields or lake
 algorithms. The rare rocky-patch rock pillar presentation boundary advances
-current new worlds to `WORLD_VERSION = 51` because native object packets now
+new worlds to `WORLD_VERSION = 51` because native object packets now
 choose among eight deterministic atlas variants for rock atlas index `3`; lake
-packet fields and lake algorithms remain unchanged.
+packet fields and lake algorithms remain unchanged. The mountain-edge object
+clearance boundary advances current new worlds to `WORLD_VERSION = 52` because
+native object packets suppress rocks and flora near canonical mountain
+wall/foot terrain; lake packet fields and lake algorithms remain unchanged.
 
 ## Gameplay Goal
 

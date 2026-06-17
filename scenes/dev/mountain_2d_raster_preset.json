@@ -16,6 +16,7 @@
 	"rim_threshold_center": 0.622,
 	"rim_threshold_width": 0.002,
 	"round_blur_radius_px": 72.0,
+	"runtime_ground_patch": false,
 	"shape_blob_radius_px": 112.0,
 	"shape_domain_warp_px": 36.0,
 	"shape_domain_warp_scale_px": 566.0,

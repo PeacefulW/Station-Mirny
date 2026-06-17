@@ -263,11 +263,16 @@ Current code notes:
   samples pass the rocky ground patch mask. `ChunkPacketV1` shape is unchanged
   because the object uses existing visual object arrays and the existing
   large-rock collision flag.
-- `world_version == 51` is the current rare rocky-patch rock pillar
+- `world_version == 51` is the historical rare rocky-patch rock pillar
   presentation boundary: native object packets keep rock family atlas index `3`
   but may choose eight `45 degree` atlas variants instead of four `90 degree`
   variants. `ChunkPacketV1` shape is unchanged because the object still uses the
   same `object_variant` byte field and existing large-rock collision flag.
+- `world_version == 52` is the current mountain-edge object clearance boundary:
+  native object packets suppress rocks, living flora, and spiky flora when their
+  deterministic placement center or local clearance samples overlap canonical
+  mountain wall/foot terrain. `ChunkPacketV1` shape is unchanged because this
+  only removes generated presentation records from existing object arrays.
 - `worldgen_settings.mountains` is written once for new worlds and then loaded
   from `world.json`, not from the repository `.tres`
 - `worldgen_settings.lakes` is written once for new worlds and then loaded
@@ -605,6 +610,9 @@ Current code notes:
 - `object_kind == 3` uses static biofield flora atlas bank index `0` for the
   orange spiky plant and index `1` for the small brown seaweed object. Both are
   immutable generated presentation records, not saved gameplay object state.
+- For `world_version >= 52`, native object packet emission keeps a local
+  mountain-edge clearance for rocks, living flora, and spiky flora so batched
+  decor does not spawn under the organic runtime mountain mask.
 - `mountain_atlas_indices` is reserved for later roof presentation, but is already confirmed at the packet boundary in M1
 
 ### `WorldFoundationSpawnResult`
@@ -783,6 +791,10 @@ Current code notes:
 - placement is deterministic for the same seed, chunk, inputs, and params;
   origins are chunk-local pixels (the grass layer node sits at the chunk
   origin)
+- candidates reject local mountain wall/foot terrain within the authored
+  mountain-edge clearance before instance emission, so presentation-only grass
+  tufts cannot appear under the organic runtime mountain mask; samples outside
+  the current chunk are not read by this chunk-local buffer builder
 - buckets follow the shared mid-layer depth ladder
   (`WorldRuntimeConstants.DEPTH_STRIPE_PX` / `DEPTH_STRIPES_PER_CHUNK`,
   mirrored as `grass_scatter::DEPTH_STRIPE_PX/DEPTH_STRIPES_PER_CHUNK`): the

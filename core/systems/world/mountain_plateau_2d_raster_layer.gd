@@ -27,8 +27,8 @@ const FACE_TEXTURE_SOURCE_SCALE: float = 0.46
 const TOP_TEXTURE_BLEND: float = 0.34
 const FACE_TEXTURE_BLEND: float = 0.42
 
-const GROUND_COLOR: Color = Color(0.20, 0.34, 0.18, 1.0)
-const GROUND_DETAIL_COLOR: Color = Color(0.29, 0.43, 0.24, 1.0)
+const GROUND_COLOR: Color = Color(0.24, 0.18, 0.12, 1.0)
+const GROUND_DETAIL_COLOR: Color = Color(0.34, 0.26, 0.17, 1.0)
 const TOP_COLOR: Color = Color(0.76, 0.31, 0.10, 1.0)
 const TOP_LIGHT_COLOR: Color = Color(0.93, 0.44, 0.16, 1.0)
 const TOP_DARK_COLOR: Color = Color(0.39, 0.13, 0.04, 1.0)
@@ -67,6 +67,7 @@ const DEFAULT_PRESET: Dictionary = {
 	"rim_strength": 0.92,
 	"rim_light_strength": 0.16,
 	"outline_strength": 0.85,
+	"runtime_ground_patch": false,
 }
 
 static func default_preset() -> Dictionary:
@@ -124,7 +125,7 @@ var _hit_mask_origin_world: Vector2 = Vector2.ZERO
 var _hit_mask_step_px: float = 0.0
 var _display_normal_map: bool = false
 var _display_light_map: bool = false
-var _display_ground_surface: bool = true
+var _display_ground_surface: bool = false
 var _anchor_to_target_chunk: bool = true
 var _ground_sprite: Sprite2D = null
 var _mountain_sprite: Sprite2D = null
@@ -742,7 +743,7 @@ func _ground_color_at(x: int, y: int, world_position: Vector2) -> Color:
 	var noise: float = _noise_i(coarse_x, coarse_y, 19)
 	var color: Color = GROUND_COLOR.lerp(GROUND_DETAIL_COLOR, noise * 0.18)
 	if _noise_i(x / 6, y / 6, 71) > 0.92:
-		color = color.lerp(Color(0.36, 0.48, 0.28, 1.0), 0.10)
+		color = color.lerp(Color(0.36, 0.27, 0.17, 1.0), 0.10)
 	return color
 
 func _top_color_at(

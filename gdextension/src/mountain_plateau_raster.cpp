@@ -71,8 +71,8 @@ int64_t elapsed_ms_since(RasterClock::time_point p_started) {
 	return std::chrono::duration_cast<std::chrono::milliseconds>(RasterClock::now() - p_started).count();
 }
 
-constexpr ColorF GROUND_COLOR = { 0.20f, 0.34f, 0.18f, 1.0f };
-constexpr ColorF GROUND_DETAIL_COLOR = { 0.29f, 0.43f, 0.24f, 1.0f };
+constexpr ColorF GROUND_COLOR = { 0.24f, 0.18f, 0.12f, 1.0f };
+constexpr ColorF GROUND_DETAIL_COLOR = { 0.34f, 0.26f, 0.17f, 1.0f };
 constexpr ColorF TOP_COLOR = { 0.76f, 0.31f, 0.10f, 1.0f };
 constexpr ColorF TOP_LIGHT_COLOR = { 0.93f, 0.44f, 0.16f, 1.0f };
 constexpr ColorF TOP_DARK_COLOR = { 0.39f, 0.13f, 0.04f, 1.0f };
@@ -317,7 +317,7 @@ ColorF ground_color_at(int32_t p_x, int32_t p_y, float p_world_x, float p_world_
 	const float noise = noise_i(coarse_x, coarse_y, 19);
 	ColorF color = lerp_color(GROUND_COLOR, GROUND_DETAIL_COLOR, noise * 0.18f);
 	if (noise_i(p_x / 6, p_y / 6, 71) > 0.92f) {
-		color = lerp_color(color, { 0.36f, 0.48f, 0.28f, 1.0f }, 0.10f);
+		color = lerp_color(color, { 0.36f, 0.27f, 0.17f, 1.0f }, 0.10f);
 	}
 	return color;
 }
@@ -1669,7 +1669,7 @@ godot::Dictionary build_image(
 	const float normal_macro_scale_px = preset_float(p_preset, "normal_macro_scale_px", 96.0f);
 	const bool runtime_fast_normals = runtime_mountain_only && preset_bool(p_preset, "runtime_fast_normals", true);
 	const float hit_mask_threshold = preset_float(p_preset, "hit_mask_threshold", 0.14f);
-	const bool emit_ground_surface = !runtime_mountain_only || preset_bool(p_preset, "runtime_ground_patch", true);
+	const bool emit_ground_surface = !runtime_mountain_only || preset_bool(p_preset, "runtime_ground_patch", false);
 	const bool emit_ground_normal_surface = emit_ground_surface && !runtime_mountain_only;
 	const bool emit_mountain_normal_surface = runtime_emit_normal_image;
 

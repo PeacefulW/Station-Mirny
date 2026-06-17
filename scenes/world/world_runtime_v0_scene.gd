@@ -35,6 +35,12 @@ func _unhandled_input(event: InputEvent) -> void:
 	elif key_event.keycode == KEY_F7:
 		_world_streamer.toggle_debug_mountain_solid_mask()
 		get_viewport().set_input_as_handled()
+	elif key_event.keycode == KEY_G:
+		# DEBUG: print terrain/tile data under the player (F8 is Godot's Stop key).
+		var dbg_player: Node2D = PlayerAuthority.get_local_player() as Node2D
+		if dbg_player != null:
+			print(_world_streamer.describe_tile_under_debug(dbg_player.global_position))
+		get_viewport().set_input_as_handled()
 	elif key_event.keycode == KEY_F9:
 		var load_slot: String = SaveManager.current_slot if not SaveManager.current_slot.is_empty() else WorldRuntimeConstants.DEFAULT_SAVE_SLOT
 		if SaveManager.save_exists(load_slot):

@@ -13,6 +13,7 @@ uniform float outer_width_px = 116.0;
 uniform float outer_width_variation_px = 0.0;
 uniform float inner_width_px = 36.0;
 uniform float foothill_alpha = 0.62;
+uniform float footprint_fill_strength = 0.0;
 // Scree debris: sparse large rock-rubble patches on the OUTER fringe of the
 // apron, crumbling into individual stones via the rock texture's own luma
 // (same dissolve trick as the ground material's rock patches).
@@ -151,7 +152,9 @@ void fragment() {
 	float outside_band = (1.0 - solid) * outer_score;
 	float inside_band = solid * inner_score * 0.42;
 	float edge_band = max(outside_band, inside_band);
-	float footprint_fill = solid * mix(0.46, 0.62, fbm2(world_px / 1180.0 + vec2(67.0, -42.0)));
+	float footprint_fill = solid
+		* clamp(footprint_fill_strength, 0.0, 1.0)
+		* mix(0.46, 0.62, fbm2(world_px / 1180.0 + vec2(67.0, -42.0)));
 	float band = max(edge_band, footprint_fill);
 	if (band <= 0.01) {
 		discard;

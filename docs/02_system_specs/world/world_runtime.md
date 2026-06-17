@@ -328,7 +328,9 @@ accepted 2D mountain look:
   mountain material and above ground/grass, and samples preloaded
   albedo/normal material maps. Its outer apron width may vary locally in shader
   from world-space noise, and the footprint may remain visible inside the
-  former mountain area after mining clears the live mountain mask. This
+  former mountain edge after mining clears the live mountain mask. It must not
+  fill the interior of mined-out mountain space, because full footprint fills
+  are chunk-local visual pages and can show as hard rectangular stains. This
   footprint remains presentation cache only: the authoritative source, dirty
   owner, terrain ids, walkability, collision, mining, save/load, and chunk
   packet schemas stay unchanged. Full chunk unload/reset may clear it.
@@ -359,7 +361,13 @@ accepted 2D mountain look:
   waiting for a full visual rebuild.
 - The FHD mountain raster/dev-scene path remains an authoring and probe tool
   until the accepted look is promoted into authored terrain resources. It is not
-  the normal runtime streaming path.
+  the normal runtime streaming path. Legacy raster chunk-hit requests must not
+  emit or display a raster ground patch in runtime: terrain ground is owned by
+  the chunk terrain material, while raster ground output is probe-only and can
+  otherwise leak as a flat coloured interior fill after mountain excavation.
+  Runtime mountain underlay must also keep shadow-only open-floor fill disabled
+  by default (`projected_shadow_open_fill_strength = 0`): open mined floors are
+  terrain-ground pixels, not mountain shadow/fallback pixels.
 
 ### Existing Compatibility Surface
 

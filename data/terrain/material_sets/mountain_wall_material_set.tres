@@ -24,11 +24,11 @@ sampling_params = {
 "face_albedo_blend": 0.92,
 "face_albedo_chroma_strength": 0.42,
 "face_albedo_luma_strength": 0.86,
-"face_dark_color": Color(0.12, 0.14, 0.16, 1),
-"face_light_color": Color(0.26, 0.30, 0.34, 1),
+"face_dark_color": Color(0.16, 0.12, 0.095, 1),
+"face_light_color": Color(0.32, 0.255, 0.205, 1),
 "top_albedo_blend": 0.88,
 "top_albedo_chroma_strength": 0.36,
 "top_albedo_luma_strength": 0.9,
-"top_dark_color": Color(0.18, 0.21, 0.24, 1),
-"top_light_color": Color(0.34, 0.39, 0.43, 1)
+"top_dark_color": Color(0.23, 0.19, 0.15, 1),
+"top_light_color": Color(0.40, 0.335, 0.265, 1)
 }

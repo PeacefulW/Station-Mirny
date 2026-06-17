@@ -310,6 +310,9 @@ Rules:
   index `3` is reserved for the rare large rocky-patch rock pillar, may use
   eight deterministic `45 degree` variants, and must pass the deterministic
   rocky ground patch mask before emission.
+- for `world_version >= 52`, generated rocks, living flora, and spiky flora
+  must keep a local clearance from canonical mountain wall/foot terrain so
+  batched decor does not appear underneath the organic runtime mountain mask.
 
 ### Batch Presentation Contract
 

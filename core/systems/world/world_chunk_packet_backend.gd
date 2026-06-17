@@ -122,12 +122,15 @@ func queue_mountain_raster_request(
 	for packet_variant: Variant in packets:
 		var packet: Dictionary = packet_variant as Dictionary
 		source_chunks.append(packet.get("chunk_coord", Vector2i.ZERO) as Vector2i)
+	var request_preset: Dictionary = preset.duplicate(true)
+	if raster_purpose == &"chunk_hit":
+		request_preset["runtime_ground_patch"] = false
 	_request_mutex.lock()
 	_pending_requests.append({
 		"kind": "mountain_raster",
 		"packets": packets.duplicate(true),
 		"target_chunk": target_chunk,
-		"preset": preset.duplicate(true),
+		"preset": request_preset,
 		"top_image": top_image.duplicate() if top_image != null else null,
 		"face_image": face_image.duplicate() if face_image != null else null,
 		"epoch": epoch,

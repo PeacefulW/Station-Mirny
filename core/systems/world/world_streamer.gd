@@ -650,6 +650,32 @@ func has_resource_at_world(world_pos: Vector2) -> bool:
 	)
 
 
+## DEBUG (F8): describe the terrain + tilemap cell rendered under a world position.
+func describe_tile_under_debug(world_pos: Vector2) -> String:
+	var probe: Dictionary = _get_tile_data(world_pos)
+	if not bool(probe.get("ready", false)):
+		return "[G] tile not ready at %s" % str(WorldRuntimeConstants.world_to_tile(world_pos))
+	var terrain_id: int = int(probe.get("terrain_id", -1))
+	var chunk: Vector2i = probe.get("chunk_coord", Vector2i.ZERO) as Vector2i
+	var local: Vector2i = probe.get("local_coord", Vector2i.ZERO) as Vector2i
+	var line: String = "[G] tile=%s terrain_id=%d chunk=%s" % [
+		str(WorldRuntimeConstants.world_to_tile(world_pos)), terrain_id, str(chunk),
+	]
+	var cv: ChunkView = _chunk_views.get(chunk, null) as ChunkView
+	if cv != null:
+		if cv._base_layer != null:
+			line += " base_src=%d base_atlas=%s" % [
+				int(cv._base_layer.get_cell_source_id(local)),
+				str(cv._base_layer.get_cell_atlas_coords(local)),
+			]
+		if cv._overlay_layer != null:
+			line += " overlay_src=%d" % int(cv._overlay_layer.get_cell_source_id(local))
+		line += " mountain_sprite=%s" % str(cv._mountain_top_mask_sprite != null and cv._mountain_top_mask_sprite.visible)
+	else:
+		line += " (no chunk view loaded)"
+	return line
+
+
 func try_harvest_at_world(world_pos: Vector2) -> Dictionary:
 	var tile_data: Dictionary = _get_tile_data(world_pos)
 	if not bool(tile_data.get("ready", false)):
@@ -1524,6 +1550,13 @@ func _apply_loaded_override(chunk_coord: Vector2i, local_coord: Vector2i, terrai
 		)
 	else:
 		_mountain_surface_dig_visual_patch_skip_count_total += 1
+		# Mountain walls don't paint a base cell, so a dug mountain tile leaves the
+		# base layer empty -- the viewport clear_color then bleeds (green) through
+		# the mountain-shader hole. Paint just this dug floor cell (DUG = dirt) so
+		# the cavity shows ground, without the heavy 3x3 square visual patch.
+		var dug_floor_view: ChunkView = _chunk_views.get(chunk_coord) as ChunkView
+		if dug_floor_view != null:
+			dug_floor_view.apply_runtime_cell(local_coord, terrain_id, 0, walkable)
 	_refresh_debug_visuals_around_tile(world_tile)
 	_apply_mountain_surface_local_dig_patch(chunk_coord, local_coord, terrain_id)
 

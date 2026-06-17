@@ -37,8 +37,8 @@ const RIM_COLOR: Color = Color(0.28, 0.10, 0.035, 0.95)
 const EDGE_COLOR: Color = Color(0.40, 0.16, 0.055, 0.74)
 const OUTLINE_COLOR: Color = Color(0.025, 0.018, 0.012, 0.72)
 const DEBUG_EDGE_COLOR: Color = Color(0.62, 0.88, 1.0, 0.72)
-const GROUND_COLOR: Color = Color(0.20, 0.34, 0.18, 1.0)
-const GROUND_DETAIL_COLOR: Color = Color(0.30, 0.45, 0.25, 0.15)
+const GROUND_COLOR: Color = Color(0.24, 0.18, 0.12, 1.0)
+const GROUND_DETAIL_COLOR: Color = Color(0.34, 0.26, 0.17, 0.15)
 const GROUND_BACKDROP_PADDING_TILES: int = 18
 
 const TOP_TEXTURE_SOURCE_SCALE: float = 1.0
