@@ -28,11 +28,17 @@ uniform float gust_field_anisotropy = 2.6;
 uniform float gust_contrast_low = 0.42;
 uniform float gust_contrast_high = 0.80;
 uniform float alpha_cutoff = 0.02;
+// Макро-вариация поля: крупные апериодичные пятна «рыжее <-> желтее» и
+// «сочное <-> сухое», чтобы ковёр дышал, а не был однотонным.
+uniform float macro_field_scale_px = 2600.0;
+uniform float macro_warm_strength = 0.10;
+uniform float macro_dry_strength = 0.22;
 // Диагностика проб: 1.0 — рисовать значение gust-поля яркостью вместо травы.
 uniform float debug_gust_view = 0.0;
 
 varying vec4 instance_data;
 varying float gust_value;
+varying vec2 v_world_pos;
 
 float hash12(vec2 p) {
 	vec3 p3 = fract(vec3(p.xyx) * 0.1031);
@@ -59,6 +65,7 @@ float gradient_noise(vec2 p) {
 void vertex() {
 	instance_data = COLOR;
 	vec2 world_pos = (MODEL_MATRIX * vec4(VERTEX, 0.0, 1.0)).xy;
+	v_world_pos = world_pos;
 	vec2 dir = normalize(wind_direction + vec2(0.0001, 0.0));
 	vec2 across = vec2(-dir.y, dir.x);
 	// Анизотропное поле порывов: сжато вдоль ветра, растянуто поперёк —
@@ -122,6 +129,17 @@ void fragment() {
 		discard;
 	}
 	float tint = clamp(instance_data.g, 0.0, 1.35);
-	COLOR = vec4(atlas_color.rgb * tint, atlas_color.a * instance_data.a);
+	vec3 col = atlas_color.rgb * tint;
+	// Макро-вариация: два независимых крупных поля. Одно гонит тёплый сдвиг
+	// (рыжее <-> желтее), другое подсушивает к бежево-серому. Пятна большие,
+	// поэтому соседние пучки тонируются согласованно — поле «дышит».
+	vec2 macro_uv = v_world_pos / max(macro_field_scale_px, 1.0);
+	float warm = gradient_noise(macro_uv + vec2(13.1, 7.7)) - 0.5;
+	float dry = gradient_noise(macro_uv * 1.37 + vec2(-21.0, 4.3));
+	col.r *= 1.0 + warm * macro_warm_strength;
+	col.b *= 1.0 - warm * macro_warm_strength * 1.4;
+	float luma = dot(col, vec3(0.299, 0.587, 0.114));
+	col = mix(col, vec3(luma) * vec3(1.07, 1.0, 0.84), smoothstep(0.55, 0.92, dry) * macro_dry_strength);
+	COLOR = vec4(col, atlas_color.a * instance_data.a);
 	}
 }

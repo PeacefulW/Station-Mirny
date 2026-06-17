@@ -315,8 +315,17 @@ Dictionary build_buffer(
 	// две корзины важности (крупные в голову, мелочь в хвост) для zoom-LOD.
 	std::vector<float> large_buckets[DEPTH_STRIPES_PER_CHUNK];
 	std::vector<float> small_buckets[DEPTH_STRIPES_PER_CHUNK];
+	std::vector<float> shadow_buf;
+	std::vector<float> spore_buf;
 	int32_t emitted = 0;
 	int32_t truncated = 0;
+
+	const float shadow_size_scale = params[PARAM_SHADOW_SIZE_SCALE];
+	const float shadow_alpha = params[PARAM_SHADOW_ALPHA];
+	const float shadow_min_size_unit = params[PARAM_SHADOW_MIN_SIZE_UNIT];
+	const float spore_orange_threshold = params[PARAM_SPORE_ORANGE_THRESHOLD];
+	const float spore_chance = params[PARAM_SPORE_CHANCE];
+	const float spore_size_px = params[PARAM_SPORE_SIZE_PX];
 
 	FieldGrid field_grid;
 	build_field_grid(chunk_origin_x, chunk_origin_y, chunk_size_px, params, field_grid);
@@ -433,6 +442,35 @@ Dictionary build_buffer(
 			};
 			bucket.insert(bucket.end(), instance, instance + 12);
 			emitted++;
+
+			// Контактная тень: плоское пятно у корня заметных пучков. Низкий
+			// эллипс прижимает куст к земле; рисуется ниже всей лесенки травы.
+			if (size_unit >= shadow_min_size_unit && shadow_alpha > 0.001f) {
+				const float blob_w = width * shadow_size_scale;
+				const float blob_h = blob_w * 0.42f;
+				const float blob_alpha = shadow_alpha * lerp_f(0.7f, 1.0f, size_unit);
+				const float shadow[12] = {
+					blob_w, 0.0f, 0.0f, local_x,
+					0.0f, blob_h, 0.0f, root_local_y,
+					0.0f, 0.0f, 0.0f, blob_alpha,
+				};
+				shadow_buf.insert(shadow_buf.end(), shadow, shadow + 12);
+			}
+
+			// Спора: редкая светящаяся мошка над сильным биополе-ядром,
+			// дрейфует по ветру в шейдере. Привязана к пучку, но висит выше.
+			if (fields.orange_region >= spore_orange_threshold &&
+					hash_unit(hash, 0x3bULL) < spore_chance) {
+				const float spore_phase = hash_unit(hash, 0x3dULL);
+				const float drift_seed = hash_unit(hash, 0x41ULL);
+				const float spore_y = local_y - height * 0.55f - 8.0f;
+				const float spore[12] = {
+					spore_size_px, 0.0f, 0.0f, local_x,
+					0.0f, spore_size_px, 0.0f, spore_y,
+					spore_phase, drift_seed, 0.0f, 1.0f,
+				};
+				spore_buf.insert(spore_buf.end(), spore, spore + 12);
+			}
 		}
 	}
 
@@ -449,6 +487,21 @@ Dictionary build_buffer(
 	}
 	result["bucket_buffers"] = bucket_buffers;
 	result["instance_count"] = emitted;
+
+	PackedFloat32Array shadow_packed;
+	shadow_packed.resize(static_cast<int64_t>(shadow_buf.size()));
+	if (!shadow_buf.empty()) {
+		std::copy(shadow_buf.begin(), shadow_buf.end(), shadow_packed.ptrw());
+	}
+	result["shadow_buffer"] = shadow_packed;
+
+	PackedFloat32Array spore_packed;
+	spore_packed.resize(static_cast<int64_t>(spore_buf.size()));
+	if (!spore_buf.empty()) {
+		std::copy(spore_buf.begin(), spore_buf.end(), spore_packed.ptrw());
+	}
+	result["spore_buffer"] = spore_packed;
+
 	if (truncated > 0) {
 		result["truncated_count"] = truncated;
 	}

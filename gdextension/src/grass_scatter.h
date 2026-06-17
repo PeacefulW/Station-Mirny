@@ -42,7 +42,13 @@ enum ParamIndex {
 	PARAM_ORANGE_FRAME_COUNT = 25,
 	PARAM_ORANGE_BANK_LOW = 26,
 	PARAM_ORANGE_BANK_HIGH = 27,
-	PARAM_COUNT = 28,
+	PARAM_SHADOW_SIZE_SCALE = 28,    // width of contact-shadow blob vs tuft width
+	PARAM_SHADOW_ALPHA = 29,         // base contact-shadow opacity
+	PARAM_SHADOW_MIN_SIZE_UNIT = 30, // only tufts at/above this size cast a blob
+	PARAM_SPORE_ORANGE_THRESHOLD = 31, // orange_region above which spores can spawn
+	PARAM_SPORE_CHANCE = 32,         // per-candidate spore probability inside field
+	PARAM_SPORE_SIZE_PX = 33,        // spore mote diameter
+	PARAM_COUNT = 34,
 };
 
 // Depth ladder contract: tufts are split by the ABSOLUTE chunk-local depth
@@ -62,6 +68,10 @@ constexpr int32_t DEPTH_STRIPES_PER_CHUNK = 64;
 // last), so zoom LOD can trim each stripe's tail via visible_instance_count
 // without a rebuild. Tufts inside strong orange_region pick frames from the
 // biofield atlas bank.
+// Also returns "shadow_buffer" (one flat contact-shadow blob per large tuft,
+// rendered below the grass ladder) and "spore_buffer" (sparse glowing motes
+// above strong orange_region cores, drifting on the wind globals). Both are
+// 12-float MultiMesh layouts; spore color packs (phase, drift_seed, _, alpha).
 godot::Dictionary build_buffer(
 		int64_t p_seed,
 		int64_t p_chunk_x,

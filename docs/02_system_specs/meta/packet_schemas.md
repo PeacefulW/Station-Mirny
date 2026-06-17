@@ -774,6 +774,13 @@ Governing spec:
                                            # row1 = (x.y, y.y, 0, origin.y),
                                            # color = (frame/255, tint, phase, alpha)
   "instance_count": int,                   # total across all buckets
+  "shadow_buffer": PackedFloat32Array,     # contact-shadow blobs under larger
+                                           # tufts (12-float MultiMesh layout),
+                                           # one flat layer below the grass
+                                           # ladder; color.a = blob opacity
+  "spore_buffer": PackedFloat32Array,      # sparse glowing motes above strong
+                                           # orange_region (12-float layout),
+                                           # color = (phase, drift_seed, 0, 1)
   "truncated_count": int,                  # present only when the authored
                                            # instance cap dropped candidates
   "error": String,                         # present only on contract violation
@@ -808,6 +815,10 @@ Current code notes:
 - tufts inside strong `orange_region` pick frames from the biofield atlas
   bank (`orange_frame_base..+orange_frame_count`), gated by the authored
   `orange_bank_low/high` response window
+- `shadow_buffer` and `spore_buffer` are additional presentation-only
+  MultiMesh layers (contact shadows below the ladder, biofield spores above
+  the grass); both are derived, never persisted, and gated by authored
+  params (`shadow_*`, `spore_*` in `grass_scatter::ParamIndex`)
 - an `error` key means the caller violated the input contract; consumers must
   fail explicitly instead of masking it
 

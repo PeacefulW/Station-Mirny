@@ -144,6 +144,8 @@ var _object_packet_layer: WorldObjectPacketLayer = null
 var _object_packet_visual_dirty: bool = false
 var _pending_object_packet_visual: Dictionary = { }
 var _grass_scatter_layers: Array[MultiMeshInstance2D] = []
+var _grass_shadow_layer: MultiMeshInstance2D = null
+var _grass_spore_layer: MultiMeshInstance2D = null
 var _grass_scatter_visual_dirty: bool = false
 const LADDER_ANCHOR_UNSET: int = 1 << 30
 var _applied_ladder_anchor_stripe: int = LADDER_ANCHOR_UNSET
@@ -232,6 +234,8 @@ func apply_pending_grass_scatter_visual(
 		grass_params: PackedFloat32Array,
 		grass_atlas: Texture2D,
 		grass_material: ShaderMaterial,
+		shadow_material: ShaderMaterial,
+		spore_material: ShaderMaterial,
 ) -> bool:
 	if not _grass_scatter_visual_dirty:
 		return false
@@ -251,6 +255,18 @@ func apply_pending_grass_scatter_visual(
 	assert(
 		not result.has("error"),
 		"build_grass_scatter_buffer failed: %s" % str(result.get("error", "")),
+	)
+	_apply_grass_blob_layer(
+		result.get("shadow_buffer", PackedFloat32Array()) as PackedFloat32Array,
+		shadow_material,
+		WorldRuntimeConstants.Z_GRASS_SHADOW,
+		true,
+	)
+	_apply_grass_blob_layer(
+		result.get("spore_buffer", PackedFloat32Array()) as PackedFloat32Array,
+		spore_material,
+		WorldRuntimeConstants.Z_GRASS_SPORE,
+		false,
 	)
 	var instance_count: int = int(result.get("instance_count", 0))
 	var bucket_buffers: Array = result.get("bucket_buffers", []) as Array
@@ -346,6 +362,61 @@ func get_grass_scatter_debug_state() -> Dictionary:
 		"visible": layer_visible,
 		"pending": _grass_scatter_visual_dirty,
 	}
+
+
+## Один MultiMesh-слой на чанк для теней (под лесенкой) или спор (над травой).
+## Оба — простые interleaved 12-float буферы из native.
+func _apply_grass_blob_layer(
+		buffer: PackedFloat32Array,
+		material: ShaderMaterial,
+		z: int,
+		is_shadow: bool,
+) -> void:
+	var layer: MultiMeshInstance2D = _grass_shadow_layer if is_shadow else _grass_spore_layer
+	var count: int = buffer.size() / 12
+	if count <= 0 or material == null:
+		if layer != null and is_instance_valid(layer):
+			layer.visible = false
+			layer.multimesh = null
+		return
+	if layer == null or not is_instance_valid(layer):
+		layer = MultiMeshInstance2D.new()
+		layer.name = "GrassShadowBatch" if is_shadow else "GrassSporeBatch"
+		layer.z_index = z
+		layer.material = material
+		# Тень — текстурой не пользуется (форма в шейдере), но MultiMesh2D
+		# требует текстуру для размера UV; единичный белый пиксель.
+		layer.texture = _grass_blob_unit_texture()
+		layer.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+		add_child(layer)
+		if is_shadow:
+			_grass_shadow_layer = layer
+		else:
+			_grass_spore_layer = layer
+	var multimesh: MultiMesh = layer.multimesh
+	if multimesh == null or multimesh.instance_count != count:
+		multimesh = MultiMesh.new()
+		var quad := QuadMesh.new()
+		quad.size = Vector2.ONE
+		multimesh.mesh = quad
+		multimesh.transform_format = MultiMesh.TRANSFORM_2D
+		multimesh.use_colors = true
+		multimesh.instance_count = count
+		layer.multimesh = multimesh
+	multimesh.buffer = buffer
+	layer.visible = true
+
+
+static var _shared_grass_blob_texture: ImageTexture = null
+
+
+static func _grass_blob_unit_texture() -> Texture2D:
+	if _shared_grass_blob_texture != null:
+		return _shared_grass_blob_texture
+	var image := Image.create(2, 2, false, Image.FORMAT_RGBA8)
+	image.fill(Color.WHITE)
+	_shared_grass_blob_texture = ImageTexture.create_from_image(image)
+	return _shared_grass_blob_texture
 
 
 func _ensure_grass_scatter_layer_slots() -> void:

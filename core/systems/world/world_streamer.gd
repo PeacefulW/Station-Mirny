@@ -16,6 +16,8 @@ const WorldRuntimeConstants = preload("res://core/systems/world/world_runtime_co
 const WorldVisualLightingProfile = preload("res://core/systems/world/world_visual_lighting_profile.gd")
 const WorldVisualWindProfile = preload("res://core/systems/world/world_visual_wind_profile.gd")
 const TerrainPresentationRegistry = preload("res://core/systems/world/terrain_presentation_registry.gd")
+const GRASS_SHADOW_SHADER = preload("res://assets/shaders/grass_shadow_batch.gdshader")
+const GRASS_SPORE_SHADER = preload("res://assets/shaders/grass_spore_batch.gdshader")
 const WorldSpawnResolver = preload("res://core/systems/world/world_spawn_resolver.gd")
 const WorldTileSetFactory = preload("res://core/systems/world/world_tile_set_factory.gd")
 const WorldBoundsSettings = preload("res://core/resources/world_bounds_settings.gd")
@@ -189,6 +191,8 @@ var _pending_object_packet_visual_upload_set: Dictionary = { }
 var _pending_grass_scatter_visual_upload_chunks: Array[Vector2i] = []
 var _pending_grass_scatter_visual_upload_set: Dictionary = { }
 var _grass_scatter_material: ShaderMaterial = null
+var _grass_shadow_material: ShaderMaterial = null
+var _grass_spore_material: ShaderMaterial = null
 var _grass_scatter_atlas: Texture2D = null
 var _grass_scatter_params: PackedFloat32Array = PackedFloat32Array()
 var _grass_lod_full_zoom: float = 0.8
@@ -659,7 +663,9 @@ func describe_tile_under_debug(world_pos: Vector2) -> String:
 	var chunk: Vector2i = probe.get("chunk_coord", Vector2i.ZERO) as Vector2i
 	var local: Vector2i = probe.get("local_coord", Vector2i.ZERO) as Vector2i
 	var line: String = "[G] tile=%s terrain_id=%d chunk=%s" % [
-		str(WorldRuntimeConstants.world_to_tile(world_pos)), terrain_id, str(chunk),
+		str(WorldRuntimeConstants.world_to_tile(world_pos)),
+		terrain_id,
+		str(chunk),
 	]
 	var cv: ChunkView = _chunk_views.get(chunk, null) as ChunkView
 	if cv != null:
@@ -963,6 +969,10 @@ func _ensure_grass_scatter_sources() -> void:
 	material.set_shader_parameter("gust_field_scale_px", WorldVisualWindProfile.GUST_FIELD_SCALE_PX)
 	material.set_shader_parameter("gust_field_anisotropy", WorldVisualWindProfile.GUST_FIELD_ANISOTROPY)
 	_grass_scatter_material = material
+	_grass_shadow_material = ShaderMaterial.new()
+	_grass_shadow_material.shader = GRASS_SHADOW_SHADER
+	_grass_spore_material = ShaderMaterial.new()
+	_grass_spore_material.shader = GRASS_SPORE_SHADER
 	_grass_scatter_params = PackedFloat32Array(
 		[
 			float(WorldRuntimeConstants.CHUNK_SIZE),
@@ -993,6 +1003,12 @@ func _ensure_grass_scatter_sources() -> void:
 			float(grass_params.get("orange_frame_count", 16.0)),
 			float(grass_params.get("orange_bank_low", 0.12)),
 			float(grass_params.get("orange_bank_high", 0.45)),
+			float(grass_params.get("shadow_size_scale", 0.9)),
+			float(grass_params.get("shadow_alpha", 0.28)),
+			float(grass_params.get("shadow_min_size_unit", 0.4)),
+			float(grass_params.get("spore_orange_threshold", 0.28)),
+			float(grass_params.get("spore_chance", 0.07)),
+			float(grass_params.get("spore_size_px", 7.0)),
 		],
 	)
 	_grass_lod_full_zoom = float(grass_params.get("lod_full_zoom", 0.8))
@@ -1087,6 +1103,8 @@ func _mountain_native_mask_visual_apply_tick() -> bool:
 			_grass_scatter_params,
 			_grass_scatter_atlas,
 			_grass_scatter_material,
+			_grass_shadow_material,
+			_grass_spore_material,
 		)
 		if grass_applied:
 			chunk_view.set_grass_scatter_lod_fraction(_grass_lod_fraction)

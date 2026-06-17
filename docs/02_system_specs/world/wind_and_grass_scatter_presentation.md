@@ -4,7 +4,7 @@ doc_type: system_spec
 status: draft
 owner: engineering+design
 source_of_truth: true
-version: 0.9
+version: 0.10
 last_updated: 2026-06-13
 related_docs:
   - ../../00_governance/ENGINEERING_STANDARDS.md
@@ -181,6 +181,33 @@ Target densities are thousands of tufts per chunk. Both per-instance GDScript
 generation and per-instance `set_instance_*` unpacking are forbidden (LAW 1,
 LAW 2). Native returns the final interleaved `MultiMesh` buffer; the main
 thread performs one assignment.
+
+### Grounding and atmosphere layers
+
+Four presentation-only treatments make the grass read as part of the surface
+rather than stickered sprites. All are derived, never persisted, and tuned by
+authored data:
+
+- **Grounded tuft atlas.** The procedural blade painter draws a vertical
+  colour gradient: a dark, desaturated, grounded-tone root (ambient occlusion
+  + soft earth->grass transition) up to a lighter tip. Tufts are low and
+  splayed (steppe clumps, not vertical flames). Frame variety is authored by
+  in-bank frame type (bloom / sparse clump / dense / normal) so the field is
+  not stamped from one silhouette. Roots stay anchored at the frame bottom
+  (wind contract).
+- **Grass-ladder ground backing.** The ground material's grass-texture
+  thresholds are tuned so the density range where native places tufts is
+  already a grass carpet — tufts grow out of grass, not bare soil. Same
+  `grass_density` field feeds both, so they stay synchronized.
+- **Contact-shadow blobs.** Native emits one flat shadow blob under larger
+  tufts (`shadow_buffer`), rendered as a single layer below the whole grass
+  ladder (`Z_GRASS_SHADOW`), pressing clumps onto the ground.
+- **Biofield spores.** Native emits sparse motes above strong `orange_region`
+  cores (`spore_buffer`), rendered above the grass (`Z_GRASS_SPORE`) with a
+  cold bioluminescent additive glow that drifts on the same wind globals.
+- **Macro field variation.** The grass shader tints tufts by large aperiodic
+  fields (warm/rust shift, dry bleach) so the carpet breathes instead of
+  reading as one flat colour.
 
 ## Data Model
 

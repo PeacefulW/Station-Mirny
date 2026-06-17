@@ -31,6 +31,13 @@ static func build_atlas_image(atlas_seed: int = DEFAULT_ATLAS_SEED) -> Image:
 		_paint_grass_frame(image, frame_origin, atlas_rng, frame_index, is_biofield)
 	return image
 
+# Характер кадра внутри банка (0..15): разнообразит силуэты, чтобы поле не
+# выглядело штампованным. Native выбирает кадр случайно, типы перемешиваются.
+const FRAME_TYPE_BLOOM: int = 0 # цветущий: яркие соцветия на кончиках
+const FRAME_TYPE_SPARSE: int = 1 # клочок: мало коротких блейдов
+const FRAME_TYPE_DENSE: int = 2 # густой раскидистый куст
+const FRAME_TYPE_NORMAL: int = 3
+
 
 static func _paint_grass_frame(
 		image: Image,
@@ -39,9 +46,22 @@ static func _paint_grass_frame(
 		frame_index: int,
 		is_biofield: bool,
 ) -> void:
+	var frame_type: int = (frame_index % 16) % 4
 	var blade_count: int = atlas_rng.randi_range(11, 22)
 	if is_biofield:
 		blade_count += 4
+	# Короткий клочок: высота верхушки (доля кадра, меньше = короче блейд).
+	var tip_top: float = 0.24
+	var tip_bottom: float = 0.60
+	match frame_type:
+		FRAME_TYPE_SPARSE:
+			blade_count = atlas_rng.randi_range(5, 9)
+			tip_top = 0.46
+			tip_bottom = 0.72
+		FRAME_TYPE_DENSE:
+			blade_count += 7
+		_:
+			pass
 	for i: int in range(blade_count):
 		var root := Vector2(
 			float(origin.x) + FRAME_SIZE.x * atlas_rng.randf_range(0.18, 0.82),
@@ -52,7 +72,7 @@ static func _paint_grass_frame(
 		var lean := atlas_rng.randf_range(-30.0, 30.0) + sin(float(frame_index) * 1.7 + float(i)) * 7.0
 		var tip := Vector2(
 			root.x + lean,
-			float(origin.y) + FRAME_SIZE.y * atlas_rng.randf_range(0.24, 0.60),
+			float(origin.y) + FRAME_SIZE.y * atlas_rng.randf_range(tip_top, tip_bottom),
 		)
 		var mid := root.lerp(tip, atlas_rng.randf_range(0.40, 0.62)) \
 				+ Vector2(atlas_rng.randf_range(-12.0, 12.0), atlas_rng.randf_range(-3.0, 5.0))
@@ -85,6 +105,26 @@ static func _paint_grass_frame(
 		var tip_color := color.lightened(0.14)
 		_paint_blade_segment(image, root, mid, width, root_color, color)
 		_paint_blade_segment(image, mid, tip, width * 0.62, color, tip_color)
+		# Соцветие на кончике у части блейдов цветущего кадра.
+		if frame_type == FRAME_TYPE_BLOOM and i % 3 == 0:
+			var bloom_hue: float = (0.092 if is_biofield else 0.118) + hue
+			var bloom := Color.from_hsv(bloom_hue, 0.78, 1.0, atlas_rng.randf_range(0.78, 0.96))
+			_paint_bloom_dot(image, tip, atlas_rng.randf_range(2.2, 3.6), bloom)
+
+
+## Мягкое соцветие-точка на кончике блейда (цветущий кадр).
+static func _paint_bloom_dot(image: Image, center: Vector2, radius: float, color: Color) -> void:
+	var min_x: int = clampi(floori(center.x - radius - 1.0), 0, image.get_width() - 1)
+	var max_x: int = clampi(ceili(center.x + radius + 1.0), 0, image.get_width() - 1)
+	var min_y: int = clampi(floori(center.y - radius - 1.0), 0, image.get_height() - 1)
+	var max_y: int = clampi(ceili(center.y + radius + 1.0), 0, image.get_height() - 1)
+	for y: int in range(min_y, max_y + 1):
+		for x: int in range(min_x, max_x + 1):
+			var dist := Vector2(float(x) + 0.5, float(y) + 0.5).distance_to(center)
+			var alpha := (1.0 - smoothstep(radius - 0.9, radius + 0.6, dist)) * color.a
+			if alpha <= 0.001:
+				continue
+			_blend_pixel(image, x, y, Color(color.r, color.g, color.b, alpha))
 
 
 ## Цвет основания блейда: темнее, менее насыщенный, чуть теплее к грунту.

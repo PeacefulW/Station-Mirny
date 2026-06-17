@@ -74,7 +74,11 @@ const DEFAULT_SAVE_SLOT: String = "save_001"
 const DEPTH_STRIPE_PX: int = 16
 const DEPTH_STRIPES_PER_CHUNK: int = 64
 const DEPTH_LADDER_HALF_RANGE_STRIPES: int = 48
+## Контактные тени травы — на земле, под всей лесенкой травы/декора.
+const Z_GRASS_SHADOW: int = 18
 const Z_MID_LADDER_BASE: int = 20
+## Споры биополя — в воздухе над травой, ниже горной презентации.
+const Z_GRASS_SPORE: int = 290
 const Z_MOUNTAIN_TOP: int = 300
 const Z_MOUNTAIN_PAGE: int = 301
 const Z_MINING_FEEDBACK: int = 320
