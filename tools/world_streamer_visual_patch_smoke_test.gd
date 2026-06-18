@@ -125,19 +125,24 @@ func _assert_runtime_mountain_ground_patch_disabled() -> void:
 	)
 	var shader_source: String = FileAccess.get_file_as_string("res://assets/shaders/mountain_top_mask_underlay.gdshader")
 	_assert(
-		shader_source.contains("shadow_cavity_enclosure") \
-				and shader_source.contains("shadow_cavity_reject_strength"),
-		"Mountain projected shadows must reject enclosed mined cavities instead of filling them flat."
+		shader_source.contains("projected_shadow_color = vec3(0.030, 0.026, 0.018)"),
+		"Mountain projected shadows must keep the dark pre-regression shadow color."
 	)
 	_assert(
-		shader_source.contains("projected_shadow_open_fill_strength") \
-				and shader_source.contains("projected_shadow *= clamp(projected_shadow_open_fill_strength"),
-		"Mountain underlay must keep shadow-only open-space fill disabled by data by default."
+		not shader_source.contains("projected_shadow_open_fill_strength") \
+				and not shader_source.contains("projected_shadow *= clamp(projected_shadow_open_fill_strength"),
+		"Mountain projected shadows must not be globally disabled on exterior open ground."
+	)
+	_assert(
+		not shader_source.contains("shadow_cavity_enclosure") \
+				and not shader_source.contains("shadow_cavity_reject_strength"),
+		"Mountain projected shadows must not be cut by the local cavity-reject probe."
 	)
 	var material_source: String = FileAccess.get_file_as_string("res://data/terrain/material_sets/mountain_mask_underlay_material_set.tres")
 	_assert(
-		material_source.contains("\"projected_shadow_open_fill_strength\": 0.0"),
-		"Mountain mask material set must explicitly disable shadow-only open-space fill."
+		not material_source.contains("\"projected_shadow_open_fill_strength\"") \
+				and not material_source.contains("\"shadow_cavity_reject_strength\""),
+		"Mountain mask material set must not zero or locally reject exterior projected shadows."
 	)
 
 func _assert_full_mountain_surface_keeps_ground_underlay() -> void:
@@ -153,9 +158,23 @@ func _assert_full_mountain_surface_keeps_ground_underlay() -> void:
 	_assert(base_layer != null, "ChunkView must keep a TerrainBaseLayer for mountain underlay.")
 	if base_layer != null:
 		var source_id: int = base_layer.get_cell_source_id(Vector2i.ZERO)
+		var atlas_coords: Vector2i = base_layer.get_cell_atlas_coords(Vector2i.ZERO)
 		_assert(
 			source_id == WorldTileSetFactory.get_source_id(WorldRuntimeConstants.TERRAIN_PLAINS_GROUND),
-			"Suppressed full-mountain surface chunks must paint plains ground under the organic mountain mask."
+			"Suppressed full-mountain surface chunks must paint organic ground under the mountain mask."
+		)
+		_assert(
+			atlas_coords == WorldTileSetFactory.get_atlas_coords(WorldRuntimeConstants.TERRAIN_PLAINS_GROUND, 0),
+			"Suppressed full-mountain surface chunks must use the organic ground material, not a square dug/foothill tile."
+		)
+		view.apply_runtime_cell(Vector2i.ZERO, WorldRuntimeConstants.TERRAIN_PLAINS_DUG, 0, true)
+		_assert(
+			base_layer.get_cell_source_id(Vector2i.ZERO) == WorldTileSetFactory.get_source_id(WorldRuntimeConstants.TERRAIN_PLAINS_GROUND),
+			"Mined mountain PLAINS_DUG tiles must keep the organic ground visual under the mountain mask."
+		)
+		_assert(
+			base_layer.get_cell_atlas_coords(Vector2i.ZERO) == WorldTileSetFactory.get_atlas_coords(WorldRuntimeConstants.TERRAIN_PLAINS_GROUND, 0),
+			"Mined mountain PLAINS_DUG tiles must not display the square dug tile atlas."
 		)
 	view.queue_free()
 
@@ -217,7 +236,10 @@ func _assert_grass_scatter_keeps_mountain_clearance() -> void:
 		lake_flags,
 		_build_dense_grass_params()
 	) as Dictionary
-	_assert(not result.has("error"), "Grass mountain-clearance buffer build must not return an error.")
+	_assert(
+		not result.has("error"),
+		"Grass mountain-clearance buffer build must not return an error: %s" % str(result.get("error", ""))
+	)
 	var instance_count: int = int(result.get("instance_count", 0))
 	_assert(instance_count > 0, "Grass mountain-clearance check must generate grass instances.")
 	var checked_count: int = 0
@@ -266,6 +288,12 @@ func _build_dense_grass_params() -> PackedFloat32Array:
 		16.0,
 		0.12,
 		0.45,
+		0.9,
+		0.28,
+		0.4,
+		0.28,
+		0.07,
+		7.0,
 	])
 
 func _grass_origin_has_mountain_clearance(terrain_ids: PackedInt32Array, local_x: float, local_y: float, clearance_px: float) -> bool:

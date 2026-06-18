@@ -334,6 +334,11 @@ accepted 2D mountain look:
   footprint remains presentation cache only: the authoritative source, dirty
   owner, terrain ids, walkability, collision, mining, save/load, and chunk
   packet schemas stay unchanged. Full chunk unload/reset may clear it.
+- When square mountain tiles are suppressed in favor of the native mask, the
+  hidden terrain base cell beneath mountain surface uses the ordinary organic
+  plains ground visual. Mined `TERRAIN_PLAINS_DUG` tiles keep the same visual
+  ground under the mountain mask instead of exposing a separate square dug tile;
+  the authoritative terrain and runtime diff state remain unchanged.
 - Dev visual lock scenes that evaluate the accepted mountain/terrain/shadow
   look must use the same `WorldVisualLightingProfile` values as runtime. Local
   hardcoded shadow ranges in dev scenes are invalid because they make runtime
@@ -365,9 +370,6 @@ accepted 2D mountain look:
   emit or display a raster ground patch in runtime: terrain ground is owned by
   the chunk terrain material, while raster ground output is probe-only and can
   otherwise leak as a flat coloured interior fill after mountain excavation.
-  Runtime mountain underlay must also keep shadow-only open-floor fill disabled
-  by default (`projected_shadow_open_fill_strength = 0`): open mined floors are
-  terrain-ground pixels, not mountain shadow/fallback pixels.
 
 ### Existing Compatibility Surface
 

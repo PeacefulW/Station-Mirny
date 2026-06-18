@@ -220,6 +220,11 @@ by chunk-local masks or overlay sprites:
   mid-layer depth ladder with object decor and the player (see
   `wind_and_grass_scatter_presentation.md`), staying presentation-only
   derived state.
+- Suppressed mountain surface cells and mined `TERRAIN_PLAINS_DUG` cells render
+  through the ordinary organic plains ground base material. They must not expose
+  a separate square dug/dirty tile or a mountain-foot fallback under the native
+  mountain mask; canonical terrain ids, walkability, collision, mining,
+  save/load, and packet fields stay owned by the normal world/runtime contracts.
 - Land-only chunks do not wait for any terrain-ground mask bytes. First
   visible publish depends on the ordinary chunk packet and tile material
   upload only. Shoreline masks are also non-blocking: chunks whose halo
@@ -253,16 +258,7 @@ by chunk-local masks or overlay sprites:
   lateral softness, foothill outer search), and split shadow ownership across a
   seam must composite to exactly the full shadow value
   (`alpha = 1 - (1 - s)^w` with axis-multiplied weights). Ground composition
-  itself has no such seams because it has no chunk-local inputs. Projected
-  mountain shadows must also fade out at the outer draw rectangle before clip
-  discard, so a shadow that is not picked up by a neighbouring mask sprite
-  cannot leave a hard rectangular tint on the ground. Projected mountain
-  shadows must not paint mined-out cavities or other open floor as a flat fill:
-  by default `projected_shadow_open_fill_strength = 0`, so shadow-only pixels
-  with no roof/wall/overhang coverage discard and the floor is owned by the
-  terrain ground material. If outdoor cast-shadow fill is reintroduced later,
-  it must be gated by an explicit exterior-connectivity proof, not by a local
-  radius guess that can fail in large caves.
+  itself has no such seams because it has no chunk-local inputs.
 
 ## Core Terms
 

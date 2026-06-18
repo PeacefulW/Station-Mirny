@@ -47,9 +47,6 @@ sampling_params = {
 "biofield_rim_color": Color(0.88, 0.42, 0.12, 1),
 "biofield_rim_strength": 1.0,
 "biofield_rim_scale_px": 1450.0,
-"shadow_cavity_reject_strength": 1.0,
-"shadow_cavity_probe_px": 256.0,
-"projected_shadow_open_fill_strength": 0.0,
 "overhang_px": 0.0,
 "base_outline_strength": 0.0
 }

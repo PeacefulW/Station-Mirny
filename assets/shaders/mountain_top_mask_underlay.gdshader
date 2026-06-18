@@ -37,8 +37,7 @@ uniform float projected_shadow_angle_deg = 234.0;
 uniform float projected_shadow_length_px = 72.0;
 uniform float projected_shadow_opacity = 0.0;
 uniform float projected_shadow_softness_px = 28.0;
-uniform vec3 projected_shadow_color = vec3(0.095, 0.060, 0.032);
-uniform float projected_shadow_open_fill_strength = 0.0;
+uniform vec3 projected_shadow_color = vec3(0.030, 0.026, 0.018);
 uniform float top_surface_alpha = 1.0;
 uniform float wall_surface_alpha = 1.0;
 // Hard dark contact line at the wall base; 0 removes it (mountains), the
@@ -92,9 +91,6 @@ uniform vec2 shadow_uv_max = vec2(0.9, 0.9);
 uniform vec2 shadow_draw_uv_min = vec2(0.1, 0.1);
 uniform vec2 shadow_draw_uv_max = vec2(0.9, 0.9);
 uniform float shadow_blend_texels = 4.0;
-uniform float shadow_draw_edge_fade_texels = 4.0;
-uniform float shadow_cavity_reject_strength = 1.0;
-uniform float shadow_cavity_probe_px = 256.0;
 
 float luma(vec3 c) {
 	return dot(c, vec3(0.299, 0.587, 0.114));
@@ -159,10 +155,6 @@ float uv_inside(vec2 uv) {
 	return step(0.0, uv.x) * step(0.0, uv.y) * step(uv.x, 1.0) * step(uv.y, 1.0);
 }
 
-float safe_mask_top(sampler2D mask_tex, vec2 uv) {
-	return mask_to_top(texture(mask_tex, clamp(uv, vec2(0.0), vec2(1.0))).r) * uv_inside(uv);
-}
-
 float uv_rect_inside(vec2 uv, vec2 min_uv, vec2 max_uv) {
 	return step(min_uv.x, uv.x) * step(min_uv.y, uv.y) * step(uv.x, max_uv.x) * step(uv.y, max_uv.y);
 }
@@ -182,16 +174,6 @@ float shadow_owner_weight(vec2 uv, vec2 min_uv, vec2 max_uv, vec2 texel, float b
 	return wx * wy;
 }
 
-float rect_edge_fade(vec2 uv, vec2 min_uv, vec2 max_uv, vec2 texel, float fade_texels) {
-	float fade_x = max(texel.x * max(fade_texels, 1.0), 0.0001);
-	float fade_y = max(texel.y * max(fade_texels, 1.0), 0.0001);
-	float left = smoothstep(min_uv.x, min_uv.x + fade_x, uv.x);
-	float right = 1.0 - smoothstep(max_uv.x - fade_x, max_uv.x, uv.x);
-	float top = smoothstep(min_uv.y, min_uv.y + fade_y, uv.y);
-	float bottom = 1.0 - smoothstep(max_uv.y - fade_y, max_uv.y, uv.y);
-	return min(min(left, right), min(top, bottom));
-}
-
 // Minimum mask solidity over an 8-direction ring: 1.0 means "no open edge
 // within this radius", i.e. the pixel sits deeper than radius_texels inside
 // the massif. The smooth falloff of the minimum doubles as the step ramp.
@@ -206,25 +188,6 @@ float ring_interior(sampler2D mask_tex, vec2 uv, vec2 texel, float radius_texels
 	interior = min(interior, mask_to_top(texture(mask_tex, uv + vec2(texel.x, -texel.y) * radius_texels * 0.7071).r));
 	interior = min(interior, mask_to_top(texture(mask_tex, uv + vec2(-texel.x, -texel.y) * radius_texels * 0.7071).r));
 	return interior;
-}
-
-float shadow_cavity_enclosure(sampler2D mask_tex, vec2 uv, vec2 texel, float radius_texels) {
-	vec2 dx = vec2(texel.x, 0.0) * radius_texels;
-	vec2 dy = vec2(0.0, texel.y) * radius_texels;
-	vec2 diag = vec2(texel.x, texel.y) * radius_texels * 0.7071;
-	float east = safe_mask_top(mask_tex, uv + dx);
-	float west = safe_mask_top(mask_tex, uv - dx);
-	float south = safe_mask_top(mask_tex, uv + dy);
-	float north = safe_mask_top(mask_tex, uv - dy);
-	float southeast = safe_mask_top(mask_tex, uv + diag);
-	float northwest = safe_mask_top(mask_tex, uv - diag);
-	float southwest = safe_mask_top(mask_tex, uv + vec2(-diag.x, diag.y));
-	float northeast = safe_mask_top(mask_tex, uv + vec2(diag.x, -diag.y));
-	float opposite_support = max(
-		max(min(east, west), min(north, south)),
-		max(min(northeast, southwest), min(northwest, southeast))
-	);
-	return smoothstep(0.18, 0.55, opposite_support);
 }
 
 vec2 visual_mask_uv(vec2 uv, vec2 texel, vec2 wp) {
@@ -259,13 +222,6 @@ void fragment() {
 
 	vec2 tex_size = vec2(textureSize(TEXTURE, 0));
 	vec2 texel = 1.0 / tex_size;
-	float shadow_draw_edge_fade = rect_edge_fade(
-		UV,
-		shadow_draw_uv_min,
-		shadow_draw_uv_max,
-		texel,
-		shadow_draw_edge_fade_texels
-	);
 	vec2 world_px = world_origin_px + UV * tex_size * sample_step_px;
 	vec2 base_uv = visual_mask_uv(UV, texel, world_px);
 	float top_here = mask_to_top(texture(TEXTURE, base_uv).r);
@@ -314,15 +270,6 @@ void fragment() {
 	float projected_shadow = 0.0;
 	float shadow_open_space = (1.0 - smoothstep(0.08, 0.56, top_here)) * (1.0 - clamp(overhang, 0.0, 1.0) * 0.92);
 	if (projected_shadow_opacity > 0.001 && projected_shadow_length_px > 1.0 && shadow_open_space > 0.001) {
-		float cavity_reject = 0.0;
-		if (shadow_cavity_reject_strength > 0.001 && shadow_cavity_probe_px > 1.0) {
-			float probe_texels = max(shadow_cavity_probe_px / max(sample_step_px, 0.001), 1.0);
-			cavity_reject = max(
-				shadow_cavity_enclosure(TEXTURE, base_uv, texel, probe_texels * 0.55),
-				shadow_cavity_enclosure(TEXTURE, base_uv, texel, probe_texels)
-			);
-		}
-		shadow_open_space *= 1.0 - clamp(cavity_reject * shadow_cavity_reject_strength, 0.0, 1.0);
 		float shadow_a = radians(projected_shadow_angle_deg);
 		vec2 shadow_dir = normalize(vec2(cos(shadow_a), sin(shadow_a)));
 		vec2 shadow_side = vec2(-shadow_dir.y, shadow_dir.x);
@@ -359,18 +306,13 @@ void fragment() {
 		projected_shadow = smoothstep(0.045, 0.66, shadow_sum / max(shadow_weight_sum, 0.0001));
 		float shadow_breakup = 0.92 + fbm2(world_px / 460.0 + vec2(8.0, -19.0)) * 0.08;
 		float shadow_strength = clamp(projected_shadow * shadow_open_space * projected_shadow_opacity * shadow_breakup, 0.0, projected_shadow_opacity);
-		float owner_weight = shadow_draw_area
-			* shadow_draw_edge_fade
-			* shadow_owner_weight(UV, shadow_uv_min, shadow_uv_max, texel, shadow_blend_texels);
+		float owner_weight = shadow_draw_area * shadow_owner_weight(UV, shadow_uv_min, shadow_uv_max, texel, shadow_blend_texels);
 		// Split-ownership alpha: in the seam band the neighbouring chunks each
 		// draw a weighted share of the SAME world-space shadow value. Plain
 		// w * s shares alpha-composite to s - w*(1-w)*s^2 (a brighter band along
 		// every chunk seam). 1 - (1 - s)^w composites to exactly s when the
 		// participating weights sum to 1.
 		projected_shadow = 1.0 - pow(max(1.0 - shadow_strength, 0.0001), owner_weight);
-	}
-	if (top_here < 0.5 && overhang <= 0.01) {
-		projected_shadow *= clamp(projected_shadow_open_fill_strength, 0.0, 1.0);
 	}
 	if (coverage <= 0.01 && projected_shadow <= 0.002) {
 		discard;

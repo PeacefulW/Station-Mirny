@@ -191,8 +191,8 @@ func begin_apply(packet: Dictionary, defer_object_visual: bool = false) -> void:
 	_pending_mountain_atlas_indices = (packet.get("mountain_atlas_indices", PackedInt32Array()) as PackedInt32Array).duplicate()
 	WorldPerfProbe.end("ChunkView.begin_apply.copy_packet", step_started)
 	step_started = WorldPerfProbe.begin()
-	# Even a chunk that is all mountain surface needs the ordinary ground
-	# underlay, because the native mountain mask has organic transparent edges.
+	# Even a chunk that is all mountain surface needs a foothill underlay,
+	# because the native mountain mask has organic transparent edges.
 	_skip_full_mountain_surface_apply = false
 	_apply_index = 0
 	_bulk_apply_layers_pristine = not _has_applied_cells
@@ -455,10 +455,10 @@ func apply_next_batch(batch_size: int) -> bool:
 		if _should_suppress_mountain_visual(index, terrain_id):
 			_clear_mountain_visual_cell(local_coord)
 			continue
-		if _is_dry_lake_bed_index(index, terrain_id):
-			# A drained lake bed is ordinary ground to the eye; the dark bed
-			# material is an underwater look and must never butt against the
-			# plains material as a bare square edge.
+		if _should_render_as_organic_ground_underlay(index, terrain_id):
+			# These states are gameplay/runtime truth, not a separate square
+			# visual surface. To the eye they stay in the shared organic ground
+			# material so mountain cuts and dry beds cannot reveal tile blocks.
 			_apply_cell(local_coord, WorldRuntimeConstants.TERRAIN_PLAINS_GROUND, 0)
 		else:
 			_apply_cell(local_coord, terrain_id, terrain_atlas_index)
@@ -506,7 +506,7 @@ func apply_runtime_cell(
 		_refresh_debug_solid_mask()
 		return
 	_sync_water_fill_visual()
-	if _is_dry_lake_bed_index(index, terrain_id):
+	if _should_render_as_organic_ground_underlay(index, terrain_id):
 		_apply_cell(local_coord, WorldRuntimeConstants.TERRAIN_PLAINS_GROUND, 0)
 	else:
 		_apply_cell(local_coord, terrain_id, terrain_atlas_index)
@@ -2278,6 +2278,12 @@ func _is_dry_lake_bed_index(index: int, terrain_id: int) -> bool:
 	return (int(_pending_lake_flags[index]) & WorldRuntimeConstants.LAKE_FLAG_WATER_PRESENT) == 0
 
 
+func _should_render_as_organic_ground_underlay(index: int, terrain_id: int) -> bool:
+	if terrain_id == WorldRuntimeConstants.TERRAIN_PLAINS_DUG:
+		return true
+	return _is_dry_lake_bed_index(index, terrain_id)
+
+
 func _apply_cell(local_coord: Vector2i, terrain_id: int, terrain_atlas_index: int) -> void:
 	if not WorldRuntimeConstants.is_local_coord_valid(local_coord):
 		return
@@ -2409,10 +2415,9 @@ func _clear_loaded_mountain_visuals() -> void:
 
 
 func _clear_mountain_visual_cell(local_coord: Vector2i) -> void:
-	# Mountain renders via the silhouette sprite, so fill the base with the organic
-	# ground_hybrid underlay -- it paints aperiodically (no square seams) and never
-	# leaves the base empty, so organic edges / dug holes show ground instead of the
-	# green viewport clear_color bleeding through.
+	# Mountain renders via the native mask/silhouette. The fallback base cell is
+	# the same organic ground material used outside the mountain; the mountain
+	# shape is purely the overlay above it.
 	_apply_ground_underlay_cell(local_coord)
 	_clear_cell(_overlay_layer, local_coord)
 	_clear_cell(_water_layer, local_coord)
@@ -2420,8 +2425,6 @@ func _clear_mountain_visual_cell(local_coord: Vector2i) -> void:
 
 
 func _apply_ground_underlay_cell(local_coord: Vector2i) -> void:
-	# The ground material owns the whole dry surface; the shoreline underlay
-	# only adds an edge band on top, so the base ground cell always paints.
 	if not WorldRuntimeConstants.is_local_coord_valid(local_coord):
 		return
 	_base_layer.set_cell(
@@ -2584,10 +2587,6 @@ func _set_mask_shader_chunk_clip(
 	)
 	material.set_shader_parameter(
 		"shadow_blend_texels",
-		maxf(1.0, MASK_SHADOW_CHUNK_OVERLAP_PX / maxf(mask_step_px, 0.001)),
-	)
-	material.set_shader_parameter(
-		"shadow_draw_edge_fade_texels",
 		maxf(1.0, MASK_SHADOW_CHUNK_OVERLAP_PX / maxf(mask_step_px, 0.001)),
 	)
 
