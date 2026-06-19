@@ -124,14 +124,50 @@ Current code note:
 - the code-confirmed state-transition paths that also emit sync events are the
   documented mutation methods above plus internal helpers
 
+### WeatherRuntime
+
+Owner file: `core/autoloads/weather_runtime.gd`
+
+Role:
+- single owner of weather state (ADR-0007 layers 2 slow + 3 local); evolves a
+  data-driven weather regime over game time and drives the wind target that
+  `WindRuntime` publishes
+- governing spec: `docs/02_system_specs/world/weather_runtime.md`
+
+Confirmed readable state (live axes; smooth values are pull-model getters):
+
+| Surface | Kind | Notes |
+|---|---|---|
+| `get_active_regime_id()` | method | Active regime id (`core:clear/cloudy/overcast` in V0) |
+| `get_cloud_cover()` | method | `0` clear .. `1` overcast |
+| `get_target_wind_strength()` | method | `0..1` wind target consumed by `WindRuntime` |
+| `get_target_wind_gustiness()` | method | `0..1` gust character target |
+| `get_target_wind_heading_deg()` | method | Wind heading target in degrees |
+| `get_precipitation_kind()` / `get_precipitation_intensity()` | method | Reserved axes, neutral in V0 (no consumers) |
+| `get_temperature_c()` / `get_humidity()` | method | Reserved axes, neutral in V0 (no consumers) |
+
+Emits `weather_changed` on regime change (see `event_contracts.md`).
+
+Developer-only (not for gameplay code):
+| `set_debug_regime(id)` / `clear_debug_regime()` | method | Freeze on / release a forced regime |
+| `debug_cycle_regime()` | method | Smooth ping-pong through clear→cloudy→overcast; bound to player hotkey `K` for in-game presentation checks |
+
+Not documented here as safe entrypoints:
+- direct writes to weather state by any other system
+- the internal regime-evolution helpers (`_advance`, `_begin_transition`,
+  `_commit_transition`, `_select_next_regime`)
+
 ### WindRuntime
 
 Owner file: `core/autoloads/wind_runtime.gd`
 
 Role:
-- environment-runtime wind state owner (ADR-0007 layer 3) and the single
-  writer of the `wind_*` global shader uniforms
-- governing spec:
+- low-level wind engine (ADR-0007 layer 3) and the single writer of the
+  `wind_*` global shader uniforms. The wind **target** (strength, heading,
+  gustiness) now comes from `WeatherRuntime`; `WindRuntime` smooths toward it
+  and publishes globals. `WorldVisualWindProfile` keeps only gust shape.
+- governing specs:
+  `docs/02_system_specs/world/weather_runtime.md`,
   `docs/02_system_specs/world/wind_and_grass_scatter_presentation.md`
 
 Confirmed readable state (presentation/dev surface, not gameplay truth):

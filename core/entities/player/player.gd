@@ -94,6 +94,14 @@ func _unhandled_input(event: InputEvent) -> void:
 	if _camera and _camera.handle_zoom_input(event):
 		get_viewport().set_input_as_handled()
 		return
+	# Dev-хоткей: K — плавная смена погоды (ясно/облачно/пасмурно).
+	if event is InputEventKey:
+		var key_event := event as InputEventKey
+		if key_event.pressed and not key_event.echo and key_event.keycode == KEY_K:
+			if WeatherRuntime != null:
+				WeatherRuntime.debug_cycle_regime()
+			get_viewport().set_input_as_handled()
+			return
 	_state_machine.handle_input(event)
 
 

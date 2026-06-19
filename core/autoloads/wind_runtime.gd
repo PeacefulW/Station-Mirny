@@ -1,12 +1,13 @@
 class_name WindRuntimeSingleton
 extends Node
-## Владелец состояния ветра (environment runtime, ADR-0007 layer 3) и
-## единственный писатель wind_* global shader uniforms.
-## Поведение задаёт WorldVisualWindProfile; потребители (шейдеры) читают
-## только глобальные юниформы. Состояние не сохраняется (реконструируется).
-## Автолоад паузится вместе с деревом (PROCESS_MODE_INHERIT): пауза игры
-## останавливает ветер по контракту спеки.
-## Контракт: docs/02_system_specs/world/wind_and_grass_scatter_presentation.md
+## Низкоуровневый движок ветра (environment runtime, ADR-0007 layer 3) и
+## единственный писатель wind_* global shader uniforms. ЦЕЛЬ ветра (силу,
+## направление, порывистость) задаёт WeatherRuntime — ветер стал производной
+## погоды; WindRuntime лишь плавно тянется к цели, аккумулирует фазу и пишет
+## глобалы. WorldVisualWindProfile задаёт только форму порывов (темп/скролл).
+## Состояние не сохраняется (реконструируется). Автолоад паузится с деревом.
+## Контракт: docs/02_system_specs/world/weather_runtime.md
+##           docs/02_system_specs/world/wind_and_grass_scatter_presentation.md
 
 const WorldVisualWindProfile = preload("res://core/systems/world/world_visual_wind_profile.gd")
 
@@ -16,20 +17,29 @@ const GLOBAL_WIND_STRENGTH: StringName = &"wind_strength"
 const GLOBAL_WIND_GUST_SCROLL_PX: StringName = &"wind_gust_scroll_px"
 
 const DEBUG_OVERRIDE_DISABLED: float = -1.0
+## Скорость подтягивания к цели погоды: ветер не дёргается при смене режима.
+const TARGET_SMOOTH_RATE: float = 0.6
+const DEFAULT_HEADING_DEG: float = -13.0
 
 var _wind_time: float = 0.0
 ## Интеграл direction * scroll_speed: фронты порывов едут плавно даже при
 ## дрейфе направления (прямое dir * t * speed рвёт фазу при повороте dir).
 var _gust_scroll_px: Vector2 = Vector2.ZERO
+var _smoothed_strength: float = 0.3
+var _smoothed_heading_rad: float = deg_to_rad(DEFAULT_HEADING_DEG)
 var _debug_strength_override: float = DEBUG_OVERRIDE_DISABLED
 var _debug_direction_override_deg: float = NAN
 
 
 func _ready() -> void:
+	if WeatherRuntime != null:
+		_smoothed_strength = WeatherRuntime.get_target_wind_strength()
+		_smoothed_heading_rad = deg_to_rad(WeatherRuntime.get_target_wind_heading_deg())
 	_publish_globals(_current_direction(), _current_strength())
 
 
 func _process(delta: float) -> void:
+	_track_weather_target(delta)
 	var direction: Vector2 = _current_direction()
 	var strength: float = _current_strength()
 	# Сила ветра ускоряет ход wind_time (темп трепета) и бег фронтов.
@@ -39,6 +49,19 @@ func _process(delta: float) -> void:
 			* WorldVisualWindProfile.scroll_speed_px_per_s_for_strength(strength) \
 			* delta
 	_publish_globals(direction, strength)
+
+
+## Плавное подтягивание сглаженного ветра к цели, заданной погодой.
+func _track_weather_target(delta: float) -> void:
+	if WeatherRuntime == null:
+		return
+	var k: float = clampf(delta * TARGET_SMOOTH_RATE, 0.0, 1.0)
+	_smoothed_strength = lerpf(_smoothed_strength, WeatherRuntime.get_target_wind_strength(), k)
+	_smoothed_heading_rad = lerp_angle(
+		_smoothed_heading_rad,
+		deg_to_rad(WeatherRuntime.get_target_wind_heading_deg()),
+		k,
+	)
 
 # --- Публичные чтения (presentation/dev surface) ---
 
@@ -86,13 +109,13 @@ func clear_debug_wind_override() -> void:
 func _current_strength() -> float:
 	if _debug_strength_override >= 0.0:
 		return _debug_strength_override
-	return WorldVisualWindProfile.strength_for_time(_wind_time)
+	return clampf(_smoothed_strength, 0.0, 1.0)
 
 
 func _current_direction() -> Vector2:
 	if not is_nan(_debug_direction_override_deg):
 		return Vector2.from_angle(deg_to_rad(_debug_direction_override_deg))
-	return WorldVisualWindProfile.direction_for_time(_wind_time)
+	return Vector2.from_angle(_smoothed_heading_rad)
 
 
 func _publish_globals(direction: Vector2, strength: float) -> void:

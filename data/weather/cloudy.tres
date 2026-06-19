@@ -1,0 +1,22 @@
+[gd_resource type="Resource" script_class="WeatherRegimeProfile" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://core/systems/world/weather_regime_profile.gd" id="1"]
+
+[resource]
+script = ExtResource("1")
+id = &"core:cloudy"
+display_name_key = &"WEATHER_CLOUDY"
+cloud_cover = Vector2(0.35, 0.62)
+wind_strength = Vector2(0.3, 0.6)
+wind_gustiness = Vector2(0.3, 0.6)
+heading_drift_deg = 14.0
+precipitation_kind = 0
+precipitation_intensity = Vector2(0, 0)
+temperature_c = Vector2(10, 13)
+humidity = Vector2(0.5, 0.65)
+successor_weights = {
+&"core:clear": 0.5,
+&"core:overcast": 0.5
+}
+min_duration_hours = 5.0
+max_duration_hours = 12.0

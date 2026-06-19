@@ -37,3 +37,5 @@ CLAUDE.local.md
 .claude/settings.local.json
 .claude/agent-memory-local/
 tools.rar
+Godot_v4.7-stable_win64.exe
+Godot_v4.7-stable_win64_console.exe

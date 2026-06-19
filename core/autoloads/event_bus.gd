@@ -1,6 +1,5 @@
 class_name GameEventBus
 extends Node
-
 ## Глобальная шина событий. Все межсистемные коммуникации
 ## проходят через сигналы этого синглтона.
 
@@ -31,6 +30,11 @@ signal time_of_day_changed(new_phase: int, old_phase: int)
 signal day_changed(day_number: int)
 @warning_ignore("unused_signal")
 signal season_changed(new_season: int, old_season: int)
+
+## Смена погодного режима (WeatherRuntime). Эмитится на смену режима и один
+## раз при инициализации. Плавные оси погоды читаются геттерами, не событием.
+@warning_ignore("unused_signal")
+signal weather_changed(regime_id: StringName, previous_regime_id: StringName)
 
 # --- Электричество ---
 @warning_ignore("unused_signal")

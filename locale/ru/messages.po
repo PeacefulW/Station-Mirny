@@ -1053,6 +1053,21 @@ msgstr "Уровень {z}"
 msgid "UI_HUD_TILE_COORDS"
 msgstr "Тайл: {x}, {y}"
 
+msgid "UI_HUD_WIND"
+msgstr "Ветер: {strength}% {arrow}"
+
+msgid "WEATHER_CLEAR"
+msgstr "Ясно"
+
+msgid "WEATHER_CLOUDY"
+msgstr "Облачно"
+
+msgid "WEATHER_OVERCAST"
+msgstr "Пасмурно"
+
+msgid "UI_HUD_WEATHER"
+msgstr "Погода: {weather} {cloud}%"
+
 msgid "UI_INVENTORY_SLOT_TOOLTIP"
 msgstr "{name}\n{amount} / {max_stack}"
 

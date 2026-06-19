@@ -1,0 +1,303 @@
+class_name WeatherRuntimeSingleton
+extends Node
+## Единственный владелец погодного состояния (environment runtime,
+## ADR-0007 layers 2 slow + 3 local). Эволюционирует активный режим по
+## игровому времени (детерминированно от seed + дня), задаёт цель ветра для
+## WindRuntime, эмитит weather_changed на смену режима. Плавные оси читаются
+## геттерами (pull-модель), не событием в кадр. O(1) на тик.
+## V0: живые только облачность и ветер; прочие оси нейтральны, без потребителей.
+## Контракт: docs/02_system_specs/world/weather_runtime.md
+
+const WeatherRegimeProfile = preload("res://core/systems/world/weather_regime_profile.gd")
+const WorldRuntimeConstants = preload("res://core/systems/world/world_runtime_constants.gd")
+
+const REGIME_DIRECTORY: String = "res://data/weather"
+const START_REGIME_ID: StringName = &"core:clear"
+const TRANSITION_WINDOW_HOURS: float = 2.0
+## Пинг-понг порядок плавной дев-смены погоды (соседние режимы).
+const DEBUG_CYCLE_ORDER: Array[StringName] = [&"core:clear", &"core:cloudy", &"core:overcast"]
+const DEBUG_TRANSITION_SECONDS: float = 3.5
+## Базовое направление ветра (откуда дует), на которое режим накладывает дрейф.
+const WIND_BASE_HEADING_DEG: float = -13.0
+
+var _regimes_by_id: Dictionary = { }
+var _active_id: StringName = START_REGIME_ID
+var _next_id: StringName = START_REGIME_ID
+var _in_transition: bool = false
+var _transition: float = 0.0
+var _remaining_hours: float = 0.0
+var _weather_time_hours: float = 0.0
+var _transition_count: int = 0
+var _last_hour: float = -1.0
+var _world_seed: int = WorldRuntimeConstants.DEFAULT_WORLD_SEED
+## Dev-форс режима (пробы/дев-сцены, не gameplay): замораживает эволюцию и
+## возвращает оси выбранного режима без перехода.
+var _debug_regime_id: StringName = &""
+## Дев-кнопка плавной смены погоды: переход идёт по реальному времени.
+var _debug_cycle_dir: int = 1
+var _debug_fast_transition: bool = false
+
+
+func _ready() -> void:
+	_load_regimes()
+	_active_id = START_REGIME_ID
+	_next_id = START_REGIME_ID
+	_remaining_hours = _roll_duration(_active_id, 0)
+	EventBus.time_tick.connect(_on_time_tick)
+	EventBus.world_initialized.connect(_on_world_initialized)
+	EventBus.weather_changed.emit(_active_id, _active_id)
+
+
+## Только дев-переход по реальному времени (плавная кнопка смены погоды).
+## Обычная эволюция идёт по игровому времени (time_tick), не здесь.
+func _process(delta: float) -> void:
+	if not _debug_fast_transition:
+		return
+	_weather_time_hours += delta * 0.25
+	_transition += delta / DEBUG_TRANSITION_SECONDS
+	if _transition >= 1.0:
+		_commit_transition()
+		_debug_fast_transition = false
+
+# --- Публичные чтения (живые оси V0) ---
+
+
+func get_active_regime_id() -> StringName:
+	if not _debug_regime_id.is_empty():
+		return _debug_regime_id
+	return _active_id
+
+
+func get_active_display_name_key() -> StringName:
+	var profile: WeatherRegimeProfile = _regimes_by_id.get(get_active_regime_id()) as WeatherRegimeProfile
+	if profile == null:
+		return &""
+	return profile.display_name_key
+
+# --- Dev-only управление (пробы и dev-сцены, не gameplay-путь) ---
+
+
+func set_debug_regime(regime_id: StringName) -> void:
+	assert(_regimes_by_id.has(regime_id), "Unknown weather regime: %s" % regime_id)
+	_debug_regime_id = regime_id
+
+
+func clear_debug_regime() -> void:
+	_debug_regime_id = &""
+
+
+## Плавная дев-смена погоды на следующий соседний режим (пинг-понг по
+## DEBUG_CYCLE_ORDER), переход за DEBUG_TRANSITION_SECONDS реального времени.
+func debug_cycle_regime() -> void:
+	_debug_regime_id = &""
+	if _in_transition:
+		# Уже в переходе — мгновенно завершаем текущий, чтобы кнопка отзывалась.
+		_commit_transition()
+	var index: int = DEBUG_CYCLE_ORDER.find(_active_id)
+	if index < 0:
+		index = 0
+	if index >= DEBUG_CYCLE_ORDER.size() - 1:
+		_debug_cycle_dir = -1
+	elif index <= 0:
+		_debug_cycle_dir = 1
+	var target_index: int = clampi(index + _debug_cycle_dir, 0, DEBUG_CYCLE_ORDER.size() - 1)
+	_next_id = DEBUG_CYCLE_ORDER[target_index]
+	_in_transition = true
+	_transition = 0.0
+	_debug_fast_transition = true
+
+
+func get_cloud_cover() -> float:
+	return _blended_axis(func(p: WeatherRegimeProfile) -> Vector2: return p.cloud_cover, 0.31)
+
+
+func get_target_wind_strength() -> float:
+	return _blended_axis(func(p: WeatherRegimeProfile) -> Vector2: return p.wind_strength, 0.0)
+
+
+func get_target_wind_gustiness() -> float:
+	return _blended_axis(func(p: WeatherRegimeProfile) -> Vector2: return p.wind_gustiness, 0.53)
+
+
+## Целевое направление ветра: базовое + дрейф амплитудой режима.
+func get_target_wind_heading_deg() -> float:
+	var active: WeatherRegimeProfile = _regimes_by_id.get(get_active_regime_id()) as WeatherRegimeProfile
+	if active == null:
+		return WIND_BASE_HEADING_DEG
+	var drift_amp: float = active.heading_drift_deg
+	if _in_transition and _debug_regime_id.is_empty():
+		var nxt: WeatherRegimeProfile = _regimes_by_id.get(_next_id) as WeatherRegimeProfile
+		if nxt != null:
+			drift_amp = lerpf(drift_amp, nxt.heading_drift_deg, smoothstep(0.0, 1.0, _transition))
+	var drift: float = sin(_weather_time_hours * 0.7 + 1.3) * 0.7 + sin(_weather_time_hours * 0.27) * 0.3
+	return WIND_BASE_HEADING_DEG + drift_amp * drift
+
+# --- Зарезервированные оси (V0 нейтральны, без потребителей) ---
+
+
+func get_precipitation_kind() -> int:
+	return 0
+
+
+func get_precipitation_intensity() -> float:
+	return 0.0
+
+
+func get_temperature_c() -> float:
+	return _blended_axis(func(p: WeatherRegimeProfile) -> Vector2: return p.temperature_c, 0.5)
+
+
+func get_humidity() -> float:
+	return _blended_axis(func(p: WeatherRegimeProfile) -> Vector2: return p.humidity, 0.5)
+
+# --- Приватные ---
+
+
+func _on_world_initialized(seed_value: int) -> void:
+	_world_seed = seed_value
+
+
+func _on_time_tick(current_hour: float, _day_progress: float) -> void:
+	if not _debug_regime_id.is_empty():
+		# Dev-форс: эволюция заморожена.
+		return
+	if _last_hour < 0.0:
+		_last_hour = current_hour
+		return
+	var delta_hours: float = current_hour - _last_hour
+	if delta_hours < 0.0:
+		delta_hours += float(_hours_per_day())
+	_last_hour = current_hour
+	if delta_hours <= 0.0:
+		return
+	_advance(delta_hours)
+
+
+func _advance(delta_hours: float) -> void:
+	_weather_time_hours += delta_hours
+	if _in_transition:
+		_transition += delta_hours / TRANSITION_WINDOW_HOURS
+		if _transition >= 1.0:
+			_commit_transition()
+	else:
+		_remaining_hours -= delta_hours
+		if _remaining_hours <= 0.0:
+			_begin_transition()
+
+
+func _begin_transition() -> void:
+	_next_id = _select_next_regime(_active_id)
+	if _next_id == _active_id:
+		# Нет валидного преемника — продлеваем текущий режим.
+		_remaining_hours = _roll_duration(_active_id, _transition_count)
+		return
+	_in_transition = true
+	_transition = 0.0
+
+
+func _commit_transition() -> void:
+	var previous_id: StringName = _active_id
+	_active_id = _next_id
+	_in_transition = false
+	_transition = 0.0
+	_transition_count += 1
+	_remaining_hours = _roll_duration(_active_id, _transition_count)
+	EventBus.weather_changed.emit(_active_id, previous_id)
+
+
+## Детерминированный взвешенный выбор преемника (соседние режимы в V0).
+func _select_next_regime(current_id: StringName) -> StringName:
+	var profile: WeatherRegimeProfile = _regimes_by_id.get(current_id) as WeatherRegimeProfile
+	if profile == null or profile.successor_weights.is_empty():
+		return current_id
+	var total: float = 0.0
+	for weight_variant: Variant in profile.successor_weights.values():
+		total += maxf(float(weight_variant), 0.0)
+	if total <= 0.0:
+		return current_id
+	# season — зарезервированный хук, в V0 веса не смещает.
+	var roll: float = _hash_unit(
+		_world_seed,
+		_current_day(),
+		_transition_count,
+		int(_active_id.hash()),
+	) * total
+	var acc: float = 0.0
+	for successor_variant: Variant in profile.successor_weights.keys():
+		var successor_id: StringName = successor_variant as StringName
+		acc += maxf(float(profile.successor_weights[successor_variant]), 0.0)
+		if roll <= acc and _regimes_by_id.has(successor_id):
+			return successor_id
+	return current_id
+
+
+func _roll_duration(regime_id: StringName, salt: int) -> float:
+	var profile: WeatherRegimeProfile = _regimes_by_id.get(regime_id) as WeatherRegimeProfile
+	if profile == null:
+		return 8.0
+	var unit: float = _hash_unit(_world_seed, _current_day(), salt, int(regime_id.hash()) ^ 0x5bd1)
+	return lerpf(profile.min_duration_hours, profile.max_duration_hours, unit)
+
+
+## Значение оси: полоса активного режима, сэмплированная медленным «дыханием»,
+## смешанная с полосой следующего во время перехода. fallback — при пустом
+## реестре (нейтральное значение для зарезервированных осей).
+func _blended_axis(band_getter: Callable, fallback: float) -> float:
+	var active: WeatherRegimeProfile = _regimes_by_id.get(get_active_regime_id()) as WeatherRegimeProfile
+	if active == null:
+		return fallback
+	var value: float = _sample_band(band_getter.call(active) as Vector2)
+	if _in_transition and _debug_regime_id.is_empty():
+		var nxt: WeatherRegimeProfile = _regimes_by_id.get(_next_id) as WeatherRegimeProfile
+		if nxt != null:
+			var next_value: float = _sample_band(band_getter.call(nxt) as Vector2)
+			value = lerpf(value, next_value, smoothstep(0.0, 1.0, _transition))
+	return value
+
+
+func _sample_band(band: Vector2) -> float:
+	# Два несоизмеримых медленных синуса -> апериодичное дыхание внутри полосы.
+	var breath: float = sin(_weather_time_hours * 0.9 + 0.4) * 0.6 \
+			+ sin(_weather_time_hours * 0.31 + 2.1) * 0.4
+	return lerpf(band.x, band.y, clampf(0.5 + 0.5 * breath, 0.0, 1.0))
+
+
+func _load_regimes() -> void:
+	var directory: DirAccess = DirAccess.open(REGIME_DIRECTORY)
+	assert(directory != null, "WeatherRuntime missing regime directory: %s" % REGIME_DIRECTORY)
+	directory.list_dir_begin()
+	while true:
+		var entry: String = directory.get_next()
+		if entry.is_empty():
+			break
+		if not entry.ends_with(".tres"):
+			continue
+		var profile: WeatherRegimeProfile = ResourceLoader.load(
+			"%s/%s" % [REGIME_DIRECTORY, entry],
+		) as WeatherRegimeProfile
+		assert(profile != null and profile.is_valid_regime(), "Invalid weather regime: %s" % entry)
+		_regimes_by_id[profile.id] = profile
+	directory.list_dir_end()
+	assert(
+		_regimes_by_id.has(START_REGIME_ID),
+		"WeatherRuntime requires the %s regime" % START_REGIME_ID,
+	)
+
+
+func _current_day() -> int:
+	if TimeManager != null:
+		return TimeManager.current_day
+	return 1
+
+
+func _hours_per_day() -> int:
+	if TimeManager != null and TimeManager.balance != null:
+		return TimeManager.balance.hours_per_day
+	return 24
+
+
+static func _hash_unit(a: int, b: int, c: int, d: int) -> float:
+	var value: int = a * 73856093 ^ b * 19349663 ^ c * 83492791 ^ d * 2654435761
+	value = (value ^ (value >> 13)) * 1274126177
+	value = value ^ (value >> 16)
+	return float(value & 0xffff) / 65535.0

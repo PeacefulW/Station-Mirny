@@ -47,14 +47,14 @@ sampling_params = {
 "modulation_strength": 0.12,
 "organic_overlay_strength": 1.0,
 "detail_world_scale_px": 1254.0,
-"soil_field_scale_px": 1500.0,
-"grass_field_scale_px": 1050.0,
-"grass_coverage": 0.38,
-"grass_dissolve": 0.22,
-"orange_field_scale_px": 820.0,
-"orange_coverage": 0.16,
-"rock_field_scale_px": 1900.0,
-"rock_coverage": 0.26,
+"soil_field_scale_px": 1000.0,
+"grass_field_scale_px": 720.0,
+"grass_coverage": 0.46,
+"grass_dissolve": 0.30,
+"orange_field_scale_px": 560.0,
+"orange_coverage": 0.22,
+"rock_field_scale_px": 1200.0,
+"rock_coverage": 0.22,
 "macro_drift_scale_px": 2200.0,
-"macro_drift_strength": 0.08
+"macro_drift_strength": 0.12
 }

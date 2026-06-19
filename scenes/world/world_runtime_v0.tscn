@@ -1,10 +1,12 @@
-[gd_scene load_steps=6 format=3]
+[gd_scene load_steps=8 format=3]
 
 [ext_resource type="Script" path="res://scenes/world/world_runtime_v0_scene.gd" id="1"]
 [ext_resource type="Script" path="res://core/systems/world/world_streamer.gd" id="2"]
 [ext_resource type="PackedScene" path="res://scenes/player/player.tscn" id="3"]
 [ext_resource type="Script" path="res://scenes/ui/hud/hud_manager.gd" id="4"]
 [ext_resource type="Script" path="res://core/systems/daylight/daylight_system.gd" id="5"]
+[ext_resource type="Script" path="res://core/systems/world/dust_wind_overlay.gd" id="6"]
+[ext_resource type="Script" path="res://core/systems/world/cloud_shadow_overlay.gd" id="7"]
 
 [node name="WorldRuntimeV0" type="Node2D"]
 script = ExtResource("1")
@@ -17,6 +19,12 @@ position = Vector2(512, 512)
 
 [node name="Daylight" type="CanvasModulate" parent="."]
 script = ExtResource("5")
+
+[node name="DustWindOverlay" type="Sprite2D" parent="."]
+script = ExtResource("6")
+
+[node name="CloudShadowOverlay" type="Sprite2D" parent="."]
+script = ExtResource("7")
 
 [node name="HudLayer" type="CanvasLayer" parent="."]
 

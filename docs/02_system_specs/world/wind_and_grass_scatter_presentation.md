@@ -4,7 +4,7 @@ doc_type: system_spec
 status: draft
 owner: engineering+design
 source_of_truth: true
-version: 0.10
+version: 0.13
 last_updated: 2026-06-13
 related_docs:
   - ../../00_governance/ENGINEERING_STANDARDS.md
@@ -66,6 +66,14 @@ orange biofield cores. Wind strength is one shared truth: when later systems
   plus a scrolling world-position gust field (gradient noise) driven by the
   wind globals.
 - Orange biofield emphasis through density and per-instance tint in V0.
+- Additional wind consumers (no new wind owner): a full-screen drifting-dust
+  overlay whose density, streak length, and opacity scale with
+  `wind_strength` (a visual wind speedometer), and a HUD wind readout
+  (`UI_HUD_WIND`) showing the strength percentage and direction arrow read
+  from `WindRuntime`. Both are presentation-only and read the same wind
+  state; the dust overlay lives in world space (under the Daylight modulate)
+  so it tints with day/night. The world-space full-screen overlay
+  infrastructure is shared via base class `WorldViewOverlay`.
 
 ## Out of Scope
 
@@ -112,6 +120,11 @@ runtime work.
 `wind_time` is accumulated by `WindRuntime` (pause-aware, scalable), not taken
 from the shader built-in `TIME`, so wind can stop, gust, or be driven by future
 gameplay.
+
+The wind **target** (strength, heading, gustiness) is now owned by
+`WeatherRuntime` (`weather_runtime.md`): wind is a derivative of weather.
+`WindRuntime` smooths toward that target and still publishes the same `wind_*`
+globals, so grass, dust, and the HUD wind readout are unchanged.
 
 ### Wind is a scrolling gust field, not a synchronized sway
 

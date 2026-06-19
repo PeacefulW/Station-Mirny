@@ -13,6 +13,10 @@ const COLOR_DAWN := Color(0.86, 0.74, 0.78)
 const COLOR_DAY := Color(1.0, 1.0, 1.0)
 const COLOR_DUSK := Color(1.0, 0.80, 0.58)
 const COLOR_UNDERGROUND := Color(1.0, 1.0, 1.0)
+## Множитель пасмурности при cloud_cover = 1: холоднее (тёплый R гасится
+## сильнее B) и темнее. Это outside-ambient тон-сдвиг (sanctuary-контракт):
+## применяется только на поверхности; underground и свет источников не трогает.
+const COLOR_OVERCAST_TINT := Color(0.66, 0.72, 0.84)
 
 # --- Приватные ---
 var _target_color: Color = COLOR_DAY
@@ -30,8 +34,21 @@ func _ready() -> void:
 
 
 func _process(delta: float) -> void:
-	# Плавный переход к целевому цвету
-	color = color.lerp(_target_color, _transition_speed * delta)
+	# Плавный переход к целевому цвету. Погодный тон-сдвиг подмешивается
+	# только на поверхности (outside-ambient): underground остаётся
+	# нейтральным, как и днём/ночью (sanctuary-контракт, ADR-0005).
+	var effective_target: Color = _target_color
+	if _is_surface_context():
+		effective_target *= _weather_tint()
+	color = color.lerp(effective_target, _transition_speed * delta)
+
+
+## Множитель пасмурности по облачности WeatherRuntime (white при ясной).
+func _weather_tint() -> Color:
+	if WeatherRuntime == null:
+		return Color.WHITE
+	var cloud_cover: float = clampf(WeatherRuntime.get_cloud_cover(), 0.0, 1.0)
+	return Color.WHITE.lerp(COLOR_OVERCAST_TINT, cloud_cover)
 
 # --- Приватные методы ---
 

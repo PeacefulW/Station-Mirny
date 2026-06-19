@@ -1053,6 +1053,21 @@ msgstr "Level {z}"
 msgid "UI_HUD_TILE_COORDS"
 msgstr "Tile: {x}, {y}"
 
+msgid "UI_HUD_WIND"
+msgstr "Wind: {strength}% {arrow}"
+
+msgid "WEATHER_CLEAR"
+msgstr "Clear"
+
+msgid "WEATHER_CLOUDY"
+msgstr "Cloudy"
+
+msgid "WEATHER_OVERCAST"
+msgstr "Overcast"
+
+msgid "UI_HUD_WEATHER"
+msgstr "Weather: {weather} {cloud}%"
+
 msgid "UI_INVENTORY_SLOT_TOOLTIP"
 msgstr "{name}\n{amount} / {max_stack}"
 

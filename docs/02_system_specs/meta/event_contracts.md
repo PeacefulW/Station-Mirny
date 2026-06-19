@@ -91,6 +91,25 @@ Confirmed listeners:
 Current listener use:
 - updates `days_survived`
 
+### `weather_changed(regime_id: StringName, previous_regime_id: StringName)`
+
+Emitter:
+- `WeatherRuntime._commit_transition()` when a regime transition completes
+- `WeatherRuntime._ready()` once during initial state emission
+
+When it fires:
+- on weather regime change (`clear` <-> `cloudy` <-> `overcast` in V0)
+- once on init (with `regime_id == previous_regime_id`)
+
+Confirmed listeners:
+- none in V0 (UI / audio / mods subscribe later)
+
+Current listener use:
+- none yet; smooth weather axes are read pull-model via `WeatherRuntime`
+  getters, not this event
+
+Governing spec: `docs/02_system_specs/world/weather_runtime.md`
+
 ### `life_support_power_changed(is_powered: bool)`
 
 Emitter:

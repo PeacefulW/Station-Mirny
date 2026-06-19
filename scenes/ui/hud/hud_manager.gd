@@ -1,6 +1,5 @@
 class_name HudManager
 extends Control
-
 ## Менеджер HUD. Размещает виджеты по зонам экрана.
 ## Добавить новый виджет = создать экземпляр + добавить в зону.
 
@@ -11,6 +10,7 @@ var _bottom_left: VBoxContainer = null
 var _bottom_center: HBoxContainer = null
 var _alerts: VBoxContainer = null
 
+
 func _ready() -> void:
 	mouse_filter = MOUSE_FILTER_IGNORE
 	set_anchors_and_offsets_preset(PRESET_FULL_RECT)
@@ -18,6 +18,7 @@ func _ready() -> void:
 	_create_widgets()
 
 # --- Зоны ---
+
 
 func _create_zones() -> void:
 	# Top-left: O₂, HP, статус, скрап
@@ -69,6 +70,7 @@ func _create_zones() -> void:
 
 # --- Виджеты ---
 
+
 func _create_widgets() -> void:
 	# === РЕАЛИЗОВАНО (механики есть) ===
 	_top_left.add_child(HudOxygenWidget.new())
@@ -77,6 +79,8 @@ func _create_widgets() -> void:
 	_top_right.add_child(HudTimeWidget.new())
 	_top_right.add_child(HudFloorWidget.new())
 	_top_right.add_child(HudCoordinatesWidget.new())
+	_top_right.add_child(HudWindWidget.new())
+	_top_right.add_child(HudWeatherWidget.new())
 	_bottom_left.add_child(HudHintsWidget.new())
 
 	# === ЗАГЛУШКИ (раскомментировать когда появится механика) ===

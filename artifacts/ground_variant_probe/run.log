@@ -1,0 +1,31 @@
+Godot Engine v4.6.2.stable.official.71f334935 - https://godotengine.org
+D3D12 12_0 - Forward+ - Using Device #0: NVIDIA - NVIDIA GeForce GTX 1060 6GB
+
+[FrameBudget] streaming=3.4ms topology=0.0ms visual=1.7ms spawn=0.0ms total=5.1ms/6.0ms world.streaming_v0=3.4ms(60) world.mountain_native_mask_visual_upload=1.7ms(59)
+ground_variant_probe: saved C:/Users/peaceful/Station Peaceful/Station Peaceful/artifacts/ground_variant_probe/v0_current_z100.png
+ground_variant_probe: saved C:/Users/peaceful/Station Peaceful/Station Peaceful/artifacts/ground_variant_probe/v1_meadow_z100.png
+ground_variant_probe: saved C:/Users/peaceful/Station Peaceful/Station Peaceful/artifacts/ground_variant_probe/v2_steppe_z100.png
+ground_variant_probe: saved C:/Users/peaceful/Station Peaceful/Station Peaceful/artifacts/ground_variant_probe/v3_biofield_z100.png
+[FrameBudget] streaming=1.4ms topology=0.0ms visual=0.5ms spawn=0.0ms total=1.9ms/6.0ms world.streaming_v0=1.4ms(60) world.mountain_native_mask_visual_upload=0.5ms(58)
+ground_variant_probe: saved C:/Users/peaceful/Station Peaceful/Station Peaceful/artifacts/ground_variant_probe/v4_mosaic_z100.png
+ground_variant_probe: panel saved C:/Users/peaceful/Station Peaceful/Station Peaceful/artifacts/ground_variant_probe/panel_z100.png
+[FrameBudget] streaming=4.6ms topology=0.0ms visual=2.4ms spawn=0.0ms total=7.0ms/6.0ms world.streaming_v0=4.6ms(60) world.mountain_native_mask_visual_upload=2.4ms(46)
+ground_variant_probe: saved C:/Users/peaceful/Station Peaceful/Station Peaceful/artifacts/ground_variant_probe/v0_current_z045.png
+ground_variant_probe: saved C:/Users/peaceful/Station Peaceful/Station Peaceful/artifacts/ground_variant_probe/v1_meadow_z045.png
+ground_variant_probe: saved C:/Users/peaceful/Station Peaceful/Station Peaceful/artifacts/ground_variant_probe/v2_steppe_z045.png
+ground_variant_probe: saved C:/Users/peaceful/Station Peaceful/Station Peaceful/artifacts/ground_variant_probe/v3_biofield_z045.png
+ground_variant_probe: saved C:/Users/peaceful/Station Peaceful/Station Peaceful/artifacts/ground_variant_probe/v4_mosaic_z045.png
+ground_variant_probe: panel saved C:/Users/peaceful/Station Peaceful/Station Peaceful/artifacts/ground_variant_probe/panel_z045.png
+[FrameBudget] streaming=2.1ms topology=0.0ms visual=0.8ms spawn=0.0ms total=2.9ms/6.0ms world.streaming_v0=2.1ms(60) world.mountain_native_mask_visual_upload=0.8ms(57)
+[FrameBudget] streaming=5.8ms topology=0.0ms visual=2.6ms spawn=0.0ms total=8.4ms/6.0ms world.streaming_v0=5.8ms(60) world.mountain_native_mask_visual_upload=2.6ms(44)
+ground_variant_probe: saved C:/Users/peaceful/Station Peaceful/Station Peaceful/artifacts/ground_variant_probe/v0_current_z022.png
+ground_variant_probe: saved C:/Users/peaceful/Station Peaceful/Station Peaceful/artifacts/ground_variant_probe/v1_meadow_z022.png
+ground_variant_probe: saved C:/Users/peaceful/Station Peaceful/Station Peaceful/artifacts/ground_variant_probe/v2_steppe_z022.png
+ground_variant_probe: saved C:/Users/peaceful/Station Peaceful/Station Peaceful/artifacts/ground_variant_probe/v3_biofield_z022.png
+ground_variant_probe: saved C:/Users/peaceful/Station Peaceful/Station Peaceful/artifacts/ground_variant_probe/v4_mosaic_z022.png
+ground_variant_probe: panel saved C:/Users/peaceful/Station Peaceful/Station Peaceful/artifacts/ground_variant_probe/panel_z022.png
+ground_variant_probe: DONE
+WARNING: ObjectDB instances leaked at exit (run with --verbose for details).
+   at: cleanup (core/object/object.cpp:2641)
+ERROR: 7 resources still in use at exit (run with --verbose for details).
+   at: clear (core/io/resource.cpp:810)

@@ -24,8 +24,13 @@ function Resolve-GodotBinary {
         $candidates += $env:GODOT_BIN
     }
 
-    $candidates += (Join-Path $repoRoot "Godot_v4.6.2-stable_win64_console.exe")
-    $candidates += (Join-Path $repoRoot "Godot_v4.6.2-stable_win64.exe")
+    $localGodotBins = @(
+        Get-ChildItem -LiteralPath $repoRoot -File -Filter "Godot_v*-stable_win64_console.exe" -ErrorAction SilentlyContinue
+        Get-ChildItem -LiteralPath $repoRoot -File -Filter "Godot_v*-stable_win64.exe" -ErrorAction SilentlyContinue
+    ) | Sort-Object Name -Descending
+    foreach ($localGodotBin in $localGodotBins) {
+        $candidates += $localGodotBin.FullName
+    }
     $candidates += "godot"
     $candidates += "godot4"
 

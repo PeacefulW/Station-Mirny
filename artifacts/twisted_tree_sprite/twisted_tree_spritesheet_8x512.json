@@ -1,0 +1,164 @@
+{
+  "asset": "twisted_tree",
+  "source_glb": "M:/Downloads/twisted+tree+3d+model.glb",
+  "atlas": "twisted_tree_spritesheet_8x512.png",
+  "checker_preview": "twisted_tree_spritesheet_8x512_checker_preview.png",
+  "ground_preview": "twisted_tree_spritesheet_8x512_ground_preview.png",
+  "columns": 8,
+  "rows": 1,
+  "frame_width": 512,
+  "frame_height": 512,
+  "frame_count": 8,
+  "rotations_degrees": [
+    0,
+    45,
+    90,
+    135,
+    180,
+    225,
+    270,
+    315
+  ],
+  "camera": "orthographic top-front, 63 degree elevation",
+  "lighting": "neutral ambient plus soft top-front light; no dramatic baked time-of-day tint",
+  "shadows": "ground shadow disabled; no receiver plane or shadow catcher; runtime should provide contact/sun shadow",
+  "postprocess": "tiny alpha cleanup only",
+  "frames": [
+    {
+      "index": 0,
+      "angle_degrees": 0,
+      "file": "twisted_tree_rot_00_000deg.png",
+      "x": 0,
+      "y": 0,
+      "width": 512,
+      "height": 512,
+      "alpha_bbox": [
+        147,
+        80,
+        365,
+        405
+      ],
+      "visible_width": 218,
+      "visible_height": 325
+    },
+    {
+      "index": 1,
+      "angle_degrees": 45,
+      "file": "twisted_tree_rot_01_045deg.png",
+      "x": 512,
+      "y": 0,
+      "width": 512,
+      "height": 512,
+      "alpha_bbox": [
+        156,
+        63,
+        339,
+        397
+      ],
+      "visible_width": 183,
+      "visible_height": 334
+    },
+    {
+      "index": 2,
+      "angle_degrees": 90,
+      "file": "twisted_tree_rot_02_090deg.png",
+      "x": 1024,
+      "y": 0,
+      "width": 512,
+      "height": 512,
+      "alpha_bbox": [
+        151,
+        92,
+        361,
+        398
+      ],
+      "visible_width": 210,
+      "visible_height": 306
+    },
+    {
+      "index": 3,
+      "angle_degrees": 135,
+      "file": "twisted_tree_rot_03_135deg.png",
+      "x": 1536,
+      "y": 0,
+      "width": 512,
+      "height": 512,
+      "alpha_bbox": [
+        112,
+        139,
+        384,
+        390
+      ],
+      "visible_width": 272,
+      "visible_height": 251
+    },
+    {
+      "index": 4,
+      "angle_degrees": 180,
+      "file": "twisted_tree_rot_04_180deg.png",
+      "x": 2048,
+      "y": 0,
+      "width": 512,
+      "height": 512,
+      "alpha_bbox": [
+        147,
+        122,
+        365,
+        402
+      ],
+      "visible_width": 218,
+      "visible_height": 280
+    },
+    {
+      "index": 5,
+      "angle_degrees": 225,
+      "file": "twisted_tree_rot_05_225deg.png",
+      "x": 2560,
+      "y": 0,
+      "width": 512,
+      "height": 512,
+      "alpha_bbox": [
+        174,
+        88,
+        356,
+        402
+      ],
+      "visible_width": 182,
+      "visible_height": 314
+    },
+    {
+      "index": 6,
+      "angle_degrees": 270,
+      "file": "twisted_tree_rot_06_270deg.png",
+      "x": 3072,
+      "y": 0,
+      "width": 512,
+      "height": 512,
+      "alpha_bbox": [
+        151,
+        102,
+        361,
+        411
+      ],
+      "visible_width": 210,
+      "visible_height": 309
+    },
+    {
+      "index": 7,
+      "angle_degrees": 315,
+      "file": "twisted_tree_rot_07_315deg.png",
+      "x": 3584,
+      "y": 0,
+      "width": 512,
+      "height": 512,
+      "alpha_bbox": [
+        128,
+        84,
+        400,
+        407
+      ],
+      "visible_width": 272,
+      "visible_height": 323
+    }
+  ]
+}
