@@ -178,6 +178,7 @@ Confirmed readable state (presentation/dev surface, not gameplay truth):
 | `get_wind_strength()` | method | Current normalized strength `0..1` |
 | `get_wind_direction()` | method | Current normalized direction vector |
 | `get_wind_direction_deg()` | method | Current direction in degrees |
+| `get_wind_gustiness()` | method | Current gust character `0..1` (also published as the `wind_gustiness` global) |
 | `has_debug_wind_override()` | method | Whether a dev override is active |
 
 Confirmed mutation entrypoints (dev-only: probes and dev scenes, never a
@@ -187,6 +188,7 @@ gameplay path):
 |---|---|---|
 | `set_debug_strength_override(strength)` | method | Clamped `0..1` dev override |
 | `set_debug_direction_override_deg(deg)` | method | Dev direction override |
+| `set_debug_gustiness_override(gustiness)` | method | Clamped `0..1` dev gustiness override |
 | `clear_debug_wind_override()` | method | Returns to profile-driven wind |
 
 Not documented here as safe entrypoints:

@@ -129,7 +129,9 @@ func get_target_wind_heading_deg() -> float:
 		var nxt: WeatherRegimeProfile = _regimes_by_id.get(_next_id) as WeatherRegimeProfile
 		if nxt != null:
 			drift_amp = lerpf(drift_amp, nxt.heading_drift_deg, smoothstep(0.0, 1.0, _transition))
-	var drift: float = sin(_weather_time_hours * 0.7 + 1.3) * 0.7 + sin(_weather_time_hours * 0.27) * 0.3
+	# Медленный апериодичный мендр (value-noise по времени погоды) вместо
+	# предсказуемых синусов: ветер «поворачивает», а не качается с периодом.
+	var drift: float = _heading_meander(_weather_time_hours)
 	return WIND_BASE_HEADING_DEG + drift_amp * drift
 
 # --- Зарезервированные оси (V0 нейтральны, без потребителей) ---
@@ -260,6 +262,21 @@ func _sample_band(band: Vector2) -> float:
 	var breath: float = sin(_weather_time_hours * 0.9 + 0.4) * 0.6 \
 			+ sin(_weather_time_hours * 0.31 + 2.1) * 0.4
 	return lerpf(band.x, band.y, clampf(0.5 + 0.5 * breath, 0.0, 1.0))
+
+
+## Сглаженный value-noise по времени погоды в [-1, 1]: медленный апериодичный
+## мендр направления. Детерминирован от времени (воспроизводим при reload).
+func _heading_meander(t_hours: float) -> float:
+	var t: float = t_hours * 0.6
+	var i: float = floor(t)
+	var f: float = t - i
+	var u: float = f * f * (3.0 - 2.0 * f)
+	return lerpf(_heading_hash(i), _heading_hash(i + 1.0), u) * 2.0 - 1.0
+
+
+func _heading_hash(n: float) -> float:
+	var s: float = sin(n * 12.9898 + 7.13) * 43758.5453
+	return s - floor(s)
 
 
 func _load_regimes() -> void:

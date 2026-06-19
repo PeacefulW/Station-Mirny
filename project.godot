@@ -87,3 +87,7 @@ wind_gust_scroll_px={
 "type": "vec2",
 "value": Vector2(0, 0)
 }
+wind_gustiness={
+"type": "float",
+"value": 0.0
+}

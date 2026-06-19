@@ -12,6 +12,7 @@ global uniform float wind_time;
 global uniform vec2 wind_direction;
 global uniform float wind_strength;
 global uniform vec2 wind_gust_scroll_px;
+global uniform float wind_gustiness;
 
 uniform float atlas_columns = 4.0;
 uniform float atlas_rows = 4.0;
@@ -25,6 +26,16 @@ uniform float storm_lean_fraction = 0.35;
 uniform float storm_lean_start = 0.45;
 uniform float gust_field_scale_px = 420.0;
 uniform float gust_field_anisotropy = 2.6;
+// Локальный поворот направления изгиба: соседние пучки клонятся согласованно,
+// но через пятно — иначе. Амплитуда (град) растёт с wind_gustiness, усиливается
+// внутри фронта порыва. Доминанта и storm_lean остаются по глобальному ветру.
+uniform float local_dir_min_deg = 5.0;
+uniform float local_dir_max_deg = 26.0;
+uniform float local_dir_field_scale_px = 1400.0;
+uniform float local_dir_gust_gain = 0.9;
+// Внутрикустовая «листовая» рябь: поперечный сдвиг верхушки по ширине квада
+// (UV.x). Доля высоты пучка, не множитель силы ветра.
+uniform float intra_tuft_flutter = 0.05;
 uniform float gust_contrast_low = 0.42;
 uniform float gust_contrast_high = 0.80;
 uniform float alpha_cutoff = 0.02;
@@ -82,22 +93,38 @@ void vertex() {
 	float primary = sin(wind_time * 0.92 + wind_phase);
 	float flutter = sin(wind_time * 1.45 + wind_phase * 1.73 + UV.y * 1.30);
 	float blade_weight = smoothstep(0.05, 1.0, UV.y);
+	float amplitude_gate = smoothstep(0.0, 0.15, wind_strength);
 	// Трепет масштабируется самим порывом: вне фронта трава почти неподвижна,
 	// иначе фоновое колебание топит фронты и порывы перестают читаться.
 	float ambient = primary * 0.07 + flutter * 0.05;
 	float gust_sway = gust * (0.85 + primary * 0.30 + flutter * 0.18);
+	// Локальное направление изгиба: глобальный ветер, повёрнутый на угол из
+	// низкочастотного поля. Соседи в пятне клонятся согласованно, дальше —
+	// иначе. Амплитуда растёт с порывистостью, усиливается ВНУТРИ фронта (swirl),
+	// штиль (gate) её глушит. Доминанта и storm_lean — по глобальному ветру.
+	float dir_field = gradient_noise(
+		world_pos / max(local_dir_field_scale_px, 1.0) + vec2(53.2, 11.7)
+	) * 2.0 - 1.0;
+	float local_amp = radians(mix(local_dir_min_deg, local_dir_max_deg, clamp(wind_gustiness, 0.0, 1.0)));
+	float swirl = 0.4 + gust * local_dir_gust_gain;
+	float local_angle = local_amp * dir_field * swirl * amplitude_gate;
+	float lca = cos(local_angle);
+	float lsa = sin(local_angle);
+	vec2 local_dir = vec2(dir.x * lca - dir.y * lsa, dir.x * lsa + dir.y * lca);
+	vec2 local_across = vec2(-local_dir.y, local_dir.x);
 	// Сила ветра НЕ умножает колебательный размах (это «растягивало» траву в
 	// волосы) — она ускоряет темп в WindRuntime и добавляет ограниченный
-	// прижим storm_lean. Прижим «дышит»: трава ходит туда-сюда вокруг
-	// прижатой позы в пределах его же ограниченной доли. Гейт глушит штиль.
-	float amplitude_gate = smoothstep(0.0, 0.15, wind_strength);
+	// прижим storm_lean. Прижим «дышит» в пределах своей доли. Гейт глушит штиль.
 	float storm_wobble = sin(wind_time * 2.3 + wind_phase * 1.31) * 0.22
 		+ sin(wind_time * 3.7 + wind_phase) * 0.10;
 	float storm_lean = storm_lean_fraction
 		* smoothstep(storm_lean_start, 1.0, wind_strength)
 		* (1.0 + storm_wobble);
 	float oscillation = (gust_sway + ambient) * wind_sway_fraction;
-	float sway_fraction = (oscillation + storm_lean) * amplitude_gate;
+	// Внутрикустовая рябь: высокочастотный поперечный сдвиг, меняющийся ПО
+	// ШИРИНЕ квада (UV.x) -> верхушка извивается, а не наклоняется доской.
+	float intra = sin(wind_time * 2.6 + wind_phase * 1.9 + UV.x * 6.28318530718 + UV.y * 3.0);
+	float intra_amp = intra_tuft_flutter * (0.35 + gust * 0.65);
 	// VERTEX живёт в пространстве квада ДО инстанс-трансформа: «пиксельное»
 	// смещение здесь умножалось бы на размер пучка (источник растяжения).
 	// Считаем мировое смещение в долях высоты пучка и заводим его обратно
@@ -110,7 +137,14 @@ void vertex() {
 		vec2(-model_2x2[1].x, model_2x2[0].x)
 	) / safe_det;
 	float tuft_height_px = length(MODEL_MATRIX[1].xy);
-	vec2 world_offset = dir * sway_fraction * tuft_height_px * blade_weight * blade_weight;
+	float blade = blade_weight * blade_weight;
+	// Колебание — по ЛОКАЛЬному направлению; storm_lean — по ГЛОБАЛьному ветру;
+	// рябь — поперёк локального направления. Всё в долях высоты, гейтится штилем.
+	vec2 world_offset = (
+		local_dir * oscillation
+		+ dir * storm_lean
+		+ local_across * intra * intra_amp
+	) * amplitude_gate * tuft_height_px * blade;
 	VERTEX += inv_model_2x2 * world_offset;
 }
 

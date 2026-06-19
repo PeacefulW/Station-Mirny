@@ -4,8 +4,8 @@ doc_type: system_spec
 status: draft
 owner: engineering+design
 source_of_truth: true
-version: 0.13
-last_updated: 2026-06-13
+version: 0.14
+last_updated: 2026-06-19
 related_docs:
   - ../../00_governance/ENGINEERING_STANDARDS.md
   - ../../00_governance/WORKFLOW.md
@@ -171,6 +171,54 @@ accumulated scroll offset; it adds one gradient-noise sample per vertex,
 which is bounded and cheap relative to the ground material's per-pixel fbm
 work.
 
+### Wind direction meanders; grass adds the local life
+
+The complaint that grass "sways in sync" is a *direction* problem, not a timing
+one: per-instance phase already decorrelates *when* each tuft moves, but every
+tuft bends along the one global `wind_direction`, so the field reads as a single
+coherent board. The fix keeps one dominant wind and adds variety in two places.
+
+**Global heading meanders, it does not oscillate.** The heading target is no
+longer two summed sines around a base; slow aperiodic noise sets a target
+heading that `WindRuntime` steers toward with a bounded angular speed. The wind
+slowly *turns* rather than rocking on a predictable period. V0 is deliberately a
+**steppe-steady** flow: the dominant direction stays legible so dust, clouds,
+sun rays, and grass all agree on "the wind blows this way". Drift amplitude is
+small and scales with weather — roughly clear ±6°, cloudy ±14°, overcast ±24°.
+
+**`wind_gustiness` becomes live.** It is authored per weather regime but had no
+consumer; `WindRuntime` now smooths the `WeatherRuntime` gustiness target and
+publishes it as a global. It drives the heading drift amplitude and turn rate,
+the contrast/travel of the gust field, and the amplitude of the grass local
+direction spread below. No second wind owner — one more global, read pull-model.
+
+**Grass bends along a local direction, not the global one.** In the grass vertex
+shader the bend axis becomes `local_dir = rotate(global_wind_dir, a)`, where `a`
+is a **low-frequency aperiodic angle field** sampled at world position (the same
+gradient-noise family already used for the gust field). Neighbouring tufts in
+one patch lean together; a couple of metres away the patch leans slightly
+differently — coherent, never per-tuft-random and never omnidirectional. The
+local deviation is **amplified inside gust fronts** (scaled by the existing
+`gust` value), so a passing front reads as a swirling eddy while the calm
+between fronts settles back along the wind. Its amplitude scales with
+`wind_gustiness` to the per-weather anchors above. The dominant lean — and all
+of `storm_lean` — stays on the global wind, so a strong wind still reads as a
+flow, not chaos.
+
+**Intra-tuft flutter for "each blade lives".** Grass tufts are single billboard
+quads (atlas frames); individual blades cannot be moved as geometry. The tip
+motion today shears the whole quad rigidly (flutter varies with `UV.y` only). A
+secondary high-frequency term that also varies across the quad width (`UV.x`)
+plus a slight S-curve makes the tip *ripple* instead of tilting as a board — the
+cheap, billboard-bounded way to read as individual blades catching the wind
+differently.
+
+**"Stronger wind" means more variety, not more amplitude.** The request for wind
+to "affect grass more" is satisfied by the directional spread, gust-front swirl,
+and intra-tuft flutter above — never by multiplying the sway amplitude by
+strength, which is the banned hair-stretch coupling (see *Strength drives tempo,
+not stretch*). Strength keeps driving tempo and the bounded storm lean only.
+
 ### Grass grows where the ground already says it does
 
 The ground shader (`ground_hybrid_material.gdshader`) already defines
@@ -231,10 +279,14 @@ Declared in project settings (`shader_globals`), written only by `WindRuntime`:
 ```text
 wind_time: float           # accumulated wind ANIMATION time; advance rate
                            # scales with strength (pause-aware)
-wind_direction: vec2       # normalized
+wind_direction: vec2       # normalized; the one dominant heading (meanders
+                           # slowly via steering, Iteration 4)
 wind_strength: float       # 0..1 normalized current strength
 wind_gust_scroll_px: vec2  # accumulated gust-field scroll offset; advance
                            # speed scales with strength
+wind_gustiness: float      # 0..1 gust character from WeatherRuntime; drives the
+                           # grass local-direction spread, heading turn rate,
+                           # and gust-field contrast (Iteration 4)
 ```
 
 `wind_gust_scroll_px` is the time integral of
@@ -491,6 +543,18 @@ This design is wrong if:
 - Should mid-band tufts get a slightly stronger gust response than low-band
   (parallax feel), and is that authored per band?
 
+Resolved:
+- `wind_gustiness` wiring: Iteration 4 makes it a live published global (heading
+  drift amplitude/rate, grass local-direction spread, gust-field contrast).
+- Global wind character: V0 is steppe-steady (dominant direction stays legible
+  for cross-layer agreement); naturalness comes from local grass turbulence, not
+  from the global heading wandering.
+- Local grass direction field: V0 uses a cheap low-frequency angle offset;
+  divergence-free curl noise (truer eddies) is a reserved upgrade if the field
+  reads too "sheet-like".
+- "Each blade lives": intra-tuft flutter across `UV.x` is in scope for
+  Iteration 4 (within the billboard-quad limit; no per-blade geometry).
+
 ## Implementation Iterations
 
 ### Iteration 0 — Spec landing
@@ -526,6 +590,60 @@ This design is wrong if:
 - Density/size/tint tuning via authored data + probes.
 - Optional: importance-ordered buffers + zoom-based `visible_instance_count`.
 - Optional: orange biofield atlas variant via the generator.
+
+### Iteration 4 — Directional meander + local grass turbulence — DONE
+
+Addresses "grass sways in sync" (see *Wind direction meanders; grass adds the
+local life*). Approved direction: steppe-steady global flow + local grass
+turbulence + intra-tuft flutter; "stronger" via variety, not amplitude.
+
+- `WindRuntime`: consume and smooth the `WeatherRuntime` gustiness target;
+  publish a new `wind_gustiness` global. Replace the heading-drift source — slow
+  aperiodic noise sets a target heading, `WindRuntime` steers toward it with a
+  bounded angular speed (amplitude/rate scaled by gustiness). No new owner.
+- `WeatherRuntime`: heading target becomes a noise-driven meander (drift
+  amplitude per regime, small) instead of two summed sines; the season hook is
+  untouched.
+- Grass shader: bend along `local_dir = rotate(wind_direction, a)`, `a` from a
+  low-frequency aperiodic angle field; amplify the deviation inside gust fronts;
+  scale amplitude by `wind_gustiness` (per-weather anchors ~±6/±14/±24°). Add an
+  intra-tuft flutter term across `UV.x` for blade-level ripple. Keep the dominant
+  lean and `storm_lean` on the global wind. No `strength * amplitude` coupling.
+- Authored params: the local-direction amplitude curve (gustiness → degrees) and
+  the intra-tuft flutter shape live in the grass material `sampling_params`; the
+  heading-meander params in `WorldVisualWindProfile` / regime data — single
+  authored source, mirrored if a value is needed in two places.
+- Probes:
+  - directional-variety: across a grass field the local bend directions span a
+    measurable spread (not one angle), but the mean stays near the global wind
+    (coherent, not omnidirectional);
+  - gust-swirl: direction deviation is larger inside active gust fronts than
+    between them;
+  - intra-tuft: tip displacement varies across blade width, not a rigid shear;
+  - regression: `wind_strength = 0` still freezes all motion (calm = rest); no
+    `strength * oscillation` product; pausing stops motion; dust/clouds/rays
+    still agree on the dominant direction (steppe-steady legibility holds).
+- Doc updates: `system_api.md` if `WindRuntime` exposes gustiness publicly; this
+  spec's acceptance section; `weather_runtime.md` cross-ref for the
+  heading-meander source.
+
+Landed as:
+- `wind_gustiness` is a new `shader_globals` float; `WindRuntime` smooths the
+  `WeatherRuntime` gustiness target and publishes it, and exposes
+  `get_wind_gustiness()` (public read) plus a dev `set_debug_gustiness_override`.
+- Heading is steered toward the weather target with a bounded angular speed
+  (`HEADING_TURN_RATE_DEG_PER_S`, scaled by gustiness); `WeatherRuntime` replaces
+  the two heading sines with a slow value-noise meander (`_heading_meander`).
+- Grass shader (`grass_scatter_batch.gdshader`): `local_dir` from a low-frequency
+  angle field, gust-coupled swirl, `wind_gustiness`-scaled amplitude, intra-tuft
+  flutter across `UV.x`; oscillation on `local_dir`, `storm_lean` on the global
+  wind. New authored params live in the grass material `sampling_params`
+  (`local_dir_min/max_deg`, `local_dir_field_scale_px`, `local_dir_gust_gain`,
+  `intra_tuft_flutter`).
+- Probes: `tools/grass_wind_style_probe.gd` (static structure guard:
+  gustiness/local_dir/swirl/intra/osc-on-local/storm-on-global/no strength×amp)
+  and `tools/grass_wind_dir_probe.gd` (windowed: grass moves under wind, calm
+  freezes, close-up saved). Regression: weather/grass/dust/day-night/gdunit green.
 
 ## Required Updates
 

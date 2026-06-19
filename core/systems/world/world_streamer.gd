@@ -968,6 +968,14 @@ func _ensure_grass_scatter_sources() -> void:
 	material.set_shader_parameter("storm_lean_fraction", float(grass_params.get("storm_lean_fraction", 0.35)))
 	material.set_shader_parameter("gust_field_scale_px", WorldVisualWindProfile.GUST_FIELD_SCALE_PX)
 	material.set_shader_parameter("gust_field_anisotropy", WorldVisualWindProfile.GUST_FIELD_ANISOTROPY)
+	material.set_shader_parameter("local_dir_min_deg", float(grass_params.get("local_dir_min_deg", 5.0)))
+	material.set_shader_parameter("local_dir_max_deg", float(grass_params.get("local_dir_max_deg", 26.0)))
+	material.set_shader_parameter(
+		"local_dir_field_scale_px",
+		float(grass_params.get("local_dir_field_scale_px", 1400.0)),
+	)
+	material.set_shader_parameter("local_dir_gust_gain", float(grass_params.get("local_dir_gust_gain", 0.9)))
+	material.set_shader_parameter("intra_tuft_flutter", float(grass_params.get("intra_tuft_flutter", 0.05)))
 	_grass_scatter_material = material
 	_grass_shadow_material = ShaderMaterial.new()
 	_grass_shadow_material.shader = GRASS_SHADOW_SHADER
