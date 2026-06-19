@@ -4,7 +4,7 @@ doc_type: system_spec
 status: draft
 owner: engineering+design
 source_of_truth: true
-version: 0.4
+version: 0.5
 last_updated: 2026-06-19
 related_docs:
   - ../../00_governance/ENGINEERING_STANDARDS.md
@@ -321,12 +321,16 @@ Tuning anchors (aligned to the authored regime bands clear `[0,0.15]`, cloudy
    presentation accent, not gameplay light: it does not define safety, does not
    affect visibility authority, and fades out before overcast.
 
-### Sanctuary under the flatten pass
+### Sanctuary under the surface passes
 
-The flatten pass is full-screen, so it is gated by surface context
-(`_is_surface_context()`, exactly like the tone shift): it does **nothing**
-underground or in roofed/interior context. Within an open-surface scene a pure
-screen pass has no light map, so it cannot yet spare a warm island around a
+All three surface presentation passes — cloud-shadow darkening, sun rays, and the
+flatten pass — are full-screen and **gated by surface context**
+(`_is_surface_context()`, `z == 0`, exactly like the ambient tone shift): they do
+**nothing** underground or in roofed/interior context, so weather never intrudes
+on the safe space. Every surface overlay MUST carry this gate; a missing gate on
+any one of them is a sanctuary regression (`weather_cloud_probe` asserts the
+cloud-shadow `cloud_cover` is `0` underground). Within an open-surface scene a
+pure screen pass has no light map, so it cannot yet spare a warm island around a
 campfire / electric light. V0 accepts this coarse context-gate and **reserves**
 a per-light warmth mask for when the ADR-0005 gameplay light map exists; the
 pass is structured to multiply its strength by such a mask later. This is an
@@ -491,7 +495,7 @@ Resolved:
   near-cloudless; sanctuary holds (underground ambient stays neutral under
   overcast). All checks pass.
 
-### Iteration 2b — Realistic, regime-distinct cloud presentation — IMPLEMENTED
+### Iteration 2b — Realistic, regime-distinct cloud presentation — DONE
 
 Reworks Iteration 2's "more cover = more dapple" into the **Cloud Presentation
 Model** (two response curves). Approved direction: honest overcast flatness +
@@ -515,6 +519,10 @@ cloudy bright sunlit gaps.
 - New `SunRayOverlay` (surface world-space presentation pass): sparse warm rays
   in cloudy gaps, strength gated by `broken(cover)`, fades to zero by overcast;
   presentation-only, not ADR-0005 gameplay light.
+- Sanctuary: all three surface overlays (cloud shadows, sun rays, flatten) gate
+  on surface context (`cloud_cover`/strength forced to `0` when `z != 0`), so the
+  underground stays neutral; `weather_cloud_probe` asserts the cloud-shadow
+  `cloud_cover` is `0` underground.
 - Probes:
   - extend `weather_cloud_probe` — **cloudy** has high *local* contrast (sunlit
     gaps + dark shadows); **overcast** has *low* local contrast and is
@@ -553,3 +561,19 @@ At implementation time (not in spec landing):
 - `save_and_persistence.md` — add slow weather state to the save payload.
 - `wind_and_grass_scatter_presentation.md` — note that wind target now comes
   from `WeatherRuntime`.
+
+## Out-of-scope observations
+
+Found while verifying Iteration 2b; not addressed here, tracked for follow-up:
+
+- `DustWindOverlay` has no surface-context gate (predates this work), so dust
+  would also render underground. The same one-line `z`-gate the weather overlays
+  use should be applied; until then it is a latent sanctuary leak independent of
+  weather.
+- Both the cloud-shadow and flatten passes read `hint_screen_texture`, i.e. two
+  full-screen back-buffer copies per frame on the surface. Bounded and within
+  budget, but the cloud-shadow darkening could be a multiply blend without a
+  screen read if the copy cost ever matters.
+- Overcast keeps a residual large-scale shadow in the lower overcast band
+  (`cover` ~0.72–0.88, `broken` up to ~0.34). If a deader-flat overcast is
+  wanted, pull `broken`'s fade earlier or strengthen `flatten`. Tuning only.

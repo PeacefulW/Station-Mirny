@@ -9,7 +9,19 @@ const CLOUD_SHADER = preload("res://assets/shaders/cloud_shadow_overlay.gdshader
 const CLOUD_Z_INDEX: int = 395
 const NOISE_TEX_SIZE: int = 256
 
+var _current_z: int = 0
 var _noise_texture: NoiseTexture2D = null
+
+
+func _ready() -> void:
+	super._ready()
+	_current_z = _resolve_current_z()
+	if EventBus != null and not EventBus.z_level_changed.is_connected(_on_z_level_changed):
+		EventBus.z_level_changed.connect(_on_z_level_changed)
+
+
+func set_active_z_level(new_z: int) -> void:
+	_current_z = new_z
 
 
 func _overlay_shader() -> Shader:
@@ -27,8 +39,12 @@ func _on_overlay_ready(overlay_material: ShaderMaterial) -> void:
 
 
 func _update_overlay(overlay_material: ShaderMaterial) -> void:
-	if WeatherRuntime != null:
-		overlay_material.set_shader_parameter("cloud_cover", WeatherRuntime.get_cloud_cover())
+	# Тени облаков — outside-only (sanctuary): под землёй cloud_cover=0, чтобы
+	# слой не затемнял раскрытое подземелье у игрока, как и flatten/sun-ray.
+	var cloud_cover: float = 0.0
+	if _is_surface_context() and WeatherRuntime != null:
+		cloud_cover = WeatherRuntime.get_cloud_cover()
+	overlay_material.set_shader_parameter("cloud_cover", cloud_cover)
 
 
 func _build_noise_texture() -> NoiseTexture2D:
@@ -46,3 +62,21 @@ func _build_noise_texture() -> NoiseTexture2D:
 	tex.noise = noise
 	_noise_texture = tex
 	return tex
+
+
+func _on_z_level_changed(new_z: int, _old_z: int) -> void:
+	set_active_z_level(new_z)
+
+
+func _is_surface_context() -> bool:
+	return _current_z == 0
+
+
+func _resolve_current_z() -> int:
+	var z_managers: Array[Node] = get_tree().get_nodes_in_group("z_level_manager")
+	if z_managers.is_empty():
+		return 0
+	var z_manager: Node = z_managers[0]
+	if z_manager.has_method("get_current_z"):
+		return int(z_manager.get_current_z())
+	return 0

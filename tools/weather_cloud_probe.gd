@@ -1,10 +1,10 @@
 extends SceneTree
 
 # Проба облаков (Iteration 2b): форсит режимы ясно/облачно/пасмурно и проверяет:
-# - cloudy даёт пик больших отдельных теней;
-# - overcast темнее/холоднее clear, но отдельные тени в нём слабее, чем cloudy;
-# - overcast flatten снижает локальный контраст и насыщенность;
-# - sun rays существуют как редкий cloudy-акцент и уходят ниже noise floor в overcast;
+# - cloudy даёт пик больших отдельных теней
+# - overcast темнее/холоднее clear, но отдельные тени в нём слабее, чем cloudy
+# - overcast flatten снижает локальный контраст и насыщенность
+# - sun rays существуют как редкий cloudy-акцент и уходят ниже noise floor в overcast
 # - sanctuary: underground погодный тон-сдвиг/flatten НЕ применяются (нейтрально).
 # Кадры сохраняются. Windowed. Запуск:
 #   Godot_v4.7-stable_win64_console.exe --path . -s tools/weather_cloud_probe.gd
@@ -80,12 +80,19 @@ func _run() -> void:
 	daylight.set_active_z_level(1)
 	if flatten != null and flatten.has_method("set_active_z_level"):
 		flatten.call("set_active_z_level", 1)
+	if cloud.has_method("set_active_z_level"):
+		cloud.call("set_active_z_level", 1)
 	daylight._sync_from_current_context(true)
 	await _wait(80)
 	var underground_color: Color = daylight.color
+	var underground_cloud_cover: float = float(
+		(cloud.material as ShaderMaterial).get_shader_parameter("cloud_cover"),
+	)
 	daylight.set_active_z_level(0)
 	if flatten != null and flatten.has_method("set_active_z_level"):
 		flatten.call("set_active_z_level", 0)
+	if cloud.has_method("set_active_z_level"):
+		cloud.call("set_active_z_level", 0)
 	weather.call("clear_debug_regime")
 
 	print(
@@ -151,8 +158,8 @@ func _run() -> void:
 	)
 	_check(
 		cloudy_ray_diff > 0.003
-				and overcast_ray_diff < 0.003
-				and cloudy_ray_diff > overcast_ray_diff * 1.25,
+		and overcast_ray_diff < 0.003
+		and cloudy_ray_diff > overcast_ray_diff * 1.25,
 		"sun rays редкий cloudy-акцент, overcast ниже noise floor (cloudy=%.4f overcast=%.4f)" % [
 			cloudy_ray_diff,
 			overcast_ray_diff,
@@ -161,6 +168,10 @@ func _run() -> void:
 	_check(
 		underground_color.r > 0.9 and underground_color.b > 0.9,
 		"sanctuary: underground не затемнён погодой (color=%s)" % str(underground_color),
+	)
+	_check(
+		underground_cloud_cover <= 0.001,
+		"sanctuary: тени облаков выключены под землёй (cloud_cover=%.3f)" % underground_cloud_cover,
 	)
 
 	scene.queue_free()
@@ -235,18 +246,18 @@ func _mean_abs_diff(a: Image, b: Image) -> float:
 
 
 func _layer_diff(
-	weather: Node,
-	daylight: CanvasModulate,
-	layer: Sprite2D,
-	regime_id: StringName,
-	hidden_during_measure: Array,
+		weather: Node,
+		daylight: CanvasModulate,
+		layer: Sprite2D,
+		regime_id: StringName,
+		hidden_during_measure: Array,
 ) -> float:
 	if layer == null:
 		return 0.0
 	var original_layer_visible: bool = layer.visible
 	var original_layer_processing: bool = layer.is_processing()
-	var hidden_originals: Dictionary = {}
-	var hidden_processing_originals: Dictionary = {}
+	var hidden_originals: Dictionary = { }
+	var hidden_processing_originals: Dictionary = { }
 	for hidden_variant: Variant in hidden_during_measure:
 		var hidden: CanvasItem = hidden_variant as CanvasItem
 		if hidden == null or hidden == layer:
