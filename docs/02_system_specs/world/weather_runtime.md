@@ -4,8 +4,8 @@ doc_type: system_spec
 status: draft
 owner: engineering+design
 source_of_truth: true
-version: 0.3
-last_updated: 2026-06-13
+version: 0.4
+last_updated: 2026-06-19
 related_docs:
   - ../../00_governance/ENGINEERING_STANDARDS.md
   - ../../00_governance/WORKFLOW.md
@@ -71,11 +71,18 @@ V0 includes:
   shader uniforms. No new wind owner.
 - A `weather_changed` domain event on regime change; smooth per-axis values are
   read pull-model (getters), not event-per-frame.
-- One V0 presentation consumer: a cloud-cover overlay (world-space full-screen
-  shader, same cheap pattern as dust) that, as `cloud_cover` rises, darkens
-  the ground, drifts cloud shadows across it, and shifts the ambient tone
-  cold and desaturated ("the weather turns"). The tone shift rides the
-  existing `Daylight` ambient so it costs nearly nothing.
+- V0 presentation consumers (realistic, regime-distinct — see **Cloud
+  Presentation Model**): a discrete **cloud-shadow pass** (world-locked mask +
+  surface screen-space darkening) whose opacity follows a *hump* in
+  `cloud_cover` so large drifting cloud shadows peak in the **cloudy** regime
+  and fade out by **overcast**; an **ambient** dim + cold tone folded into
+  `Daylight` that rises monotonically with cover; and an **overcast flatten
+  pass** (surface screen-space desaturate + contrast-cut) that gives full
+  overcast its flat, leaden read. Cloudy can also add rare, warm sun-ray
+  streaks in bright gaps as a presentation accent, gated by the same broken
+  cloud curve. Distinct shadows and rays are direct-sun phenomena and fade
+  under diffuse overcast light — this inverts the naive "more cover = more
+  shadows" model.
 - A hard sanctuary constraint: weather ambient (darkening + cold tone shift)
   is an **outside-ambient** effect only. It must not cool or dull the warm
   read inside the base, at a campfire, or under electric lighting, nor the
@@ -117,7 +124,11 @@ V0 explicitly does not include:
   not read weather).
 - `WindRuntime` as the low-level wind publisher that weather drives.
 - Registry/data-resource loading for `WeatherRegimeProfile`.
-- The `WorldViewOverlay` base class for the cloud-cover presentation layer.
+- The `WorldViewOverlay` base class for the cloud-shadow and flatten
+  presentation layers.
+- The 2D screen texture (`hint_screen_texture` / back-buffer) for the
+  cloud-shadow darkening pass and the overcast flatten pass (surface-only
+  screen-space presentation passes).
 
 ## Law 0 Classification
 
@@ -246,6 +257,83 @@ Regime selection is a seeded function of the world clock, so it is reproducible
 and, later, host-authoritative with presentation-only clients (ADR-0004/0007).
 V0 is single-player; no replication is wired, but no design choice blocks it.
 
+## Cloud Presentation Model
+
+Cloud presentation is **realistic and regime-distinct**, driven by `cloud_cover`
+through two separable response curves rather than one monotonic "more cover =
+more shadow" ramp. The physical basis is the light source:
+
+- **Clear / cloudy** — the sun is a near-point source, so discrete clouds cast
+  **large, defined, drifting shadows** on the ground.
+- **Overcast** — a continuous deck lights the ground from the whole sky dome
+  (diffuse light), so there are **no distinct ground shadows** — only a uniform,
+  flatter, cooler, desaturated read.
+
+Therefore distinct cloud shadows are a *partly-cloudy* phenomenon and must
+**fade out** toward overcast, not intensify. This inverts the naive model.
+
+### Two response curves (pure functions of `cloud_cover`)
+
+| Curve | Shape | Drives |
+|---|---|---|
+| `deck(cover)` | monotonic rise, max at overcast | ambient dim + cold tone, and the overcast flatten pass |
+| `broken(cover)` | hump: ~0 at clear, peak across the cloudy band, ~0 by overcast | opacity of the discrete drifting cloud-shadow overlay; gate for rare sun rays |
+
+Tuning anchors (aligned to the authored regime bands clear `[0,0.15]`, cloudy
+`[0.35,0.62]`, overcast `[0.72,1.0]`; finalized by render probe):
+
+- `broken(cover) ≈ smoothstep(0.15, 0.40, cover) * (1 - smoothstep(0.62, 0.88, cover))`
+  — full across the cloudy band, gone by overcast.
+- `deck(cover) ≈ smoothstep(0.30, 0.95, cover)` for dim/cool; the desaturate +
+  contrast-cut strength rides a later-biting
+  `flatten(cover) ≈ smoothstep(0.62, 1.0, cover)` so it only bites at true
+  overcast.
+
+### Per-regime target look
+
+| Regime | Ground | Light / tone |
+|---|---|---|
+| Clear | even sunlight, no shadows | warm, bright |
+| Cloudy | **large defined soft cloud shadows drift**; sunlit gaps stay full sun; high contrast | warm in the gaps, mild dimming; rare sun rays through breaks |
+| Overcast | flat, even, **no distinct shadows**; low contrast | cold, dim, desaturated ("leaden / overcast") |
+
+### Four presentation levers
+
+1. **Ambient** (folded into `Daylight`): dim + cold tone, scaled by
+   `deck(cover)`, surface-only (sanctuary). In the **cloudy** regime the ambient
+   stays near full brightness/warmth, so unshadowed gaps read as **direct sun** —
+   the "bright gaps" effect is "don't dim the gaps + lay dark shadows", not an
+   additive highlight (a multiply ambient cannot brighten above base).
+2. **Broken cloud shadows** (`CloudShadowOverlay`): large, soft, world-locked
+   drifting footprints from the seamless noise texture (precision-safe), opacity
+   = `broken(cover)`, with a **large** feature scale (a cumulus footprint, not
+   fine dapple). The footprint is a mask only: the shader reads the already
+   rendered surface (`hint_screen_texture`) and darkens that image, so it reads
+   like a normal object shadow rather than a colored paint layer. Opacity-led
+   fade keeps transitions band-free even at large scale.
+3. **Overcast flatten pass** (NEW surface layer): a screen-space pass that reads
+   the already-rendered surface (screen texture), pulls it toward neutral grey
+   and compresses contrast, strength = `flatten(cover)`. This is what makes
+   overcast read as a flat leaden deck rather than merely "darker". Surface-only.
+4. **Rare sun rays** (NEW surface layer): a subtle additive-ish world-space
+   overlay in the **cloudy** band only, gated by `broken(cover)` and sparse
+   noise so it appears as occasional warm streaks in direct-sun breaks. It is a
+   presentation accent, not gameplay light: it does not define safety, does not
+   affect visibility authority, and fades out before overcast.
+
+### Sanctuary under the flatten pass
+
+The flatten pass is full-screen, so it is gated by surface context
+(`_is_surface_context()`, exactly like the tone shift): it does **nothing**
+underground or in roofed/interior context. Within an open-surface scene a pure
+screen pass has no light map, so it cannot yet spare a warm island around a
+campfire / electric light. V0 accepts this coarse context-gate and **reserves**
+a per-light warmth mask for when the ADR-0005 gameplay light map exists; the
+pass is structured to multiply its strength by such a mask later. This is an
+explicit, documented limitation with a reserved hook — not a silent fallback.
+The warm-island guarantee for base/fire/electric is fully met underground and
+under roofs in V0; on open surface it is approximate until the light map lands.
+
 ## Event Contracts
 
 V0 adds one domain event (to be documented in `event_contracts.md` at
@@ -270,8 +358,13 @@ Smooth values are not events; they are read through getters.
 
 - Runtime class: `interactive`-frame O(1) — a handful of scalar evaluations and
   getter reads per frame; no loops over tiles/objects/chunks.
-- Cloud overlay: one full-screen world-space shader (same cost class as the
-  dust overlay), gated so a clear sky is nearly free.
+- Cloud-shadow pass: one full-screen world-locked mask + screen-read darkening
+  shader, gated so clear and overcast skies are nearly free. No per-object work.
+- Overcast flatten pass: one extra full-screen screen-read post pass, active
+  only on the surface and only while `flatten(cover) > 0` (near overcast); it is
+  ~free in clear/cloudy. No per-object work.
+- Sun-ray overlay: one cheap full-screen world-space shader, active only in the
+  cloudy broken-light band and sparse by shader threshold; no per-object work.
 - No native code, no per-chunk work, no startup prepass.
 
 ## Modding / Extension Points
@@ -335,9 +428,17 @@ Resolved:
   `WorldVisualWindProfile` keeps only gust shape.
 - Season does NOT bias regime selection in V0; the selection function takes a
   `season` argument as a reserved hook for a later data-driven seasonal bias.
-- Cloud presentation = darkening + drifting cloud shadows + a cold,
-  desaturated ambient tone shift via `Daylight`, with the sanctuary
-  constraint above (no effect on base/fire/electric/underground light).
+- Cloud presentation is realistic and regime-distinct (see **Cloud Presentation
+  Model**): two response curves — a monotonic `deck` (ambient dim/cool + the
+  overcast flatten pass) and a `broken` hump (discrete drifting cloud shadows
+  peaking in the cloudy regime and fading by overcast, plus rare sun-ray
+  accents). Overcast adds a surface screen-space desaturate + contrast-cut pass
+  for its flat leaden read; cloudy keeps bright sunlit gaps against large dark
+  shadows and occasional warm rays. Sanctuary holds via surface-context gating,
+  with a per-light warmth mask reserved for the ADR-0005 light map.
+- Overcast "flatness" is honest (screen-space desaturate + contrast-cut), not
+  faked with cold tone alone; cloudy "bright gaps" come from keeping ambient
+  bright in the cloudy regime, not from additive highlights.
 
 ## Implementation Iterations
 
@@ -389,6 +490,45 @@ Resolved:
   cloud shadows present at overcast and markedly stronger than clear-sky; clear
   near-cloudless; sanctuary holds (underground ambient stays neutral under
   overcast). All checks pass.
+
+### Iteration 2b — Realistic, regime-distinct cloud presentation — IMPLEMENTED
+
+Reworks Iteration 2's "more cover = more dapple" into the **Cloud Presentation
+Model** (two response curves). Approved direction: honest overcast flatness +
+cloudy bright sunlit gaps.
+
+- Split presentation into the two curves: `broken(cover)` (hump) drives
+  `CloudShadowOverlay` opacity; `deck(cover)` (monotonic) drives the `Daylight`
+  dim/cool and the new flatten pass. Curves are pure functions of `cloud_cover`
+  (tuning anchors in the model section).
+- `CloudShadowOverlay`: move to **large** soft cumulus-footprint scale; opacity
+  = `broken(cover)` (so shadows peak in cloudy, fade by overcast). Keep the
+  seamless-noise base (precision-safe) and opacity-led fade (band-free). The
+  shader reads `hint_screen_texture` and darkens the rendered surface through
+  the mask, rather than drawing a separate cloud-shadow color.
+- `Daylight` ambient: dim/cool = `deck(cover)`, but **keep cloudy near full
+  brightness** so unshadowed gaps read as direct sun (high lit-vs-shadow
+  contrast).
+- New `OvercastFlattenOverlay` (surface screen-space pass, `hint_screen_texture`):
+  desaturate toward grey + compress contrast, strength = `flatten(cover)`;
+  surface-context gated (sanctuary); reserved per-light warmth-mask hook.
+- New `SunRayOverlay` (surface world-space presentation pass): sparse warm rays
+  in cloudy gaps, strength gated by `broken(cover)`, fades to zero by overcast;
+  presentation-only, not ADR-0005 gameplay light.
+- Probes:
+  - extend `weather_cloud_probe` — **cloudy** has high *local* contrast (sunlit
+    gaps + dark shadows); **overcast** has *low* local contrast and is
+    desaturated; and the **inversion** holds: distinct-shadow strength at
+    overcast < at cloudy. Sun rays are measurable in cloudy and gone by
+    overcast.
+  - `cloud_transition_probe` still flat (no band) at the new large scale;
+    `cloud_shader_iso` still smooth at far coordinates.
+  - `cloud_shadow_style_probe` locks the readable style: large footprint,
+    screen-space darkening, no `cloud_shadow_color`, bounded peak darkening.
+  - sanctuary: flatten pass leaves underground/roofed context neutral (warm
+    open-surface island reserved for the light map).
+- Doc updates: this section; `system_api.md` if a new overlay exposes a public
+  surface; localization unaffected (no new user-facing strings).
 
 ### Iteration 3 — Save/load slow state
 

@@ -1,4 +1,4 @@
-[gd_scene load_steps=8 format=3]
+[gd_scene load_steps=10 format=3]
 
 [ext_resource type="Script" path="res://scenes/world/world_runtime_v0_scene.gd" id="1"]
 [ext_resource type="Script" path="res://core/systems/world/world_streamer.gd" id="2"]
@@ -7,6 +7,8 @@
 [ext_resource type="Script" path="res://core/systems/daylight/daylight_system.gd" id="5"]
 [ext_resource type="Script" path="res://core/systems/world/dust_wind_overlay.gd" id="6"]
 [ext_resource type="Script" path="res://core/systems/world/cloud_shadow_overlay.gd" id="7"]
+[ext_resource type="Script" path="res://core/systems/world/sun_ray_overlay.gd" id="8"]
+[ext_resource type="Script" path="res://core/systems/world/overcast_flatten_overlay.gd" id="9"]
 
 [node name="WorldRuntimeV0" type="Node2D"]
 script = ExtResource("1")
@@ -25,6 +27,12 @@ script = ExtResource("6")
 
 [node name="CloudShadowOverlay" type="Sprite2D" parent="."]
 script = ExtResource("7")
+
+[node name="SunRayOverlay" type="Sprite2D" parent="."]
+script = ExtResource("8")
+
+[node name="OvercastFlattenOverlay" type="Sprite2D" parent="."]
+script = ExtResource("9")
 
 [node name="HudLayer" type="CanvasLayer" parent="."]
 

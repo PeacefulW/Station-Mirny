@@ -8,6 +8,7 @@ extends CanvasModulate
 ## Цвета фаз дня. Тонирование — presentation response (ADR-0007 layer 4):
 ## HUD живёт в CanvasLayer и не тонируется; подземный свет — геймплейная
 ## система (ADR-0005), поэтому underground остаётся нейтральным.
+const WeatherPresentationCurves = preload("res://core/systems/world/weather_presentation_curves.gd")
 const COLOR_NIGHT := Color(0.32, 0.38, 0.56)
 const COLOR_DAWN := Color(0.86, 0.74, 0.78)
 const COLOR_DAY := Color(1.0, 1.0, 1.0)
@@ -48,7 +49,7 @@ func _weather_tint() -> Color:
 	if WeatherRuntime == null:
 		return Color.WHITE
 	var cloud_cover: float = clampf(WeatherRuntime.get_cloud_cover(), 0.0, 1.0)
-	return Color.WHITE.lerp(COLOR_OVERCAST_TINT, cloud_cover)
+	return Color.WHITE.lerp(COLOR_OVERCAST_TINT, WeatherPresentationCurves.deck_strength(cloud_cover))
 
 # --- Приватные методы ---
 
