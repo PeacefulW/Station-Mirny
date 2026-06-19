@@ -363,6 +363,21 @@ Resolved:
   `cloud_shadow_overlay.gdshader`) driven by `cloud_cover`: drifting fbm
   cloud-shadow field, density/coverage rising with cover, drift on `wind_*`
   globals, empty below `cloud_cover < 0.02`. Sits under `Daylight`.
+- Transition behaviour: the shadow field is multi-scale and **small-scale-led**
+  (no single screen-spanning blob), and fade-in is led by **opacity**
+  (`cover_op`) with a deliberately narrow shape-threshold range. This avoids a
+  low-frequency iso-contour sweeping across the view once as the threshold drops
+  during a regime change (observed "vertical band" artifact). Guarded by
+  `tools/cloud_transition_probe.gd` (horizontal luma spread stays flat across
+  the `cloud_cover` ramp, with no mid-transition spike).
+- Noise source: the field is sampled from a **seamless procedural noise texture**
+  (`FastNoiseLite` → `NoiseTexture2D`, `repeat_enable` + mipmaps), not a
+  hand-rolled `fract()` hash. Cloud shadows are world-locked, so `world_pos` is
+  large; a hash-based noise loses low bits at large coordinates and quantizes
+  into a rectangular grid (observed "blocky / cut-off clouds" artifact away from
+  the origin). Hardware texture wrap keeps full precision within the tile.
+  Guarded by `tools/cloud_shader_iso.gd` (sharp-edge fraction at far world
+  coordinates stays ≈ the near-origin baseline).
 - Cold desaturated ambient tone shift folded into the existing `Daylight`
   ambient (`COLOR_OVERCAST_TINT`, applied only when `_is_surface_context()`),
   with the sanctuary constraint (outside-ambient only; underground neutral;
