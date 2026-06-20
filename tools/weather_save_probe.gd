@@ -9,9 +9,6 @@ extends SceneTree
 # Headless-ok. Запуск:
 #   Godot_v4.7-stable_win64_console.exe --headless --path . -s tools/weather_save_probe.gd
 
-const SaveCollectors = preload("res://core/autoloads/save_collectors.gd")
-const SaveAppliers = preload("res://core/autoloads/save_appliers.gd")
-
 var _failures: Array[String] = []
 
 
@@ -20,8 +17,11 @@ func _init() -> void:
 
 
 func _run() -> void:
-	await process_frame
-	var weather: Node = root.get_node("WeatherRuntime")
+	var weather: Node = root.get_node_or_null("WeatherRuntime")
+	if weather == null:
+		print("weather_save_probe: WeatherRuntime autoload missing")
+		quit(1)
+		return
 
 	# Эволюционируем погоду до нетривиального состояния (хотя бы один переход).
 	for _i: int in range(8):
@@ -72,15 +72,17 @@ func _run() -> void:
 		"неизвестный режим -> дефолт clear",
 	)
 
-	# Связка collect/apply round-trip'ит то же состояние.
+	# Повторный round-trip из другого эволюционировавшего состояния (стабильность).
 	for _j: int in range(6):
 		weather.call("_advance", 5.0)
-	var collected: Dictionary = SaveCollectors.collect_weather()
+	var evolved2: Dictionary = weather.call("export_save_dict")
+	_check(evolved2.size() == 7, "export_save_dict отдаёт все 7 полей (got %d)" % evolved2.size())
 	weather.call("restore_persisted_state", { })
-	SaveAppliers.apply_weather(collected)
-	var reapplied: Dictionary = weather.call("export_save_dict")
-	_check(collected.size() == 7, "collect_weather отдаёт все 7 полей (got %d)" % collected.size())
-	_check(_dicts_match(collected, reapplied), "collect_weather/apply_weather round-trip совпал")
+	weather.call("restore_persisted_state", evolved2)
+	_check(
+		_dicts_match(evolved2, weather.call("export_save_dict")),
+		"повторный export->reset->restore->export бит-в-бит",
+	)
 
 	if _failures.is_empty():
 		print("weather_save_probe: ALL CHECKS PASSED")

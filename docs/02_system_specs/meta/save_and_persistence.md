@@ -57,6 +57,27 @@ Current V0 runtime implementation:
 - changed terrain diffs are sharded as `chunks/<x>_<y>.json`
 - load order is deterministic base restore first, then per-chunk diff apply
 
+### Weather slow-state persistence
+
+Weather follows the same diff-not-scene rule (ADR-0007: only slow world state is
+saved). See `WeatherSaveData` in `packet_schemas.md`.
+
+- **What persists** (`weather.json`): the active/next regime ids, the transition
+  flag + progress, the active regime's remaining duration, the weather-time
+  accumulator, and the transition count.
+- **What is regenerated**: all live axes (`cloud_cover`, wind strength/heading/
+  gustiness targets, reserved precipitation/temperature/humidity) — they
+  reconstruct from the restored regime + the world clock via `WeatherRuntime`
+  getters; they are never written to the save.
+- **Who collects / applies**: `SaveCollectors.collect_weather()` →
+  `WeatherRuntime.export_save_dict()`; `SaveAppliers.apply_weather()` →
+  `WeatherRuntime.restore_persisted_state()`.
+- **Old-save defaults**: a save without `weather.json` (or an empty section)
+  leaves `WeatherRuntime` in its boot default (`core:clear`, freshly rolled
+  timers); an unknown regime id in the section also falls back to `core:clear`.
+  This is an additive section — it does **not** change `world_version` or the
+  chunk-diff shape, so old saves stay load-compatible.
+
 Current world generation extension:
 - `world.json` now records `world_version: 48` for the current finite-world
   foundation baseline with `64`-tile substrate cells, native high-resolution

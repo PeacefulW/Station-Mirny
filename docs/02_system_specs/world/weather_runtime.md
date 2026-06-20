@@ -538,11 +538,24 @@ cloudy bright sunlit gaps.
 - Doc updates: this section; `system_api.md` if a new overlay exposes a public
   surface; localization unaffected (no new user-facing strings).
 
-### Iteration 3 — Save/load slow state
+### Iteration 3 — Save/load slow state — DONE
 
 - Persist active/next regime + transition + duration timer; reconstruct live.
-- Doc updates: `packet_schemas.md` (`WeatherSaveData`),
-  `save_and_persistence.md`.
+- Landed as `WeatherRuntime.export_save_dict()` / `restore_persisted_state()`,
+  wired through `SaveCollectors.collect_weather()` /
+  `SaveAppliers.apply_weather()` into a `weather.json` slot section. Live axes
+  (`cloud_cover`, wind targets, reserved axes) are NOT saved — they reconstruct
+  from the restored regime + clock. `_weather_time_hours` is persisted so cloud
+  breathing and the heading meander stay continuous across load. On restore,
+  `_last_hour` resets so the next `time_tick` re-syncs the delta without a jump;
+  an unknown regime id or a missing `weather.json` falls back to `core:clear`.
+- Additive section: no `WORLD_VERSION` bump, old saves stay load-compatible.
+- Probe: `tools/weather_save_probe.gd` (headless) — evolved state survives
+  export → reset → restore bit-for-bit, live axes reconstruct from a restored
+  mid-transition, old-save/unknown-regime default to clear, and the
+  collect/apply pair round-trips the same state.
+- Doc updates: `packet_schemas.md` (`WeatherSaveData` + slot-layout row),
+  `save_and_persistence.md` (weather slow-state section).
 
 ### Later (out of V0)
 

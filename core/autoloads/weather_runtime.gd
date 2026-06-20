@@ -183,7 +183,9 @@ func restore_persisted_state(data: Dictionary) -> void:
 	_next_id = nxt
 	_in_transition = bool(data.get("in_transition", false))
 	_transition = clampf(float(data.get("transition", 0.0)), 0.0, 1.0)
-	_remaining_hours = maxf(float(data.get("remaining_hours", 0.0)), 0.0)
+	# remaining_hours может быть отрицательным транзиентом во время перехода —
+	# сохраняем как есть (re-roll только для не-перехода с remaining <= 0 ниже).
+	_remaining_hours = float(data.get("remaining_hours", 0.0))
 	_weather_time_hours = maxf(float(data.get("weather_time_hours", 0.0)), 0.0)
 	_transition_count = maxi(int(data.get("transition_count", 0)), 0)
 	_debug_regime_id = &""
