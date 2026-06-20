@@ -152,6 +152,47 @@ func get_temperature_c() -> float:
 func get_humidity() -> float:
 	return _blended_axis(func(p: WeatherRegimeProfile) -> Vector2: return p.humidity, 0.5)
 
+# --- Save / Persistence (ADR-0007: только медленное состояние) ---
+
+
+## Медленное состояние погоды для сейва. Живые оси (cloud_cover, цели ветра,
+## зарезервированные) НЕ сохраняются — реконструируются из режима + часов.
+func export_save_dict() -> Dictionary:
+	return {
+		"active_regime": String(_active_id),
+		"next_regime": String(_next_id),
+		"in_transition": _in_transition,
+		"transition": _transition,
+		"remaining_hours": _remaining_hours,
+		"weather_time_hours": _weather_time_hours,
+		"transition_count": _transition_count,
+	}
+
+
+## Восстановление медленного состояния из сейва. Неизвестный режим (контент
+## изменился) -> безопасный дефолт clear. _last_hour сбрасывается: следующий
+## time_tick ресинкает дельту без скачка. weather_changed уведомляет слои.
+func restore_persisted_state(data: Dictionary) -> void:
+	var active: StringName = StringName(String(data.get("active_regime", String(START_REGIME_ID))))
+	var nxt: StringName = StringName(String(data.get("next_regime", String(active))))
+	if not _regimes_by_id.has(active):
+		active = START_REGIME_ID
+	if not _regimes_by_id.has(nxt):
+		nxt = active
+	_active_id = active
+	_next_id = nxt
+	_in_transition = bool(data.get("in_transition", false))
+	_transition = clampf(float(data.get("transition", 0.0)), 0.0, 1.0)
+	_remaining_hours = maxf(float(data.get("remaining_hours", 0.0)), 0.0)
+	_weather_time_hours = maxf(float(data.get("weather_time_hours", 0.0)), 0.0)
+	_transition_count = maxi(int(data.get("transition_count", 0)), 0)
+	_debug_regime_id = &""
+	_debug_fast_transition = false
+	_last_hour = -1.0
+	if not _in_transition and _remaining_hours <= 0.0:
+		_remaining_hours = _roll_duration(_active_id, _transition_count)
+	EventBus.weather_changed.emit(_active_id, _active_id)
+
 # --- Приватные ---
 
 

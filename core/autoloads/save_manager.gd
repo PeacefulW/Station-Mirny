@@ -1,6 +1,5 @@
 class_name SaveManagerSingleton
 extends Node
-
 ## Менеджер сохранений. Autoload-синглтон.
 ## Отвечает только за orchestration сценариев save/load.
 
@@ -10,6 +9,7 @@ const META_FILE: String = "meta.json"
 const PLAYER_FILE: String = "player.json"
 const WORLD_FILE: String = "world.json"
 const TIME_FILE: String = "time.json"
+const WEATHER_FILE: String = "weather.json"
 const BUILDINGS_FILE: String = "buildings.json"
 const CHUNKS_DIR: String = "chunks"
 const SAVE_VERSION: int = 4
@@ -22,11 +22,13 @@ var is_busy: bool = false
 ## Слот, который нужно загрузить после смены сцены (из главного меню).
 var _pending_load_slot: String = ""
 
+
 func _ready() -> void:
 	if not SaveIO.ensure_directory(SAVES_ROOT):
-		push_error(Localization.t("SYSTEM_SAVE_ROOT_CREATE_FAILED", {"path": SAVES_ROOT}))
+		push_error(Localization.t("SYSTEM_SAVE_ROOT_CREATE_FAILED", { "path": SAVES_ROOT }))
 
 # --- Публичные методы ---
+
 
 ## Сохранить игру в указанный слот.
 ## Если slot_name пуст — используется текущий слот.
@@ -43,39 +45,44 @@ func save_game(slot_name: String = "") -> bool:
 	var save_path: String = SAVES_ROOT.path_join(resolved_slot)
 	if not SaveIO.ensure_directory(save_path):
 		is_busy = false
-		push_error(Localization.t("SYSTEM_SAVE_SLOT_CREATE_FAILED", {"slot": resolved_slot}))
+		push_error(Localization.t("SYSTEM_SAVE_SLOT_CREATE_FAILED", { "slot": resolved_slot }))
 		return false
 
 	var success: bool = true
 	success = success and SaveIO.write_json(
 		save_path.path_join(META_FILE),
-		SaveCollectors.collect_meta(SAVE_VERSION)
+		SaveCollectors.collect_meta(SAVE_VERSION),
 	)
 	success = success and SaveIO.write_json(
 		save_path.path_join(PLAYER_FILE),
-		SaveCollectors.collect_player(get_tree())
+		SaveCollectors.collect_player(get_tree()),
 	)
 	success = success and SaveIO.write_json(
 		save_path.path_join(WORLD_FILE),
-		SaveCollectors.collect_world(get_tree())
+		SaveCollectors.collect_world(get_tree()),
 	)
 	success = success and SaveIO.write_json(
 		save_path.path_join(TIME_FILE),
-		SaveCollectors.collect_time()
+		SaveCollectors.collect_time(),
+	)
+	success = success and SaveIO.write_json(
+		save_path.path_join(WEATHER_FILE),
+		SaveCollectors.collect_weather(),
 	)
 	success = success and SaveIO.write_json(
 		save_path.path_join(BUILDINGS_FILE),
-		SaveCollectors.collect_buildings(get_tree())
+		SaveCollectors.collect_buildings(get_tree()),
 	)
 	success = success and _write_chunk_data(
 		save_path,
-		SaveCollectors.collect_chunk_data(get_tree())
+		SaveCollectors.collect_chunk_data(get_tree()),
 	)
 
 	is_busy = false
 	if success:
 		EventBus.save_completed.emit()
 	return success
+
 
 ## Загрузить игру из слота.
 func load_game(slot_name: String) -> bool:
@@ -85,7 +92,7 @@ func load_game(slot_name: String) -> bool:
 
 	var save_path: String = SAVES_ROOT.path_join(slot_name)
 	if not DirAccess.dir_exists_absolute(save_path):
-		push_error(Localization.t("SYSTEM_SAVE_NOT_FOUND", {"slot": slot_name}))
+		push_error(Localization.t("SYSTEM_SAVE_NOT_FOUND", { "slot": slot_name }))
 		return false
 
 	is_busy = true
@@ -93,13 +100,18 @@ func load_game(slot_name: String) -> bool:
 
 	var world_data: Dictionary = SaveIO.read_json(save_path.path_join(WORLD_FILE))
 	if not SaveAppliers.apply_world(get_tree(), world_data):
-		push_error(Localization.t("SYSTEM_SAVE_WORLD_INVALID", {"file": WORLD_FILE}))
+		push_error(Localization.t("SYSTEM_SAVE_WORLD_INVALID", { "file": WORLD_FILE }))
 		is_busy = false
 		return false
 
 	var time_data: Dictionary = SaveIO.read_json(save_path.path_join(TIME_FILE))
 	if not time_data.is_empty():
 		SaveAppliers.apply_time(time_data)
+
+	# Старые сейвы без weather.json -> погода остаётся в дефолте (clear).
+	var weather_data: Dictionary = SaveIO.read_json(save_path.path_join(WEATHER_FILE))
+	if not weather_data.is_empty():
+		SaveAppliers.apply_weather(weather_data)
 
 	var chunk_data: Dictionary = _read_chunk_data(save_path)
 	if not chunk_data.is_empty():
@@ -116,6 +128,7 @@ func load_game(slot_name: String) -> bool:
 	is_busy = false
 	EventBus.load_completed.emit()
 	return true
+
 
 ## Получить список доступных сохранений.
 ## Возвращает массив словарей с мета-информацией.
@@ -135,10 +148,12 @@ func get_save_list() -> Array[Dictionary]:
 				meta["day"] = int(meta.get("game_day", 0))
 			meta["slot_name"] = slot_name
 			saves.append(meta)
-	saves.sort_custom(func(a: Dictionary, b: Dictionary) -> bool:
-		return str(a.get("save_time", a.get("date", ""))) > str(b.get("save_time", b.get("date", "")))
+	saves.sort_custom(
+		func(a: Dictionary, b: Dictionary) -> bool:
+			return str(a.get("save_time", a.get("date", ""))) > str(b.get("save_time", b.get("date", "")))
 	)
 	return saves
+
 
 ## Удалить сохранение.
 func delete_save(slot_name: String) -> bool:
@@ -147,22 +162,27 @@ func delete_save(slot_name: String) -> bool:
 		return false
 	return SaveIO.delete_save_slot(save_path)
 
+
 ## Существует ли сохранение?
 func save_exists(slot_name: String) -> bool:
 	return FileAccess.file_exists(SAVES_ROOT.path_join(slot_name).path_join(META_FILE))
 
+
 func request_load_after_scene_change(slot_name: String) -> void:
 	_pending_load_slot = slot_name
+
 
 func consume_pending_load_slot() -> String:
 	var slot: String = _pending_load_slot
 	_pending_load_slot = ""
 	return slot
 
+
 func clear_pending_load_request() -> void:
 	_pending_load_slot = ""
 
 # --- Приватные ---
+
 
 func _resolve_slot_name(slot_name: String) -> String:
 	if not slot_name.is_empty():
@@ -170,6 +190,7 @@ func _resolve_slot_name(slot_name: String) -> String:
 	if not current_slot.is_empty():
 		return current_slot
 	return "save_001"
+
 
 func _write_chunk_data(save_path: String, chunk_data: Dictionary) -> bool:
 	var chunks_path: String = save_path.path_join(CHUNKS_DIR)
@@ -190,13 +211,14 @@ func _write_chunk_data(save_path: String, chunk_data: Dictionary) -> bool:
 		var chunk_entry: Dictionary = chunk_variant as Dictionary
 		if chunk_entry.is_empty():
 			continue
-		var chunk_coord_data: Dictionary = chunk_entry.get("chunk_coord", {}) as Dictionary
+		var chunk_coord_data: Dictionary = chunk_entry.get("chunk_coord", { }) as Dictionary
 		var file_name: String = "%d_%d.json" % [
 			int(chunk_coord_data.get("x", 0)),
-			int(chunk_coord_data.get("y", 0))
+			int(chunk_coord_data.get("y", 0)),
 		]
 		success = success and SaveIO.write_json(chunks_path.path_join(file_name), chunk_entry)
 	return success
+
 
 func _read_chunk_data(save_path: String) -> Dictionary:
 	var chunks_path: String = save_path.path_join(CHUNKS_DIR)
@@ -206,7 +228,7 @@ func _read_chunk_data(save_path: String) -> Dictionary:
 		if not chunk_entry.is_empty():
 			chunks.append(chunk_entry)
 	if chunks.is_empty():
-		return {}
+		return { }
 	return {
 		"chunks": chunks,
 	}

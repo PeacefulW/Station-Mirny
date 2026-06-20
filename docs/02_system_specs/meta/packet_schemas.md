@@ -47,6 +47,7 @@ Confirmed files:
 | `player.json` | `SaveCollectors.collect_player()` | `SaveAppliers.apply_player()` | `SaveCollectors` + component `save_state()` methods |
 | `world.json` | `SaveCollectors.collect_world()` | `SaveAppliers.apply_world()` | `SaveCollectors` |
 | `time.json` | `SaveCollectors.collect_time()` | `SaveAppliers.apply_time()` | `TimeManager` |
+| `weather.json` | `SaveCollectors.collect_weather()` | `SaveAppliers.apply_weather()` | `WeatherRuntime` |
 | `buildings.json` | `SaveCollectors.collect_buildings()` | `SaveAppliers.apply_buildings()` | `BuildingPersistence` |
 | `chunks/<x>_<y>.json` | `SaveCollectors.collect_chunk_data()` via `SaveManager._write_chunk_data()` | `SaveManager._read_chunk_data()` -> `SaveAppliers.apply_chunk_data()` | `WorldDiffStore` |
 
@@ -319,6 +320,26 @@ Current code note:
   "current_season": int,
 }
 ```
+
+### `WeatherSaveData`
+
+Slow weather state only (ADR-0007); live axes (`cloud_cover`, wind targets,
+reserved axes) are NOT saved — they reconstruct from the regime + clock on load.
+
+```text
+{
+  "active_regime": String,      # e.g. "core:cloudy"; unknown id -> default "core:clear"
+  "next_regime": String,        # regime being blended toward
+  "in_transition": bool,
+  "transition": float,          # 0..1 blend toward next_regime
+  "remaining_hours": float,     # remaining duration of the active regime
+  "weather_time_hours": float,  # accumulator for cloud breathing + heading meander continuity
+  "transition_count": int,      # deterministic salt for successor / duration selection
+}
+```
+
+Old saves without `weather.json` (or an empty dict) leave `WeatherRuntime` in
+its boot default (`core:clear`, freshly rolled timers).
 
 ### `BuildingsSaveData`
 

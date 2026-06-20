@@ -1,6 +1,5 @@
 class_name SaveCollectors
 extends RefCounted
-
 ## Набор функций для сбора данных сохранения.
 ## Не пишет на диск и не меняет состояние мира.
 
@@ -18,6 +17,7 @@ static func collect_meta(save_version: int) -> Dictionary:
 		"game_day": TimeManager.current_day if TimeManager else 1,
 	}
 
+
 static func collect_player(tree: SceneTree) -> Dictionary:
 	var authority: Node = tree.root.get_node_or_null("/root/PlayerAuthority")
 	var player: Node2D = authority.get_local_player() if authority else null
@@ -25,7 +25,7 @@ static func collect_player(tree: SceneTree) -> Dictionary:
 		# Fallback: static context cannot access autoloads directly.
 		var players: Array[Node] = tree.get_nodes_in_group("player")
 		if players.is_empty():
-			return {}
+			return { }
 		player = players[0]
 	var data: Dictionary = {
 		"position": {
@@ -55,6 +55,7 @@ static func collect_player(tree: SceneTree) -> Dictionary:
 		data["oxygen"] = oxygen_system.save_state()
 	return data
 
+
 static func collect_world(tree: SceneTree) -> Dictionary:
 	var chunk_manager: Node = _find_chunk_manager(tree)
 	if chunk_manager and chunk_manager.has_method("save_world_state"):
@@ -64,26 +65,36 @@ static func collect_world(tree: SceneTree) -> Dictionary:
 		"world_scene_present": tree.current_scene != null,
 	}
 
+
 static func collect_time() -> Dictionary:
 	if not TimeManager:
-		return {}
+		return { }
 	return {
 		"current_hour": TimeManager.current_hour,
 		"current_day": TimeManager.current_day,
 		"current_season": int(TimeManager.current_season),
 	}
 
+
+static func collect_weather() -> Dictionary:
+	if not WeatherRuntime:
+		return { }
+	if WeatherRuntime.has_method("export_save_dict"):
+		return WeatherRuntime.export_save_dict()
+	return { }
+
+
 static func collect_buildings(tree: SceneTree) -> Dictionary:
 	var building_systems: Array[Node] = tree.get_nodes_in_group("building_system")
 	if building_systems.is_empty():
 		building_systems = _find_nodes_by_class(tree, "BuildingSystem")
 		if building_systems.is_empty():
-			return {}
+			return { }
 	var building_system: Node = building_systems[0]
 	if building_system.has_method("save_state"):
 		return building_system.save_state()
 
-	var walls: Dictionary = building_system.get("walls") if building_system.has_method("get") else {}
+	var walls: Dictionary = building_system.get("walls") if building_system.has_method("get") else { }
 	var wall_data: Array[Dictionary] = []
 	for pos: Vector2i in walls:
 		var wall_node: Node2D = walls[pos]
@@ -95,7 +106,8 @@ static func collect_buildings(tree: SceneTree) -> Dictionary:
 		if health:
 			entry["health"] = health.current_health
 		wall_data.append(entry)
-	return {"walls": wall_data}
+	return { "walls": wall_data }
+
 
 static func collect_chunk_data(tree: SceneTree) -> Dictionary:
 	var chunk_manager: Node = _find_chunk_manager(tree)
@@ -103,7 +115,8 @@ static func collect_chunk_data(tree: SceneTree) -> Dictionary:
 		return {
 			"chunks": chunk_manager.collect_chunk_diffs(),
 		}
-	return {}
+	return { }
+
 
 static func _find_chunk_manager(tree: SceneTree) -> Node:
 	if tree == null:
@@ -113,14 +126,16 @@ static func _find_chunk_manager(tree: SceneTree) -> Node:
 		return null
 	return chunk_managers[0]
 
+
 static func _find_nodes_by_class(tree: SceneTree, class_name_str: String) -> Array[Node]:
 	var result: Array[Node] = []
 	_find_recursive(tree.root, class_name_str, result)
 	return result
 
+
 static func _find_recursive(node: Node, class_name_str: String, result: Array[Node]) -> void:
 	if node.get_class() == class_name_str or \
-	   (node.get_script() and node.get_script().get_global_name() == class_name_str):
+			(node.get_script() and node.get_script().get_global_name() == class_name_str):
 		result.append(node)
 	for child: Node in node.get_children():
 		_find_recursive(child, class_name_str, result)
