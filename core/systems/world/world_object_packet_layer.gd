@@ -2,10 +2,12 @@ class_name WorldObjectPacketLayer
 extends Node2D
 
 const WorldDecorBatchLayer = preload("res://core/systems/world/world_decor_batch_layer.gd")
+const TREE_BATCH_SHADER = preload("res://assets/shaders/tree_decor_atlas_batch.gdshader")
 
 const OBJECT_KIND_ROCK: int = 1
 const OBJECT_KIND_LIVING_FLORA: int = 2
 const OBJECT_KIND_SPIKY_FLORA: int = 3
+const OBJECT_KIND_TREE: int = 4
 const OBJECT_FLAG_COLLIDER: int = 1 << 0
 const OBJECT_LOCAL_PX_QUANTUM: float = 4.0
 
@@ -40,17 +42,43 @@ const SPIKY_FLORA_FRAME_COLUMNS: int = 4
 const SPIKY_FLORA_FRAME_ROWS: int = 1
 const SPIKY_FLORA_FRAME_COUNT: int = 4
 
+const TREE_FRAME_COLUMNS: int = 4
+const TREE_FRAME_ROWS: int = 4
+const TREE_FRAME_COUNT: int = 16
+# Основание дерева в кадре атласа — на доле (frame-margin)/frame от верха. Спрайт
+# центрируется в точке, поэтому сдвигаем его вверх на (frac-0.5)*size, чтобы комель
+# лёг в точку земли; полоса depth-лесенки тогда падает на «ноги» (см. spec).
+const TREE_BASE_ANCHOR_OFFSET_FRAC: float = 0.46875
+const TREE_SHADOW_WIDTH_SCALE: float = 0.34
+const TREE_SHADOW_HEIGHT_SCALE: float = 0.11
+const TREE_SHADOW_CENTER_Y_SCALE: float = 0.02
+const TREE_SHADOW_MIN_WIDTH_PX: float = 18.0
+const TREE_SHADOW_MIN_HEIGHT_PX: float = 6.0
+# Дерево — препятствие: маленький круг у комля (ствол), крона проходима.
+# Chunk-scoped статика на том же obstacle-слое, что крупные камни (LAW 10:
+# готово к reveal вместе с объектным слоем; шейп-овнеры на одном теле, не нода-на-дерево).
+const TREE_COLLISION_ENABLED: bool = true
+const TREE_COLLISION_RADIUS_SCALE: float = 0.065
+const TREE_COLLISION_MIN_RADIUS_PX: float = 9.0
+const TREE_COLLISION_MAX_RADIUS_PX: float = 20.0
+
 var _rock_atlases: Array[Texture2D] = []
 var _living_flora_atlas: Texture2D = null
 var _spiky_flora_atlases: Array[Texture2D] = []
+var _tree_atlas: Texture2D = null
 var _rock_batch_layer: WorldDecorBatchLayer = null
 var _living_flora_batch_layer: WorldDecorBatchLayer = null
 var _spiky_flora_batch_layer: WorldDecorBatchLayer = null
+var _tree_batch_layer: WorldDecorBatchLayer = null
 var _collision_body: StaticBody2D = null
 var _collision_shape_owner_ids: Array[int] = []
+var _tree_collision_body: StaticBody2D = null
+var _tree_collision_shape_owner_ids: Array[int] = []
+var _tree_collider_count: int = 0
 var _rock_count: int = 0
 var _living_flora_count: int = 0
 var _spiky_flora_count: int = 0
+var _tree_count: int = 0
 var _collider_count: int = 0
 var _world_origin_y: float = 0.0
 
@@ -80,6 +108,12 @@ func set_spiky_flora_atlases(atlases: Array[Texture2D]) -> void:
 		_spiky_flora_batch_layer.clear_batches()
 
 
+func set_tree_atlas(atlas: Texture2D) -> void:
+	_tree_atlas = atlas
+	if _tree_batch_layer != null and is_instance_valid(_tree_batch_layer):
+		_tree_batch_layer.clear_batches()
+
+
 func set_sun_lighting(
 		light_angle_deg: float,
 		shadow_length_px: float,
@@ -100,6 +134,13 @@ func set_sun_lighting(
 			shadow_opacity,
 			shadow_softness_px,
 		)
+	if _tree_batch_layer != null and is_instance_valid(_tree_batch_layer):
+		_tree_batch_layer.set_sun_lighting(
+			light_angle_deg,
+			shadow_length_px,
+			shadow_opacity,
+			shadow_softness_px,
+		)
 
 
 ## Мировой Y чанка для глобальных полос depth-лесенки.
@@ -108,6 +149,7 @@ func set_world_origin_y(world_origin_y: float) -> void:
 	_apply_world_origin_to_batch_layer(_rock_batch_layer)
 	_apply_world_origin_to_batch_layer(_living_flora_batch_layer)
 	_apply_world_origin_to_batch_layer(_spiky_flora_batch_layer)
+	_apply_world_origin_to_batch_layer(_tree_batch_layer)
 
 
 ## Перестановка полос объектного декора на player-relative лесенке.
@@ -118,12 +160,15 @@ func update_ladder_z(anchor_stripe: int) -> void:
 		_living_flora_batch_layer.update_ladder_z(anchor_stripe)
 	if _spiky_flora_batch_layer != null and is_instance_valid(_spiky_flora_batch_layer):
 		_spiky_flora_batch_layer.update_ladder_z(anchor_stripe)
+	if _tree_batch_layer != null and is_instance_valid(_tree_batch_layer):
+		_tree_batch_layer.update_ladder_z(anchor_stripe)
 
 
 func configure_packet(packet: Dictionary) -> void:
 	_rock_count = 0
 	_living_flora_count = 0
 	_spiky_flora_count = 0
+	_tree_count = 0
 	_collider_count = 0
 	_clear_collision_shapes()
 	var object_kind: PackedByteArray = packet.get("object_kind", PackedByteArray()) as PackedByteArray
@@ -163,6 +208,9 @@ func configure_packet(packet: Dictionary) -> void:
 	for _atlas_index: int in range(_spiky_flora_atlases.size()):
 		spiky_buffers.append(PackedFloat32Array())
 	var empty_shadow_buffer := PackedFloat32Array()
+	var tree_buffer := PackedFloat32Array()
+	var tree_shadow_buffer := PackedFloat32Array()
+	var tree_collision_records: Array[Dictionary] = []
 	for index: int in range(object_count):
 		var kind: int = int(object_kind[index])
 		var position := Vector2(_decode_local_px(object_x[index]), _decode_local_px(object_y[index]))
@@ -190,11 +238,15 @@ func configure_packet(packet: Dictionary) -> void:
 				_append_living_flora(position, size_px, frame_index, tint_factor, phase, living_buffer, living_shadow_buffer)
 			OBJECT_KIND_SPIKY_FLORA:
 				_append_spiky_flora(position, size_px, atlas_index, frame_index, tint_factor, phase, spiky_buffers)
+			OBJECT_KIND_TREE:
+				_append_tree(position, size_px, frame_index, tint_factor, phase, tree_buffer, tree_shadow_buffer, tree_collision_records)
 
 	_sync_rock_batches(rock_buffers, rock_shadow_buffer, rock_collision_records)
 	_sync_living_flora_batch(living_buffer, living_shadow_buffer)
 	_sync_spiky_flora_batch(spiky_buffers, empty_shadow_buffer)
-	visible = _rock_count > 0 or _living_flora_count > 0 or _spiky_flora_count > 0
+	_sync_tree_batch(tree_buffer, tree_shadow_buffer)
+	_sync_tree_collision(tree_collision_records)
+	visible = _rock_count > 0 or _living_flora_count > 0 or _spiky_flora_count > 0 or _tree_count > 0
 
 
 func get_debug_state() -> Dictionary:
@@ -202,6 +254,8 @@ func get_debug_state() -> Dictionary:
 		"rock_count": _rock_count,
 		"living_flora_count": _living_flora_count,
 		"spiky_flora_count": _spiky_flora_count,
+		"tree_count": _tree_count,
+		"tree_collider_count": _tree_collider_count,
 		"collider_count": _collider_count,
 	}
 
@@ -330,6 +384,55 @@ func _append_spiky_flora(
 	_spiky_flora_count += 1
 
 
+func _append_tree(
+		position: Vector2,
+		size_px: float,
+		frame_index: int,
+		tint_factor: float,
+		phase: float,
+		tree_buffer: PackedFloat32Array,
+		tree_shadow_buffer: PackedFloat32Array,
+		tree_collision_records: Array[Dictionary],
+) -> void:
+	if _tree_atlas == null:
+		return
+	# Спрайт центрируется в позиции → сдвигаем центр вверх, чтобы комель кадра лёг
+	# в точку земли; полоса depth-лесенки тогда падает на «ноги» дерева.
+	var sprite_position: Vector2 = position - Vector2(0.0, size_px * TREE_BASE_ANCHOR_OFFSET_FRAC)
+	WorldDecorBatchLayer.append_instance(
+		tree_buffer,
+		sprite_position,
+		Vector2.ONE * size_px,
+		frame_index,
+		Color(tint_factor, tint_factor, tint_factor, 1.0),
+		0.0,
+		phase,
+		size_px / 64.0,
+	)
+	var shadow_size := Vector2(
+		maxf(size_px * TREE_SHADOW_WIDTH_SCALE, TREE_SHADOW_MIN_WIDTH_PX),
+		maxf(size_px * TREE_SHADOW_HEIGHT_SCALE, TREE_SHADOW_MIN_HEIGHT_PX),
+	)
+	WorldDecorBatchLayer.append_instance(
+		tree_shadow_buffer,
+		position + Vector2(0.0, size_px * TREE_SHADOW_CENTER_Y_SCALE),
+		shadow_size,
+		0,
+		Color(1.0, 1.0, 1.0, 0.85),
+		0.0,
+		phase,
+		maxf(size_px / 96.0, 0.42),
+	)
+	if TREE_COLLISION_ENABLED:
+		tree_collision_records.append(
+			{
+				"position": position,
+				"radius": clampf(size_px * TREE_COLLISION_RADIUS_SCALE, TREE_COLLISION_MIN_RADIUS_PX, TREE_COLLISION_MAX_RADIUS_PX),
+			},
+		)
+	_tree_count += 1
+
+
 func _sync_rock_batches(
 		rock_buffers: Array,
 		rock_shadow_buffer: PackedFloat32Array,
@@ -399,6 +502,28 @@ func _ensure_spiky_flora_batch_layer() -> WorldDecorBatchLayer:
 	return _spiky_flora_batch_layer
 
 
+func _sync_tree_batch(tree_buffer: PackedFloat32Array, tree_shadow_buffer: PackedFloat32Array) -> void:
+	if _tree_atlas == null or _tree_count <= 0:
+		if _tree_batch_layer != null and is_instance_valid(_tree_batch_layer):
+			_tree_batch_layer.clear_batches()
+		return
+	var batch_layer: WorldDecorBatchLayer = _ensure_tree_batch_layer()
+	batch_layer.set_atlas_layout(TREE_FRAME_COLUMNS, TREE_FRAME_ROWS, TREE_FRAME_COUNT)
+	batch_layer.set_animation(1, 0.0)
+	batch_layer.set_batches([_tree_atlas], [tree_buffer], tree_shadow_buffer)
+
+
+func _ensure_tree_batch_layer() -> WorldDecorBatchLayer:
+	if _tree_batch_layer != null and is_instance_valid(_tree_batch_layer):
+		return _tree_batch_layer
+	_tree_batch_layer = WorldDecorBatchLayer.new()
+	_tree_batch_layer.name = "TreeObjectPacketBatchLayer"
+	_tree_batch_layer.set_sprite_shader(TREE_BATCH_SHADER)
+	add_child(_tree_batch_layer)
+	_apply_world_origin_to_batch_layer(_tree_batch_layer)
+	return _tree_batch_layer
+
+
 func _ensure_collision_body() -> StaticBody2D:
 	if _collision_body != null and is_instance_valid(_collision_body):
 		return _collision_body
@@ -438,11 +563,52 @@ func _clear_collision_shapes() -> void:
 	_collision_shape_owner_ids.clear()
 
 
+func _sync_tree_collision(collision_records: Array[Dictionary]) -> void:
+	_clear_tree_collision_shapes()
+	if not TREE_COLLISION_ENABLED or collision_records.is_empty():
+		return
+	var body: StaticBody2D = _ensure_tree_collision_body()
+	for record: Dictionary in collision_records:
+		var shape := CircleShape2D.new()
+		shape.radius = float(record.get("radius", 12.0))
+		var owner_id: int = body.create_shape_owner(body)
+		body.shape_owner_add_shape(owner_id, shape)
+		body.shape_owner_set_transform(
+			owner_id,
+			Transform2D(0.0, record.get("position", Vector2.ZERO) as Vector2),
+		)
+		_tree_collision_shape_owner_ids.append(owner_id)
+	_tree_collider_count = _tree_collision_shape_owner_ids.size()
+
+
+func _ensure_tree_collision_body() -> StaticBody2D:
+	if _tree_collision_body != null and is_instance_valid(_tree_collision_body):
+		return _tree_collision_body
+	_tree_collision_body = StaticBody2D.new()
+	_tree_collision_body.name = "TreeObjectPacketCollisionBody"
+	_tree_collision_body.collision_layer = ROCK_COLLISION_LAYER
+	_tree_collision_body.collision_mask = 0
+	add_child(_tree_collision_body)
+	return _tree_collision_body
+
+
+func _clear_tree_collision_shapes() -> void:
+	_tree_collider_count = 0
+	if _tree_collision_body == null or not is_instance_valid(_tree_collision_body):
+		_tree_collision_shape_owner_ids.clear()
+		return
+	for owner_id: int in _tree_collision_shape_owner_ids:
+		_tree_collision_body.remove_shape_owner(owner_id)
+	_tree_collision_shape_owner_ids.clear()
+
+
 func _clear_batches() -> void:
 	_rock_count = 0
 	_living_flora_count = 0
 	_spiky_flora_count = 0
+	_tree_count = 0
 	_clear_collision_shapes()
+	_clear_tree_collision_shapes()
 	visible = false
 	if _rock_batch_layer != null and is_instance_valid(_rock_batch_layer):
 		_rock_batch_layer.clear_batches()
@@ -450,6 +616,8 @@ func _clear_batches() -> void:
 		_living_flora_batch_layer.clear_batches()
 	if _spiky_flora_batch_layer != null and is_instance_valid(_spiky_flora_batch_layer):
 		_spiky_flora_batch_layer.clear_batches()
+	if _tree_batch_layer != null and is_instance_valid(_tree_batch_layer):
+		_tree_batch_layer.clear_batches()
 
 
 static func _decode_local_px(value: int) -> float:

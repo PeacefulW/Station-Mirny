@@ -66,6 +66,7 @@ Templates for future docs.
 - [World Object Placement V0](02_system_specs/world/world_object_placement_v0.md) (draft)
 - [Terrain Hybrid Presentation](02_system_specs/world/terrain_hybrid_presentation.md)
 - [Wind Runtime V0 and Grass Scatter Presentation](02_system_specs/world/wind_and_grass_scatter_presentation.md) (draft)
+- [Plains Trees Presentation and Depth Layering V0](02_system_specs/world/plains_trees_presentation.md) (draft)
 - [Weather Runtime V0](02_system_specs/world/weather_runtime.md) (draft)
 - [Runtime SDF Terrain Contours](02_system_specs/world/runtime_sdf_terrain_contours.md) (draft)
 - [Runtime SDF Contours - Iteration 01 Generator Recipe Export](02_system_specs/world/runtime_sdf_contours_iteration_01_generator_recipe_export.md) (draft)

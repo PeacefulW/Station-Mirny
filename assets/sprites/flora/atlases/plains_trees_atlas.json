@@ -1,0 +1,336 @@
+{
+	"anchor": "anchor_local is the trunk base point within the frame (px); offset = -anchor_local",
+	"asset": "plains_trees",
+	"atlas": "plains_trees_atlas.png",
+	"baked_grass_fringe": false,
+	"baked_shadow": false,
+	"columns": 4,
+	"frame_count": 16,
+	"frame_height": 384,
+	"frame_width": 384,
+	"frames": [
+		{
+			"alpha_bbox": [
+				82,
+				191,
+				168,
+				193
+			],
+			"anchor_local": [
+				192,
+				359
+			],
+			"frame_rect": [
+				0,
+				0,
+				384,
+				384
+			],
+			"index": 0,
+			"visible_height": 193
+		},
+		{
+			"alpha_bbox": [
+				442,
+				124,
+				205,
+				260
+			],
+			"anchor_local": [
+				192,
+				344
+			],
+			"frame_rect": [
+				384,
+				0,
+				384,
+				384
+			],
+			"index": 1,
+			"visible_height": 260
+		},
+		{
+			"alpha_bbox": [
+				840,
+				111,
+				194,
+				273
+			],
+			"anchor_local": [
+				192,
+				349
+			],
+			"frame_rect": [
+				768,
+				0,
+				384,
+				384
+			],
+			"index": 2,
+			"visible_height": 273
+		},
+		{
+			"alpha_bbox": [
+				1243,
+				229,
+				188,
+				155
+			],
+			"anchor_local": [
+				192,
+				358
+			],
+			"frame_rect": [
+				1152,
+				0,
+				384,
+				384
+			],
+			"index": 3,
+			"visible_height": 155
+		},
+		{
+			"alpha_bbox": [
+				90,
+				539,
+				143,
+				229
+			],
+			"anchor_local": [
+				192,
+				350
+			],
+			"frame_rect": [
+				0,
+				384,
+				384,
+				384
+			],
+			"index": 4,
+			"visible_height": 229
+		},
+		{
+			"alpha_bbox": [
+				466,
+				472,
+				164,
+				296
+			],
+			"anchor_local": [
+				192,
+				348
+			],
+			"frame_rect": [
+				384,
+				384,
+				384,
+				384
+			],
+			"index": 5,
+			"visible_height": 296
+		},
+		{
+			"alpha_bbox": [
+				887,
+				581,
+				192,
+				187
+			],
+			"anchor_local": [
+				192,
+				356
+			],
+			"frame_rect": [
+				768,
+				384,
+				384,
+				384
+			],
+			"index": 6,
+			"visible_height": 187
+		},
+		{
+			"alpha_bbox": [
+				1307,
+				557,
+				217,
+				211
+			],
+			"anchor_local": [
+				192,
+				316
+			],
+			"frame_rect": [
+				1152,
+				384,
+				384,
+				384
+			],
+			"index": 7,
+			"visible_height": 211
+		},
+		{
+			"alpha_bbox": [
+				122,
+				890,
+				177,
+				262
+			],
+			"anchor_local": [
+				192,
+				351
+			],
+			"frame_rect": [
+				0,
+				768,
+				384,
+				384
+			],
+			"index": 8,
+			"visible_height": 262
+		},
+		{
+			"alpha_bbox": [
+				528,
+				994,
+				175,
+				158
+			],
+			"anchor_local": [
+				192,
+				355
+			],
+			"frame_rect": [
+				384,
+				768,
+				384,
+				384
+			],
+			"index": 9,
+			"visible_height": 158
+		},
+		{
+			"alpha_bbox": [
+				923,
+				916,
+				186,
+				236
+			],
+			"anchor_local": [
+				192,
+				350
+			],
+			"frame_rect": [
+				768,
+				768,
+				384,
+				384
+			],
+			"index": 10,
+			"visible_height": 236
+		},
+		{
+			"alpha_bbox": [
+				1209,
+				855,
+				233,
+				297
+			],
+			"anchor_local": [
+				192,
+				345
+			],
+			"frame_rect": [
+				1152,
+				768,
+				384,
+				384
+			],
+			"index": 11,
+			"visible_height": 297
+		},
+		{
+			"alpha_bbox": [
+				149,
+				1350,
+				144,
+				186
+			],
+			"anchor_local": [
+				192,
+				349
+			],
+			"frame_rect": [
+				0,
+				1152,
+				384,
+				384
+			],
+			"index": 12,
+			"visible_height": 186
+		},
+		{
+			"alpha_bbox": [
+				384,
+				1350,
+				231,
+				186
+			],
+			"anchor_local": [
+				194,
+				343
+			],
+			"frame_rect": [
+				384,
+				1152,
+				384,
+				384
+			],
+			"index": 13,
+			"visible_height": 186
+		},
+		{
+			"alpha_bbox": [
+				898,
+				1371,
+				254,
+				165
+			],
+			"anchor_local": [
+				173,
+				253
+			],
+			"frame_rect": [
+				768,
+				1152,
+				384,
+				384
+			],
+			"index": 14,
+			"visible_height": 165
+		},
+		{
+			"alpha_bbox": [
+				1302,
+				1353,
+				156,
+				183
+			],
+			"anchor_local": [
+				192,
+				358
+			],
+			"frame_rect": [
+				1152,
+				1152,
+				384,
+				384
+			],
+			"index": 15,
+			"visible_height": 183
+		}
+	],
+	"generator": "procedural (tools/tree_atlas/proc_tree_geometry.gd) via WorldVisualTreeProfile",
+	"rows": 4,
+	"spec": "docs/02_system_specs/world/plains_trees_presentation.md"
+}

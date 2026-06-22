@@ -558,7 +558,7 @@ Returned one-per-input-coord by native
 | `mountain_id_per_tile` | `PackedInt32Array` | 256 | `0 = no named mountain`; non-zero = deterministic `mountain_id` |
 | `mountain_flags` | `PackedByteArray` | 256 | Per-tile mountain bit layout documented below |
 | `mountain_atlas_indices` | `PackedInt32Array` | 256 | Roof-ready atlas indices derived from `mountain_id` adjacency via `autotile_47` |
-| `object_kind` | `PackedByteArray` | N | Visual object family id: `1` rock, `2` living flora, `3` spiky flora |
+| `object_kind` | `PackedByteArray` | N | Visual object family id: `1` rock, `2` living flora, `3` spiky flora, `4` tree |
 | `object_local_x_px_q4` | `PackedByteArray` | N | Chunk-local pixel X quantized to `4 px` |
 | `object_local_y_px_q4` | `PackedByteArray` | N | Chunk-local pixel Y quantized to `4 px` |
 | `object_size_px` | `PackedByteArray` | N | Rendered sprite size in pixels |
@@ -631,6 +631,17 @@ Current code notes:
 - `object_kind == 3` uses static biofield flora atlas bank index `0` for the
   orange spiky plant and index `1` for the small brown seaweed object. Both are
   immutable generated presentation records, not saved gameplay object state.
+- `object_kind == 4` is the plains tree family (Iteration 2 of
+  `world/plains_trees_presentation.md`): a single tree atlas, `object_variant`
+  selects one of 16 frames (`4x4` grid), `object_atlas_index` is `0`, and
+  `object_size_px` is the rendered frame box clamped to `<= 254` (byte quantum;
+  larger landmark trees stay clamped rather than extending the packet). It is an
+  immutable generated presentation record consumed by `WorldObjectPacketLayer`
+  on the shared mid-layer depth ladder, not saved gameplay object state, and has
+  no collision in V0.
+- For `world_version >= 53`, the native object packet adds `object_kind == 4`
+  (plains trees) with the same plains-ground placement and mountain-edge
+  clearance as the other object families.
 - For `world_version >= 52`, native object packet emission keeps a local
   mountain-edge clearance for rocks, living flora, and spiky flora so batched
   decor does not spawn under the organic runtime mountain mask.

@@ -48,6 +48,15 @@ var _animation_frames_per_group: int = 1
 var _animation_fps: float = 0.0
 var _world_origin_y: float = 0.0
 var _applied_anchor_stripe: int = LADDER_ANCHOR_UNSET
+## Шейдер спрайтов семьи. По умолчанию общий декор-шейдер; tree-семья ставит свой
+## (ветер от глобальных wind-униформ). Задаётся ДО первого set_batches.
+var _sprite_shader: Shader = ATLAS_BATCH_SHADER
+
+
+func set_sprite_shader(shader: Shader) -> void:
+	if shader == null or shader == _sprite_shader:
+		return
+	_sprite_shader = shader
 
 
 func set_atlas_layout(columns: int, rows: int, frame_count: int) -> void:
@@ -337,7 +346,7 @@ func _ensure_shadow_layer() -> MultiMeshInstance2D:
 
 func _make_sprite_material() -> ShaderMaterial:
 	var material := ShaderMaterial.new()
-	material.shader = ATLAS_BATCH_SHADER
+	material.shader = _sprite_shader
 	material.set_shader_parameter("atlas_columns", float(_atlas_columns))
 	material.set_shader_parameter("atlas_rows", float(_atlas_rows))
 	material.set_shader_parameter("atlas_frame_count", float(_atlas_frame_count))

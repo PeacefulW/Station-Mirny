@@ -112,6 +112,7 @@ constexpr int32_t CHUNK_SIZE_PX = static_cast<int32_t>(CHUNK_SIZE) * TILE_SIZE_P
 constexpr uint8_t OBJECT_KIND_ROCK = 1U;
 constexpr uint8_t OBJECT_KIND_LIVING_FLORA = 2U;
 constexpr uint8_t OBJECT_KIND_SPIKY_FLORA = 3U;
+constexpr uint8_t OBJECT_KIND_TREE = 4U;
 constexpr uint8_t OBJECT_FLAG_COLLIDER = 1U << 0U;
 constexpr int32_t OBJECT_LOCAL_PX_QUANTUM = 4;
 constexpr float OBJECT_MOUNTAIN_CLEARANCE_PX = 64.0f;
@@ -172,6 +173,21 @@ constexpr float BIOFIELD_SEAWEED_SIZE_EXPONENT = 1.24f;
 constexpr float BIOFIELD_SEAWEED_MIN_DISTANCE_PX = 92.0f;
 constexpr float BIOFIELD_SEAWEED_MIN_DENSITY = 0.025f;
 constexpr float BIOFIELD_SEAWEED_MAX_DENSITY = 0.14f;
+
+// Деревья равнины (docs/02_system_specs/world/plains_trees_presentation.md):
+// прореженный «проходимый» лес. size_px <= 254 (байтовый квант пакета); крупные
+// деревья ограничиваются клампом, без расширения пакета (Open Question спеки).
+constexpr int32_t TREE_ATLAS_VARIANT_COUNT = 16;
+constexpr int32_t TREE_SCATTER_GRID_SIDE = 6;
+constexpr float TREE_PRIMARY_DENSITY = 0.62f;
+constexpr float TREE_EDGE_PADDING_PX = 40.0f;
+constexpr float TREE_MIN_DISTANCE_PX = 88.0f;
+constexpr float TREE_MIN_SIZE_PX = 150.0f;
+constexpr float TREE_MAX_SIZE_PX = 244.0f;
+constexpr float TREE_SMALL_CHANCE = 0.20f;
+constexpr float TREE_SMALL_SIZE_PX = 120.0f;
+constexpr float TREE_HERO_CHANCE = 0.10f;
+constexpr float TREE_HERO_SIZE_PX = 252.0f;
 
 enum class PreviewPatchMode {
 	Terrain,
@@ -945,6 +961,66 @@ void append_native_rare_rock_formation_placements(
 	}
 }
 
+void append_native_tree_placements(
+	WorldObjectPacketBuffers &r_buffers,
+	int64_t p_seed,
+	Vector2i p_coord,
+	int64_t p_world_version,
+	const PackedInt32Array &p_terrain_ids,
+	const PackedByteArray &p_lake_flags
+) {
+	std::vector<std::pair<float, float>> placed_positions;
+	const float cell_size_px = static_cast<float>(CHUNK_SIZE_PX) / static_cast<float>(TREE_SCATTER_GRID_SIDE);
+	const float min_distance_sq = TREE_MIN_DISTANCE_PX * TREE_MIN_DISTANCE_PX;
+	for (int32_t grid_y = 0; grid_y < TREE_SCATTER_GRID_SIDE; ++grid_y) {
+		for (int32_t grid_x = 0; grid_x < TREE_SCATTER_GRID_SIDE; ++grid_x) {
+			const uint64_t cell_hash = object_hash4(p_coord.x, p_coord.y, grid_x + grid_y * TREE_SCATTER_GRID_SIDE, p_seed ^ (p_world_version * 89));
+			if (hash_unit_float(cell_hash, 0U) > TREE_PRIMARY_DENSITY) {
+				continue;
+			}
+			const float jitter_x = (object_unit(cell_hash, 0x41ULL) - 0.5f) * std::max(8.0f, cell_size_px - TREE_EDGE_PADDING_PX * 2.0f);
+			const float jitter_y = (object_unit(cell_hash, 0x53ULL) - 0.5f) * std::max(8.0f, cell_size_px - TREE_EDGE_PADDING_PX * 2.0f);
+			const float local_x = (static_cast<float>(grid_x) + 0.5f) * cell_size_px + jitter_x;
+			const float local_y = (static_cast<float>(grid_y) + 0.5f) * cell_size_px + jitter_y;
+			if (local_x < TREE_EDGE_PADDING_PX ||
+					local_y < TREE_EDGE_PADDING_PX ||
+					local_x > static_cast<float>(CHUNK_SIZE_PX) - TREE_EDGE_PADDING_PX ||
+					local_y > static_cast<float>(CHUNK_SIZE_PX) - TREE_EDGE_PADDING_PX ||
+					!object_position_is_plain(local_x, local_y, p_terrain_ids, p_lake_flags) ||
+					!object_position_has_mountain_clearance(local_x, local_y, p_terrain_ids, OBJECT_MOUNTAIN_CLEARANCE_PX)) {
+				continue;
+			}
+			bool too_close = false;
+			for (const std::pair<float, float> &existing : placed_positions) {
+				const float dx = local_x - existing.first;
+				const float dy = local_y - existing.second;
+				if (dx * dx + dy * dy < min_distance_sq) {
+					too_close = true;
+					break;
+				}
+			}
+			if (too_close) {
+				continue;
+			}
+			const uint8_t variant = static_cast<uint8_t>(static_cast<int32_t>(std::floor(object_unit(cell_hash, 0x97ULL) * static_cast<float>(TREE_ATLAS_VARIANT_COUNT))) % TREE_ATLAS_VARIANT_COUNT);
+			const float tier_roll = object_unit(cell_hash, 0x6bULL);
+			const float size_roll = object_unit(cell_hash, 0x71ULL);
+			float size_px;
+			if (tier_roll < TREE_HERO_CHANCE) {
+				size_px = lerp_float(TREE_MAX_SIZE_PX, TREE_HERO_SIZE_PX, size_roll);
+			} else if (tier_roll < TREE_HERO_CHANCE + TREE_SMALL_CHANCE) {
+				size_px = lerp_float(TREE_SMALL_SIZE_PX * 0.9f, TREE_SMALL_SIZE_PX, size_roll);
+			} else {
+				size_px = lerp_float(TREE_MIN_SIZE_PX, TREE_MAX_SIZE_PX, size_roll);
+			}
+			const float tint = lerp_float(0.90f, 1.0f, object_unit(cell_hash, 0x67ULL));
+			const float phase = object_unit(cell_hash, 0x157ULL);
+			append_object_record(r_buffers, OBJECT_KIND_TREE, local_x, local_y, size_px, 0U, variant, 0U, tint, phase);
+			placed_positions.push_back({ local_x, local_y });
+		}
+	}
+}
+
 void append_native_object_placements(
 	WorldObjectPacketBuffers &r_buffers,
 	int64_t p_seed,
@@ -1131,6 +1207,8 @@ void append_native_object_placements(
 		placed_spiky_positions.push_back({ local_x, local_y });
 		++biofield_seaweed_count;
 	}
+
+	append_native_tree_placements(r_buffers, p_seed, p_coord, p_world_version, p_terrain_ids, p_lake_flags);
 }
 
 int32_t make_satellite_outcrop_mountain_id(uint64_t p_hash) {

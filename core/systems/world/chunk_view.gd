@@ -140,6 +140,7 @@ var _rock_patch_overlay_canvas_texture: ImageTexture = null
 var _rock_scatter_atlases: Array[Texture2D] = []
 var _living_flora_atlas: Texture2D = null
 var _spiky_flora_atlases: Array[Texture2D] = []
+var _tree_atlas: Texture2D = null
 var _object_packet_layer: WorldObjectPacketLayer = null
 var _object_packet_visual_dirty: bool = false
 var _pending_object_packet_visual: Dictionary = { }
@@ -573,6 +574,12 @@ func set_spiky_flora_sources(atlases: Array[Texture2D]) -> void:
 	_spiky_flora_atlases = atlases.duplicate()
 	if _object_packet_layer != null and is_instance_valid(_object_packet_layer):
 		_object_packet_layer.set_spiky_flora_atlases(_spiky_flora_atlases)
+
+
+func set_tree_source(atlas: Texture2D) -> void:
+	_tree_atlas = atlas
+	if _object_packet_layer != null and is_instance_valid(_object_packet_layer):
+		_object_packet_layer.set_tree_atlas(_tree_atlas)
 
 
 func apply_contour_debug_data(
@@ -2222,13 +2229,15 @@ func _ensure_grass_blob_overlay_canvas_texture() -> ImageTexture:
 func _sync_object_packet_visual(packet: Dictionary) -> void:
 	if _rock_scatter_atlases.is_empty() \
 			and _living_flora_atlas == null \
-			and _spiky_flora_atlases.is_empty():
+			and _spiky_flora_atlases.is_empty() \
+			and _tree_atlas == null:
 		_clear_object_packet_visual()
 		return
 	var layer: WorldObjectPacketLayer = _ensure_object_packet_layer()
 	layer.set_rock_atlases(_rock_scatter_atlases)
 	layer.set_living_flora_atlas(_living_flora_atlas)
 	layer.set_spiky_flora_atlases(_spiky_flora_atlases)
+	layer.set_tree_atlas(_tree_atlas)
 	_object_packet_layer.set_world_origin_y(position.y)
 	layer.configure_packet(packet)
 	_apply_sun_lighting_to_object_packet_layer()
