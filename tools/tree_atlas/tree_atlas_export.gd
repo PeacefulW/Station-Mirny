@@ -52,6 +52,8 @@ func _run() -> void:
 		tree.set("p_trunk_w", float(vp_data["trunk_w"]))
 		tree.set("p_canopy_count", int(vp_data["canopy_count"]))
 		tree.set("p_canopy_radius", float(vp_data["canopy_radius"]))
+		tree.set("p_split_angle", float(vp_data["split_angle"]))
+		tree.set("p_len_ratio", float(vp_data["len_ratio"]))
 		tree.set("p_lean", float(vp_data["lean"]))
 		tree.set("p_leaf_size", TreeProfile.LEAF_SIZE)
 		tree.set("p_leaf_alpha", TreeProfile.LEAF_ALPHA)

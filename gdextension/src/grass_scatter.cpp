@@ -508,4 +508,21 @@ Dictionary build_buffer(
 	return result;
 }
 
+float sample_grass_density(
+		double p_world_x,
+		double p_world_y,
+		float p_grass_field_scale_px,
+		float p_grass_coverage,
+		float p_rock_field_scale_px,
+		float p_rock_coverage) {
+	float params[PARAM_COUNT] = {};
+	params[PARAM_GRASS_FIELD_SCALE_PX] = p_grass_field_scale_px;
+	params[PARAM_GRASS_COVERAGE] = p_grass_coverage;
+	params[PARAM_ORANGE_FIELD_SCALE_PX] = p_grass_field_scale_px; // не влияет на grass_density
+	params[PARAM_ORANGE_COVERAGE] = 0.5f;                         // не влияет на grass_density
+	params[PARAM_ROCK_FIELD_SCALE_PX] = p_rock_field_scale_px;
+	params[PARAM_ROCK_COVERAGE] = p_rock_coverage;
+	return sample_fields(static_cast<float>(p_world_x), static_cast<float>(p_world_y), params).grass_density;
+}
+
 } // namespace grass_scatter

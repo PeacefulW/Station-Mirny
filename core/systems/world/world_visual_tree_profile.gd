@@ -29,11 +29,11 @@ static func canopy_tints() -> Array[Color]:
 const TRUNK_LEN_SPAN: Vector2 = Vector2(62.0, 94.0)
 const TRUNK_W_SPAN: Vector2 = Vector2(19.0, 25.0)
 const GNARL_SPAN: Vector2 = Vector2(0.32, 0.85)
-const CANOPY_COUNT_SPAN: Vector2i = Vector2i(58, 106)
+const CANOPY_COUNT_SPAN: Vector2i = Vector2i(90, 150)
 const CANOPY_RADIUS_SPAN: Vector2 = Vector2(38.0, 48.0)
 const LEAN_SPAN: Vector2 = Vector2(-0.135, 0.135)
-const LEAF_SIZE: float = 4.5
-const LEAF_ALPHA: float = 0.82
+const LEAF_SIZE: float = 3.6
+const LEAF_ALPHA: float = 0.72
 
 # --- Масштаб-тиры размещения (рантайм Iteration 2; зафиксированы как данные) ---
 const TREE_WORLD_HEIGHT_PX: float = 205.0
@@ -66,17 +66,40 @@ const BAKE_LIGHT_DIR: Vector2 = Vector2(-0.7, -0.72)
 
 
 static func variant_params(index: int) -> Dictionary:
-	# Детерминированная per-variant вариация из диапазонов (без randf).
-	var n: int = maxi(ATLAS_VARIANT_COUNT - 1, 1)
-	var t: float = float(index) / float(n)
+	# 16 вариантов = 4 РАЗНЫХ архетипа × 4 под-вариации, чтобы лес не повторялся.
 	var tints: Array[Color] = canopy_tints()
-	return {
-		"seed": 4000 + index * 7,
-		"gnarl": lerpf(GNARL_SPAN.x, GNARL_SPAN.y, float(index % 5) / 4.0),
-		"trunk_len": lerpf(TRUNK_LEN_SPAN.x, TRUNK_LEN_SPAN.y, float(index % 3) / 2.0),
-		"trunk_w": lerpf(TRUNK_W_SPAN.x, TRUNK_W_SPAN.y, float(index % 3) / 2.0),
-		"canopy_count": int(lerpf(float(CANOPY_COUNT_SPAN.x), float(CANOPY_COUNT_SPAN.y), float(index % 4) / 3.0)),
-		"canopy_radius": lerpf(CANOPY_RADIUS_SPAN.x, CANOPY_RADIUS_SPAN.y, float(index % 3) / 2.0),
-		"lean": lerpf(LEAN_SPAN.x, LEAN_SPAN.y, t),
-		"tint": tints[index % tints.size()],
-	}
+	var archetype: int = (index / 4) % 4
+	var sub: float = float(index % 4) / 3.0
+	var p: Dictionary = {}
+	match archetype:
+		0: # тонкое высокое
+			p = {
+				"gnarl": lerpf(0.26, 0.46, sub), "trunk_len": lerpf(86.0, 100.0, sub),
+				"trunk_w": lerpf(17.0, 21.0, sub), "canopy_count": int(lerpf(95.0, 125.0, sub)),
+				"canopy_radius": lerpf(32.0, 40.0, sub), "split_angle": 0.50, "len_ratio": 0.66,
+				"lean": lerpf(-0.05, 0.05, sub),
+			}
+		1: # широкое раскидистое
+			p = {
+				"gnarl": lerpf(0.40, 0.60, sub), "trunk_len": lerpf(54.0, 68.0, sub),
+				"trunk_w": lerpf(22.0, 27.0, sub), "canopy_count": int(lerpf(130.0, 165.0, sub)),
+				"canopy_radius": lerpf(47.0, 57.0, sub), "split_angle": 0.74, "len_ratio": 0.75,
+				"lean": lerpf(-0.06, 0.06, sub),
+			}
+		2: # витое
+			p = {
+				"gnarl": lerpf(0.72, 1.0, sub), "trunk_len": lerpf(64.0, 80.0, sub),
+				"trunk_w": lerpf(19.0, 24.0, sub), "canopy_count": int(lerpf(100.0, 135.0, sub)),
+				"canopy_radius": lerpf(38.0, 46.0, sub), "split_angle": 0.66, "len_ratio": 0.70,
+				"lean": lerpf(-0.08, 0.08, sub),
+			}
+		_: # наклонённое ветром (наклон уходит в крону, ствол стоит)
+			p = {
+				"gnarl": lerpf(0.44, 0.66, sub), "trunk_len": lerpf(70.0, 86.0, sub),
+				"trunk_w": lerpf(18.0, 23.0, sub), "canopy_count": int(lerpf(105.0, 140.0, sub)),
+				"canopy_radius": lerpf(40.0, 48.0, sub), "split_angle": 0.60, "len_ratio": 0.72,
+				"lean": (0.11 + sub * 0.05) * (1.0 if index % 2 == 0 else -1.0),
+			}
+	p["seed"] = 4000 + index * 13
+	p["tint"] = tints[index % tints.size()]
+	return p

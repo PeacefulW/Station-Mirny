@@ -80,6 +80,16 @@ godot::Dictionary build_buffer(
 		const godot::PackedByteArray &p_lake_flags,
 		const godot::PackedFloat32Array &p_params);
 
+// Плотность травы поля в мировой точке (та же формула sample_fields, что красит
+// землю и сеет пучки). Деревья растут только где земля «трава» (см. world_core).
+float sample_grass_density(
+		double p_world_x,
+		double p_world_y,
+		float p_grass_field_scale_px,
+		float p_grass_coverage,
+		float p_rock_field_scale_px,
+		float p_rock_coverage);
+
 } // namespace grass_scatter
 
 #endif // STATION_MIRNY_GRASS_SCATTER_H

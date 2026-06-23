@@ -1,0 +1,127 @@
+{
+  "clip_id": "run_forward",
+  "source": "C:\\Users\\peaceful\\Station Peaceful\\mixamo_player_clips\\Running (1).fbx",
+  "artifact_sheet": "C:\\Users\\peaceful\\Station Peaceful\\Station Peaceful\\artifacts\\player_run_retarget\\generated\\player_run_forward_mixamo_16dir_16frames_256_512.png",
+  "artifact_preview_2048": "C:\\Users\\peaceful\\Station Peaceful\\Station Peaceful\\artifacts\\player_run_retarget\\generated\\player_run_forward_mixamo_16dir_16frames_256_512_preview_2048.png",
+  "artifact_checker_preview_2048": "C:\\Users\\peaceful\\Station Peaceful\\Station Peaceful\\artifacts\\player_run_retarget\\generated\\player_run_forward_mixamo_16dir_16frames_256_512_checker_preview_2048.png",
+  "atlas": "C:\\Users\\peaceful\\Station Peaceful\\Station Peaceful\\assets\\sprites\\player\\player_run_forward_mixamo_16dir_16frames_256.png",
+  "columns": 16,
+  "rows": 16,
+  "directions": 16,
+  "frames_per_direction": 16,
+  "frame_size_px": 256,
+  "render_frame_size_px": 512,
+  "total_frames": 256,
+  "nonempty_frames": 256,
+  "average_alpha_bbox_px": [
+    106.14,
+    151.0
+  ],
+  "max_alpha_bbox_px": [
+    156,
+    201
+  ],
+  "motion_adjacent_pairs_checked": 240,
+  "min_motion_score_between_adjacent_frames": 265576,
+  "max_motion_score_between_adjacent_frames": 780432,
+  "direction_summaries": [
+    {
+      "direction": 0,
+      "nonempty_frames": 16,
+      "min_motion_score_between_adjacent_frames": 272745,
+      "max_motion_score_between_adjacent_frames": 549120
+    },
+    {
+      "direction": 1,
+      "nonempty_frames": 16,
+      "min_motion_score_between_adjacent_frames": 289800,
+      "max_motion_score_between_adjacent_frames": 617320
+    },
+    {
+      "direction": 2,
+      "nonempty_frames": 16,
+      "min_motion_score_between_adjacent_frames": 324450,
+      "max_motion_score_between_adjacent_frames": 697340
+    },
+    {
+      "direction": 3,
+      "nonempty_frames": 16,
+      "min_motion_score_between_adjacent_frames": 327600,
+      "max_motion_score_between_adjacent_frames": 752940
+    },
+    {
+      "direction": 4,
+      "nonempty_frames": 16,
+      "min_motion_score_between_adjacent_frames": 404505,
+      "max_motion_score_between_adjacent_frames": 766480
+    },
+    {
+      "direction": 5,
+      "nonempty_frames": 16,
+      "min_motion_score_between_adjacent_frames": 414400,
+      "max_motion_score_between_adjacent_frames": 763477
+    },
+    {
+      "direction": 6,
+      "nonempty_frames": 16,
+      "min_motion_score_between_adjacent_frames": 336340,
+      "max_motion_score_between_adjacent_frames": 769560
+    },
+    {
+      "direction": 7,
+      "nonempty_frames": 16,
+      "min_motion_score_between_adjacent_frames": 265576,
+      "max_motion_score_between_adjacent_frames": 696960
+    },
+    {
+      "direction": 8,
+      "nonempty_frames": 16,
+      "min_motion_score_between_adjacent_frames": 270180,
+      "max_motion_score_between_adjacent_frames": 611100
+    },
+    {
+      "direction": 9,
+      "nonempty_frames": 16,
+      "min_motion_score_between_adjacent_frames": 285840,
+      "max_motion_score_between_adjacent_frames": 668976
+    },
+    {
+      "direction": 10,
+      "nonempty_frames": 16,
+      "min_motion_score_between_adjacent_frames": 314160,
+      "max_motion_score_between_adjacent_frames": 770568
+    },
+    {
+      "direction": 11,
+      "nonempty_frames": 16,
+      "min_motion_score_between_adjacent_frames": 355552,
+      "max_motion_score_between_adjacent_frames": 780432
+    },
+    {
+      "direction": 12,
+      "nonempty_frames": 16,
+      "min_motion_score_between_adjacent_frames": 330876,
+      "max_motion_score_between_adjacent_frames": 739680
+    },
+    {
+      "direction": 13,
+      "nonempty_frames": 16,
+      "min_motion_score_between_adjacent_frames": 396640,
+      "max_motion_score_between_adjacent_frames": 730800
+    },
+    {
+      "direction": 14,
+      "nonempty_frames": 16,
+      "min_motion_score_between_adjacent_frames": 373990,
+      "max_motion_score_between_adjacent_frames": 727500
+    },
+    {
+      "direction": 15,
+      "nonempty_frames": 16,
+      "min_motion_score_between_adjacent_frames": 276790,
+      "max_motion_score_between_adjacent_frames": 635712
+    }
+  ],
+  "frames": "omitted; source frame PNGs were temporary offline build intermediates",
+  "usage": "Player visual-only Mixamo clip atlas generated offline for Station Mirny."
+}

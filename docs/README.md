@@ -83,6 +83,8 @@ Templates for future docs.
 - [Base Defense and Noise](02_system_specs/combat/base_defense_and_noise.md)
 - [Resource Progression](02_system_specs/progression/resource_progression.md)
 - [Character Progression](02_system_specs/progression/character_progression.md)
+- [Player Visual Animation V0](02_system_specs/progression/player_visual_animation_v0.md)
+- [Player Sun Shadow V0](02_system_specs/progression/player_sun_shadow_v0.md)
 - [Crafting and Decryption](02_system_specs/progression/crafting_and_decryption.md)
 - [Survival Core](02_system_specs/survival/survival_core.md)
 - [UI and UX Foundation](02_system_specs/ui/ui_ux_foundation.md)

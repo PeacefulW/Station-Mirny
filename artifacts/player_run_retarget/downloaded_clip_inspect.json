@@ -1,0 +1,97 @@
+[
+  {
+    "path": "C:\\Users\\peaceful\\Station Peaceful\\mixamo_player_clips\\Idle.fbx",
+    "mesh_count": 1,
+    "armature_count": 1,
+    "action_count": 1,
+    "actions": [
+      {
+        "name": "Armature|mixamo.com|Layer0",
+        "frame_start": 1,
+        "frame_end": 500,
+        "frames": 500,
+        "assigned_to_armature": true
+      }
+    ],
+    "object_names": [
+      "Armature",
+      "tripo_node_a10954bd"
+    ]
+  },
+  {
+    "path": "C:\\Users\\peaceful\\Station Peaceful\\mixamo_player_clips\\Running (1).fbx",
+    "mesh_count": 1,
+    "armature_count": 1,
+    "action_count": 1,
+    "actions": [
+      {
+        "name": "Armature|mixamo.com|Layer0",
+        "frame_start": 1,
+        "frame_end": 26,
+        "frames": 26,
+        "assigned_to_armature": true
+      }
+    ],
+    "object_names": [
+      "Armature",
+      "tripo_node_a10954bd"
+    ]
+  },
+  {
+    "path": "C:\\Users\\peaceful\\Station Peaceful\\mixamo_player_clips\\Running Backward.fbx",
+    "mesh_count": 1,
+    "armature_count": 1,
+    "action_count": 1,
+    "actions": [
+      {
+        "name": "Armature|mixamo.com|Layer0",
+        "frame_start": 1,
+        "frame_end": 20,
+        "frames": 20,
+        "assigned_to_armature": true
+      }
+    ],
+    "object_names": [
+      "Armature",
+      "tripo_node_a10954bd"
+    ]
+  },
+  {
+    "path": "C:\\Users\\peaceful\\Station Peaceful\\mixamo_player_clips\\Jog Strafe Left.fbx",
+    "mesh_count": 1,
+    "armature_count": 1,
+    "action_count": 1,
+    "actions": [
+      {
+        "name": "Armature|mixamo.com|Layer0",
+        "frame_start": 1,
+        "frame_end": 22,
+        "frames": 22,
+        "assigned_to_armature": true
+      }
+    ],
+    "object_names": [
+      "Armature",
+      "tripo_node_a10954bd"
+    ]
+  },
+  {
+    "path": "C:\\Users\\peaceful\\Station Peaceful\\mixamo_player_clips\\Jog Strafe Right.fbx",
+    "mesh_count": 1,
+    "armature_count": 1,
+    "action_count": 1,
+    "actions": [
+      {
+        "name": "Armature|mixamo.com|Layer0",
+        "frame_start": 1,
+        "frame_end": 23,
+        "frames": 23,
+        "assigned_to_armature": true
+      }
+    ],
+    "object_names": [
+      "Armature",
+      "tripo_node_a10954bd"
+    ]
+  }
+]

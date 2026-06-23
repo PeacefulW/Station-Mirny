@@ -188,6 +188,16 @@ constexpr float TREE_SMALL_CHANCE = 0.20f;
 constexpr float TREE_SMALL_SIZE_PX = 120.0f;
 constexpr float TREE_HERO_CHANCE = 0.10f;
 constexpr float TREE_HERO_SIZE_PX = 252.0f;
+// Деревья растут ТОЛЬКО где земля визуально «трава» (grass_density поля
+// grass_scatter::sample_grass_density — та же формула, что красит землю и сеет
+// пучки), а не на голом грунте. Параметры ОБЯЗАНЫ совпадать с единым авторским
+// источником data/terrain/material_sets/plains_ground_material_set.tres; при
+// смене значений там — обновить здесь (и bump world_version).
+constexpr float TREE_GRASS_FIELD_SCALE_PX = 720.0f;
+constexpr float TREE_GRASS_COVERAGE = 0.80f;
+constexpr float TREE_ROCK_FIELD_SCALE_PX = 1200.0f;
+constexpr float TREE_ROCK_COVERAGE = 0.22f;
+constexpr float TREE_GRASS_DENSITY_MIN = 0.40f;
 
 enum class PreviewPatchMode {
 	Terrain,
@@ -988,6 +998,14 @@ void append_native_tree_placements(
 					local_y > static_cast<float>(CHUNK_SIZE_PX) - TREE_EDGE_PADDING_PX ||
 					!object_position_is_plain(local_x, local_y, p_terrain_ids, p_lake_flags) ||
 					!object_position_has_mountain_clearance(local_x, local_y, p_terrain_ids, OBJECT_MOUNTAIN_CLEARANCE_PX)) {
+				continue;
+			}
+			const float tree_world_x = static_cast<float>(static_cast<int64_t>(p_coord.x) * CHUNK_SIZE_PX) + local_x;
+			const float tree_world_y = static_cast<float>(static_cast<int64_t>(p_coord.y) * CHUNK_SIZE_PX) + local_y;
+			if (grass_scatter::sample_grass_density(
+						tree_world_x, tree_world_y,
+						TREE_GRASS_FIELD_SCALE_PX, TREE_GRASS_COVERAGE,
+						TREE_ROCK_FIELD_SCALE_PX, TREE_ROCK_COVERAGE) < TREE_GRASS_DENSITY_MIN) {
 				continue;
 			}
 			bool too_close = false;

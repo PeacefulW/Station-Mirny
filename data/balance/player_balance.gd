@@ -4,7 +4,8 @@ extends Resource
 ## Параметры баланса игрока: движение, атака, добыча, камера, взаимодействие.
 
 @export_group("Движение")
-@export var move_speed: float = 150.0
+@export var move_speed: float = 320.0
+@export_range(0.1, 1.0, 0.01) var backward_move_speed_multiplier: float = 0.72
 
 @export_group("Атака")
 @export var attack_damage: float = 15.0

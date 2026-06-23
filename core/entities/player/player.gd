@@ -19,10 +19,19 @@ const PLAYER_RUN_ATLAS_COLUMNS: int = 16
 const PLAYER_RUN_ATLAS_ROWS: int = 16
 const PLAYER_RUN_ATLAS_FRAME_SIZE: int = 256
 const PLAYER_RUN_ATLAS_FPS: float = 18.0
+const PLAYER_IDLE_ATLAS_FPS: float = 8.0
 const PLAYER_RUN_ATLAS_DIRECTION_STEP_DEGREES: float = 22.5
 const PLAYER_RUN_ATLAS_DIRECTION_OFFSET_DEGREES: float = 90.0
 const PLAYER_RUN_ATLAS_DEFAULT_DIRECTION: int = 0
+const PLAYER_VISUAL_MOVEMENT_THRESHOLD_SQ: float = 1.0
+const PLAYER_VISUAL_FORWARD_DOT: float = 0.45
+enum PlayerVisualClip { IDLE, RUN_FORWARD, RUN_BACKWARD, STRAFE_LEFT, STRAFE_RIGHT }
 @export var balance: PlayerBalance = null
+@export var idle_visual_texture: Texture2D = null
+@export var run_forward_visual_texture: Texture2D = null
+@export var run_backward_visual_texture: Texture2D = null
+@export var strafe_left_visual_texture: Texture2D = null
+@export var strafe_right_visual_texture: Texture2D = null
 
 var _speed_modifier: float = 1.0
 var _attack_timer: float = 0.0
@@ -41,8 +50,9 @@ var _mountain_debug_layer: CanvasLayer = null
 var _mountain_debug_panel: PanelContainer = null
 var _mountain_debug_label: Label = null
 var _visual: Sprite2D = null
-var _run_visual_time: float = 0.0
-var _run_visual_direction: int = PLAYER_RUN_ATLAS_DEFAULT_DIRECTION
+var _visual_time: float = 0.0
+var _visual_direction: int = PLAYER_RUN_ATLAS_DEFAULT_DIRECTION
+var _visual_clip: PlayerVisualClip = PlayerVisualClip.IDLE
 
 
 func _ready() -> void:
@@ -335,7 +345,8 @@ func _resolve_blocking_half_extents() -> Vector2:
 
 func update_movement_velocity() -> void:
 	var direction: Vector2 = get_move_input()
-	velocity = direction * balance.move_speed * _speed_modifier
+	var directional_speed_multiplier: float = _movement_speed_multiplier_for_direction(direction)
+	velocity = direction * balance.move_speed * directional_speed_multiplier * _speed_modifier
 
 
 func get_move_input() -> Vector2:
@@ -351,13 +362,27 @@ func get_move_input() -> Vector2:
 	return direction.normalized() if direction.length() > 0.0 else Vector2.ZERO
 
 
+func _movement_speed_multiplier_for_direction(direction: Vector2) -> float:
+	if direction.length_squared() <= 0.0001:
+		return 1.0
+	var facing_delta: Vector2 = get_global_mouse_position() - global_position
+	if facing_delta.length_squared() <= 0.0001:
+		return 1.0
+	var forward_dot: float = facing_delta.normalized().dot(direction.normalized())
+	if forward_dot <= -PLAYER_VISUAL_FORWARD_DOT:
+		return clampf(balance.backward_move_speed_multiplier, 0.1, 1.0)
+	return 1.0
+
+
 func _configure_player_visual() -> void:
 	if _visual == null:
 		return
 	_visual.centered = true
 	_visual.region_enabled = true
 	_visual.rotation = 0.0
-	_apply_player_visual_frame(0, _run_visual_direction)
+	if run_forward_visual_texture == null:
+		run_forward_visual_texture = _visual.texture
+	_apply_player_visual_frame(PlayerVisualClip.IDLE, 0, _visual_direction)
 
 
 func _update_player_visual(delta: float) -> void:
@@ -365,17 +390,43 @@ func _update_player_visual(delta: float) -> void:
 		return
 	var mouse_delta: Vector2 = get_global_mouse_position() - global_position
 	if mouse_delta.length_squared() > 0.0001:
-		_run_visual_direction = _atlas_direction_index_from_vector(mouse_delta)
-	var is_running: bool = velocity.length_squared() > 1.0 and not _is_dead
-	if is_running:
-		_run_visual_time = fposmod(
-			_run_visual_time + delta * PLAYER_RUN_ATLAS_FPS,
+		_visual_direction = _atlas_direction_index_from_vector(mouse_delta)
+	elif velocity.length_squared() > PLAYER_VISUAL_MOVEMENT_THRESHOLD_SQ:
+		_visual_direction = _atlas_direction_index_from_vector(velocity)
+	var next_clip: PlayerVisualClip = _select_player_visual_clip(mouse_delta, velocity)
+	if next_clip != _visual_clip:
+		_visual_time = 0.0
+		_visual_clip = next_clip
+	var clip_fps: float = _atlas_fps_for_visual_clip(_visual_clip)
+	_visual_time = fposmod(
+			_visual_time + delta * clip_fps,
 			float(PLAYER_RUN_ATLAS_COLUMNS),
 		)
-	else:
-		_run_visual_time = 0.0
-	var frame_index: int = int(floor(_run_visual_time)) % PLAYER_RUN_ATLAS_COLUMNS
-	_apply_player_visual_frame(frame_index, _run_visual_direction)
+	var frame_index: int = int(floor(_visual_time)) % PLAYER_RUN_ATLAS_COLUMNS
+	_apply_player_visual_frame(_visual_clip, frame_index, _visual_direction)
+
+
+func _select_player_visual_clip(facing_delta: Vector2, movement_velocity: Vector2) -> PlayerVisualClip:
+	if _is_dead or movement_velocity.length_squared() <= PLAYER_VISUAL_MOVEMENT_THRESHOLD_SQ:
+		return PlayerVisualClip.IDLE
+	var facing: Vector2 = facing_delta
+	if facing.length_squared() <= 0.0001:
+		facing = movement_velocity
+	facing = facing.normalized()
+	var movement: Vector2 = movement_velocity.normalized()
+	var forward_dot: float = facing.dot(movement)
+	if forward_dot >= PLAYER_VISUAL_FORWARD_DOT:
+		return PlayerVisualClip.RUN_FORWARD
+	if forward_dot <= -PLAYER_VISUAL_FORWARD_DOT:
+		return PlayerVisualClip.RUN_BACKWARD
+	var side_cross: float = facing.x * movement.y - facing.y * movement.x
+	return PlayerVisualClip.STRAFE_RIGHT if side_cross > 0.0 else PlayerVisualClip.STRAFE_LEFT
+
+
+func _atlas_fps_for_visual_clip(clip: PlayerVisualClip) -> float:
+	if clip == PlayerVisualClip.IDLE:
+		return PLAYER_IDLE_ATLAS_FPS
+	return PLAYER_RUN_ATLAS_FPS
 
 
 func _atlas_direction_index_from_vector(direction: Vector2) -> int:
@@ -387,11 +438,12 @@ func _atlas_direction_index_from_vector(direction: Vector2) -> int:
 	return raw_index % PLAYER_RUN_ATLAS_ROWS
 
 
-func _apply_player_visual_frame(frame_index: int, direction_index: int) -> void:
+func _apply_player_visual_frame(clip: PlayerVisualClip, frame_index: int, direction_index: int) -> void:
 	if _visual == null:
 		return
 	var safe_frame: int = clampi(frame_index, 0, PLAYER_RUN_ATLAS_COLUMNS - 1)
 	var safe_direction: int = clampi(direction_index, 0, PLAYER_RUN_ATLAS_ROWS - 1)
+	_visual.texture = _texture_for_visual_clip(clip)
 	_visual.rotation = 0.0
 	_visual.region_rect = Rect2(
 		safe_frame * PLAYER_RUN_ATLAS_FRAME_SIZE,
@@ -399,6 +451,20 @@ func _apply_player_visual_frame(frame_index: int, direction_index: int) -> void:
 		PLAYER_RUN_ATLAS_FRAME_SIZE,
 		PLAYER_RUN_ATLAS_FRAME_SIZE,
 	)
+
+
+func _texture_for_visual_clip(clip: PlayerVisualClip) -> Texture2D:
+	match clip:
+		PlayerVisualClip.IDLE:
+			return idle_visual_texture if idle_visual_texture != null else run_forward_visual_texture
+		PlayerVisualClip.RUN_BACKWARD:
+			return run_backward_visual_texture if run_backward_visual_texture != null else run_forward_visual_texture
+		PlayerVisualClip.STRAFE_LEFT:
+			return strafe_left_visual_texture if strafe_left_visual_texture != null else run_forward_visual_texture
+		PlayerVisualClip.STRAFE_RIGHT:
+			return strafe_right_visual_texture if strafe_right_visual_texture != null else run_forward_visual_texture
+		_:
+			return run_forward_visual_texture
 
 
 func _setup_camera() -> void:

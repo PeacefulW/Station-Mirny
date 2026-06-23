@@ -637,11 +637,19 @@ Current code notes:
   `object_size_px` is the rendered frame box clamped to `<= 254` (byte quantum;
   larger landmark trees stay clamped rather than extending the packet). It is an
   immutable generated presentation record consumed by `WorldObjectPacketLayer`
-  on the shared mid-layer depth ladder, not saved gameplay object state, and has
-  no collision in V0.
+  on the shared mid-layer depth ladder, not saved gameplay object state. From
+  Iteration 3 tree trunks expose chunk-scoped static collision on the obstacle
+  layer (shape owners on one body per chunk, not one body per tree).
 - For `world_version >= 53`, the native object packet adds `object_kind == 4`
   (plains trees) with the same plains-ground placement and mountain-edge
   clearance as the other object families.
+- For `world_version >= 55`, plains tree placement additionally requires the
+  visual grass field (`grass_scatter::sample_grass_density >= 0.40` — the same
+  `sample_fields` formula that paints the ground and scatters tufts), so trees
+  grow only on visibly grassy ground, not bare dirt or rock patches. The grass
+  field params in `world_core.cpp` tree constants mirror the single authored
+  source `data/terrain/material_sets/plains_ground_material_set.tres` and must
+  be kept in sync with it.
 - For `world_version >= 52`, native object packet emission keeps a local
   mountain-edge clearance for rocks, living flora, and spiky flora so batched
   decor does not spawn under the organic runtime mountain mask.

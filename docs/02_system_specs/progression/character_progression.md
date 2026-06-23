@@ -4,8 +4,8 @@ doc_type: system_spec
 status: approved
 owner: design+engineering
 source_of_truth: true
-version: 1.0
-last_updated: 2026-03-25
+version: 1.1
+last_updated: 2026-06-23
 related_docs:
   - resource_progression.md
   - crafting_and_decryption.md
@@ -71,11 +71,24 @@ Desired effect:
 - expeditions are shaped by preparation and carrying choices
 - base storage remains important
 
+## Movement Balance
+
+Player movement tuning lives in `PlayerBalance`.
+
+The Engineer should feel capable but physically committed in a suit:
+- base movement speed is a data value, not hardcoded in controller logic;
+- backward movement relative to current aim/facing is slower than forward or
+  strafe movement;
+- the backward multiplier is data-tuned separately so combat kiting and retreat
+  pressure can be adjusted without changing animation or collision semantics.
+
 ## Acceptance criteria
 
 - progression changes capability and planning, not just raw numbers
 - the suit feels like a core identity object
 - use-based growth rewards actual playstyle
+- backward movement stays slower than forward movement when the player retreats
+  while aiming
 
 ## Failure signs
 

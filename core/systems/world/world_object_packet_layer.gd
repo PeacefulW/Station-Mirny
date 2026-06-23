@@ -3,6 +3,7 @@ extends Node2D
 
 const WorldDecorBatchLayer = preload("res://core/systems/world/world_decor_batch_layer.gd")
 const TREE_BATCH_SHADER = preload("res://assets/shaders/tree_decor_atlas_batch.gdshader")
+const TREE_SHADOW_SHADER = preload("res://assets/shaders/tree_silhouette_shadow.gdshader")
 
 const OBJECT_KIND_ROCK: int = 1
 const OBJECT_KIND_LIVING_FLORA: int = 2
@@ -54,6 +55,8 @@ const TREE_SHADOW_HEIGHT_SCALE: float = 0.11
 const TREE_SHADOW_CENTER_Y_SCALE: float = 0.02
 const TREE_SHADOW_MIN_WIDTH_PX: float = 18.0
 const TREE_SHADOW_MIN_HEIGHT_PX: float = 6.0
+# Силуэт-тень — отдельный слой ниже травы/деревьев (на земле).
+const TREE_SHADOW_Z_INDEX: int = 4
 # Дерево — препятствие: маленький круг у комля (ствол), крона проходима.
 # Chunk-scoped статика на том же obstacle-слое, что крупные камни (LAW 10:
 # готово к reveal вместе с объектным слоем; шейп-овнеры на одном теле, не нода-на-дерево).
@@ -75,6 +78,11 @@ var _collision_shape_owner_ids: Array[int] = []
 var _tree_collision_body: StaticBody2D = null
 var _tree_collision_shape_owner_ids: Array[int] = []
 var _tree_collider_count: int = 0
+var _tree_shadow_layer: MultiMeshInstance2D = null
+var _tree_shadow_material: ShaderMaterial = null
+var _sun_light_angle_deg: float = 120.0
+var _sun_shadow_length_px: float = 78.0
+var _sun_shadow_opacity: float = 0.0
 var _rock_count: int = 0
 var _living_flora_count: int = 0
 var _spiky_flora_count: int = 0
@@ -141,6 +149,10 @@ func set_sun_lighting(
 			shadow_opacity,
 			shadow_softness_px,
 		)
+	_sun_light_angle_deg = light_angle_deg
+	_sun_shadow_length_px = shadow_length_px
+	_sun_shadow_opacity = shadow_opacity
+	_apply_sun_to_tree_shadow()
 
 
 ## Мировой Y чанка для глобальных полос depth-лесенки.
@@ -502,15 +514,80 @@ func _ensure_spiky_flora_batch_layer() -> WorldDecorBatchLayer:
 	return _spiky_flora_batch_layer
 
 
-func _sync_tree_batch(tree_buffer: PackedFloat32Array, tree_shadow_buffer: PackedFloat32Array) -> void:
+func _sync_tree_batch(tree_buffer: PackedFloat32Array, _tree_shadow_buffer: PackedFloat32Array) -> void:
 	if _tree_atlas == null or _tree_count <= 0:
 		if _tree_batch_layer != null and is_instance_valid(_tree_batch_layer):
 			_tree_batch_layer.clear_batches()
+		_sync_tree_silhouette(PackedFloat32Array())
 		return
 	var batch_layer: WorldDecorBatchLayer = _ensure_tree_batch_layer()
 	batch_layer.set_atlas_layout(TREE_FRAME_COLUMNS, TREE_FRAME_ROWS, TREE_FRAME_COUNT)
 	batch_layer.set_animation(1, 0.0)
-	batch_layer.set_batches([_tree_atlas], [tree_buffer], tree_shadow_buffer)
+	# Контактного пятна нет — тень даёт силуэт-слой ниже.
+	batch_layer.set_batches([_tree_atlas], [tree_buffer], PackedFloat32Array())
+	_sync_tree_silhouette(tree_buffer)
+
+
+func _sync_tree_silhouette(tree_buffer: PackedFloat32Array) -> void:
+	var count: int = tree_buffer.size() / WorldDecorBatchLayer.BUFFER_STRIDE
+	if _tree_atlas == null or count <= 0:
+		if _tree_shadow_layer != null and is_instance_valid(_tree_shadow_layer):
+			_tree_shadow_layer.visible = false
+			_tree_shadow_layer.multimesh = null
+		return
+	var layer: MultiMeshInstance2D = _ensure_tree_shadow_layer()
+	var quad := QuadMesh.new()
+	quad.size = Vector2.ONE
+	var multimesh := MultiMesh.new()
+	multimesh.transform_format = MultiMesh.TRANSFORM_2D
+	multimesh.use_colors = true
+	multimesh.mesh = quad
+	multimesh.instance_count = count
+	multimesh.visible_instance_count = count
+	for i: int in range(count):
+		var offset: int = i * WorldDecorBatchLayer.BUFFER_STRIDE
+		var pos := Vector2(tree_buffer[offset + WorldDecorBatchLayer.BUFFER_X], tree_buffer[offset + WorldDecorBatchLayer.BUFFER_Y])
+		var size := Vector2(tree_buffer[offset + WorldDecorBatchLayer.BUFFER_SIZE_X], tree_buffer[offset + WorldDecorBatchLayer.BUFFER_SIZE_Y])
+		multimesh.set_instance_transform_2d(i, Transform2D(Vector2(size.x, 0.0), Vector2(0.0, size.y), pos))
+		var frame: float = tree_buffer[offset + WorldDecorBatchLayer.BUFFER_FRAME_INDEX]
+		multimesh.set_instance_color(i, Color(clampf(frame / 255.0, 0.0, 1.0), 0.0, 0.0, 1.0))
+	layer.texture = _tree_atlas
+	layer.multimesh = multimesh
+	layer.visible = true
+
+
+func _ensure_tree_shadow_layer() -> MultiMeshInstance2D:
+	if _tree_shadow_layer != null and is_instance_valid(_tree_shadow_layer):
+		return _tree_shadow_layer
+	_tree_shadow_layer = MultiMeshInstance2D.new()
+	_tree_shadow_layer.name = "TreeSilhouetteShadowLayer"
+	_tree_shadow_layer.z_as_relative = true
+	_tree_shadow_layer.z_index = TREE_SHADOW_Z_INDEX
+	_tree_shadow_layer.texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS
+	_tree_shadow_layer.material = _ensure_tree_shadow_material()
+	add_child(_tree_shadow_layer)
+	return _tree_shadow_layer
+
+
+func _ensure_tree_shadow_material() -> ShaderMaterial:
+	if _tree_shadow_material != null:
+		return _tree_shadow_material
+	_tree_shadow_material = ShaderMaterial.new()
+	_tree_shadow_material.shader = TREE_SHADOW_SHADER
+	_tree_shadow_material.set_shader_parameter("atlas_columns", float(TREE_FRAME_COLUMNS))
+	_tree_shadow_material.set_shader_parameter("atlas_rows", float(TREE_FRAME_ROWS))
+	_tree_shadow_material.set_shader_parameter("atlas_frame_count", float(TREE_FRAME_COUNT))
+	_apply_sun_to_tree_shadow()
+	return _tree_shadow_material
+
+
+func _apply_sun_to_tree_shadow() -> void:
+	if _tree_shadow_material == null:
+		return
+	var shadow_angle: float = deg_to_rad(_sun_light_angle_deg + 180.0)
+	_tree_shadow_material.set_shader_parameter("shadow_dir", Vector2(cos(shadow_angle), sin(shadow_angle)))
+	_tree_shadow_material.set_shader_parameter("shadow_foreshorten", clampf(0.4 + _sun_shadow_length_px / 280.0, 0.4, 1.2))
+	_tree_shadow_material.set_shader_parameter("shadow_opacity", clampf(0.20 + _sun_shadow_opacity * 0.10, 0.16, 0.4))
 
 
 func _ensure_tree_batch_layer() -> WorldDecorBatchLayer:
@@ -618,6 +695,9 @@ func _clear_batches() -> void:
 		_spiky_flora_batch_layer.clear_batches()
 	if _tree_batch_layer != null and is_instance_valid(_tree_batch_layer):
 		_tree_batch_layer.clear_batches()
+	if _tree_shadow_layer != null and is_instance_valid(_tree_shadow_layer):
+		_tree_shadow_layer.visible = false
+		_tree_shadow_layer.multimesh = null
 
 
 static func _decode_local_px(value: int) -> float:

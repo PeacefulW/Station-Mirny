@@ -57,22 +57,24 @@ func build() -> void:
 
 
 func _roots(rng: RandomNumberGenerator, base: Vector2, _unused: float = 0.0) -> void:
-	var dark := Color(p_bark.r * 0.72, p_bark.g * 0.72, p_bark.b * 0.72, 1.0)
-	var n: int = rng.randi_range(3, 5)
+	# Подсказка корней, не «паучьи лапы»: 2-3 коротких почти-вертикальных корня в
+	# тон ствола, сливаются с раструбом основания (грунтовка, не тёмные ноги).
+	var dark := Color(p_bark.r * 0.84, p_bark.g * 0.84, p_bark.b * 0.84, 1.0)
+	var n: int = rng.randi_range(2, 3)
 	for i: int in range(n):
-		var spread: float = lerpf(-1.0, 1.0, float(i) / float(maxi(n - 1, 1)))
-		var d: Vector2 = Vector2.DOWN.rotated(spread * 1.05 + rng.randf_range(-0.15, 0.15))
+		var spread: float = lerpf(-0.5, 0.5, float(i) / float(maxi(n - 1, 1)))
+		var d: Vector2 = Vector2.DOWN.rotated(spread + rng.randf_range(-0.08, 0.08))
 		var pts: Array = [base]
-		var widths: Array = [p_trunk_w * rng.randf_range(0.34, 0.52)]
+		var widths: Array = [p_trunk_w * rng.randf_range(0.40, 0.58)]
 		var p: Vector2 = base
-		var seg: float = p_trunk_w * rng.randf_range(0.55, 0.95)
-		for s: int in range(3):
-			d = d.rotated(rng.randf_range(-p_gnarl, p_gnarl) * 0.7).normalized()
+		var seg: float = p_trunk_w * rng.randf_range(0.42, 0.66)
+		for s: int in range(2):
+			d = d.rotated(rng.randf_range(-p_gnarl, p_gnarl) * 0.35).normalized()
 			p = p + d * seg
 			pts.append(p)
-			widths.append(float(widths[widths.size() - 1]) * 0.45)
-			seg *= 0.7
-		_stroke(pts, widths, dark, 0.78)
+			widths.append(float(widths[widths.size() - 1]) * 0.42)
+			seg *= 0.62
+		_stroke(pts, widths, dark, 0.88)
 
 
 func _branch(rng: RandomNumberGenerator, start: Vector2, dir: Vector2, length: float, width: float, depth: int, max_depth: int, counter: Array, is_trunk: bool) -> void:
@@ -87,8 +89,10 @@ func _branch(rng: RandomNumberGenerator, start: Vector2, dir: Vector2, length: f
 	var w: float = width
 	var pts: Array = [p]
 	var widths: Array = [width * 1.4 if is_trunk else width]
+	# Наклон ветром сильнее в кроне (ветки), слабее в стволе → ствол стоит, а не «падает».
+	var lean_here: float = p_lean * (0.4 if is_trunk else 1.0)
 	for i: int in range(steps):
-		var twist: float = rng.randf_range(-p_gnarl, p_gnarl) + p_lean
+		var twist: float = rng.randf_range(-p_gnarl, p_gnarl) + lean_here
 		d = d.rotated(twist).normalized()
 		var t_end: float = float(i + 1) / float(steps)
 		w = lerpf(width, width * p_taper_along, t_end)
@@ -160,44 +164,60 @@ func _canopy(rng: RandomNumberGenerator, center: Vector2, count: int) -> void:
 	var radius: float = p_canopy_radius
 	var dark: Color = p_palette[p_palette.size() - 1]
 
-	var mass_n: int = int(maxf(float(count) / 3.0, 4.0))
+	# 1) масса-силуэт: плотное ядро; тон по вертикали (низ темнее) → объём.
+	var mass_n: int = int(maxf(float(count) / 2.6, 6.0))
 	for i: int in range(mass_n):
 		var ang: float = rng.randf() * TAU
-		var rad: float = sqrt(rng.randf()) * radius * 0.80
-		var offset := Vector2(cos(ang) * rad, sin(ang) * rad * 0.80 - radius * 0.16)
-		var c := Color(dark.r * 0.74 * p_canopy_tint.r, dark.g * 0.74 * p_canopy_tint.g, dark.b * 0.74 * p_canopy_tint.b, 0.85)
-		_leaves.append({"pts": _blob(center + offset, p_leaf_size * rng.randf_range(1.4, 2.1), rng), "col": c})
+		var rad: float = sqrt(rng.randf()) * radius * 0.86
+		var offset := Vector2(cos(ang) * rad, sin(ang) * rad * 0.84 - radius * 0.14)
+		var vfac: float = clampf(0.66 - offset.y / (radius * 1.9), 0.5, 0.94)
+		var c := Color(dark.r * vfac * 1.04 * p_canopy_tint.r, dark.g * vfac * 1.04 * p_canopy_tint.g, dark.b * vfac * 1.04 * p_canopy_tint.b, 0.9)
+		_leaves.append({"pts": _blob(center + offset, p_leaf_size * rng.randf_range(1.5, 2.2), rng), "col": c})
 
+	# 2) детальные листья: мельче и больше; свет по НАПРАВЛЕНИЮ + ВЕРТИКАЛИ (объём).
 	var detail: Array = []
 	for i: int in range(count):
 		var ang: float = rng.randf() * TAU
 		var rad: float = sqrt(rng.randf()) * radius
-		var offset := Vector2(cos(ang) * rad, sin(ang) * rad * 0.82 - radius * 0.16)
+		var offset := Vector2(cos(ang) * rad, sin(ang) * rad * 0.84 - radius * 0.14)
 		var ndir: Vector2 = offset.normalized() if offset.length() > 0.01 else Vector2.ZERO
 		var lit: float = ndir.dot(p_light_dir)
-		var shade: float = clampf(0.80 + lit * 0.26, 0.66, 1.14)
+		var vert: float = clampf(-offset.y / radius, -1.0, 1.0)
+		var shade: float = clampf(0.74 + lit * 0.20 + vert * 0.16, 0.56, 1.2)
 		var base_col: Color = p_palette[rng.randi_range(0, p_palette.size() - 1)]
-		var jit: float = rng.randf_range(0.95, 1.05)
+		var jit: float = rng.randf_range(0.96, 1.04)
 		var col := Color(base_col.r * shade * jit * p_canopy_tint.r, base_col.g * shade * jit * p_canopy_tint.g, base_col.b * shade * jit * p_canopy_tint.b, p_leaf_alpha)
-		var sz: float = p_leaf_size * rng.randf_range(0.65, 1.25)
-		detail.append({"pts": _blob(center + offset, sz, rng), "col": col, "k": lit})
+		var sz: float = p_leaf_size * rng.randf_range(0.6, 1.12)
+		detail.append({"pts": _blob(center + offset, sz, rng), "col": col, "k": lit + vert * 0.5})
 	detail.sort_custom(func(a: Dictionary, b: Dictionary) -> bool: return float(a["k"]) < float(b["k"]))
 	for leaf: Dictionary in detail:
 		_leaves.append({"pts": leaf["pts"], "col": leaf["col"]})
 
+	# 3) блики — на солнечной верхней стороне кроны.
 	var bright: Color = p_palette[p_palette.size() - 2]
-	var hi_n: int = int(maxf(float(count) / 7.0, 2.0))
+	var hi_n: int = int(maxf(float(count) / 8.0, 2.0))
 	for i: int in range(hi_n):
-		var bias: Vector2 = p_light_dir.rotated(rng.randf_range(-0.5, 0.5))
-		var rad: float = radius * rng.randf_range(0.25, 0.7)
-		var offset := Vector2(bias.x * rad, bias.y * rad - radius * 0.16)
+		var bias: Vector2 = p_light_dir.rotated(rng.randf_range(-0.4, 0.4))
+		var rad: float = radius * rng.randf_range(0.2, 0.6)
+		var offset := Vector2(bias.x * rad, bias.y * rad - radius * 0.18)
 		var col := Color(
-			clampf(bright.r * 1.06 * p_canopy_tint.r, 0.0, 1.0),
-			clampf(bright.g * 1.06 * p_canopy_tint.g, 0.0, 1.0),
-			clampf(bright.b * 1.06 * p_canopy_tint.b, 0.0, 1.0),
-			0.88,
+			clampf(bright.r * 1.08 * p_canopy_tint.r, 0.0, 1.0),
+			clampf(bright.g * 1.08 * p_canopy_tint.g, 0.0, 1.0),
+			clampf(bright.b * 1.08 * p_canopy_tint.b, 0.0, 1.0),
+			0.85,
 		)
-		_leaves.append({"pts": _blob(center + offset, p_leaf_size * rng.randf_range(0.65, 1.0), rng), "col": col})
+		_leaves.append({"pts": _blob(center + offset, p_leaf_size * rng.randf_range(0.6, 0.95), rng), "col": col})
+
+	# 4) мягкий край — редкие мелкие полупрозрачные листья по кромке силуэта,
+	# чтобы крона не читалась «попкорном» с жёстким контуром.
+	var edge_n: int = int(maxf(float(count) / 4.0, 5.0))
+	for i: int in range(edge_n):
+		var ang: float = rng.randf() * TAU
+		var rad: float = radius * rng.randf_range(0.82, 1.05)
+		var offset := Vector2(cos(ang) * rad, sin(ang) * rad * 0.84 - radius * 0.14)
+		var base_col: Color = p_palette[rng.randi_range(1, p_palette.size() - 2)]
+		var col := Color(base_col.r * 0.96 * p_canopy_tint.r, base_col.g * 0.96 * p_canopy_tint.g, base_col.b * 0.96 * p_canopy_tint.b, 0.4)
+		_leaves.append({"pts": _blob(center + offset, p_leaf_size * rng.randf_range(0.5, 0.85), rng), "col": col})
 
 
 func get_content_bounds() -> Rect2:
@@ -220,12 +240,12 @@ func get_content_bounds() -> Rect2:
 
 
 func _blob(center: Vector2, size: float, rng: RandomNumberGenerator) -> PackedVector2Array:
-	var verts: int = rng.randi_range(5, 7)
+	var verts: int = rng.randi_range(7, 9)
 	var pts := PackedVector2Array()
 	var start_ang: float = rng.randf() * TAU
 	for i: int in range(verts):
 		var a: float = start_ang + TAU * float(i) / float(verts)
-		var r: float = size * rng.randf_range(0.7, 1.25)
+		var r: float = size * rng.randf_range(0.84, 1.12)
 		pts.append(center + Vector2(cos(a) * r, sin(a) * r))
 	return pts
 
