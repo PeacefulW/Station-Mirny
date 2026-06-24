@@ -829,10 +829,16 @@ Governing spec:
 
 Current code notes:
 - `params` is a packed float layout owned by `grass_scatter::ParamIndex`
-  (`gdextension/src/grass_scatter.h`): chunk geometry, the shared ground field
-  params (`grass/orange/rock` scale+coverage mirrored from the ground material
-  `sampling_params`), and grass-only authored knobs (grid, cap, sizes,
-  density/tint/alpha curves)
+  (`gdextension/src/grass_scatter.h`, `PARAM_COUNT = 40`): chunk geometry, the
+  shared ground field params (`grass/orange/rock` scale+coverage mirrored from
+  the ground material `sampling_params`), grass-only authored knobs (grid, cap,
+  sizes, density/tint/alpha curves), and the plains-ground-composition fields
+  appended at the end (`PARAM_MACRO_MASS_SCALE_PX/STRENGTH`,
+  `PARAM_PATH_SCALE_PX/WIDTH/WARP_PX/STRENGTH`). Macro-mass enters the gridded
+  `sample_fields`; the path term is evaluated pointwise per-candidate
+  (`grass_scatter::sample_path`), not through the field grid. New params are
+  appended so existing indices stay stable. Governing spec:
+  `docs/02_system_specs/world/plains_ground_field_composition.md`
 - the buffer is presentation-only derived data assigned directly to a chunk
   grass `MultiMesh`; it is never persisted and never enters `ChunkPacketV1`
 - placement is deterministic for the same seed, chunk, inputs, and params;

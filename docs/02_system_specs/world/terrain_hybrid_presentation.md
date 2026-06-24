@@ -206,6 +206,12 @@ by chunk-local masks or overlay sprites:
   world position (hash-noise fbm), never a repeat-sampled texture lookup:
   texture-driven fields repeat on the texture period grid and render as
   wallpaper at far camera zoom.
+- The ground field additionally carries a long-wavelength macro-mass coverage
+  modulator and procedural paths (sinuous low-coverage trails) that break the
+  uniform look into clearings, dense pockets, and trails. These are owned by
+  `plains_ground_field_composition.md` and obey the same aperiodic, no-per-chunk
+  rules; their math is mirrored 1:1 across the ground shader and the native
+  field transcriptions so placed grass/trees stay coherent with the painting.
 - The composition holds no per-chunk state, so chunk-boundary seams cannot
   exist in the ground field by construction. Per-chunk decorative overlay
   sprites for grass/rock breakup are retired; they were the proven source of

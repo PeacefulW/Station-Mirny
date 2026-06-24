@@ -217,6 +217,9 @@ var _sun_light_angle_deg: float = WorldVisualLightingProfile.DEFAULT_LIGHT_ANGLE
 var _sun_shadow_length_px: float = WorldVisualLightingProfile.DEFAULT_SHADOW_LENGTH_PX
 var _sun_shadow_opacity: float = WorldVisualLightingProfile.DEFAULT_SHADOW_OPACITY
 var _sun_shadow_softness_px: float = WorldVisualLightingProfile.DEFAULT_SHADOW_SOFTNESS_PX
+# Daylight factor (1 day, 0 night) for the cosmetic ground shade's directional
+# component. Same source as the shadows: WorldVisualLightingProfile.
+var _sun_day_factor: float = 1.0
 var _mining_feedback_layer: MiningFeedbackLayer = null
 
 
@@ -1019,6 +1022,12 @@ func _ensure_grass_scatter_sources() -> void:
 			float(grass_params.get("spore_orange_threshold", 0.28)),
 			float(grass_params.get("spore_chance", 0.07)),
 			float(grass_params.get("spore_size_px", 7.0)),
+			float(ground_params.get("macro_mass_scale_px", 7000.0)),
+			float(ground_params.get("macro_mass_strength", 0.34)),
+			float(ground_params.get("path_scale_px", 2600.0)),
+			float(ground_params.get("path_width", 0.06)),
+			float(ground_params.get("path_warp_px", 700.0)),
+			float(ground_params.get("path_strength", 0.85)),
 		],
 	)
 	_grass_lod_full_zoom = float(grass_params.get("lod_full_zoom", 0.8))
@@ -1970,7 +1979,9 @@ func _sync_sun_lighting_from_time(force: bool = false) -> void:
 	_sun_shadow_length_px = shadow_length_px
 	_sun_shadow_opacity = shadow_opacity
 	_sun_shadow_softness_px = shadow_softness_px
+	_sun_day_factor = WorldVisualLightingProfile.shadow_visibility_for_hour(current_hour)
 	_apply_sun_lighting_to_loaded_chunks()
+	_apply_sun_lighting_to_ground_material()
 
 
 func _apply_sun_lighting_to_loaded_chunks() -> void:
@@ -1984,6 +1995,20 @@ func _apply_sun_lighting_to_loaded_chunks() -> void:
 			_sun_shadow_opacity,
 			_sun_shadow_softness_px,
 		)
+
+
+func _apply_sun_lighting_to_ground_material() -> void:
+	# Cosmetic only (ADR-0005): feeds the shared plains ground material the same
+	# sun model used by the shadows, for the large-scale ground shade. One shared
+	# material -> set once per sun change; null until a chunk built it (the shader
+	# has correct daytime defaults until then). See plains_ground_cosmetic_shading.md.
+	var ground_material: ShaderMaterial = WorldTileSetFactory.get_built_material_for_terrain(
+		WorldRuntimeConstants.TERRAIN_PLAINS_GROUND,
+	)
+	if ground_material == null:
+		return
+	ground_material.set_shader_parameter("ground_sun_angle_deg", _sun_light_angle_deg)
+	ground_material.set_shader_parameter("ground_sun_day", _sun_day_factor)
 
 
 func _drain_completed_native_masks(max_count: int) -> void:

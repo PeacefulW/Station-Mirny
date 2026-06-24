@@ -514,7 +514,7 @@ func _ensure_spiky_flora_batch_layer() -> WorldDecorBatchLayer:
 	return _spiky_flora_batch_layer
 
 
-func _sync_tree_batch(tree_buffer: PackedFloat32Array, _tree_shadow_buffer: PackedFloat32Array) -> void:
+func _sync_tree_batch(tree_buffer: PackedFloat32Array, tree_shadow_buffer: PackedFloat32Array) -> void:
 	if _tree_atlas == null or _tree_count <= 0:
 		if _tree_batch_layer != null and is_instance_valid(_tree_batch_layer):
 			_tree_batch_layer.clear_batches()
@@ -523,8 +523,10 @@ func _sync_tree_batch(tree_buffer: PackedFloat32Array, _tree_shadow_buffer: Pack
 	var batch_layer: WorldDecorBatchLayer = _ensure_tree_batch_layer()
 	batch_layer.set_atlas_layout(TREE_FRAME_COLUMNS, TREE_FRAME_ROWS, TREE_FRAME_COUNT)
 	batch_layer.set_animation(1, 0.0)
-	# Контактного пятна нет — тень даёт силуэт-слой ниже.
-	batch_layer.set_batches([_tree_atlas], [tree_buffer], PackedFloat32Array())
+	# Контактный AO-пул у комля (тот же путь, что камни/флора: плоский эллипс,
+	# длина=0, гейт по дневному солнцу) + силуэт-тень ниже. «Вес» под деревом.
+	# См. docs/02_system_specs/world/plains_ground_cosmetic_shading.md (Итерация 2).
+	batch_layer.set_batches([_tree_atlas], [tree_buffer], tree_shadow_buffer)
 	_sync_tree_silhouette(tree_buffer)
 
 

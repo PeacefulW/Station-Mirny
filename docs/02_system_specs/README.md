@@ -77,6 +77,8 @@ Current transition strategy:
 - [Mountain Generation V1](world/mountain_generation.md)
 - [Lake Generation V1](world/lake_generation.md) (draft)
 - [Terrain Hybrid Presentation](world/terrain_hybrid_presentation.md)
+- [Plains Ground Field Composition - Macro-Masses and Paths](world/plains_ground_field_composition.md)
+- [Plains Ground Cosmetic Shading - Form and Contact Weight](world/plains_ground_cosmetic_shading.md)
 - [Wind Runtime V0 and Grass Scatter Presentation](world/wind_and_grass_scatter_presentation.md) (draft)
 - [Plains Trees Presentation and Depth Layering V0](world/plains_trees_presentation.md) (draft)
 - [Weather Runtime V0](world/weather_runtime.md) (draft)

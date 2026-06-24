@@ -56,5 +56,20 @@ sampling_params = {
 "rock_field_scale_px": 1200.0,
 "rock_coverage": 0.22,
 "macro_drift_scale_px": 2200.0,
-"macro_drift_strength": 0.12
+"macro_drift_strength": 0.12,
+"macro_mass_scale_px": 7000.0,
+"macro_mass_strength": 0.34,
+"path_scale_px": 2600.0,
+"path_width": 0.06,
+"path_warp_px": 700.0,
+"path_strength": 0.85,
+"scree_field_scale_px": 640.0,
+"scree_density": 0.45,
+"scree_strength": 0.9,
+"scree_open_amount": 0.25,
+"shade_scale_px": 3500.0,
+"shade_ambient_strength": 0.13,
+"shade_relief_px": 520.0,
+"shade_directional_gain": 3.2,
+"shade_dir_strength": 0.16
 }

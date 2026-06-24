@@ -198,6 +198,16 @@ constexpr float TREE_GRASS_COVERAGE = 0.80f;
 constexpr float TREE_ROCK_FIELD_SCALE_PX = 1200.0f;
 constexpr float TREE_ROCK_COVERAGE = 0.22f;
 constexpr float TREE_GRASS_DENSITY_MIN = 0.40f;
+// Macro-mass + procedural path fields. Деревья НЕ растут на голых плешах и на
+// тропах. Зеркало plains_ground_material_set.tres sampling_params и
+// grass_scatter::sample_path; при смене — синхронизировать и bump world_version.
+// См. docs/02_system_specs/world/plains_ground_field_composition.md.
+constexpr float TREE_MACRO_MASS_SCALE_PX = 7000.0f;
+constexpr float TREE_MACRO_MASS_STRENGTH = 0.34f;
+constexpr float TREE_PATH_SCALE_PX = 2600.0f;
+constexpr float TREE_PATH_WIDTH = 0.06f;
+constexpr float TREE_PATH_WARP_PX = 700.0f;
+constexpr float TREE_PATH_STRENGTH = 0.85f;
 
 enum class PreviewPatchMode {
 	Terrain,
@@ -1005,7 +1015,12 @@ void append_native_tree_placements(
 			if (grass_scatter::sample_grass_density(
 						tree_world_x, tree_world_y,
 						TREE_GRASS_FIELD_SCALE_PX, TREE_GRASS_COVERAGE,
-						TREE_ROCK_FIELD_SCALE_PX, TREE_ROCK_COVERAGE) < TREE_GRASS_DENSITY_MIN) {
+						TREE_ROCK_FIELD_SCALE_PX, TREE_ROCK_COVERAGE,
+						TREE_MACRO_MASS_SCALE_PX, TREE_MACRO_MASS_STRENGTH) *
+						grass_scatter::sample_path(
+								tree_world_x, tree_world_y,
+								TREE_PATH_SCALE_PX, TREE_PATH_WIDTH,
+								TREE_PATH_WARP_PX, TREE_PATH_STRENGTH) < TREE_GRASS_DENSITY_MIN) {
 				continue;
 			}
 			bool too_close = false;

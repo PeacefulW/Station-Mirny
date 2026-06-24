@@ -20,8 +20,11 @@ constexpr float GRASS_MOUNTAIN_CLEARANCE_PX = 64.0f;
 
 // --- GLSL field mirror -------------------------------------------------------
 // One formula, two transcriptions: these functions mirror the aperiodic world
-// fields of assets/shaders/ground_hybrid_material.gdshader. Any change to the
-// field math there must be mirrored here in the same task (spec law).
+// fields of assets/shaders/ground_hybrid_material.gdshader, INCLUDING the
+// macro-mass coverage modulator (sample_fields) and the procedural paths
+// (sample_path). Any change to the field math there must be mirrored here in the
+// same task (spec law). See
+// docs/02_system_specs/world/plains_ground_field_composition.md.
 
 struct Vec2 {
 	float x = 0.0f;
@@ -141,7 +144,11 @@ FieldSample sample_fields(float p_world_x, float p_world_y, const float *p_param
 
 	float grass_field = remap_contrast(
 			fbm3({ organic.x / grass_scale + 4.7f, organic.y / grass_scale + 13.9f }), 2.10f);
-	grass_field = clamp01(grass_field + (p_params[PARAM_GRASS_COVERAGE] - 0.5f) * 0.9f);
+	// Macro-mass: long-wavelength coverage bias (mirror of the ground shader).
+	const float macro_scale = std::max(p_params[PARAM_MACRO_MASS_SCALE_PX], 1.0f);
+	const float macro_mass = fbm2({ wp.x / macro_scale + 91.7f, wp.y / macro_scale - 53.3f });
+	const float macro_bias = (macro_mass - 0.5f) * 2.0f * p_params[PARAM_MACRO_MASS_STRENGTH];
+	grass_field = clamp01(grass_field + (p_params[PARAM_GRASS_COVERAGE] - 0.5f) * 0.9f + macro_bias);
 
 	const float orange_field = remap_contrast(
 			fbm3({ organic.x / orange_scale - 27.3f, organic.y / orange_scale + 8.1f }), 1.30f);
@@ -371,10 +378,22 @@ Dictionary build_buffer(
 			}
 
 			const FieldSample fields = sample_field_grid(field_grid, local_x, local_y);
+				// Paths are a pointwise term (evaluated per-candidate, NOT through
+				// the coarse field grid, so thin trails cannot alias). Thins tufts
+				// along trails so they match the painted ground.
+				const float path_open = sample_path(
+						chunk_origin_x + static_cast<double>(local_x),
+						chunk_origin_y + static_cast<double>(local_y),
+						params[PARAM_PATH_SCALE_PX],
+						params[PARAM_PATH_WIDTH],
+						params[PARAM_PATH_WARP_PX],
+						params[PARAM_PATH_STRENGTH]);
+				const float grass_d = fields.grass_density * path_open;
+				const float orange_acc = fields.orange_region * path_open;
 
-			float acceptance = smoothstep_f(0.30f, 0.62f, fields.grass_density) * 0.34f +
-					smoothstep_f(0.62f, 0.86f, fields.grass_density) * 0.30f;
-			acceptance += fields.orange_region * params[PARAM_ORANGE_DENSITY_BOOST];
+			float acceptance = smoothstep_f(0.30f, 0.62f, grass_d) * 0.34f +
+					smoothstep_f(0.62f, 0.86f, grass_d) * 0.30f;
+			acceptance += orange_acc * params[PARAM_ORANGE_DENSITY_BOOST];
 			acceptance = clamp01(acceptance * params[PARAM_DENSITY_SCALE]);
 			if (hash_unit(hash, 0x17ULL) >= acceptance) {
 				continue;
@@ -514,7 +533,9 @@ float sample_grass_density(
 		float p_grass_field_scale_px,
 		float p_grass_coverage,
 		float p_rock_field_scale_px,
-		float p_rock_coverage) {
+		float p_rock_coverage,
+		float p_macro_mass_scale_px,
+		float p_macro_mass_strength) {
 	float params[PARAM_COUNT] = {};
 	params[PARAM_GRASS_FIELD_SCALE_PX] = p_grass_field_scale_px;
 	params[PARAM_GRASS_COVERAGE] = p_grass_coverage;
@@ -522,7 +543,31 @@ float sample_grass_density(
 	params[PARAM_ORANGE_COVERAGE] = 0.5f;                         // не влияет на grass_density
 	params[PARAM_ROCK_FIELD_SCALE_PX] = p_rock_field_scale_px;
 	params[PARAM_ROCK_COVERAGE] = p_rock_coverage;
+	params[PARAM_MACRO_MASS_SCALE_PX] = p_macro_mass_scale_px;
+	params[PARAM_MACRO_MASS_STRENGTH] = p_macro_mass_strength;
 	return sample_fields(static_cast<float>(p_world_x), static_cast<float>(p_world_y), params).grass_density;
+}
+
+// Mirror of sample_path() in assets/shaders/ground_hybrid_material.gdshader.
+float sample_path(
+		double p_world_x,
+		double p_world_y,
+		float p_path_scale_px,
+		float p_path_width,
+		float p_path_warp_px,
+		float p_path_strength) {
+	const float wx = static_cast<float>(p_world_x);
+	const float wy = static_cast<float>(p_world_y);
+	const float warp_div = std::max(p_path_scale_px * 0.5f, 1.0f);
+	const float wn = fbm2({ wx / warp_div + 71.3f, wy / warp_div - 19.7f });
+	const float ang = wn * 6.2831853f;
+	const float ppx = wx + std::cos(ang) * p_path_warp_px;
+	const float ppy = wy + std::sin(ang) * p_path_warp_px;
+	const float scale = std::max(p_path_scale_px, 1.0f);
+	const float s = fbm2({ ppx / scale + 13.1f, ppy / scale + 47.9f });
+	const float d = std::fabs(s - 0.5f);
+	const float path = 1.0f - smoothstep_f(p_path_width, p_path_width * 2.0f, d);
+	return clamp01(1.0f - path * p_path_strength);
 }
 
 } // namespace grass_scatter

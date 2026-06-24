@@ -51,6 +51,35 @@ uniform float rock_field_scale_px = 1050.0;
 uniform float rock_coverage = 0.26;
 uniform float macro_drift_scale_px = 5200.0;
 uniform float macro_drift_strength = 0.08;
+// Macro-mass coverage field (very long wavelength) and procedural paths:
+// see docs/02_system_specs/world/plains_ground_field_composition.md. These two
+// fields modulate grass_density across large regions and along sinuous trails;
+// their math is mirrored 1:1 in gdextension/src/grass_scatter.cpp (field-mirror
+// law) so placed grass/trees stay coherent with the painted ground.
+uniform float macro_mass_scale_px = 7000.0;
+uniform float macro_mass_strength = 0.34;
+uniform float path_scale_px = 2600.0;
+uniform float path_width = 0.06;
+uniform float path_warp_px = 700.0;
+uniform float path_strength = 0.85;
+// Transition scree: gravel/pebbles concentrated on the open<->grass seam (and a
+// few scattered stones on open dirt). Visual-only, reuses the rock textures;
+// does not touch the density field or placement, so no C++ mirror is needed.
+uniform float scree_field_scale_px = 640.0;
+uniform float scree_density = 0.45;
+uniform float scree_strength = 0.9;
+uniform float scree_open_amount = 0.25;
+// Cosmetic ground shading (ADR-0005: visual only, NOT gameplay light). Hybrid:
+// a constant ambient-AO form field + a day-only sun-directional component. The
+// sun model is fed by WorldStreamer from WorldVisualLightingProfile (the single
+// sun source) — no second lighting curve.
+uniform float shade_scale_px = 3500.0;
+uniform float shade_ambient_strength = 0.13;
+uniform float shade_relief_px = 520.0;
+uniform float shade_directional_gain = 3.2;
+uniform float shade_dir_strength = 0.16;
+uniform float ground_sun_angle_deg = 234.0;
+uniform float ground_sun_day = 1.0;
 
 varying vec2 world_pos;
 
@@ -127,6 +156,20 @@ float fbm2(vec2 p) {
 	return v / max(total, 0.0001);
 }
 
+// Procedural paths as distance-to-warped iso-contour of a low-frequency field.
+// Returns "openness" in [0,1]: 1 = open ground, ->0 inside a trail. Kept to two
+// fbm calls so the C++ mirror can evaluate it per-candidate. Mirrored 1:1 in
+// grass_scatter::sample_path.
+float sample_path(vec2 wp, float scale, float width, float warp_px, float strength) {
+	float wn = fbm2(wp / max(scale * 0.5, 1.0) + vec2(71.3, -19.7));
+	float ang = wn * 6.2831853;
+	vec2 ppos = wp + vec2(cos(ang), sin(ang)) * warp_px;
+	float s = fbm2(ppos / max(scale, 1.0) + vec2(13.1, 47.9));
+	float d = abs(s - 0.5);
+	float path = 1.0 - smoothstep(width, width * 2.0, d);
+	return clamp(1.0 - path * strength, 0.0, 1.0);
+}
+
 void fragment() {
 	vec4 mask = texture(TEXTURE, UV);
 	if (mask.a < 0.01) {
@@ -177,7 +220,12 @@ void fragment() {
 				fbm3(organic_pos / max(grass_field_scale_px, 1.0) + vec2(4.7, 13.9)),
 				2.10
 			);
-			grass_field = clamp(grass_field + (grass_coverage - 0.5) * 0.9, 0.0, 1.0);
+			// Macro-mass: one very long wavelength fbm biases coverage up/down
+			// across large regions -> bare clearings vs dense pockets. Biofield
+			// follows automatically because orange_region is gated by density.
+			float macro_mass = fbm2(world_pos / max(macro_mass_scale_px, 1.0) + vec2(91.7, -53.3));
+			float macro_bias = (macro_mass - 0.5) * 2.0 * macro_mass_strength;
+			grass_field = clamp(grass_field + (grass_coverage - 0.5) * 0.9 + macro_bias, 0.0, 1.0);
 			float orange_field = remap_contrast(
 				fbm3(organic_pos / max(orange_field_scale_px, 1.0) + vec2(-27.3, 8.1)),
 				1.30
@@ -229,6 +277,10 @@ void fragment() {
 			);
 			grass_density *= 1.0 - rock_region * 0.85;
 
+			// Paths: thin grass along sinuous trails so soil/gravel shows through.
+			float path_open = sample_path(world_pos, path_scale_px, path_width, path_warp_px, path_strength);
+			grass_density *= path_open;
+
 			// Пороги травяной лестницы сдвинуты вниз так, чтобы зона, где
 			// native ставит пучки (grass_density ~0.30+), уже была плотным
 			// травяным ковром: пучки врастают в землю, а не торчат из голого
@@ -250,6 +302,21 @@ void fragment() {
 			top_color = mix(top_color, grass_color, organic_strength);
 			top_color *= 0.965 + top_breakup * 0.07;
 
+			// --- transition scree: gravel on the open<->grass seam ---
+			// Peaks where grass_density is mid (the seam), plus a faint amount on
+			// open dirt. Broken into pebbles by a mid-frequency field and the rock
+			// grain luma so it reads as scattered stones, not a flat wash.
+			float scree_seam = smoothstep(0.06, 0.22, grass_density) * (1.0 - smoothstep(0.32, 0.54, grass_density));
+			float scree_open = (1.0 - smoothstep(0.04, 0.14, grass_density)) * scree_open_amount;
+			float scree_band = max(scree_seam, scree_open);
+			float scree_field = fbm2(world_pos / max(scree_field_scale_px, 1.0) + vec2(61.7, 28.3));
+			float scree_threshold = mix(0.74, 0.40, clamp(scree_density, 0.0, 1.0));
+			float scree_grain = smoothstep(0.40, 0.78, luma(rock_color));
+			float scree = scree_band
+				* smoothstep(scree_threshold - 0.16, scree_threshold + 0.16, scree_field)
+				* (0.5 + 0.5 * scree_grain);
+			top_color = mix(top_color, rock_color * 0.96, clamp(scree * scree_strength, 0.0, 1.0));
+
 			// --- large aperiodic tone drift: keeps far zoom alive, no grid ---
 			if (macro_drift_strength > 0.001 && macro_drift_scale_px > 1.0) {
 				// Mostly-warm drift: the cool pole stays nearly neutral so wide
@@ -260,6 +327,18 @@ void fragment() {
 				vec3 cool_tint = vec3(1.0 - macro_drift_strength * 0.15, 1.0, 1.0 + macro_drift_strength * 0.10);
 				top_color *= drift_brightness * mix(cool_tint, warm_tint, drift);
 			}
+
+			// --- cosmetic large-scale shading (ADR-0005: visual only) ---
+			// Ambient AO form (always on) sculpts large masses; a day-only
+			// sun-directional component brightens sun-facing slopes and darkens
+			// away-facing ones, faded by daylight via ground_sun_day.
+			float shade_a = fbm2(world_pos / max(shade_scale_px, 1.0) + vec2(5.9, 21.7));
+			float ambient_ao = mix(1.0 - shade_ambient_strength, 1.0 + shade_ambient_strength * 0.35, shade_a);
+			vec2 sun_dir = vec2(cos(radians(ground_sun_angle_deg)), sin(radians(ground_sun_angle_deg)));
+			float shade_b = fbm2((world_pos + sun_dir * shade_relief_px) / max(shade_scale_px, 1.0) + vec2(5.9, 21.7));
+			float sun_slope = clamp(0.5 + (shade_b - shade_a) * shade_directional_gain, 0.0, 1.0);
+			float directional = mix(1.0 - shade_dir_strength, 1.0 + shade_dir_strength * 0.6, sun_slope);
+			top_color *= ambient_ao * mix(1.0, directional, clamp(ground_sun_day, 0.0, 1.0));
 		}
 
 		vec3 face_albedo = texture(face_albedo_tex, face_uv).rgb;

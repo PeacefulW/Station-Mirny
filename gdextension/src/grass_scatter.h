@@ -48,7 +48,16 @@ enum ParamIndex {
 	PARAM_SPORE_ORANGE_THRESHOLD = 31, // orange_region above which spores can spawn
 	PARAM_SPORE_CHANCE = 32,         // per-candidate spore probability inside field
 	PARAM_SPORE_SIZE_PX = 33,        // spore mote diameter
-	PARAM_COUNT = 34,
+	// Plains ground field composition (macro-masses + paths). Appended at the end
+	// so existing indices stay stable. Mirrored from the ground material
+	// sampling_params; see docs/02_system_specs/world/plains_ground_field_composition.md.
+	PARAM_MACRO_MASS_SCALE_PX = 34,  // very long wavelength coverage modulator
+	PARAM_MACRO_MASS_STRENGTH = 35,  // how hard macro-mass pushes coverage
+	PARAM_PATH_SCALE_PX = 36,        // path network spacing / wavelength
+	PARAM_PATH_WIDTH = 37,           // trail half-width (field-value units)
+	PARAM_PATH_WARP_PX = 38,         // domain warp amount for sinuosity
+	PARAM_PATH_STRENGTH = 39,        // how hard a trail drives coverage down
+	PARAM_COUNT = 40,
 };
 
 // Depth ladder contract: tufts are split by the ABSOLUTE chunk-local depth
@@ -81,14 +90,28 @@ godot::Dictionary build_buffer(
 		const godot::PackedFloat32Array &p_params);
 
 // Плотность травы поля в мировой точке (та же формула sample_fields, что красит
-// землю и сеет пучки). Деревья растут только где земля «трава» (см. world_core).
+// землю и сеет пучки), включая macro-mass модуляцию покрытия. Деревья растут
+// только где земля «трава» (см. world_core). Путь (path) сюда НЕ входит — он
+// поточечный множитель, считается отдельно через sample_path.
 float sample_grass_density(
 		double p_world_x,
 		double p_world_y,
 		float p_grass_field_scale_px,
 		float p_grass_coverage,
 		float p_rock_field_scale_px,
-		float p_rock_coverage);
+		float p_rock_coverage,
+		float p_macro_mass_scale_px,
+		float p_macro_mass_strength);
+
+// Проходимость пути в мировой точке: 1 = открытая земля, ->0 в центре тропы.
+// Поточечная (не через грубую сетку), та же формула, что в ground-шейдере.
+float sample_path(
+		double p_world_x,
+		double p_world_y,
+		float p_path_scale_px,
+		float p_path_width,
+		float p_path_warp_px,
+		float p_path_strength);
 
 } // namespace grass_scatter
 

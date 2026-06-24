@@ -294,6 +294,12 @@ func _build_dense_grass_params() -> PackedFloat32Array:
 		0.28,
 		0.07,
 		7.0,
+		7000.0,
+		0.34,
+		2600.0,
+		0.06,
+		700.0,
+		0.85,
 	])
 
 func _grass_origin_has_mountain_clearance(terrain_ids: PackedInt32Array, local_x: float, local_y: float, clearance_px: float) -> bool:

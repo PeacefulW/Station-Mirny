@@ -210,6 +210,16 @@ static func _get_or_create_material_for_terrain(terrain_id: int) -> ShaderMateri
 	_materials_by_profile_id[profile.id] = material
 	return material
 
+static func get_built_material_for_terrain(terrain_id: int) -> ShaderMaterial:
+	# Safe read for live sun-uniform updates on the shared ground material:
+	# returns it only if it was already built for a visible chunk, never forces
+	# early creation (the cosmetic sun shade has correct daytime uniform defaults
+	# until the material exists). See plains_ground_cosmetic_shading.md.
+	var profile: TerrainPresentationProfile = TerrainPresentationRegistry.get_profile_for_terrain(terrain_id)
+	if profile != null and _materials_by_profile_id.has(profile.id):
+		return _materials_by_profile_id[profile.id] as ShaderMaterial
+	return null
+
 static func _build_material(
 	profile: TerrainPresentationProfile,
 	shape_set: TerrainShapeSet,
