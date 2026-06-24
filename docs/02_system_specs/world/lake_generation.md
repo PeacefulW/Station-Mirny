@@ -5,7 +5,7 @@ status: approved
 owner: engineering+design
 source_of_truth: true
 version: 1.1
-last_updated: 2026-05-05
+last_updated: 2026-06-24
 related_docs:
   - ../../README.md
   - ../../00_governance/WORKFLOW.md
@@ -68,8 +68,11 @@ boundary, `WORLD_VERSION = 48` carries the mountain passage/outcrop refinement
 boundary, `WORLD_VERSION = 49` carries the static biofield flora placement
 boundary, `WORLD_VERSION = 50` carries the rare rocky-patch rock formation
 placement boundary, `WORLD_VERSION = 51` carries the rare rocky-patch rock
-pillar presentation boundary, and current `WORLD_VERSION = 52` carries the
-mountain-edge object clearance boundary.
+pillar presentation boundary, `WORLD_VERSION = 52` carries the mountain-edge
+object clearance boundary, `WORLD_VERSION = 57` carries the rare grass-only big
+rock placement boundary, `WORLD_VERSION = 58` carries the initial grass-edge
+small rock placement boundary, and current `WORLD_VERSION = 59` carries the
+grass-edge small rock scree tuning boundary.
 L3 water presentation is landed:
 `ChunkView` now owns the derived
 `WaterSurfaceLayer`, populated from `lake_flags` and current resolved
@@ -163,6 +166,18 @@ packet fields and lake algorithms remain unchanged. The mountain-edge object
 clearance boundary advances current new worlds to `WORLD_VERSION = 52` because
 native object packets suppress rocks and flora near canonical mountain
 wall/foot terrain; lake packet fields and lake algorithms remain unchanged.
+The rare grass-only big rock placement boundary advances current new worlds to
+`WORLD_VERSION = 57` because native object packets may emit blocking
+`object_kind == 5` records on the visual grass field; lake packet fields and
+lake algorithms remain unchanged.
+The grass-edge small rock placement boundary advances current new worlds to
+`WORLD_VERSION = 58` because native object packets may emit visual-only
+`object_kind == 6` records on the procedural open-ground to grass transition;
+lake packet fields and lake algorithms remain unchanged.
+The grass-edge small rock scree tuning boundary advances current new worlds to
+`WORLD_VERSION = 59` because native object packets keep `object_kind == 6` but
+rebalance deterministic placement toward sparser seam clusters; lake packet
+fields and lake algorithms remain unchanged.
 
 ## Gameplay Goal
 

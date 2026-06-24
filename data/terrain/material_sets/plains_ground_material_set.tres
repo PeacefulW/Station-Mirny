@@ -67,6 +67,8 @@ sampling_params = {
 "scree_density": 0.45,
 "scree_strength": 0.9,
 "scree_open_amount": 0.25,
+"edge_mottle_strength": 0.22,
+"edge_mottle_scale_px": 150.0,
 "shade_scale_px": 3500.0,
 "shade_ambient_strength": 0.13,
 "shade_relief_px": 520.0,

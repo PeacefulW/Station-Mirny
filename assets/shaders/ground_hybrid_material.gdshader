@@ -69,6 +69,12 @@ uniform float scree_field_scale_px = 640.0;
 uniform float scree_density = 0.45;
 uniform float scree_strength = 0.9;
 uniform float scree_open_amount = 0.25;
+// Ecotone edge mottling: high-frequency break-up of the grass<->bare boundary,
+// applied ONLY inside the transition band, so the edge interfingers (grass
+// tongues, dirt bays, stranded clumps) like the reference instead of a smooth
+// fade. Visual-only (texture ladder + scree); placement keeps smooth grass_density.
+uniform float edge_mottle_strength = 0.22;
+uniform float edge_mottle_scale_px = 150.0;
 // Cosmetic ground shading (ADR-0005: visual only, NOT gameplay light). Hybrid:
 // a constant ambient-AO form field + a day-only sun-directional component. The
 // sun model is fed by WorldStreamer from WorldVisualLightingProfile (the single
@@ -281,15 +287,24 @@ void fragment() {
 			float path_open = sample_path(world_pos, path_scale_px, path_width, path_warp_px, path_strength);
 			grass_density *= path_open;
 
+			// Ragged ecotone: a fine field breaks the grass/bare edge ONLY in the
+			// transition band -> interfingered boundary (grass tongues + dirt bays +
+			// stranded clumps) like the reference, not a smooth fade. Visual-only:
+			// the texture ladder/scree read grass_density_visual; tuft/tree placement
+			// still reads grass_density (no field-mirror change, no version bump).
+			float edge_w = 1.0 - clamp(abs(grass_density - 0.28) / 0.26, 0.0, 1.0);
+			float edge_fbm = fbm2(world_pos / max(edge_mottle_scale_px, 1.0) + vec2(37.0, 71.0));
+			float grass_density_visual = clamp(grass_density + (edge_fbm - 0.5) * edge_mottle_strength * edge_w, 0.0, 1.0);
+
 			// Пороги травяной лестницы сдвинуты вниз так, чтобы зона, где
 			// native ставит пучки (grass_density ~0.30+), уже была плотным
 			// травяным ковром: пучки врастают в землю, а не торчат из голого
 			// грунта. Пучки сэмплят то же grass_density, поля синхронны.
 			vec3 grass_color = top_color;
-			grass_color = mix(grass_color, transition_color, smoothstep(0.12, 0.30, grass_density));
-			grass_color = mix(grass_color, sparse_color, smoothstep(0.26, 0.44, grass_density));
-			grass_color = mix(grass_color, medium_color, smoothstep(0.40, 0.58, grass_density));
-			grass_color = mix(grass_color, dense_color, smoothstep(0.56, 0.78, grass_density));
+			grass_color = mix(grass_color, transition_color, smoothstep(0.12, 0.30, grass_density_visual));
+			grass_color = mix(grass_color, sparse_color, smoothstep(0.26, 0.44, grass_density_visual));
+			grass_color = mix(grass_color, medium_color, smoothstep(0.40, 0.58, grass_density_visual));
+			grass_color = mix(grass_color, dense_color, smoothstep(0.56, 0.78, grass_density_visual));
 
 			// --- orange biofield cores inside healthy grass ---
 			vec3 orange_color = texture(orange_biofield_albedo_tex, detail_uv * 0.84 + vec2(0.33, 0.12)).rgb;
@@ -306,8 +321,8 @@ void fragment() {
 			// Peaks where grass_density is mid (the seam), plus a faint amount on
 			// open dirt. Broken into pebbles by a mid-frequency field and the rock
 			// grain luma so it reads as scattered stones, not a flat wash.
-			float scree_seam = smoothstep(0.06, 0.22, grass_density) * (1.0 - smoothstep(0.32, 0.54, grass_density));
-			float scree_open = (1.0 - smoothstep(0.04, 0.14, grass_density)) * scree_open_amount;
+			float scree_seam = smoothstep(0.06, 0.22, grass_density_visual) * (1.0 - smoothstep(0.32, 0.54, grass_density_visual));
+			float scree_open = (1.0 - smoothstep(0.04, 0.14, grass_density_visual)) * scree_open_amount;
 			float scree_band = max(scree_seam, scree_open);
 			float scree_field = fbm2(world_pos / max(scree_field_scale_px, 1.0) + vec2(61.7, 28.3));
 			float scree_threshold = mix(0.74, 0.40, clamp(scree_density, 0.0, 1.0));

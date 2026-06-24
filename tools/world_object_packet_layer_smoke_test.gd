@@ -14,6 +14,8 @@ const DefaultMountainGenSettings = preload("res://data/balance/mountain_gen_sett
 const OBJECT_KIND_ROCK: int = 1
 const OBJECT_KIND_LIVING_FLORA: int = 2
 const OBJECT_KIND_SPIKY_FLORA: int = 3
+const OBJECT_KIND_BIG_GRASS_ROCK: int = 5
+const OBJECT_KIND_GRASS_EDGE_SMALL_ROCK: int = 6
 const ROCK_ATLAS_RARE_FORMATION: int = 3
 const SPIKY_FLORA_ATLAS_BROWN_SEAWEED: int = 1
 const OBJECT_MOUNTAIN_CLEARANCE_PX: float = 48.0
@@ -75,6 +77,8 @@ func _find_native_packet_with_objects() -> Dictionary:
 	var best_living_count: int = 0
 	var best_brown_seaweed_count: int = 0
 	var best_rare_rock_formation_count: int = 0
+	var best_big_grass_rock_count: int = 0
+	var best_grass_edge_small_rock_count: int = 0
 	for packet_variant: Variant in packets:
 		var packet: Dictionary = packet_variant as Dictionary
 		var object_kind: PackedByteArray = packet.get("object_kind", PackedByteArray()) as PackedByteArray
@@ -82,6 +86,8 @@ func _find_native_packet_with_objects() -> Dictionary:
 		var rock_count: int = _count_kind(object_kind, OBJECT_KIND_ROCK)
 		var spiky_count: int = _count_kind(object_kind, OBJECT_KIND_SPIKY_FLORA)
 		var living_count: int = _count_kind(object_kind, OBJECT_KIND_LIVING_FLORA)
+		var big_grass_rock_count: int = _count_kind(object_kind, OBJECT_KIND_BIG_GRASS_ROCK)
+		var grass_edge_small_rock_count: int = _count_kind(object_kind, OBJECT_KIND_GRASS_EDGE_SMALL_ROCK)
 		var brown_seaweed_count: int = _count_kind_atlas(object_kind, object_atlas, OBJECT_KIND_SPIKY_FLORA, SPIKY_FLORA_ATLAS_BROWN_SEAWEED)
 		var rare_rock_formation_count: int = _count_kind_atlas(object_kind, object_atlas, OBJECT_KIND_ROCK, ROCK_ATLAS_RARE_FORMATION)
 		if object_kind.size() > best_object_count:
@@ -92,7 +98,9 @@ func _find_native_packet_with_objects() -> Dictionary:
 			best_living_count = living_count
 			best_brown_seaweed_count = brown_seaweed_count
 			best_rare_rock_formation_count = rare_rock_formation_count
-		if rock_count > 0 and spiky_count > 0 and brown_seaweed_count > 0 and rare_rock_formation_count > 0:
+			best_big_grass_rock_count = big_grass_rock_count
+			best_grass_edge_small_rock_count = grass_edge_small_rock_count
+		if rock_count > 0 and spiky_count > 0 and brown_seaweed_count > 0 and rare_rock_formation_count > 0 and big_grass_rock_count > 0 and grass_edge_small_rock_count > 0:
 			best_packet = packet
 			best_object_count = object_kind.size()
 			best_rock_count = rock_count
@@ -100,6 +108,8 @@ func _find_native_packet_with_objects() -> Dictionary:
 			best_living_count = living_count
 			best_brown_seaweed_count = brown_seaweed_count
 			best_rare_rock_formation_count = rare_rock_formation_count
+			best_big_grass_rock_count = big_grass_rock_count
+			best_grass_edge_small_rock_count = grass_edge_small_rock_count
 			break
 
 	_assert(best_object_count > 0, "Native object packet scan produced no objects.")
@@ -107,9 +117,11 @@ func _find_native_packet_with_objects() -> Dictionary:
 	_assert(best_spiky_count > 0, "Native object packet scan produced no spiky flora objects.")
 	_assert(best_brown_seaweed_count > 0, "Native object packet scan produced no brown seaweed biofield flora objects.")
 	_assert(best_rare_rock_formation_count > 0, "Native object packet scan produced no rare rock formation objects.")
+	_assert(best_big_grass_rock_count > 0, "Native object packet scan produced no plains grass big rock objects.")
+	_assert(best_grass_edge_small_rock_count > 0, "Native object packet scan produced no plains grass-edge small rock objects.")
 	print(
-		"WORLD_OBJECT_PACKET_NATIVE objects=%d rocks=%d living=%d spiky=%d brown_seaweed=%d rare_rock_formation=%d" %
-		[best_object_count, best_rock_count, best_living_count, best_spiky_count, best_brown_seaweed_count, best_rare_rock_formation_count]
+		"WORLD_OBJECT_PACKET_NATIVE objects=%d rocks=%d living=%d spiky=%d brown_seaweed=%d rare_rock_formation=%d big_grass_rock=%d grass_edge_small_rock=%d" %
+		[best_object_count, best_rock_count, best_living_count, best_spiky_count, best_brown_seaweed_count, best_rare_rock_formation_count, best_big_grass_rock_count, best_grass_edge_small_rock_count]
 	)
 	return best_packet
 
@@ -135,13 +147,18 @@ func _assert_packet_layer_consumes_packet(packet: Dictionary) -> void:
 	layer.set_rock_atlases([_make_texture(2048, 512), _make_texture(2048, 512), _make_texture(2048, 512), _make_texture(2048, 512)])
 	layer.set_living_flora_atlas(_make_texture(4096, 1024))
 	layer.set_spiky_flora_atlases([_make_texture(2048, 512), _make_texture(2048, 512)])
+	layer.set_big_grass_rock_atlases([_make_texture(512, 512), _make_texture(512, 512), _make_texture(512, 512), _make_texture(512, 512)])
+	layer.set_grass_edge_small_rock_source(_make_texture(1024, 768), 4, 3, 12)
 	layer.configure_packet(packet)
 	layer.set_sun_lighting(234.0, 96.0, 0.55, 18.0)
 
 	var state: Dictionary = layer.get_debug_state()
 	_assert(int(state.get("rock_count", 0)) > 0, "WorldObjectPacketLayer must render rock packet records.")
 	_assert(int(state.get("spiky_flora_count", 0)) > 0, "WorldObjectPacketLayer must render spiky flora packet records.")
+	_assert(int(state.get("big_grass_rock_count", 0)) > 0, "WorldObjectPacketLayer must render plains grass big rock packet records.")
+	_assert(int(state.get("grass_edge_small_rock_count", 0)) > 0, "WorldObjectPacketLayer must render plains grass-edge small rock packet records.")
 	_assert(int(state.get("collider_count", 0)) >= 0, "WorldObjectPacketLayer collider debug count must be readable.")
+	_assert(int(state.get("big_grass_rock_collider_count", 0)) > 0, "WorldObjectPacketLayer must build blocking colliders for plains grass big rocks.")
 	print("WORLD_OBJECT_PACKET_LAYER_STATE ", state)
 	layer.free()
 

@@ -5,7 +5,7 @@ status: approved
 source_of_truth: true
 owner: engineering+art
 version: 1.0
-last_updated: 2026-06-23
+last_updated: 2026-06-24
 related_docs:
   - terrain_hybrid_presentation.md
   - wind_and_grass_scatter_presentation.md
@@ -50,15 +50,17 @@ stays clear of paths, so visible ground and placed objects stay coherent.
   placement-affecting field math;
 - a transition **scree** detail (Iteration 2): visual-only gravel/pebbles
   concentrated at the open↔grass seam, reusing the existing rock textures.
-  Raised stone OBJECTS with shadows are explicitly deferred to the
-  `scatter + litter` roadmap step (a separate spec).
+  Packet-backed raised pebble objects are owned by
+  `world_object_placement_v0.md` (`object_kind == 6`), not by this ground
+  shader composition spec.
 
 ## Out of Scope
 
 - player-worn / dynamic trails (would require per-tile wear state, a runtime
   diff owner, and save payload — a separate spec, explicitly deferred);
-- new object kinds, decals, contact shadows, or lighting (later presentation
-  steps);
+- new gameplay object kinds, terrain-owned decals, contact shadows, or lighting
+  (packet-backed decor object families are owned by
+  `world_object_placement_v0.md`);
 - any change to canonical terrain ids, walkability, collision, mining, or save
   contracts;
 - new biomes.
@@ -288,11 +290,26 @@ dirt, painted in the ground shader from the existing rock textures.
 - Knobs (visual-only) in `plains_ground_material_set.tres`:
   `scree_field_scale_px` (default `640.0`), `scree_density` (`0.45`),
   `scree_strength` (`0.9`), `scree_open_amount` (`0.25`).
-- Raised stone OBJECTS with contact shadows are NOT this iteration; they belong
-  to the `scatter + litter` roadmap step as a procedural rock atlas + MultiMesh
-  scatter layer (separate spec), not an AI/seamless texture.
+- Raised stone OBJECTS with contact shadows are NOT owned by this shader
+  iteration; they later landed as packet-backed `object_kind == 6` in
+  `world_object_placement_v0.md`, using an atlas + `MultiMeshInstance2D`
+  presentation path instead of an AI/seamless texture.
 
 **Status: landed 2026-06-23** (verified via render probe).
+
+### Iteration 3 — Ecotone edge mottling (visual-only)
+
+The grass↔bare boundary read as a smooth fade; the reference has a ragged,
+interfingered edge (grass tongues, dirt bays, stranded clumps). A fine
+high-frequency field perturbs the ground texture ladder (and scree) **only inside
+the transition band**, through a separate `grass_density_visual`: the texture edge
+interfingers while tuft/tree placement keeps the smooth `grass_density` (no
+field-mirror change, no `WORLD_VERSION` bump). No new transition texture was
+needed — the existing `dry_grass_transition` ladder step just lacked a ragged
+edge. Knobs in the material set: `edge_mottle_strength` (0.22),
+`edge_mottle_scale_px` (150).
+
+**Status: landed 2026-06-24** (verified via render probe).
 
 ## Required Updates
 

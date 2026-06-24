@@ -9,6 +9,8 @@ const OBJECT_KIND_ROCK: int = 1
 const OBJECT_KIND_LIVING_FLORA: int = 2
 const OBJECT_KIND_SPIKY_FLORA: int = 3
 const OBJECT_KIND_TREE: int = 4
+const OBJECT_KIND_BIG_GRASS_ROCK: int = 5
+const OBJECT_KIND_GRASS_EDGE_SMALL_ROCK: int = 6
 const OBJECT_FLAG_COLLIDER: int = 1 << 0
 const OBJECT_LOCAL_PX_QUANTUM: float = 4.0
 
@@ -65,19 +67,48 @@ const TREE_COLLISION_RADIUS_SCALE: float = 0.065
 const TREE_COLLISION_MIN_RADIUS_PX: float = 9.0
 const TREE_COLLISION_MAX_RADIUS_PX: float = 20.0
 
+const BIG_GRASS_ROCK_FRAME_COLUMNS: int = 1
+const BIG_GRASS_ROCK_FRAME_ROWS: int = 1
+const BIG_GRASS_ROCK_FRAME_COUNT: int = 1
+const BIG_GRASS_ROCK_BASE_ANCHOR_OFFSET_FRAC: float = 0.22
+const BIG_GRASS_ROCK_SHADOW_WIDTH_SCALE: float = 0.72
+const BIG_GRASS_ROCK_SHADOW_HEIGHT_SCALE: float = 0.22
+const BIG_GRASS_ROCK_SHADOW_CENTER_Y_SCALE: float = 0.18
+const BIG_GRASS_ROCK_SHADOW_MIN_WIDTH_PX: float = 50.0
+const BIG_GRASS_ROCK_SHADOW_MIN_HEIGHT_PX: float = 16.0
+const BIG_GRASS_ROCK_COLLISION_RADIUS_SCALE: float = 0.14
+const BIG_GRASS_ROCK_COLLISION_MIN_RADIUS_PX: float = 20.0
+const BIG_GRASS_ROCK_COLLISION_MAX_RADIUS_PX: float = 34.0
+const BIG_GRASS_ROCK_COLLISION_CENTER_Y_SCALE: float = 0.14
+const GRASS_EDGE_SMALL_ROCK_SHADOW_WIDTH_SCALE: float = 0.76
+const GRASS_EDGE_SMALL_ROCK_SHADOW_HEIGHT_SCALE: float = 0.22
+const GRASS_EDGE_SMALL_ROCK_SHADOW_CENTER_Y_SCALE: float = 0.20
+const GRASS_EDGE_SMALL_ROCK_SHADOW_MIN_WIDTH_PX: float = 5.0
+const GRASS_EDGE_SMALL_ROCK_SHADOW_MIN_HEIGHT_PX: float = 2.0
+
 var _rock_atlases: Array[Texture2D] = []
 var _living_flora_atlas: Texture2D = null
 var _spiky_flora_atlases: Array[Texture2D] = []
 var _tree_atlas: Texture2D = null
+var _big_grass_rock_atlases: Array[Texture2D] = []
+var _grass_edge_small_rock_atlas: Texture2D = null
+var _grass_edge_small_rock_atlas_columns: int = 1
+var _grass_edge_small_rock_atlas_rows: int = 1
+var _grass_edge_small_rock_frame_count: int = 1
 var _rock_batch_layer: WorldDecorBatchLayer = null
 var _living_flora_batch_layer: WorldDecorBatchLayer = null
 var _spiky_flora_batch_layer: WorldDecorBatchLayer = null
 var _tree_batch_layer: WorldDecorBatchLayer = null
+var _big_grass_rock_batch_layer: WorldDecorBatchLayer = null
+var _grass_edge_small_rock_batch_layer: WorldDecorBatchLayer = null
 var _collision_body: StaticBody2D = null
 var _collision_shape_owner_ids: Array[int] = []
 var _tree_collision_body: StaticBody2D = null
 var _tree_collision_shape_owner_ids: Array[int] = []
 var _tree_collider_count: int = 0
+var _big_grass_rock_collision_body: StaticBody2D = null
+var _big_grass_rock_collision_shape_owner_ids: Array[int] = []
+var _big_grass_rock_collider_count: int = 0
 var _tree_shadow_layer: MultiMeshInstance2D = null
 var _tree_shadow_material: ShaderMaterial = null
 var _sun_light_angle_deg: float = 120.0
@@ -87,6 +118,8 @@ var _rock_count: int = 0
 var _living_flora_count: int = 0
 var _spiky_flora_count: int = 0
 var _tree_count: int = 0
+var _big_grass_rock_count: int = 0
+var _grass_edge_small_rock_count: int = 0
 var _collider_count: int = 0
 var _world_origin_y: float = 0.0
 
@@ -122,6 +155,21 @@ func set_tree_atlas(atlas: Texture2D) -> void:
 		_tree_batch_layer.clear_batches()
 
 
+func set_big_grass_rock_atlases(atlases: Array[Texture2D]) -> void:
+	_big_grass_rock_atlases = atlases.duplicate()
+	if _big_grass_rock_batch_layer != null and is_instance_valid(_big_grass_rock_batch_layer):
+		_big_grass_rock_batch_layer.clear_batches()
+
+
+func set_grass_edge_small_rock_source(atlas: Texture2D, columns: int, rows: int, frame_count: int) -> void:
+	_grass_edge_small_rock_atlas = atlas
+	_grass_edge_small_rock_atlas_columns = maxi(1, columns)
+	_grass_edge_small_rock_atlas_rows = maxi(1, rows)
+	_grass_edge_small_rock_frame_count = maxi(1, frame_count)
+	if _grass_edge_small_rock_batch_layer != null and is_instance_valid(_grass_edge_small_rock_batch_layer):
+		_grass_edge_small_rock_batch_layer.clear_batches()
+
+
 func set_sun_lighting(
 		light_angle_deg: float,
 		shadow_length_px: float,
@@ -149,6 +197,20 @@ func set_sun_lighting(
 			shadow_opacity,
 			shadow_softness_px,
 		)
+	if _big_grass_rock_batch_layer != null and is_instance_valid(_big_grass_rock_batch_layer):
+		_big_grass_rock_batch_layer.set_sun_lighting(
+			light_angle_deg,
+			shadow_length_px,
+			shadow_opacity,
+			shadow_softness_px,
+		)
+	if _grass_edge_small_rock_batch_layer != null and is_instance_valid(_grass_edge_small_rock_batch_layer):
+		_grass_edge_small_rock_batch_layer.set_sun_lighting(
+			light_angle_deg,
+			shadow_length_px,
+			shadow_opacity,
+			shadow_softness_px,
+		)
 	_sun_light_angle_deg = light_angle_deg
 	_sun_shadow_length_px = shadow_length_px
 	_sun_shadow_opacity = shadow_opacity
@@ -162,6 +224,8 @@ func set_world_origin_y(world_origin_y: float) -> void:
 	_apply_world_origin_to_batch_layer(_living_flora_batch_layer)
 	_apply_world_origin_to_batch_layer(_spiky_flora_batch_layer)
 	_apply_world_origin_to_batch_layer(_tree_batch_layer)
+	_apply_world_origin_to_batch_layer(_big_grass_rock_batch_layer)
+	_apply_world_origin_to_batch_layer(_grass_edge_small_rock_batch_layer)
 
 
 ## Перестановка полос объектного декора на player-relative лесенке.
@@ -174,6 +238,10 @@ func update_ladder_z(anchor_stripe: int) -> void:
 		_spiky_flora_batch_layer.update_ladder_z(anchor_stripe)
 	if _tree_batch_layer != null and is_instance_valid(_tree_batch_layer):
 		_tree_batch_layer.update_ladder_z(anchor_stripe)
+	if _big_grass_rock_batch_layer != null and is_instance_valid(_big_grass_rock_batch_layer):
+		_big_grass_rock_batch_layer.update_ladder_z(anchor_stripe)
+	if _grass_edge_small_rock_batch_layer != null and is_instance_valid(_grass_edge_small_rock_batch_layer):
+		_grass_edge_small_rock_batch_layer.update_ladder_z(anchor_stripe)
 
 
 func configure_packet(packet: Dictionary) -> void:
@@ -181,8 +249,11 @@ func configure_packet(packet: Dictionary) -> void:
 	_living_flora_count = 0
 	_spiky_flora_count = 0
 	_tree_count = 0
+	_big_grass_rock_count = 0
+	_grass_edge_small_rock_count = 0
 	_collider_count = 0
 	_clear_collision_shapes()
+	_clear_big_grass_rock_collision_shapes()
 	var object_kind: PackedByteArray = packet.get("object_kind", PackedByteArray()) as PackedByteArray
 	var object_x: PackedByteArray = packet.get("object_local_x_px_q4", PackedByteArray()) as PackedByteArray
 	var object_y: PackedByteArray = packet.get("object_local_y_px_q4", PackedByteArray()) as PackedByteArray
@@ -223,6 +294,13 @@ func configure_packet(packet: Dictionary) -> void:
 	var tree_buffer := PackedFloat32Array()
 	var tree_shadow_buffer := PackedFloat32Array()
 	var tree_collision_records: Array[Dictionary] = []
+	var big_grass_rock_buffers: Array = []
+	for _atlas_index: int in range(_big_grass_rock_atlases.size()):
+		big_grass_rock_buffers.append(PackedFloat32Array())
+	var big_grass_rock_shadow_buffer := PackedFloat32Array()
+	var big_grass_rock_collision_records: Array[Dictionary] = []
+	var grass_edge_small_rock_buffer := PackedFloat32Array()
+	var grass_edge_small_rock_shadow_buffer := PackedFloat32Array()
 	for index: int in range(object_count):
 		var kind: int = int(object_kind[index])
 		var position := Vector2(_decode_local_px(object_x[index]), _decode_local_px(object_y[index]))
@@ -252,13 +330,43 @@ func configure_packet(packet: Dictionary) -> void:
 				_append_spiky_flora(position, size_px, atlas_index, frame_index, tint_factor, phase, spiky_buffers)
 			OBJECT_KIND_TREE:
 				_append_tree(position, size_px, frame_index, tint_factor, phase, tree_buffer, tree_shadow_buffer, tree_collision_records)
+			OBJECT_KIND_BIG_GRASS_ROCK:
+				_append_big_grass_rock(
+					position,
+					size_px,
+					atlas_index,
+					flags,
+					tint_factor,
+					phase,
+					big_grass_rock_buffers,
+					big_grass_rock_shadow_buffer,
+					big_grass_rock_collision_records,
+				)
+			OBJECT_KIND_GRASS_EDGE_SMALL_ROCK:
+				_append_grass_edge_small_rock(
+					position,
+					size_px,
+					frame_index,
+					tint_factor,
+					phase,
+					grass_edge_small_rock_buffer,
+					grass_edge_small_rock_shadow_buffer,
+				)
 
 	_sync_rock_batches(rock_buffers, rock_shadow_buffer, rock_collision_records)
 	_sync_living_flora_batch(living_buffer, living_shadow_buffer)
 	_sync_spiky_flora_batch(spiky_buffers, empty_shadow_buffer)
 	_sync_tree_batch(tree_buffer, tree_shadow_buffer)
 	_sync_tree_collision(tree_collision_records)
-	visible = _rock_count > 0 or _living_flora_count > 0 or _spiky_flora_count > 0 or _tree_count > 0
+	_sync_big_grass_rock_batch(big_grass_rock_buffers, big_grass_rock_shadow_buffer)
+	_sync_big_grass_rock_collision(big_grass_rock_collision_records)
+	_sync_grass_edge_small_rock_batch(grass_edge_small_rock_buffer, grass_edge_small_rock_shadow_buffer)
+	visible = _rock_count > 0 \
+			or _living_flora_count > 0 \
+			or _spiky_flora_count > 0 \
+			or _tree_count > 0 \
+			or _big_grass_rock_count > 0 \
+			or _grass_edge_small_rock_count > 0
 
 
 func get_debug_state() -> Dictionary:
@@ -268,6 +376,9 @@ func get_debug_state() -> Dictionary:
 		"spiky_flora_count": _spiky_flora_count,
 		"tree_count": _tree_count,
 		"tree_collider_count": _tree_collider_count,
+		"big_grass_rock_count": _big_grass_rock_count,
+		"big_grass_rock_collider_count": _big_grass_rock_collider_count,
+		"grass_edge_small_rock_count": _grass_edge_small_rock_count,
 		"collider_count": _collider_count,
 	}
 
@@ -445,6 +556,99 @@ func _append_tree(
 	_tree_count += 1
 
 
+func _append_big_grass_rock(
+		position: Vector2,
+		size_px: float,
+		atlas_index: int,
+		flags: int,
+		tint_factor: float,
+		phase: float,
+		big_grass_rock_buffers: Array,
+		big_grass_rock_shadow_buffer: PackedFloat32Array,
+		big_grass_rock_collision_records: Array[Dictionary],
+) -> void:
+	if atlas_index < 0 or atlas_index >= big_grass_rock_buffers.size():
+		return
+	var sprite_position: Vector2 = position - Vector2(0.0, size_px * BIG_GRASS_ROCK_BASE_ANCHOR_OFFSET_FRAC)
+	var sprite_buffer: PackedFloat32Array = big_grass_rock_buffers[atlas_index]
+	WorldDecorBatchLayer.append_instance(
+		sprite_buffer,
+		sprite_position,
+		Vector2.ONE * size_px,
+		0,
+		Color(tint_factor, tint_factor, tint_factor, 1.0),
+		0.0,
+		phase,
+		size_px / 96.0,
+	)
+	big_grass_rock_buffers[atlas_index] = sprite_buffer
+	var shadow_size := Vector2(
+		maxf(size_px * BIG_GRASS_ROCK_SHADOW_WIDTH_SCALE, BIG_GRASS_ROCK_SHADOW_MIN_WIDTH_PX),
+		maxf(size_px * BIG_GRASS_ROCK_SHADOW_HEIGHT_SCALE, BIG_GRASS_ROCK_SHADOW_MIN_HEIGHT_PX),
+	)
+	WorldDecorBatchLayer.append_instance(
+		big_grass_rock_shadow_buffer,
+		position + Vector2(0.0, size_px * BIG_GRASS_ROCK_SHADOW_CENTER_Y_SCALE),
+		shadow_size,
+		0,
+		Color(1.0, 1.0, 1.0, 0.84),
+		0.0,
+		phase,
+		maxf(size_px / 128.0, 0.62),
+	)
+	if (flags & OBJECT_FLAG_COLLIDER) != 0:
+		big_grass_rock_collision_records.append(
+			{
+				"position": position + Vector2(0.0, size_px * BIG_GRASS_ROCK_COLLISION_CENTER_Y_SCALE),
+				"radius": clampf(
+					size_px * BIG_GRASS_ROCK_COLLISION_RADIUS_SCALE,
+					BIG_GRASS_ROCK_COLLISION_MIN_RADIUS_PX,
+					BIG_GRASS_ROCK_COLLISION_MAX_RADIUS_PX,
+				),
+			},
+		)
+	_big_grass_rock_count += 1
+
+
+func _append_grass_edge_small_rock(
+		position: Vector2,
+		size_px: float,
+		frame_index: int,
+		tint_factor: float,
+		phase: float,
+		grass_edge_small_rock_buffer: PackedFloat32Array,
+		grass_edge_small_rock_shadow_buffer: PackedFloat32Array,
+) -> void:
+	if _grass_edge_small_rock_atlas == null:
+		return
+	var safe_frame: int = clampi(frame_index, 0, _grass_edge_small_rock_frame_count - 1)
+	WorldDecorBatchLayer.append_instance(
+		grass_edge_small_rock_buffer,
+		position,
+		Vector2.ONE * size_px,
+		safe_frame,
+		Color(tint_factor, tint_factor, tint_factor, 0.94),
+		0.0,
+		phase,
+		maxf(size_px / 96.0, 0.24),
+	)
+	var shadow_size := Vector2(
+		maxf(size_px * GRASS_EDGE_SMALL_ROCK_SHADOW_WIDTH_SCALE, GRASS_EDGE_SMALL_ROCK_SHADOW_MIN_WIDTH_PX),
+		maxf(size_px * GRASS_EDGE_SMALL_ROCK_SHADOW_HEIGHT_SCALE, GRASS_EDGE_SMALL_ROCK_SHADOW_MIN_HEIGHT_PX),
+	)
+	WorldDecorBatchLayer.append_instance(
+		grass_edge_small_rock_shadow_buffer,
+		position + Vector2(0.0, size_px * GRASS_EDGE_SMALL_ROCK_SHADOW_CENTER_Y_SCALE),
+		shadow_size,
+		0,
+		Color(1.0, 1.0, 1.0, 0.42),
+		0.0,
+		phase,
+		maxf(size_px / 128.0, 0.24),
+	)
+	_grass_edge_small_rock_count += 1
+
+
 func _sync_rock_batches(
 		rock_buffers: Array,
 		rock_shadow_buffer: PackedFloat32Array,
@@ -530,6 +734,35 @@ func _sync_tree_batch(tree_buffer: PackedFloat32Array, tree_shadow_buffer: Packe
 	_sync_tree_silhouette(tree_buffer)
 
 
+func _sync_big_grass_rock_batch(big_grass_rock_buffers: Array, big_grass_rock_shadow_buffer: PackedFloat32Array) -> void:
+	if _big_grass_rock_atlases.is_empty() or _big_grass_rock_count <= 0:
+		if _big_grass_rock_batch_layer != null and is_instance_valid(_big_grass_rock_batch_layer):
+			_big_grass_rock_batch_layer.clear_batches()
+		return
+	var batch_layer: WorldDecorBatchLayer = _ensure_big_grass_rock_batch_layer()
+	batch_layer.set_atlas_layout(BIG_GRASS_ROCK_FRAME_COLUMNS, BIG_GRASS_ROCK_FRAME_ROWS, BIG_GRASS_ROCK_FRAME_COUNT)
+	batch_layer.set_animation(1, 0.0)
+	batch_layer.set_batches(_big_grass_rock_atlases, big_grass_rock_buffers, big_grass_rock_shadow_buffer)
+
+
+func _sync_grass_edge_small_rock_batch(
+		grass_edge_small_rock_buffer: PackedFloat32Array,
+		grass_edge_small_rock_shadow_buffer: PackedFloat32Array,
+) -> void:
+	if _grass_edge_small_rock_atlas == null or _grass_edge_small_rock_count <= 0:
+		if _grass_edge_small_rock_batch_layer != null and is_instance_valid(_grass_edge_small_rock_batch_layer):
+			_grass_edge_small_rock_batch_layer.clear_batches()
+		return
+	var batch_layer: WorldDecorBatchLayer = _ensure_grass_edge_small_rock_batch_layer()
+	batch_layer.set_atlas_layout(
+		_grass_edge_small_rock_atlas_columns,
+		_grass_edge_small_rock_atlas_rows,
+		_grass_edge_small_rock_frame_count,
+	)
+	batch_layer.set_animation(1, 0.0)
+	batch_layer.set_batches([_grass_edge_small_rock_atlas], [grass_edge_small_rock_buffer], grass_edge_small_rock_shadow_buffer)
+
+
 func _sync_tree_silhouette(tree_buffer: PackedFloat32Array) -> void:
 	var count: int = tree_buffer.size() / WorldDecorBatchLayer.BUFFER_STRIDE
 	if _tree_atlas == null or count <= 0:
@@ -603,6 +836,26 @@ func _ensure_tree_batch_layer() -> WorldDecorBatchLayer:
 	return _tree_batch_layer
 
 
+func _ensure_big_grass_rock_batch_layer() -> WorldDecorBatchLayer:
+	if _big_grass_rock_batch_layer != null and is_instance_valid(_big_grass_rock_batch_layer):
+		return _big_grass_rock_batch_layer
+	_big_grass_rock_batch_layer = WorldDecorBatchLayer.new()
+	_big_grass_rock_batch_layer.name = "BigGrassRockObjectPacketBatchLayer"
+	add_child(_big_grass_rock_batch_layer)
+	_apply_world_origin_to_batch_layer(_big_grass_rock_batch_layer)
+	return _big_grass_rock_batch_layer
+
+
+func _ensure_grass_edge_small_rock_batch_layer() -> WorldDecorBatchLayer:
+	if _grass_edge_small_rock_batch_layer != null and is_instance_valid(_grass_edge_small_rock_batch_layer):
+		return _grass_edge_small_rock_batch_layer
+	_grass_edge_small_rock_batch_layer = WorldDecorBatchLayer.new()
+	_grass_edge_small_rock_batch_layer.name = "GrassEdgeSmallRockObjectPacketBatchLayer"
+	add_child(_grass_edge_small_rock_batch_layer)
+	_apply_world_origin_to_batch_layer(_grass_edge_small_rock_batch_layer)
+	return _grass_edge_small_rock_batch_layer
+
+
 func _ensure_collision_body() -> StaticBody2D:
 	if _collision_body != null and is_instance_valid(_collision_body):
 		return _collision_body
@@ -612,6 +865,17 @@ func _ensure_collision_body() -> StaticBody2D:
 	_collision_body.collision_mask = 0
 	add_child(_collision_body)
 	return _collision_body
+
+
+func _ensure_big_grass_rock_collision_body() -> StaticBody2D:
+	if _big_grass_rock_collision_body != null and is_instance_valid(_big_grass_rock_collision_body):
+		return _big_grass_rock_collision_body
+	_big_grass_rock_collision_body = StaticBody2D.new()
+	_big_grass_rock_collision_body.name = "BigGrassRockObjectPacketCollisionBody"
+	_big_grass_rock_collision_body.collision_layer = ROCK_COLLISION_LAYER
+	_big_grass_rock_collision_body.collision_mask = 0
+	add_child(_big_grass_rock_collision_body)
+	return _big_grass_rock_collision_body
 
 
 func _sync_collision_shapes(collision_records: Array[Dictionary]) -> void:
@@ -640,6 +904,34 @@ func _clear_collision_shapes() -> void:
 	for owner_id: int in _collision_shape_owner_ids:
 		_collision_body.remove_shape_owner(owner_id)
 	_collision_shape_owner_ids.clear()
+
+
+func _sync_big_grass_rock_collision(collision_records: Array[Dictionary]) -> void:
+	_clear_big_grass_rock_collision_shapes()
+	if collision_records.is_empty():
+		return
+	var body: StaticBody2D = _ensure_big_grass_rock_collision_body()
+	for record: Dictionary in collision_records:
+		var shape := CircleShape2D.new()
+		shape.radius = float(record.get("radius", 22.0))
+		var owner_id: int = body.create_shape_owner(body)
+		body.shape_owner_add_shape(owner_id, shape)
+		body.shape_owner_set_transform(
+			owner_id,
+			Transform2D(0.0, record.get("position", Vector2.ZERO) as Vector2),
+		)
+		_big_grass_rock_collision_shape_owner_ids.append(owner_id)
+	_big_grass_rock_collider_count = _big_grass_rock_collision_shape_owner_ids.size()
+
+
+func _clear_big_grass_rock_collision_shapes() -> void:
+	_big_grass_rock_collider_count = 0
+	if _big_grass_rock_collision_body == null or not is_instance_valid(_big_grass_rock_collision_body):
+		_big_grass_rock_collision_shape_owner_ids.clear()
+		return
+	for owner_id: int in _big_grass_rock_collision_shape_owner_ids:
+		_big_grass_rock_collision_body.remove_shape_owner(owner_id)
+	_big_grass_rock_collision_shape_owner_ids.clear()
 
 
 func _sync_tree_collision(collision_records: Array[Dictionary]) -> void:
@@ -686,8 +978,11 @@ func _clear_batches() -> void:
 	_living_flora_count = 0
 	_spiky_flora_count = 0
 	_tree_count = 0
+	_big_grass_rock_count = 0
+	_grass_edge_small_rock_count = 0
 	_clear_collision_shapes()
 	_clear_tree_collision_shapes()
+	_clear_big_grass_rock_collision_shapes()
 	visible = false
 	if _rock_batch_layer != null and is_instance_valid(_rock_batch_layer):
 		_rock_batch_layer.clear_batches()
@@ -697,6 +992,10 @@ func _clear_batches() -> void:
 		_spiky_flora_batch_layer.clear_batches()
 	if _tree_batch_layer != null and is_instance_valid(_tree_batch_layer):
 		_tree_batch_layer.clear_batches()
+	if _big_grass_rock_batch_layer != null and is_instance_valid(_big_grass_rock_batch_layer):
+		_big_grass_rock_batch_layer.clear_batches()
+	if _grass_edge_small_rock_batch_layer != null and is_instance_valid(_grass_edge_small_rock_batch_layer):
+		_grass_edge_small_rock_batch_layer.clear_batches()
 	if _tree_shadow_layer != null and is_instance_valid(_tree_shadow_layer):
 		_tree_shadow_layer.visible = false
 		_tree_shadow_layer.multimesh = null

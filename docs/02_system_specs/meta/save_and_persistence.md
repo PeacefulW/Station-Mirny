@@ -5,7 +5,7 @@ status: approved
 owner: engineering+design
 source_of_truth: true
 version: 1.9
-last_updated: 2026-06-08
+last_updated: 2026-06-24
 related_docs:
   - multiplayer_and_modding.md
   - ../../05_adrs/0003-immutable-base-plus-runtime-diff.md
@@ -79,7 +79,7 @@ saved). See `WeatherSaveData` in `packet_schemas.md`.
   chunk-diff shape, so old saves stay load-compatible.
 
 Current world generation extension:
-- `world.json` now records `world_version: 48` for the current finite-world
+- `world.json` now records `world_version: 59` for the current finite-world
   foundation baseline with `64`-tile substrate cells, native high-resolution
   overview, Lake Generation L2 packet output (`TERRAIN_LAKE_BED_SHALLOW`,
   `TERRAIN_LAKE_BED_DEEP`, and `lake_flags`), and the 2026-05-03
@@ -93,7 +93,10 @@ Current world generation extension:
   2026-06-03 mountain satellite-outcrop boundary, plus the 2026-06-03
   clustered satellite-outcrop refinement boundary, plus the strengthened
   satellite-outcrop refinement boundary, plus the mountain passage/outcrop
-  refinement boundary
+  refinement boundary, plus the native visual object placement boundaries for
+  static biofield flora, rare rocky-patch rock formations, rare rocky-patch rock
+  pillar presentation, mountain-edge object clearance, rare grass-only big
+  rocks, and grass-edge small rocks
 - `world_version` remains a plain integer algorithm boundary; it is not a hash
   of `worldgen_settings` and does not incorporate `worldgen_signature`
 - pre-alpha save compatibility policy: the active load path accepts only
@@ -168,16 +171,32 @@ Current world generation extension:
   `object_size_px`, keeps collision narrow at the base, and depth-sorts object
   batches against the player reference. It does not change save payload or
   chunk-diff shape.
-- `world_version == 52` is the current mountain-edge object clearance boundary.
+- `world_version == 52` is the historical mountain-edge object clearance boundary.
   It changes deterministic native visual object placement by suppressing rocks,
   living flora, and spiky flora when their placement center or local clearance
   samples overlap canonical mountain wall/foot terrain. It does not change save
   payload or chunk-diff shape.
-- Current native visual object packet fields for rocks and flora are immutable
-  generated presentation records plus the loaded large-rock collision proof.
+- `world_version == 57` is the historical plains grass big rock placement
+  boundary. It changes deterministic native visual object placement by allowing
+  rare blocking `object_kind == 5` big rocks only on the visual grass field and
+  outside the orange biofield mask. It does not change save payload or
+  chunk-diff shape.
+- `world_version == 58` is the historical plains grass-edge small rock placement
+  boundary. It changes deterministic native visual object placement by allowing
+  visual-only `object_kind == 6` dense pebble scree on the procedural
+  open-ground to grass transition, with runtime contact-shadow presentation
+  only. It does not change save payload or chunk-diff shape.
+- `world_version == 59` is the current grass-edge small rock scree tuning
+  boundary. It keeps the same `object_kind == 6` packet family but rebalances
+  deterministic placement toward sparser clustered seam groups and uses the
+  self-shadowed/AO atlas rebake without baked ground projection. It does not
+  change save payload or chunk-diff shape.
+- Current native visual object packet fields for rocks, flora, trees, big
+  grass rocks, and grass-edge small rocks are immutable generated presentation
+  records plus loaded base-collision proofs where `object_flags` requests them.
   They are regenerated from `world_seed + chunk_coord + world_version` and do
   not extend `world.json` or per-chunk diff files.
-- `WorldRuntimeConstants.WORLD_VERSION` is therefore `52` for current saves;
+- `WorldRuntimeConstants.WORLD_VERSION` is therefore `59` for current saves;
   `38` remains the historical L2 packet boundary and `42` remains the
   historical L7 shore-warp boundary.
 - `worldgen_settings.lakes` stores the embedded per-save lake input copy

@@ -5,7 +5,7 @@ status: draft
 owner: engineering
 source_of_truth: true
 version: 1.2
-last_updated: 2026-06-08
+last_updated: 2026-06-24
 related_docs:
   - ../README.md
   - system_api.md
@@ -269,11 +269,28 @@ Current code notes:
   but may choose eight `45 degree` atlas variants instead of four `90 degree`
   variants. `ChunkPacketV1` shape is unchanged because the object still uses the
   same `object_variant` byte field and existing large-rock collision flag.
-- `world_version == 52` is the current mountain-edge object clearance boundary:
+- `world_version == 52` is the historical mountain-edge object clearance boundary:
   native object packets suppress rocks, living flora, and spiky flora when their
   deterministic placement center or local clearance samples overlap canonical
   mountain wall/foot terrain. `ChunkPacketV1` shape is unchanged because this
   only removes generated presentation records from existing object arrays.
+- `world_version == 57` is the historical plains grass big rock placement boundary:
+  native object packets may emit rare blocking `object_kind == 5` records only
+  on the visual grass field and outside the orange biofield mask. `ChunkPacketV1`
+  shape is unchanged because this uses the existing object arrays and collision
+  flag.
+- `world_version == 58` is the historical plains grass-edge small rock placement
+  boundary: native object packets may emit visual-only `object_kind == 6`
+  records concentrated on the procedural open-ground to grass transition. The
+  family uses one atlas bank (`object_atlas_index == 0`), `object_variant`
+  selects one of twelve atlas frames, and `object_flags == 0`; the cheap
+  contact-shadow underlay is presentation-only. `ChunkPacketV1` shape is
+  unchanged because this uses the existing object arrays.
+- `world_version == 59` is the current grass-edge small rock scree tuning
+  boundary: `object_kind == 6` keeps the same packet family and atlas contract,
+  but native placement is rebalanced toward sparser clusters on the true
+  open-ground to grass seam and the atlas is rebaked with self-shadow/AO
+  without baked ground projection. `ChunkPacketV1` shape is unchanged.
 - `worldgen_settings.mountains` is written once for new worlds and then loaded
   from `world.json`, not from the repository `.tres`
 - `worldgen_settings.lakes` is written once for new worlds and then loaded
@@ -550,7 +567,7 @@ Returned one-per-input-coord by native
 |---|---|---|---|
 | `chunk_coord` | `Vector2i` | — | Canonical chunk coordinate |
 | `world_seed` | `int` | — | Copied into the packet for validation/debug |
-| `world_version` | `int` | — | Current foundation runtime value is `51` |
+| `world_version` | `int` | — | Current foundation runtime value is `59` |
 | `terrain_ids` | `PackedInt32Array` | 256 | Base terrain ids for the gameplay layer |
 | `terrain_atlas_indices` | `PackedInt32Array` | 256 | Base-layer atlas indices; mountain tiles reuse the native mountain atlas solve, and plains ground opens `autotile_47` bank edges only against shallow/deep lake-bed neighbours |
 | `walkable_flags` | `PackedByteArray` | 256 | `1 = walkable`, `0 = blocked` |
@@ -558,13 +575,13 @@ Returned one-per-input-coord by native
 | `mountain_id_per_tile` | `PackedInt32Array` | 256 | `0 = no named mountain`; non-zero = deterministic `mountain_id` |
 | `mountain_flags` | `PackedByteArray` | 256 | Per-tile mountain bit layout documented below |
 | `mountain_atlas_indices` | `PackedInt32Array` | 256 | Roof-ready atlas indices derived from `mountain_id` adjacency via `autotile_47` |
-| `object_kind` | `PackedByteArray` | N | Visual object family id: `1` rock, `2` living flora, `3` spiky flora, `4` tree |
+| `object_kind` | `PackedByteArray` | N | Visual object family id: `1` rock, `2` living flora, `3` spiky flora, `4` tree, `5` big grass rock, `6` grass-edge small rock |
 | `object_local_x_px_q4` | `PackedByteArray` | N | Chunk-local pixel X quantized to `4 px` |
 | `object_local_y_px_q4` | `PackedByteArray` | N | Chunk-local pixel Y quantized to `4 px` |
 | `object_size_px` | `PackedByteArray` | N | Rendered sprite size in pixels |
 | `object_atlas_index` | `PackedByteArray` | N | Prepared atlas bank index for the visual family |
 | `object_variant` | `PackedByteArray` | N | Atlas frame / animation view variant |
-| `object_flags` | `PackedByteArray` | N | Visual/physics proof flags; bit `0` = large-rock collision proof |
+| `object_flags` | `PackedByteArray` | N | Visual/physics proof flags; bit `0` = blocking base-collision proof |
 | `object_tint` | `PackedByteArray` | N | `0..255` presentation tint scalar |
 | `object_phase` | `PackedByteArray` | N | `0..255` deterministic animation phase |
 
@@ -640,6 +657,22 @@ Current code notes:
   on the shared mid-layer depth ladder, not saved gameplay object state. From
   Iteration 3 tree trunks expose chunk-scoped static collision on the obstacle
   layer (shape owners on one body per chunk, not one body per tree).
+- `object_kind == 5` is the plains grass big rock family: four authored
+  self-shadowed/AO single-frame PNG variants without baked ground projection,
+  `object_atlas_index` selects the variant bank `0..3`, `object_variant` is
+  `0`, and `object_flags & 1` means a blocking base-circle collider must be
+  created by presentation. Placement is restricted to the same visual grass
+  field used by grass scatter / plains trees and explicitly rejected on the
+  orange biofield mask. Records are immutable generated presentation/collision
+  records, not saved gameplay object state.
+- `object_kind == 6` is the plains grass-edge small rock scree family: one atlas
+  bank (`object_atlas_index == 0`) contains twelve authored single-frame tiny
+  pebbles, `object_variant` selects the frame, and `object_flags == 0` because
+  these pebbles are visual-only. Placement is restricted to dense clustered
+  records on the native-mirrored open-ground to grass transition derived from
+  the shared plains grass field. `WorldObjectPacketLayer` adds a cheap runtime
+  contact-shadow underlay; the atlas itself is shadowless and remains immutable
+  generated presentation state, not saved gameplay object state.
 - For `world_version >= 53`, the native object packet adds `object_kind == 4`
   (plains trees) with the same plains-ground placement and mountain-edge
   clearance as the other object families.
@@ -650,6 +683,18 @@ Current code notes:
   field params in `world_core.cpp` tree constants mirror the single authored
   source `data/terrain/material_sets/plains_ground_material_set.tres` and must
   be kept in sync with it.
+- For `world_version >= 57`, the native object packet may emit
+  `object_kind == 5` for rare blocking grass-only big rocks. This changes
+  deterministic visual object placement only; packet fields and save payload
+  shape stay unchanged.
+- For `world_version >= 58`, the native object packet may emit
+  `object_kind == 6` for visual-only grass-edge small rock scree. This changes
+  deterministic visual object placement only; packet fields and save payload
+  shape stay unchanged.
+- For `world_version >= 59`, the same `object_kind == 6` family uses the tuned
+  sparse clustered scree placement and self-shadowed/AO sprite atlas. This
+  changes deterministic visual object placement and presentation only; packet
+  fields and save payload shape stay unchanged.
 - For `world_version >= 52`, native object packet emission keeps a local
   mountain-edge clearance for rocks, living flora, and spiky flora so batched
   decor does not spawn under the organic runtime mountain mask.

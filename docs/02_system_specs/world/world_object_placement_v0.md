@@ -5,7 +5,7 @@ status: draft
 owner: engineering+design
 source_of_truth: true
 version: 0.4
-last_updated: 2026-06-08
+last_updated: 2026-06-24
 related_docs:
   - ../../00_governance/ENGINEERING_STANDARDS.md
   - ../../00_governance/PROJECT_GLOSSARY.md
@@ -67,6 +67,14 @@ V0 includes only:
 - a narrow rare large rock-family proof restricted to chunk-local rocky ground
   patch coverage, using rock atlas index `3`, eight deterministic `45 degree`
   atlas variants, and the existing loaded large-rock collision proof;
+- a narrow rare big-rock proof restricted to the visual grass field, using
+  `object_kind == 5`, four authored self-shadowed/AO single-frame PNG variants,
+  no baked ground projection, runtime contact shadow, and a blocking
+  base-circle collision proof;
+- a narrow visual-only grass-edge small-rock scree proof restricted to the
+  procedural open-ground to grass transition, using `object_kind == 6`, one
+  twelve-frame atlas-backed placement group, dense clustered native placement,
+  no baked ground shadow, runtime contact shadow, and no collision;
 - asset folder rules for sprites, atlases, and related presentation assets;
 - mod-compatible additive content registration direction for `plains`.
 
@@ -266,13 +274,13 @@ The accepted first packet shape is presentation-oriented and intentionally
 byte-packed:
 
 ```text
-object_kind: PackedByteArray          # V0 family id: 1 rock, 2 living flora, 3 spiky flora
+object_kind: PackedByteArray          # V0 family id: 1 rock, 2 living flora, 3 spiky flora, 4 tree, 5 big grass rock, 6 grass-edge small rock
 object_local_x_px_q4: PackedByteArray # chunk-local pixel X quantized to 4 px
 object_local_y_px_q4: PackedByteArray # chunk-local pixel Y quantized to 4 px
 object_size_px: PackedByteArray       # rendered sprite size in pixels
-object_atlas_index: PackedByteArray   # prepared atlas bank index; spiky flora index 1 is small static brown seaweed, rock index 3 is rare rocky-patch rock pillar
+object_atlas_index: PackedByteArray   # prepared atlas bank index; spiky flora index 1 is small static brown seaweed, rock index 3 is rare rocky-patch rock pillar, big grass rock indices 0..3 are single-frame authored variants, grass-edge small rocks use index 0
 object_variant: PackedByteArray       # atlas frame / animation view variant
-object_flags: PackedByteArray         # bit flags; bit 0 = large-rock collision proof
+object_flags: PackedByteArray         # bit flags; bit 0 = blocking base-collision proof
 object_tint: PackedByteArray          # 0..255 presentation tint scalar
 object_phase: PackedByteArray         # 0..255 deterministic animation phase
 ```
@@ -313,6 +321,20 @@ Rules:
 - for `world_version >= 52`, generated rocks, living flora, and spiky flora
   must keep a local clearance from canonical mountain wall/foot terrain so
   batched decor does not appear underneath the organic runtime mountain mask.
+- for `world_version >= 57`, `object_kind == 5` is reserved for rare blocking
+  plains grass big rocks: four authored self-shadowed/AO single-frame PNG
+  variants, placement only on the visual grass field, rejection on the orange
+  biofield mask, no baked ground projection, runtime contact shadow, and a
+  narrow base-circle collider.
+- for `world_version >= 58`, `object_kind == 6` is reserved for visual-only
+  plains grass-edge small rock scree: one atlas-backed placement group with
+  twelve authored single-frame variants, dense clustered placement only on the
+  native-mirrored open-ground to grass transition, runtime contact shadow, and
+  no collision.
+- for `world_version >= 59`, the same `object_kind == 6` family uses the tuned
+  scree presentation contract: self-shadowed/AO sprites without baked ground
+  projection, `10..28 px` visual scale biased toward small pebbles, and sparser
+  cluster placement on the true seam rather than a continuous ring.
 
 ### Batch Presentation Contract
 

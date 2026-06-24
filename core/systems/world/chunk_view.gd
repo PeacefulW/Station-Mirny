@@ -141,6 +141,11 @@ var _rock_scatter_atlases: Array[Texture2D] = []
 var _living_flora_atlas: Texture2D = null
 var _spiky_flora_atlases: Array[Texture2D] = []
 var _tree_atlas: Texture2D = null
+var _big_grass_rock_atlases: Array[Texture2D] = []
+var _grass_edge_small_rock_atlas: Texture2D = null
+var _grass_edge_small_rock_columns: int = 1
+var _grass_edge_small_rock_rows: int = 1
+var _grass_edge_small_rock_frame_count: int = 1
 var _object_packet_layer: WorldObjectPacketLayer = null
 var _object_packet_visual_dirty: bool = false
 var _pending_object_packet_visual: Dictionary = { }
@@ -580,6 +585,26 @@ func set_tree_source(atlas: Texture2D) -> void:
 	_tree_atlas = atlas
 	if _object_packet_layer != null and is_instance_valid(_object_packet_layer):
 		_object_packet_layer.set_tree_atlas(_tree_atlas)
+
+
+func set_big_grass_rock_sources(atlases: Array[Texture2D]) -> void:
+	_big_grass_rock_atlases = atlases.duplicate()
+	if _object_packet_layer != null and is_instance_valid(_object_packet_layer):
+		_object_packet_layer.set_big_grass_rock_atlases(_big_grass_rock_atlases)
+
+
+func set_grass_edge_small_rock_source(atlas: Texture2D, columns: int, rows: int, frame_count: int) -> void:
+	_grass_edge_small_rock_atlas = atlas
+	_grass_edge_small_rock_columns = maxi(1, columns)
+	_grass_edge_small_rock_rows = maxi(1, rows)
+	_grass_edge_small_rock_frame_count = maxi(1, frame_count)
+	if _object_packet_layer != null and is_instance_valid(_object_packet_layer):
+		_object_packet_layer.set_grass_edge_small_rock_source(
+			_grass_edge_small_rock_atlas,
+			_grass_edge_small_rock_columns,
+			_grass_edge_small_rock_rows,
+			_grass_edge_small_rock_frame_count,
+		)
 
 
 func apply_contour_debug_data(
@@ -2230,7 +2255,9 @@ func _sync_object_packet_visual(packet: Dictionary) -> void:
 	if _rock_scatter_atlases.is_empty() \
 			and _living_flora_atlas == null \
 			and _spiky_flora_atlases.is_empty() \
-			and _tree_atlas == null:
+			and _tree_atlas == null \
+			and _big_grass_rock_atlases.is_empty() \
+			and _grass_edge_small_rock_atlas == null:
 		_clear_object_packet_visual()
 		return
 	var layer: WorldObjectPacketLayer = _ensure_object_packet_layer()
@@ -2238,6 +2265,13 @@ func _sync_object_packet_visual(packet: Dictionary) -> void:
 	layer.set_living_flora_atlas(_living_flora_atlas)
 	layer.set_spiky_flora_atlases(_spiky_flora_atlases)
 	layer.set_tree_atlas(_tree_atlas)
+	layer.set_big_grass_rock_atlases(_big_grass_rock_atlases)
+	layer.set_grass_edge_small_rock_source(
+		_grass_edge_small_rock_atlas,
+		_grass_edge_small_rock_columns,
+		_grass_edge_small_rock_rows,
+		_grass_edge_small_rock_frame_count,
+	)
 	_object_packet_layer.set_world_origin_y(position.y)
 	layer.configure_packet(packet)
 	_apply_sun_lighting_to_object_packet_layer()

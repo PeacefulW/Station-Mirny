@@ -5,7 +5,7 @@ status: approved
 owner: engineering
 source_of_truth: true
 version: 1.6
-last_updated: 2026-06-08
+last_updated: 2026-06-24
 related_docs:
   - ../../README.md
   - ../../00_governance/WORKFLOW.md
@@ -83,7 +83,8 @@ V0 explicitly does not include:
 
 `World Object Placement V0` authorizes one narrow exception to the original
 decor/placement exclusion: a `plains`-only generated object presentation layer
-owned by `ChunkView`, plus an explicit loaded large-rock collision proof.
+owned by `ChunkView`, plus explicit loaded base-collision proofs for large
+blocking decor.
 
 This amendment does not add gameplay placements to `ChunkPacketV0`, harvesting,
 resource yield, save diffs, commands, events, or non-`plains` biome placement.
@@ -93,10 +94,10 @@ from the already loaded chunk packet and must remain bounded by chunk-level
 `MultiMeshInstance2D` batches and shader uniforms, not one node or one CPU draw
 operation per object.
 
-Only large `plains` rocks may expose collision in this proof. Their collision
+Only large `plains` rocks and approved grass-only big rocks may expose collision in this proof. Their collision
 must be chunk-scoped through one `StaticBody2D` with shape owners per loaded
 chunk layer, derived from the same deterministic visual size as the rendered
-rock, and not saved as authoritative world state. Accepted dense object
+object, and not saved as authoritative world state. Accepted dense object
 collision for mod-scale content must stay in the native packet-backed object
 placement path before it becomes production gameplay.
 
@@ -126,6 +127,19 @@ chunk-scoped large-rock collision proof. Presentation may scale this pillar
 atlas taller than the byte-packed `object_size_px`, but collision remains a
 narrow base footprint. It does not create terrain ids, save identity, commands,
 events, or per-object scene nodes.
+
+The amendment also allows rare grass-only big rocks as `object_kind == 5`. They
+are emitted as native object packet records, use four authored self-shadowed/AO
+single-frame PNG variants selected by `object_atlas_index`, must pass the
+visual grass field and reject the orange biofield mask, and expose only a
+narrow base-circle collider plus runtime contact shadow. The sprites do not
+carry baked ground projection.
+
+The amendment also allows visual-only grass-edge small rocks as
+`object_kind == 6`. They are emitted as native object packet records from the
+shared plains grass field transition, use one twelve-frame atlas selected by
+`object_variant`, use dense clustered placement for a scree border, expose no
+collision, and get only a cheap runtime contact shadow underlay in presentation.
 
 ## Law 0 Classification
 
@@ -164,7 +178,7 @@ Required fields:
 |---|---|---|
 | `chunk_coord` | `Vector2i` | canonical chunk coordinate |
 | `world_seed` | `int` | copied into the packet for validation/debug |
-| `world_version` | `int` | first V0 runtime value starts at `1`; current active contract is `51` |
+| `world_version` | `int` | first V0 runtime value starts at `1`; current active contract is `59` |
 | `terrain_ids` | `PackedInt32Array` | length `256`, one terrain id per local tile |
 | `terrain_atlas_indices` | `PackedInt32Array` | length `256`, derived presentation atlas index per local tile |
 | `walkable_flags` | `PackedByteArray` | length `256`, `1 = walkable`, `0 = blocked` |
@@ -173,18 +187,18 @@ Approved additive visual object fields:
 
 | Field | Type | Notes |
 |---|---|---|
-| `object_kind` | `PackedByteArray` | V0 family id: `1` rock, `2` living flora, `3` spiky flora |
+| `object_kind` | `PackedByteArray` | V0 family id: `1` rock, `2` living flora, `3` spiky flora, `4` tree, `5` big grass rock, `6` grass-edge small rock |
 | `object_local_x_px_q4` | `PackedByteArray` | chunk-local pixel X quantized to `4 px` |
 | `object_local_y_px_q4` | `PackedByteArray` | chunk-local pixel Y quantized to `4 px` |
 | `object_size_px` | `PackedByteArray` | rendered sprite size in pixels |
-| `object_atlas_index` | `PackedByteArray` | prepared atlas bank index for the family; spiky flora index `1` is the small static brown seaweed biofield object; rock index `3` is the rare large rocky-patch rock pillar |
+| `object_atlas_index` | `PackedByteArray` | prepared atlas bank index for the family; spiky flora index `1` is the small static brown seaweed biofield object; rock index `3` is the rare large rocky-patch rock pillar; big grass rock indices `0..3` select authored single-frame PNG variants; grass-edge small rocks use index `0` |
 | `object_variant` | `PackedByteArray` | atlas frame / animation view variant |
-| `object_flags` | `PackedByteArray` | visual/physics proof flags; bit `0` = large-rock collision |
+| `object_flags` | `PackedByteArray` | visual/physics proof flags; bit `0` = blocking base-collision proof |
 | `object_tint` | `PackedByteArray` | `0..255` presentation tint scalar |
 | `object_phase` | `PackedByteArray` | `0..255` deterministic animation phase |
 
 All visual object arrays must have identical length. They are derived immutable
-base output for presentation and the explicit large-rock collision proof only;
+base output for presentation and explicit base-collision proofs only;
 they are not saved as gameplay object state.
 
 `terrain_atlas_indices` rules:

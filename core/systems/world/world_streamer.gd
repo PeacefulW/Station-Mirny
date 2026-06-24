@@ -78,6 +78,13 @@ const PLAINS_VOLCANIC_ROCK_ATLAS: Texture2D = preload("res://assets/sprites/reso
 const PLAINS_RARE_ROCK_FORMATION_ATLAS: Texture2D = preload("res://assets/sprites/resources/atlases/plains_rare_rock_formation_atlas.png")
 const PLAINS_TREE_ENABLED: bool = true
 const PLAINS_TREE_ATLAS: Texture2D = preload("res://assets/sprites/flora/atlases/plains_trees_atlas.png")
+const PLAINS_GRASS_BIG_ROCKS_ENABLED: bool = true
+const PLAINS_GRASS_BIG_ROCK_VARIANT_1: WorldObjectVariantData = preload("res://data/world_objects/variants/plains_grass_big_rock_01.tres")
+const PLAINS_GRASS_BIG_ROCK_VARIANT_2: WorldObjectVariantData = preload("res://data/world_objects/variants/plains_grass_big_rock_02.tres")
+const PLAINS_GRASS_BIG_ROCK_VARIANT_3: WorldObjectVariantData = preload("res://data/world_objects/variants/plains_grass_big_rock_03.tres")
+const PLAINS_GRASS_BIG_ROCK_VARIANT_4: WorldObjectVariantData = preload("res://data/world_objects/variants/plains_grass_big_rock_04.tres")
+const PLAINS_GRASS_EDGE_SMALL_ROCKS_ENABLED: bool = true
+const PLAINS_GRASS_EDGE_SMALL_ROCK_GROUP: WorldObjectPlacementGroupData = preload("res://data/world_objects/placement_groups/plains_grass_edge_small_rocks.tres")
 const PLAINS_LIVING_FLORA_ENABLED: bool = false
 const PLAINS_LIVING_FLORA_ATLAS_PATH: String = "res://assets/sprites/flora/atlases/brown_seaweed_living_4views_16frames_256.png"
 # Спайки-колючки отключены по визуальному решению: идентичность биополя
@@ -155,6 +162,11 @@ var _grass_blob_overlay_normal_texture: ImageTexture = null
 var _plains_rock_scatter_atlases: Array[Texture2D] = []
 var _plains_living_flora_atlas: Texture2D = null
 var _plains_spiky_flora_atlases: Array[Texture2D] = []
+var _plains_big_grass_rock_atlases: Array[Texture2D] = []
+var _plains_grass_edge_small_rock_atlas: Texture2D = null
+var _plains_grass_edge_small_rock_columns: int = 1
+var _plains_grass_edge_small_rock_rows: int = 1
+var _plains_grass_edge_small_rock_frame_count: int = 1
 var _mountain_mask_revision_by_chunk: Dictionary = { }
 var _mountain_native_masks_by_chunk: Dictionary = { }
 var _mountain_native_mask_inflight_chunks: Dictionary = { }
@@ -239,6 +251,8 @@ func _ready() -> void:
 	_ensure_plains_rock_scatter_sources()
 	_ensure_plains_living_flora_source()
 	_ensure_plains_spiky_flora_source()
+	_ensure_plains_big_grass_rock_sources()
+	_ensure_plains_grass_edge_small_rock_source()
 	_packet_backend.start(PACKET_WORKER_COUNT)
 	_mountain_mask_backend.start(MOUNTAIN_MASK_WORKER_COUNT)
 	_stream_job_id = FrameBudgetDispatcher.register_job(
@@ -1926,6 +1940,13 @@ func _ensure_chunk_view(chunk_coord: Vector2i) -> ChunkView:
 	chunk_view.set_living_flora_source(_plains_living_flora_atlas)
 	chunk_view.set_spiky_flora_sources(_plains_spiky_flora_atlases)
 	chunk_view.set_tree_source(PLAINS_TREE_ATLAS if PLAINS_TREE_ENABLED else null)
+	chunk_view.set_big_grass_rock_sources(_plains_big_grass_rock_atlases)
+	chunk_view.set_grass_edge_small_rock_source(
+		_plains_grass_edge_small_rock_atlas,
+		_plains_grass_edge_small_rock_columns,
+		_plains_grass_edge_small_rock_rows,
+		_plains_grass_edge_small_rock_frame_count,
+	)
 	chunk_view.apply_sun_lighting(
 		_sun_light_angle_deg,
 		_sun_shadow_length_px,
@@ -2602,6 +2623,46 @@ func _ensure_plains_spiky_flora_source() -> void:
 			PLAINS_SPIKY_FLORA_ATLAS_PATH,
 			PLAINS_BROWN_SEAWEED_STATIC_FLORA_ATLAS_PATH,
 		],
+	)
+
+
+func _ensure_plains_big_grass_rock_sources() -> void:
+	if not PLAINS_GRASS_BIG_ROCKS_ENABLED:
+		_plains_big_grass_rock_atlases.clear()
+		return
+	if _plains_big_grass_rock_atlases.size() == 4:
+		return
+	_plains_big_grass_rock_atlases.clear()
+	for variant: WorldObjectVariantData in [
+		PLAINS_GRASS_BIG_ROCK_VARIANT_1,
+		PLAINS_GRASS_BIG_ROCK_VARIANT_2,
+		PLAINS_GRASS_BIG_ROCK_VARIANT_3,
+		PLAINS_GRASS_BIG_ROCK_VARIANT_4,
+	]:
+		if variant != null and variant.texture != null:
+			_plains_big_grass_rock_atlases.append(variant.texture)
+	assert(
+		_plains_big_grass_rock_atlases.size() == 4,
+		"WorldStreamer cannot load all plains grass big rock variant textures.",
+	)
+
+
+func _ensure_plains_grass_edge_small_rock_source() -> void:
+	if not PLAINS_GRASS_EDGE_SMALL_ROCKS_ENABLED:
+		_plains_grass_edge_small_rock_atlas = null
+		_plains_grass_edge_small_rock_columns = 1
+		_plains_grass_edge_small_rock_rows = 1
+		_plains_grass_edge_small_rock_frame_count = 1
+		return
+	if _plains_grass_edge_small_rock_atlas != null:
+		return
+	_plains_grass_edge_small_rock_atlas = PLAINS_GRASS_EDGE_SMALL_ROCK_GROUP.atlas_texture
+	_plains_grass_edge_small_rock_columns = maxi(1, PLAINS_GRASS_EDGE_SMALL_ROCK_GROUP.atlas_columns)
+	_plains_grass_edge_small_rock_rows = maxi(1, PLAINS_GRASS_EDGE_SMALL_ROCK_GROUP.atlas_rows)
+	_plains_grass_edge_small_rock_frame_count = maxi(1, PLAINS_GRASS_EDGE_SMALL_ROCK_GROUP.atlas_frame_count)
+	assert(
+		_plains_grass_edge_small_rock_atlas != null,
+		"WorldStreamer cannot load plains grass edge small rock atlas.",
 	)
 
 

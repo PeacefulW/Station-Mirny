@@ -113,6 +113,8 @@ constexpr uint8_t OBJECT_KIND_ROCK = 1U;
 constexpr uint8_t OBJECT_KIND_LIVING_FLORA = 2U;
 constexpr uint8_t OBJECT_KIND_SPIKY_FLORA = 3U;
 constexpr uint8_t OBJECT_KIND_TREE = 4U;
+constexpr uint8_t OBJECT_KIND_BIG_GRASS_ROCK = 5U;
+constexpr uint8_t OBJECT_KIND_GRASS_EDGE_SMALL_ROCK = 6U;
 constexpr uint8_t OBJECT_FLAG_COLLIDER = 1U << 0U;
 constexpr int32_t OBJECT_LOCAL_PX_QUANTUM = 4;
 constexpr float OBJECT_MOUNTAIN_CLEARANCE_PX = 64.0f;
@@ -208,6 +210,34 @@ constexpr float TREE_PATH_SCALE_PX = 2600.0f;
 constexpr float TREE_PATH_WIDTH = 0.06f;
 constexpr float TREE_PATH_WARP_PX = 700.0f;
 constexpr float TREE_PATH_STRENGTH = 0.85f;
+
+constexpr int32_t BIG_GRASS_ROCK_ATLAS_COUNT = 4;
+constexpr float BIG_GRASS_ROCK_PLACEMENT_CELL_PX = 2048.0f;
+constexpr int32_t BIG_GRASS_ROCK_MAX_PER_CHUNK = 1;
+constexpr float BIG_GRASS_ROCK_EDGE_PADDING_PX = 116.0f;
+constexpr float BIG_GRASS_ROCK_TERRAIN_CLEARANCE_PX = 110.0f;
+constexpr float BIG_GRASS_ROCK_GRASS_DENSITY_MIN = 0.54f;
+constexpr float BIG_GRASS_ROCK_MIN_SIZE_PX = 190.0f;
+constexpr float BIG_GRASS_ROCK_MAX_SIZE_PX = 252.0f;
+
+constexpr int32_t GRASS_EDGE_SMALL_ROCK_FRAME_COUNT = 12;
+constexpr int32_t GRASS_EDGE_SMALL_ROCK_GRID_SIDE = 18;
+constexpr int32_t GRASS_EDGE_SMALL_ROCK_MAX_PER_CHUNK = 72;
+constexpr float GRASS_EDGE_SMALL_ROCK_EDGE_PADDING_PX = 16.0f;
+constexpr float GRASS_EDGE_SMALL_ROCK_TERRAIN_CLEARANCE_PX = 22.0f;
+constexpr float GRASS_EDGE_SMALL_ROCK_MOUNTAIN_CLEARANCE_PX = 48.0f;
+constexpr float GRASS_EDGE_SMALL_ROCK_MIN_DISTANCE_PX = 15.0f;
+constexpr float GRASS_EDGE_SMALL_ROCK_SAMPLE_OFFSET_PX = 80.0f;
+constexpr float GRASS_EDGE_SMALL_ROCK_TRANSITION_THRESHOLD = 0.40f;
+constexpr float GRASS_EDGE_SMALL_ROCK_MIN_EDGE_DELTA = 0.12f;
+constexpr float GRASS_EDGE_SMALL_ROCK_MIN_SCORE = 0.22f;
+constexpr float GRASS_EDGE_SMALL_ROCK_MAX_SCORE = 0.54f;
+constexpr float GRASS_EDGE_SMALL_ROCK_MIN_SIZE_PX = 10.0f;
+constexpr float GRASS_EDGE_SMALL_ROCK_MAX_SIZE_PX = 28.0f;
+constexpr int32_t GRASS_EDGE_SMALL_ROCK_MAX_CLUSTER_EXTRAS = 2;
+constexpr float GRASS_EDGE_SMALL_ROCK_CLUSTER_CHANCE = 0.34f;
+constexpr float GRASS_EDGE_SMALL_ROCK_CLUSTER_MIN_RADIUS_PX = 14.0f;
+constexpr float GRASS_EDGE_SMALL_ROCK_CLUSTER_MAX_RADIUS_PX = 42.0f;
 
 enum class PreviewPatchMode {
 	Terrain,
@@ -981,6 +1011,183 @@ void append_native_rare_rock_formation_placements(
 	}
 }
 
+float sample_object_grass_score(float p_world_px_x, float p_world_px_y) {
+	return grass_scatter::sample_grass_density(
+				   p_world_px_x,
+				   p_world_px_y,
+				   TREE_GRASS_FIELD_SCALE_PX,
+				   TREE_GRASS_COVERAGE,
+				   TREE_ROCK_FIELD_SCALE_PX,
+				   TREE_ROCK_COVERAGE,
+				   TREE_MACRO_MASS_SCALE_PX,
+				   TREE_MACRO_MASS_STRENGTH) *
+			grass_scatter::sample_path(
+					p_world_px_x,
+					p_world_px_y,
+					TREE_PATH_SCALE_PX,
+					TREE_PATH_WIDTH,
+					TREE_PATH_WARP_PX,
+					TREE_PATH_STRENGTH);
+}
+
+bool append_native_grass_edge_small_rock_object(
+	WorldObjectPacketBuffers &r_buffers,
+	Vector2i p_coord,
+	const PackedInt32Array &p_terrain_ids,
+	const PackedByteArray &p_lake_flags,
+	float p_local_x_px,
+	float p_local_y_px,
+	uint64_t p_salt,
+	const std::vector<std::pair<float, float>> &p_placed_positions
+) {
+	if (p_local_x_px < GRASS_EDGE_SMALL_ROCK_EDGE_PADDING_PX ||
+			p_local_y_px < GRASS_EDGE_SMALL_ROCK_EDGE_PADDING_PX ||
+			p_local_x_px > static_cast<float>(CHUNK_SIZE_PX) - GRASS_EDGE_SMALL_ROCK_EDGE_PADDING_PX ||
+			p_local_y_px > static_cast<float>(CHUNK_SIZE_PX) - GRASS_EDGE_SMALL_ROCK_EDGE_PADDING_PX ||
+			!object_position_is_plain_with_clearance(
+					p_local_x_px,
+					p_local_y_px,
+					p_terrain_ids,
+					p_lake_flags,
+					GRASS_EDGE_SMALL_ROCK_TERRAIN_CLEARANCE_PX) ||
+			!object_position_has_mountain_clearance(
+					p_local_x_px,
+					p_local_y_px,
+					p_terrain_ids,
+					GRASS_EDGE_SMALL_ROCK_MOUNTAIN_CLEARANCE_PX)) {
+		return false;
+	}
+
+	const float world_px_x = static_cast<float>(static_cast<int64_t>(p_coord.x) * CHUNK_SIZE_PX) + p_local_x_px;
+	const float world_px_y = static_cast<float>(static_cast<int64_t>(p_coord.y) * CHUNK_SIZE_PX) + p_local_y_px;
+	const float center_score = sample_object_grass_score(world_px_x, world_px_y);
+	const float score_left = sample_object_grass_score(world_px_x - GRASS_EDGE_SMALL_ROCK_SAMPLE_OFFSET_PX, world_px_y);
+	const float score_right = sample_object_grass_score(world_px_x + GRASS_EDGE_SMALL_ROCK_SAMPLE_OFFSET_PX, world_px_y);
+	const float score_up = sample_object_grass_score(world_px_x, world_px_y - GRASS_EDGE_SMALL_ROCK_SAMPLE_OFFSET_PX);
+	const float score_down = sample_object_grass_score(world_px_x, world_px_y + GRASS_EDGE_SMALL_ROCK_SAMPLE_OFFSET_PX);
+	const float min_score = std::min(center_score, std::min(score_left, std::min(score_right, std::min(score_up, score_down))));
+	const float max_score = std::max(center_score, std::max(score_left, std::max(score_right, std::max(score_up, score_down))));
+	const float edge_delta = max_score - min_score;
+	const bool crosses_transition = min_score <= GRASS_EDGE_SMALL_ROCK_TRANSITION_THRESHOLD &&
+			max_score >= GRASS_EDGE_SMALL_ROCK_TRANSITION_THRESHOLD;
+	const bool center_in_band = center_score >= GRASS_EDGE_SMALL_ROCK_MIN_SCORE &&
+			center_score <= GRASS_EDGE_SMALL_ROCK_MAX_SCORE;
+	if (edge_delta < GRASS_EDGE_SMALL_ROCK_MIN_EDGE_DELTA || (!crosses_transition && !center_in_band)) {
+		return false;
+	}
+
+	const float transition_span = std::max(
+			GRASS_EDGE_SMALL_ROCK_TRANSITION_THRESHOLD - GRASS_EDGE_SMALL_ROCK_MIN_SCORE,
+			GRASS_EDGE_SMALL_ROCK_MAX_SCORE - GRASS_EDGE_SMALL_ROCK_TRANSITION_THRESHOLD);
+	const float seam_band = 1.0f - world_utils::clamp_value(
+										std::fabs(center_score - GRASS_EDGE_SMALL_ROCK_TRANSITION_THRESHOLD) /
+												std::max(transition_span, 0.001f),
+										0.0f,
+										1.0f);
+	const float edge_strength = smoothstep01(GRASS_EDGE_SMALL_ROCK_MIN_EDGE_DELTA, 0.32f, edge_delta);
+	const float placement_strength = world_utils::clamp_value(edge_strength * 0.62f + seam_band * 0.38f, 0.0f, 1.0f);
+	float chance = lerp_float(0.08f, 0.68f, placement_strength);
+	if (center_score < GRASS_EDGE_SMALL_ROCK_TRANSITION_THRESHOLD) {
+		chance *= lerp_float(
+				0.55f,
+				1.0f,
+				smoothstep01(GRASS_EDGE_SMALL_ROCK_MIN_SCORE, GRASS_EDGE_SMALL_ROCK_TRANSITION_THRESHOLD, center_score));
+	}
+	if (object_unit(p_salt, 0x181ULL) > chance) {
+		return false;
+	}
+
+	const float min_distance_sq = GRASS_EDGE_SMALL_ROCK_MIN_DISTANCE_PX * GRASS_EDGE_SMALL_ROCK_MIN_DISTANCE_PX;
+	for (const std::pair<float, float> &existing : p_placed_positions) {
+		const float dx = p_local_x_px - existing.first;
+		const float dy = p_local_y_px - existing.second;
+		if (dx * dx + dy * dy < min_distance_sq) {
+			return false;
+		}
+	}
+
+	const uint8_t variant = static_cast<uint8_t>(
+			static_cast<int32_t>(std::floor(object_unit(p_salt, 0x97ULL) * static_cast<float>(GRASS_EDGE_SMALL_ROCK_FRAME_COUNT))) %
+			GRASS_EDGE_SMALL_ROCK_FRAME_COUNT);
+	const float size_roll = std::pow(object_unit(p_salt, 0x107ULL), 1.80f);
+	float size_px = lerp_float(GRASS_EDGE_SMALL_ROCK_MIN_SIZE_PX, GRASS_EDGE_SMALL_ROCK_MAX_SIZE_PX, size_roll);
+	size_px *= lerp_float(0.92f, 1.08f, placement_strength);
+	size_px = world_utils::clamp_value(size_px, GRASS_EDGE_SMALL_ROCK_MIN_SIZE_PX, GRASS_EDGE_SMALL_ROCK_MAX_SIZE_PX);
+	const float tint = lerp_float(0.86f, 1.0f, object_unit(p_salt, 0x67ULL));
+	const float phase = object_unit(p_salt, 0x157ULL);
+	append_object_record(
+		r_buffers,
+		OBJECT_KIND_GRASS_EDGE_SMALL_ROCK,
+		p_local_x_px,
+		p_local_y_px,
+		size_px,
+		0U,
+		variant,
+		0U,
+		tint,
+		phase
+	);
+	return true;
+}
+
+void append_native_grass_edge_small_rock_placements(
+	WorldObjectPacketBuffers &r_buffers,
+	int64_t p_seed,
+	Vector2i p_coord,
+	int64_t p_world_version,
+	const PackedInt32Array &p_terrain_ids,
+	const PackedByteArray &p_lake_flags
+) {
+	std::vector<std::pair<float, float>> placed_positions;
+	const float cell_size_px = static_cast<float>(CHUNK_SIZE_PX) / static_cast<float>(GRASS_EDGE_SMALL_ROCK_GRID_SIDE);
+	for (int32_t grid_y = 0; grid_y < GRASS_EDGE_SMALL_ROCK_GRID_SIDE && static_cast<int32_t>(placed_positions.size()) < GRASS_EDGE_SMALL_ROCK_MAX_PER_CHUNK; ++grid_y) {
+		for (int32_t grid_x = 0; grid_x < GRASS_EDGE_SMALL_ROCK_GRID_SIDE && static_cast<int32_t>(placed_positions.size()) < GRASS_EDGE_SMALL_ROCK_MAX_PER_CHUNK; ++grid_x) {
+			const uint64_t cell_hash = object_hash4(p_coord.x, p_coord.y, grid_x + grid_y * GRASS_EDGE_SMALL_ROCK_GRID_SIDE, p_seed ^ (p_world_version * 97));
+			const float jitter_x = (object_unit(cell_hash, 0x41ULL) - 0.5f) * std::max(8.0f, cell_size_px - GRASS_EDGE_SMALL_ROCK_EDGE_PADDING_PX);
+			const float jitter_y = (object_unit(cell_hash, 0x53ULL) - 0.5f) * std::max(8.0f, cell_size_px - GRASS_EDGE_SMALL_ROCK_EDGE_PADDING_PX);
+			const float local_x = (static_cast<float>(grid_x) + 0.5f) * cell_size_px + jitter_x;
+			const float local_y = (static_cast<float>(grid_y) + 0.5f) * cell_size_px + jitter_y;
+			if (append_native_grass_edge_small_rock_object(
+						r_buffers,
+						p_coord,
+						p_terrain_ids,
+						p_lake_flags,
+						local_x,
+						local_y,
+						cell_hash,
+						placed_positions)) {
+				placed_positions.push_back({ local_x, local_y });
+				for (int32_t extra_index = 0; extra_index < GRASS_EDGE_SMALL_ROCK_MAX_CLUSTER_EXTRAS &&
+						static_cast<int32_t>(placed_positions.size()) < GRASS_EDGE_SMALL_ROCK_MAX_PER_CHUNK;
+						++extra_index) {
+					const uint64_t extra_hash = splitmix64(cell_hash ^ (0x9e3779b97f4a7c15ULL + static_cast<uint64_t>(extra_index) * 0x632be59bd9b4e019ULL));
+					if (object_unit(extra_hash, 0x181ULL) > GRASS_EDGE_SMALL_ROCK_CLUSTER_CHANCE) {
+						continue;
+					}
+					const float angle = object_unit(extra_hash, 0x03ULL) * MOUNTAIN_PASSAGE_TAU;
+					const float distance_px = lerp_float(
+							GRASS_EDGE_SMALL_ROCK_CLUSTER_MIN_RADIUS_PX,
+							GRASS_EDGE_SMALL_ROCK_CLUSTER_MAX_RADIUS_PX,
+							object_unit(extra_hash, 0x11ULL));
+					const float extra_local_x = local_x + std::cos(angle) * distance_px;
+					const float extra_local_y = local_y + std::sin(angle) * distance_px;
+					if (append_native_grass_edge_small_rock_object(
+								r_buffers,
+								p_coord,
+								p_terrain_ids,
+								p_lake_flags,
+								extra_local_x,
+								extra_local_y,
+								extra_hash,
+								placed_positions)) {
+						placed_positions.push_back({ extra_local_x, extra_local_y });
+					}
+				}
+			}
+		}
+	}
+}
+
 void append_native_tree_placements(
 	WorldObjectPacketBuffers &r_buffers,
 	int64_t p_seed,
@@ -1054,6 +1261,123 @@ void append_native_tree_placements(
 	}
 }
 
+bool append_native_big_grass_rock_object(
+	WorldObjectPacketBuffers &r_buffers,
+	Vector2i p_coord,
+	const PackedInt32Array &p_terrain_ids,
+	const PackedByteArray &p_lake_flags,
+	float p_local_x_px,
+	float p_local_y_px,
+	uint64_t p_salt
+) {
+	if (p_local_x_px < BIG_GRASS_ROCK_EDGE_PADDING_PX ||
+			p_local_y_px < BIG_GRASS_ROCK_EDGE_PADDING_PX ||
+			p_local_x_px > static_cast<float>(CHUNK_SIZE_PX) - BIG_GRASS_ROCK_EDGE_PADDING_PX ||
+			p_local_y_px > static_cast<float>(CHUNK_SIZE_PX) - BIG_GRASS_ROCK_EDGE_PADDING_PX ||
+			!object_position_is_plain_with_clearance(
+					p_local_x_px,
+					p_local_y_px,
+					p_terrain_ids,
+					p_lake_flags,
+					BIG_GRASS_ROCK_TERRAIN_CLEARANCE_PX) ||
+			!object_position_has_mountain_clearance(
+					p_local_x_px,
+					p_local_y_px,
+					p_terrain_ids,
+					BIG_GRASS_ROCK_TERRAIN_CLEARANCE_PX)) {
+		return false;
+	}
+	const float world_px_x = static_cast<float>(static_cast<int64_t>(p_coord.x) * CHUNK_SIZE_PX) + p_local_x_px;
+	const float world_px_y = static_cast<float>(static_cast<int64_t>(p_coord.y) * CHUNK_SIZE_PX) + p_local_y_px;
+	const float grass_score = grass_scatter::sample_grass_density(
+			world_px_x,
+			world_px_y,
+			TREE_GRASS_FIELD_SCALE_PX,
+			TREE_GRASS_COVERAGE,
+			TREE_ROCK_FIELD_SCALE_PX,
+			TREE_ROCK_COVERAGE,
+			TREE_MACRO_MASS_SCALE_PX,
+			TREE_MACRO_MASS_STRENGTH) *
+			grass_scatter::sample_path(
+					world_px_x,
+					world_px_y,
+					TREE_PATH_SCALE_PX,
+					TREE_PATH_WIDTH,
+					TREE_PATH_WARP_PX,
+					TREE_PATH_STRENGTH);
+	if (grass_score < BIG_GRASS_ROCK_GRASS_DENSITY_MIN) {
+		return false;
+	}
+	if (object_organic_region_mask(world_px_x, world_px_y, SPIKY_FLORA_PATCH_CELL_PX, SPIKY_FLORA_PATCH_DENSITY) >= SPIKY_FLORA_PLACEMENT_THRESHOLD) {
+		return false;
+	}
+
+	const uint8_t atlas_index = static_cast<uint8_t>(
+			static_cast<int32_t>(std::floor(object_unit(p_salt, 0x97ULL) * static_cast<float>(BIG_GRASS_ROCK_ATLAS_COUNT))) %
+			BIG_GRASS_ROCK_ATLAS_COUNT);
+	float size_px = lerp_float(BIG_GRASS_ROCK_MIN_SIZE_PX, BIG_GRASS_ROCK_MAX_SIZE_PX, object_unit(p_salt, 0x107ULL));
+	size_px *= lerp_float(0.96f, 1.04f, world_utils::clamp_value(grass_score, 0.0f, 1.0f));
+	size_px = world_utils::clamp_value(size_px, BIG_GRASS_ROCK_MIN_SIZE_PX, BIG_GRASS_ROCK_MAX_SIZE_PX);
+	const float tint = lerp_float(0.90f, 1.0f, object_unit(p_salt, 0x67ULL));
+	const float phase = object_unit(p_salt, 0x157ULL);
+	append_object_record(
+		r_buffers,
+		OBJECT_KIND_BIG_GRASS_ROCK,
+		p_local_x_px,
+		p_local_y_px,
+		size_px,
+		atlas_index,
+		0U,
+		OBJECT_FLAG_COLLIDER,
+		tint,
+		phase
+	);
+	return true;
+}
+
+void append_native_big_grass_rock_placements(
+	WorldObjectPacketBuffers &r_buffers,
+	int64_t p_seed,
+	Vector2i p_coord,
+	int64_t p_world_version,
+	const PackedInt32Array &p_terrain_ids,
+	const PackedByteArray &p_lake_flags
+) {
+	const float chunk_min_world_x = static_cast<float>(static_cast<int64_t>(p_coord.x) * CHUNK_SIZE_PX);
+	const float chunk_min_world_y = static_cast<float>(static_cast<int64_t>(p_coord.y) * CHUNK_SIZE_PX);
+	const float chunk_max_world_x = chunk_min_world_x + static_cast<float>(CHUNK_SIZE_PX);
+	const float chunk_max_world_y = chunk_min_world_y + static_cast<float>(CHUNK_SIZE_PX);
+	const float jitter_margin = BIG_GRASS_ROCK_PLACEMENT_CELL_PX * 0.38f;
+	const int64_t min_cell_x = static_cast<int64_t>(std::floor((chunk_min_world_x - jitter_margin) / BIG_GRASS_ROCK_PLACEMENT_CELL_PX));
+	const int64_t min_cell_y = static_cast<int64_t>(std::floor((chunk_min_world_y - jitter_margin) / BIG_GRASS_ROCK_PLACEMENT_CELL_PX));
+	const int64_t max_cell_x = static_cast<int64_t>(std::floor((chunk_max_world_x + jitter_margin) / BIG_GRASS_ROCK_PLACEMENT_CELL_PX));
+	const int64_t max_cell_y = static_cast<int64_t>(std::floor((chunk_max_world_y + jitter_margin) / BIG_GRASS_ROCK_PLACEMENT_CELL_PX));
+	int32_t placed_count = 0;
+	for (int64_t cell_y = min_cell_y; cell_y <= max_cell_y && placed_count < BIG_GRASS_ROCK_MAX_PER_CHUNK; ++cell_y) {
+		for (int64_t cell_x = min_cell_x; cell_x <= max_cell_x && placed_count < BIG_GRASS_ROCK_MAX_PER_CHUNK; ++cell_x) {
+			const uint64_t cell_hash = object_hash4(cell_x, cell_y, p_seed, p_world_version ^ static_cast<int64_t>(0x6b6f2d71ULL));
+			const float world_px_x = (static_cast<float>(cell_x) + 0.5f + (object_unit(cell_hash, 0x41ULL) - 0.5f) * 0.76f) * BIG_GRASS_ROCK_PLACEMENT_CELL_PX;
+			const float world_px_y = (static_cast<float>(cell_y) + 0.5f + (object_unit(cell_hash, 0x53ULL) - 0.5f) * 0.76f) * BIG_GRASS_ROCK_PLACEMENT_CELL_PX;
+			if (world_px_x < chunk_min_world_x ||
+					world_px_y < chunk_min_world_y ||
+					world_px_x >= chunk_max_world_x ||
+					world_px_y >= chunk_max_world_y) {
+				continue;
+			}
+			if (append_native_big_grass_rock_object(
+					r_buffers,
+					p_coord,
+					p_terrain_ids,
+					p_lake_flags,
+					world_px_x - chunk_min_world_x,
+					world_px_y - chunk_min_world_y,
+					cell_hash)) {
+				++placed_count;
+			}
+		}
+	}
+}
+
 void append_native_object_placements(
 	WorldObjectPacketBuffers &r_buffers,
 	int64_t p_seed,
@@ -1096,6 +1420,8 @@ void append_native_object_placements(
 		}
 	}
 	append_native_rare_rock_formation_placements(r_buffers, p_seed, p_coord, p_world_version, p_terrain_ids, p_lake_flags);
+	append_native_big_grass_rock_placements(r_buffers, p_seed, p_coord, p_world_version, p_terrain_ids, p_lake_flags);
+	append_native_grass_edge_small_rock_placements(r_buffers, p_seed, p_coord, p_world_version, p_terrain_ids, p_lake_flags);
 
 	int32_t living_count = 0;
 	const float living_cell_size_px = static_cast<float>(CHUNK_SIZE_PX) / static_cast<float>(LIVING_FLORA_SCATTER_GRID_SIDE);
