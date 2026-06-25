@@ -1,0 +1,16 @@
+Godot Engine v4.7.stable.official.5b4e0cb0f - https://godotengine.org
+D3D12 12_0 - Forward+ - Using Device #0: NVIDIA - NVIDIA GeForce GTX 1060 6GB
+
+[FrameBudget] streaming=2.3ms topology=0.0ms visual=2.7ms spawn=0.0ms total=5.0ms/6.0ms world.streaming_v0=2.3ms(60) world.mountain_native_mask_visual_upload=2.7ms(60)
+[FrameBudget] streaming=1.8ms topology=0.0ms visual=1.4ms spawn=0.0ms total=3.2ms/6.0ms world.streaming_v0=1.8ms(60) world.mountain_native_mask_visual_upload=1.4ms(60)
+cloud_sweep_probe: cover=0.22 luma=0.359 saved
+cloud_sweep_probe: cover=0.40 luma=0.312 saved
+[FrameBudget] streaming=0.4ms topology=0.0ms visual=0.0ms spawn=0.0ms total=0.4ms/6.0ms world.streaming_v0=0.4ms(60) world.mountain_native_mask_visual_upload=0.0ms(60)
+cloud_sweep_probe: cover=0.60 luma=0.209 saved
+[FrameBudget] streaming=0.4ms topology=0.0ms visual=0.0ms spawn=0.0ms total=0.4ms/6.0ms world.streaming_v0=0.4ms(60) world.mountain_native_mask_visual_upload=0.0ms(60)
+cloud_sweep_probe: cover=0.85 luma=0.142 saved
+cloud_sweep_probe: DONE
+WARNING: 14 ObjectDB instances were leaked at exit (run with `--verbose` for details).
+   at: cleanup (core/object/object.cpp:2535)
+ERROR: 7 resources still in use at exit (run with --verbose for details).
+   at: clear (core/io/resource.cpp:822)

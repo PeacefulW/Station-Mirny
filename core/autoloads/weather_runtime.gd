@@ -19,6 +19,9 @@ const DEBUG_CYCLE_ORDER: Array[StringName] = [&"core:clear", &"core:cloudy", &"c
 const DEBUG_TRANSITION_SECONDS: float = 3.5
 ## Базовое направление ветра (откуда дует), на которое режим накладывает дрейф.
 const WIND_BASE_HEADING_DEG: float = -13.0
+## Прямая солнечная окклюзия облаками: 0 = солнце открыто, 1 = прямой луч закрыт.
+const CLOUD_OCCLUSION_COVER_START: float = 0.10
+const CLOUD_OCCLUSION_COVER_END: float = 0.95
 
 var _regimes_by_id: Dictionary = { }
 var _active_id: StringName = START_REGIME_ID
@@ -36,6 +39,9 @@ var _debug_regime_id: StringName = &""
 ## Дев-кнопка плавной смены погоды: переход идёт по реальному времени.
 var _debug_cycle_dir: int = 1
 var _debug_fast_transition: bool = false
+## Прямой дев-override облачности (клавиши +/-): пинит cloud_cover в реалтайме,
+## чтобы вживую смотреть как тучки растут/плывут/сливаются. -1 = выключен.
+var _debug_cover_override: float = -1.0
 
 
 func _ready() -> void:
@@ -108,7 +114,29 @@ func debug_cycle_regime() -> void:
 
 
 func get_cloud_cover() -> float:
+	if _debug_cover_override >= 0.0:
+		return _debug_cover_override
 	return _blended_axis(func(p: WeatherRegimeProfile) -> Vector2: return p.cloud_cover, 0.31)
+
+
+## Дев: плавно подкрутить облачность (+/-). Пинит cloud_cover, эволюция замирает
+## по этой оси; occlusion и слой облаков следуют автоматически.
+func nudge_debug_cloud_cover(delta: float) -> void:
+	var base: float = _debug_cover_override if _debug_cover_override >= 0.0 else get_cloud_cover()
+	_debug_cover_override = clampf(base + delta, 0.0, 1.0)
+
+
+func set_debug_cloud_cover(value: float) -> void:
+	_debug_cover_override = clampf(value, 0.0, 1.0)
+
+
+func clear_debug_cloud_cover() -> void:
+	_debug_cover_override = -1.0
+
+
+func get_cloud_occlusion() -> float:
+	var cover: float = clampf(get_cloud_cover(), 0.0, 1.0)
+	return smoothstep(CLOUD_OCCLUSION_COVER_START, CLOUD_OCCLUSION_COVER_END, cover)
 
 
 func get_target_wind_strength() -> float:

@@ -4,11 +4,12 @@ doc_type: system_spec
 status: approved
 owner: design+engineering
 source_of_truth: true
-version: 0.2
-last_updated: 2026-06-23
+version: 0.3
+last_updated: 2026-06-25
 related_docs:
   - player_visual_animation_v0.md
   - ../world/weather_runtime.md
+  - ../world/cloud_occlusion_lighting.md
   - ../meta/system_api.md
   - ../../00_governance/ENGINEERING_STANDARDS.md
   - ../../05_adrs/0001-runtime-work-and-dirty-update-foundation.md
@@ -57,8 +58,8 @@ V0 includes:
   silhouette, that roots the cast so it does not read as detached;
 - sun direction and dawn/day/dusk fade derived from the documented
   `TimeManager` / `WorldVisualLightingProfile` sun model;
-- direct-sun attenuation from `WeatherRuntime.get_cloud_cover()`, so overcast
-  fades distinct cast shadows;
+- direct-sun attenuation from `WeatherRuntime.get_cloud_occlusion()`, so the
+  body shadow follows the same direct-sun-blocked scalar as the real sun;
 - coarse surface gating for building indoor cells and mountain interiors.
 
 V0 does not include:
@@ -92,8 +93,8 @@ V0 does not include:
   model.
 - `WorldVisualLightingProfile` owns shadow visibility, low-sun length, and
   dawn/dusk fade curves.
-- `WeatherRuntime.get_cloud_cover()` attenuates direct-sun body shadows under
-  overcast.
+- `WeatherRuntime.get_cloud_occlusion()` attenuates direct-sun body shadows
+  under overcast.
 - `BuildingSystem.is_cell_indoor()` and `WorldStreamer.get_mountain_cover_sample()`
   provide coarse surface-context gates.
 

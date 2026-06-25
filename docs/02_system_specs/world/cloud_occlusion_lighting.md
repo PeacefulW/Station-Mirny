@@ -4,7 +4,7 @@ doc_type: system_spec
 status: draft
 owner: engineering+design
 source_of_truth: true
-version: 0.2
+version: 0.4
 last_updated: 2026-06-25
 related_docs:
   - weather_runtime.md
@@ -59,8 +59,12 @@ in Godot, so this one process is realized with **two knobs**:
 
 1. **Global** — cloud cover drives the sun's `DirectionalLight2D` energy down and
    nudges the ambient toward cool-grey as cover rises (overcast darkening).
-2. **Spatial** — a `LightOccluder2D` "cloud-blob" pool casts the moving shadow
-   patches that genuinely block the sun.
+2. **Spatial** — `CloudOccluderField` draws moving finite shadow patches with a
+   world-space shader layer. The original `LightOccluder2D` plan is rejected for
+   the live top-down renderer because prior local evidence showed Godot 2D
+   occluder shadows project to screen-edge infinity; the subtractive
+   `PointLight2D` blob fallback was also tried and proved not to darken this
+   CanvasModulate/normal-mapped plains ground.
 
 ## Gameplay Goal
 
@@ -73,12 +77,13 @@ category "severe weather = darkness even in day").
 
 ## Scope
 
-- A drifting **cloud-occlusion field** + a **global occlusion scalar**, owned by
-  `WeatherRuntime` (extends the existing `cloud_cover` read, same slow state).
+- A drifting **cloud-occlusion scalar/cover read**, owned by `WeatherRuntime`
+  (extends the existing `cloud_cover` read, same slow state), plus a derived
+  view-local visual placement field inside `CloudOccluderField`.
 - A **global sun response** in `DaylightSystem`: cloud occlusion lowers the
   `DirectionalLight2D` energy and cools the ambient (surface only).
-- A **`CloudOccluderField`**: a view-bounded pool of `LightOccluder2D` cloud
-  blobs casting the sun's moving shadows; blobs grow/merge with cover.
+- A **`CloudOccluderField`**: one view-bounded world-space shader shadow layer;
+  field patches grow/merge with cover.
 - A minimal **`EnvironmentVisibilityAuthority`**: `get_open_surface_light_level()`
   in `[0 dark .. 1 bright]` for gameplay, read from the same occlusion model
   (NOT scraped from the renderer).
@@ -90,7 +95,7 @@ category "severe weather = darkness even in day").
 - Full ADR-0005 gameplay light authority (per-tile light grid, torches as
   gameplay light): this builds only the open-surface darkness scalar; a larger
   authority graduates to its own ADR.
-- Cloud occluders on anything other than the cloud pool.
+- Cloud shadow patches on anything other than the cloud field.
 - New save state (cover already persists via weather Iteration 3) or
   `WORLD_VERSION` change.
 - Precipitation, lightning, second biome.
@@ -99,14 +104,14 @@ category "severe weather = darkness even in day").
 
 | Question | Answer |
 |---|---|
-| Canonical data, overlay, or visual only? | Cloud-occlusion model is environment-runtime state (derived from weather, ADR-0007 layers 2/3); sun response + occluders are presentation (layer 4); the visibility scalar is a gameplay-authority read. No worldgen/terrain truth. |
+| Canonical data, overlay, or visual only? | Cloud-occlusion model is environment-runtime state (derived from weather, ADR-0007 layers 2/3); sun response + shader shadow layer are presentation (layer 4); the visibility scalar is a gameplay-authority read. No worldgen/terrain truth. |
 | Save/load? | No new state. Cover persists via weather slow state; everything here derives. |
-| Deterministic? | Field is a pure function of world pos + drift + cover; the global scalar is a pure function of cover. Occluder placement samples the field deterministically. |
-| Must it work on unloaded chunks? | Weather is global; occluders/authority are view/position-local and need no chunk data. |
-| C++ or main thread? | Engine 2D lighting (GPU) + a bounded pool of light nodes + a few scalars on the main thread. No native, no heavy loops. |
-| Dirty unit | The global weather state (cover) + the on-screen occluder set. |
-| Single owner | Field/scalar: `WeatherRuntime`. Sun response: `DaylightSystem`. Occluders: `CloudOccluderField`. Gameplay scalar: `EnvironmentVisibilityAuthority`. |
-| 10x/100x | Cost is independent of world size; occluders are view-bounded and count-capped. |
+| Deterministic? | Field is a pure function of world/view pos + accumulated wind drift; cover changes threshold/softness/opacity, not the sampled coordinates. The global scalar is a pure function of cover. |
+| Must it work on unloaded chunks? | Weather is global; shader layer/authority are view/position-local and need no chunk data. |
+| C++ or main thread? | One world-space shader layer + a few scalar writes on the main thread. No native, no heavy loops. |
+| Dirty unit | The global weather state (cover) + the current view shader uniforms. |
+| Single owner | Scalar/cover: `WeatherRuntime`. Sun response: `DaylightSystem`. Spatial shader layer: `CloudOccluderField`. Gameplay scalar: `EnvironmentVisibilityAuthority`. |
+| 10x/100x | Cost is independent of world size; the layer is one view-bounded pass. |
 | Hidden fallback? | None. If the sun light or weather owner is missing, fail explicitly. |
 | Gameplay coupling | Yes, minimal: one authoritative open-surface darkness scalar. Gameplay reads the authority, never the lights (ADR-0005). |
 
@@ -121,15 +126,17 @@ read:
   `O(cover)` — rises with cover, saturating toward `1` at full overcast. Pure
   function of cover (tuning anchors below).
 
-The drifting field itself is a presentation function of world position +
-accumulated wind drift + cover (seamless tiling-texture noise, the
-precision-safe base already proven in `tools/cloud_shader_iso.gd`). Coverage
-(area above a threshold) and blob size grow with cover so blobs enlarge and
-merge. The field is read by the occluder placement and by the shadow visual; it
-is not stored.
+The drifting visual field is a presentation function of view/world position +
+accumulated wind drift. Cover changes the field threshold, edge softness, and
+opacity so shadows enlarge and merge without resampling the underlying
+coordinates. This avoids apparent reverse motion during clearing/cover changes.
+It is read only by `CloudOccluderField`; it is not stored.
+Iteration 3 does **not** add a public field sampler because the renderer derives
+placement from `get_cloud_cover()`, `get_cloud_occlusion()`, and `WindRuntime`
+presentation reads.
 
-Field descriptor reads are **not** part of Iteration 1. If Iteration 3 needs a
-cross-owner field descriptor or sampler for `CloudOccluderField`, that later
+Field descriptor reads are **not** part of Iteration 1. If a later iteration
+needs a cross-owner field descriptor or sampler for `CloudOccluderField`, that
 iteration must add typed/read-only `WeatherRuntime` reads and document them in
 `system_api.md` in the same change. Do not expose a raw `Dictionary` boundary
 for this field.
@@ -139,13 +146,13 @@ Tuning anchors (finalized by render probe; aligned to regime cover bands clear
 
 - `O(cover) ≈ smoothstep(0.10, 0.95, cover)` — near `0` at clear, near `1` at
   overcast; this is what dims the global sun.
-- field coverage/scale ≈ rises across the same range so cloudy = scattered
-  blobs, overcast = merged sheet.
+- field coverage/softness ≈ rises across the same range so cloudy = scattered
+  patches, overcast = merged sheet; the sampled cloud coordinates stay stable.
 
 ### No new persisted state
 
-Cover persists via weather Iteration 3 (`weather.json`). Occlusion, occluders,
-and the visibility scalar all derive on load.
+Cover persists via weather Iteration 3 (`weather.json`). Occlusion, spatial
+shader state, and the visibility scalar all derive on load.
 
 ## Runtime Architecture
 
@@ -153,16 +160,16 @@ and the visibility scalar all derive on load.
 
 | Concern | Owner |
 |---|---|
-| Cloud occlusion scalar + field params | `WeatherRuntime` (getters) |
+| Cloud occlusion scalar + cover | `WeatherRuntime` (getters) |
 | Sun energy/colour + ambient cool-shift response | `DaylightSystem` |
-| Spatial moving shadows (occluders) | `CloudOccluderField` (new) |
+| Spatial moving shadows (shader layer) | `CloudOccluderField` (new) |
 | Open-surface darkness for gameplay | `EnvironmentVisibilityAuthority` (new) |
 
 ### Global sun response (`DaylightSystem`)
 
 `DaylightSystem` already owns the `DirectionalLight2D` sun (energy from the
 day phase, angle by hour, off underground). It reads `WeatherRuntime`
-occlusion and, **on the surface only**:
+occlusion and, **only in the current open-sky context**:
 
 - scales sun energy by `(1 − k · O(cover))` so overcast nearly extinguishes the
   direct key (the world falls to the ambient floor);
@@ -171,25 +178,35 @@ occlusion and, **on the surface only**:
   diffuse sky remains".
 
 Clear cover leaves the sun unchanged. Underground is already sunless. A roofed/
-interior surface context is treated as no-open-sky (no cloud darkening).
+interior surface context is treated as no-open-sky (no cloud darkening). The
+Iteration 2 implementation uses the existing coarse current-context reads
+(`PlayerAuthority`, `BuildingSystem.is_cell_indoor()`, and
+`WorldStreamer.get_mountain_cover_sample()`) because `CanvasModulate` is a
+viewport-wide ambient floor; mixed inside/outside per-tile light authority is
+still Iteration 4+ ADR-0005 work.
 
 ### Spatial moving shadows (`CloudOccluderField`)
 
-A **view-bounded pool of `LightOccluder2D` cloud blobs** (each a soft polygon),
-placed/scaled/drifted by sampling the cloud field across the current view (the
-same proximity/view-bounded discipline as `world_dynamic_lighting_2d.md`
-Iteration 2 occluders). Per frame the blobs **translate/scale only — no polygon
-rebuild** (LAW 1/ADR-0001: no per-frame full rebuilds). Cover drives active blob
-count + scale; overlap = merged shadow. The sun runs `shadow_enabled` with
-`shadow_filter` for soft edges.
+One **view-bounded world-space shader layer** samples a drifting cloud density
+field across the current view and blends dense patches toward a cold dark
+diffuse-sky colour. This is the Iteration 3 renderer chosen after two failed
+engine-light paths: Godot `LightOccluder2D` projects to screen-edge infinity in
+top-down, and subtractive `PointLight2D` blobs do not darken this ground. Per
+frame the layer updates only shader uniforms inherited from `WorldViewOverlay`
+(LAW 1/ADR-0001: no per-frame full rebuilds). Drift uses the integrated
+`WindRuntime.wind_gust_scroll_px` global so direction changes do not reproject
+old `wind_time` along a new heading. Cover drives coverage, softness, and
+strength; overlap/field density = merged shade.
 
 - Empty/disabled near clear cover (`O ≈ 0`).
 - As `O → 1` (overcast) the **global** sun-energy drop already darkens
-  everything, so the blob pool can fade out to avoid full-screen occluder thrash
+  everything, so the shader layer fades out to avoid double-darkening
   (the two knobs hand off; never double-count to pure black unintentionally).
-- **Cull/layer so cloud occluders block ONLY the sun**, never the torch/lamp/
-  campfire `PointLight2D` (Godot per-light occluder `light_mask` / cull). This is
-  the sanctuary guarantee (below).
+- No `LightOccluder2D` or subtractive `PointLight2D` cloud children are used in
+  the live top-down path. The layer is open-sky gated like `DaylightSystem`
+  (surface + not roofed + not mountain interior). Torch/lamp/campfire
+  `PointLight2D` nodes are not used as cloud-shadow inputs. This is the
+  sanctuary guarantee (below).
 
 ### Gameplay coupling — `EnvironmentVisibilityAuthority` (minimal slice)
 
@@ -216,9 +233,9 @@ ADR-0005: gameplay reads an **authority**, not the renderer. New thin authority:
 Overcast darkness must strengthen, never flatten, the inside-safe / outside-
 hostile contrast:
 
-- Clouds occlude **only the sun** (`DirectionalLight2D`). Torch / lamp /
-  campfire are `PointLight2D` and are **never** occluded by cloud blobs — their
-  warm pools persist as islands of safety in the storm-dark.
+- Clouds remove the **sun** contribution. Torch / lamp / campfire are
+  `PointLight2D` and are **never** occluded by the cloud field — their warm pools
+  persist as islands of safety in the storm-dark.
 - **Underground**: the sun is already off → unaffected by cloud cover.
 - **Roofed / interior open-surface**: no open sky → not darkened by clouds
   (open-sky context gate).
@@ -233,9 +250,9 @@ pool stay distinct; underground/roofed visibility scalar is unaffected by cover.
 
 - Cloud occlusion scalar + field params: `interactive`-frame O(1).
 - Global sun response: a few scalar writes per frame on `DaylightSystem`.
-- `CloudOccluderField`: N on-screen blobs × the sun's shadow; **N capped and
-  view-bounded**, transforms-only per frame (no rebuild); empty at clear, faded
-  at full overcast. `background`/visual cost class.
+- `CloudOccluderField`: one world-space shader layer; **view-bounded** by
+  `WorldViewOverlay`, uniform-only per frame; empty at clear, faded at full
+  overcast. `background`/visual cost class.
 - `EnvironmentVisibilityAuthority`: O(1) scalar reads.
 - No native code, no per-tile/per-chunk loops, no startup prepass, no
   `WORLD_VERSION` change.
@@ -259,21 +276,24 @@ pool stay distinct; underground/roofed visibility scalar is unaffected by cover.
 - **Cleanup**: the cloud screen-darkening overlay, `OvercastFlattenOverlay`, and
   `SunRayOverlay` are removed (static check); the look no longer uses additive
   "sun rays".
-- **Perf**: occluder count is bounded and view-limited; field/scalar O(1); no
+- **Perf**: shader layer is one view-limited pass; field/scalar O(1); no
   `WORLD_VERSION` bump.
 
 ## Failure Cases / Risks
 
-- **Occluder edge hardness vs soft clouds**: `DirectionalLight2D` shadows can be
-  hard. Mitigate with `shadow_filter` + soft blob polygons; decision point — if
-  still too hard, the spatial patches fall back to a soft shader shadow (cool
-  "ambient-only" tint where the field is dense) while the global sun-energy drop
-  stays. The model is unchanged; only the patch *renderer* differs.
-- **Double-darkening**: global sun-energy drop × occluder shadow could overshoot
-  to black. Calibrate; fade the blob pool as `O → 1`.
-- **Wrong light occluded**: cloud occluders must cull so they block the sun but
-  not point lights — verify the per-light mask, or the torch goes dark under
-  clouds (sanctuary break).
+- **Godot occluder mismatch**: `DirectionalLight2D + LightOccluder2D` is not
+  accepted for the live top-down cloud path because local project evidence shows
+  the shadows project to screen-edge infinity.
+- **Subtractive light mismatch**: subtractive `PointLight2D` blobs were tested
+  and proven not to darken the CanvasModulate/normal-mapped plains ground even
+  at exaggerated energy. Iteration 3 therefore lands the world-space shader
+  shadow layer while the global sun-energy drop stays. The model is unchanged;
+  only the patch *renderer* differs.
+- **Double-darkening**: global sun-energy drop × shader shadow could overshoot
+  to black. Calibrate; fade the shader layer as `O → 1`.
+- **Wrong light occluded**: the live cloud path must not use `LightOccluder2D`
+  or subtractive `PointLight2D` children. The shader layer is weather/open-sky
+  driven and remains separate from point-light gameplay sources.
 - **Gameplay scope creep**: the visibility scalar is the seam into ADR-0005's
   deferred authority — keep it a single open-surface scalar; do not let it grow
   into the full light grid here.
@@ -293,19 +313,25 @@ pool stay distinct; underground/roofed visibility scalar is unaffected by cover.
 
 ### Iteration 2 — Global sun response + retire old overlays
 
-- `DaylightSystem` dims the `DirectionalLight2D` and cools the ambient by `O`,
-  surface-only. Remove `OvercastFlattenOverlay`, `SunRayOverlay`, and the cloud
-  screen-darkening overlay (+ their `broken`/`flatten`/`sun_ray` curves).
+- **Status: landed 2026-06-25.** `DaylightSystem` dims the
+  `DirectionalLight2D` and cools the ambient by `O`, open-sky only. Removed
+  `OvercastFlattenOverlay`, `SunRayOverlay`, and the cloud screen-darkening
+  overlay (+ their `broken`/`flatten`/`sun_ray` curves). `PlayerSunShadow` now
+  attenuates distinct body shadows through the same `get_cloud_occlusion()`
+  scalar.
 - Render probe: clear unchanged; overcast = real dim cool surface; torch pool
   still warm; underground/roofed unaffected. → "overcast = real dark" visible.
 
 ### Iteration 3 — Spatial cloud shadows (`CloudOccluderField`)
 
-- View-bounded `LightOccluder2D` blob pool sampling the cloud field; sun
-  `shadow_enabled`; blobs grow/merge with cover; cull mask so point lights are
-  unaffected; fade as `O → 1`.
-- Render probe: drifting soft shadows in cloudy; merge toward overcast; torch
-  unaffected; occluder count bounded/view-limited.
+- **Status: landed 2026-06-25.** View-bounded `CloudOccluderField` world-space
+  shader shadow layer; field patches grow/merge with cover and fade as `O → 1`.
+  The live renderer intentionally does not use `LightOccluder2D` (infinite
+  top-down projection) or subtractive `PointLight2D` blobs (render-proven not to
+  darken the plains ground).
+- Render probe: cloudy layer changes rendered pixels above threshold; overcast
+  is darker than clear through global sun response; underground/roofed gates
+  remove the shader layer.
 
 ### Iteration 4 — `EnvironmentVisibilityAuthority` (minimal)
 
@@ -316,7 +342,7 @@ pool stay distinct; underground/roofed visibility scalar is unaffected by cover.
 
 ### Iteration 5 — Tuning + probes
 
-- Calibrate `O` curve, occluder count/softness, ambient cool-shift; sanctuary +
+- Calibrate `O` curve, shader scale/softness/opacity, ambient cool-shift; sanctuary +
   contrast + perf probes.
 
 ## Required Updates
@@ -332,11 +358,10 @@ At implementation time:
 
 - Iteration 1: `system_api.md` — add `WeatherRuntime.get_cloud_occlusion()` as a
   public read.
-- Iteration 2: `world_dynamic_lighting_2d.md` — note cloud occlusion rides the
-  `DirectionalLight2D` sun and does not make the visual lights into gameplay
-  authority.
-- Iteration 3: `system_api.md` — add any typed/read-only `WeatherRuntime` field
-  descriptor or sampler needed by `CloudOccluderField`, if such a public
-  boundary is introduced.
+- Iteration 2: `world_dynamic_lighting_2d.md` — add/update note that cloud
+  occlusion rides the `DirectionalLight2D` sun and does not make the visual
+  lights into gameplay authority.
+- Iteration 3: `system_api.md` — no update required in the landed slice because
+  no new public `WeatherRuntime` field descriptor or sampler was introduced.
 - Iteration 4: `system_api.md` — add the `EnvironmentVisibilityAuthority` read
   surface when it lands.

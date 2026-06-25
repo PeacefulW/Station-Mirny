@@ -4,8 +4,8 @@ doc_type: system_spec
 status: draft
 owner: engineering+design
 source_of_truth: true
-version: 0.5
-last_updated: 2026-06-19
+version: 0.6
+last_updated: 2026-06-25
 related_docs:
   - ../../00_governance/ENGINEERING_STANDARDS.md
   - ../../00_governance/WORKFLOW.md
@@ -72,27 +72,14 @@ V0 includes:
   shader uniforms. No new wind owner.
 - A `weather_changed` domain event on regime change; smooth per-axis values are
   read pull-model (getters), not event-per-frame.
-- V0 presentation consumers (realistic, regime-distinct — see **Cloud
-  Presentation Model**): a discrete **cloud-shadow pass** (world-locked mask +
-  surface screen-space darkening) whose opacity follows a *hump* in
-  `cloud_cover` so large drifting cloud shadows peak in the **cloudy** regime
-  and fade out by **overcast**; an **ambient** dim + cold tone folded into
-  `Daylight` that rises monotonically with cover; and an **overcast flatten
-  pass** (surface screen-space desaturate + contrast-cut) that gives full
-  overcast its flat, leaden read. Cloudy can also add rare, warm sun-ray
-  streaks in bright gaps as a presentation accent, gated by the same broken
-  cloud curve. Distinct shadows and rays are direct-sun phenomena and fade
-  under diffuse overcast light — this inverts the naive "more cover = more
-  shadows" model.
-- A hard sanctuary constraint: weather ambient (darkening + cold tone shift)
-  is an **outside-ambient** effect only. It must not cool or dull the warm
-  read inside the base, at a campfire, or under electric lighting, nor the
-  underground. Artificial / fire light defines safety (ADR-0005,
-  NON_NEGOTIABLE_EXPERIENCE); the colder and bleaker the weather outside, the
-  warmer those light islands must feel by contrast. Until the gameplay light
-  system (ADR-0005) lands, weather ambient simply leaves the underground
-  neutral (as day/night already does) and is structured so light sources will
-  override it locally rather than be tinted by it.
+- Cloud-cover presentation is no longer owned by this spec's old screen-space
+  overlay model. `WeatherRuntime` remains the state owner (`cloud_cover` and
+  derived `get_cloud_occlusion()`); the active presentation contract lives in
+  [`cloud_occlusion_lighting.md`](cloud_occlusion_lighting.md).
+- A hard sanctuary constraint still applies to weather presentation: cloud
+  darkness is an open-sky effect only; underground/roofed context is not
+  darkened by cloud cover, and artificial / fire light remains the warm safety
+  read (ADR-0005, NON_NEGOTIABLE_EXPERIENCE).
 - Save of slow weather state only; local instantaneous values reconstruct on
   load (ADR-0007).
 
@@ -125,11 +112,9 @@ V0 explicitly does not include:
   not read weather).
 - `WindRuntime` as the low-level wind publisher that weather drives.
 - Registry/data-resource loading for `WeatherRegimeProfile`.
-- The `WorldViewOverlay` base class for the cloud-shadow and flatten
-  presentation layers.
-- The 2D screen texture (`hint_screen_texture` / back-buffer) for the
-  cloud-shadow darkening pass and the overcast flatten pass (surface-only
-  screen-space presentation passes).
+- Active cloud presentation depends on `DaylightSystem` reading
+  `WeatherRuntime.get_cloud_occlusion()`; the old `WorldViewOverlay` cloud
+  shadow / flatten / sun-ray screen passes are historical only.
 
 ## Law 0 Classification
 
@@ -229,7 +214,7 @@ resource plus successor weights, no owner code change.
 | Weather state + regime evolution | `WeatherRuntime` |
 | Regime behaviour data | `WeatherRegimeProfile` resources |
 | Wind publication to shaders | `WindRuntime` (driven by weather target) |
-| Cloud-cover presentation | cloud overlay (`WorldViewOverlay` subclass) |
+| Cloud-cover presentation | `cloud_occlusion_lighting.md` readers (`DaylightSystem` + `CloudOccluderField`) |
 
 ### Wind subordination
 
@@ -260,15 +245,18 @@ V0 is single-player; no replication is wired, but no design choice blocks it.
 
 ## Cloud Presentation Model
 
-> **SUPERSEDED (2026-06-25).** The Iteration 2b presentation below — the
-> `broken`/`deck`/`flatten`/`sun_ray` curves and their `CloudShadowOverlay`
-> (screen-darkening), `OvercastFlattenOverlay`, and `SunRayOverlay` — is being
-> replaced by real sun occlusion: cloud cover blocks the real `DirectionalLight2D`
-> sun (drifting `LightOccluder2D` shadows + global energy drop at overcast). The
-> cloud-cover *state* and its owner (`WeatherRuntime`) are unchanged; only how
-> cover becomes light changes. Source of truth for cloud presentation is now
+> **SUPERSEDED / REMOVED FROM ACTIVE RUNTIME (2026-06-25).** The Iteration 2b
+> presentation below — the `broken`/`deck`/`flatten`/`sun_ray` curves and their
+> `CloudShadowOverlay` (screen-darkening), `OvercastFlattenOverlay`, and
+> `SunRayOverlay` — has been removed from the live world scene and replaced by
+> real sun occlusion: cloud cover blocks the real `DirectionalLight2D` sun
+> (global energy drop at overcast, plus the `CloudOccluderField` world-space
+> shader shadow layer in the top-down fallback renderer).
+> The cloud-cover *state* and its owner (`WeatherRuntime`) are unchanged; only how
+> cover becomes light changed. Source of truth for cloud presentation is now
 > [`cloud_occlusion_lighting.md`](cloud_occlusion_lighting.md). The text below is
-> retained for history until that spec's Iteration 2 lands.
+> retained only as historical context; tool/probe names mentioned inside this
+> historical section were removed with the superseded implementation.
 
 Cloud presentation is **realistic and regime-distinct**, driven by `cloud_cover`
 through two separable response curves rather than one monotonic "more cover =
@@ -373,13 +361,9 @@ Smooth values are not events; they are read through getters.
 
 - Runtime class: `interactive`-frame O(1) — a handful of scalar evaluations and
   getter reads per frame; no loops over tiles/objects/chunks.
-- Cloud-shadow pass: one full-screen world-locked mask + screen-read darkening
-  shader, gated so clear and overcast skies are nearly free. No per-object work.
-- Overcast flatten pass: one extra full-screen screen-read post pass, active
-  only on the surface and only while `flatten(cover) > 0` (near overcast); it is
-  ~free in clear/cloudy. No per-object work.
-- Sun-ray overlay: one cheap full-screen world-space shader, active only in the
-  cloudy broken-light band and sparse by shader threshold; no per-object work.
+- Active cloud occlusion presentation is O(1) in this spec's owner: consumers
+  pull one derived scalar. Rendering costs are owned by
+  `cloud_occlusion_lighting.md`.
 - No native code, no per-chunk work, no startup prepass.
 
 ## Modding / Extension Points
@@ -402,18 +386,18 @@ V0 is acceptable when:
   adjacent-only transitions, and adding a regime needs no owner code change;
 - `cloud_cover` and wind targets evolve and transition visibly over time
   (render/log probe shows clear -> overcast -> clear with matching cloud
-  overlay and wind change);
+  presentation and wind change);
 - `WindRuntime` is driven by the weather target while still publishing the same
   `wind_*` globals; grass, dust, and the HUD wind readout are unchanged;
 - reserved axes exist in the contract with neutral values and no consumers;
 - slow weather state round-trips through save/load; live values reconstruct;
 - `weather_changed` fires on regime change and once on init;
 - the per-frame cost is O(1) with no tile/chunk loops (static check);
-- a clear sky renders with negligible cloud-overlay cost;
-- the weather ambient tone shift affects outside ambient only: the
-  underground stays neutral, and base/campfire/electric light reads stay warm
-  (sanctuary constraint), proven by a render probe comparing an overcast
-  outside vs a lit interior/light source.
+- a clear sky renders with negligible cloud-presentation cost;
+- cloud darkness affects open sky only: underground/roofed context is not
+  reduced by cover, and base/campfire/electric light reads stay warm
+  (sanctuary constraint), proven by the active cloud-occlusion probes/manual
+  render checks.
 
 ## Failure Cases / Risks
 
@@ -506,11 +490,13 @@ Resolved:
   near-cloudless; sanctuary holds (underground ambient stays neutral under
   overcast). All checks pass.
 
-### Iteration 2b — Realistic, regime-distinct cloud presentation — DONE
+### Iteration 2b — Realistic, regime-distinct cloud presentation — DONE, SUPERSEDED
 
-Reworks Iteration 2's "more cover = more dapple" into the **Cloud Presentation
-Model** (two response curves). Approved direction: honest overcast flatness +
-cloudy bright sunlit gaps.
+Reworked Iteration 2's "more cover = more dapple" into the **Cloud Presentation
+Model** (two response curves). This implementation was later superseded and
+removed from active runtime by
+[`cloud_occlusion_lighting.md`](cloud_occlusion_lighting.md) Iteration 2, which
+uses the real `DirectionalLight2D` sun instead of screen-space overlays.
 
 - Split presentation into the two curves: `broken(cover)` (hump) drives
   `CloudShadowOverlay` opacity; `deck(cover)` (monotonic) drives the `Daylight`

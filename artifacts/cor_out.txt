@@ -1,0 +1,27 @@
+Godot Engine v4.7.stable.official.5b4e0cb0f - https://godotengine.org
+D3D12 12_0 - Forward+ - Using Device #0: NVIDIA - NVIDIA GeForce GTX 1060 6GB
+
+cloud_occlusion_render_probe: START
+[FrameBudget] streaming=2.8ms topology=0.0ms visual=0.3ms spawn=0.0ms total=3.1ms/6.0ms world.streaming_v0=2.8ms(60) world.mountain_native_mask_visual_upload=0.3ms(49)
+[FrameBudget] streaming=6.2ms topology=0.0ms visual=5.8ms spawn=0.0ms total=12.0ms/6.0ms world.streaming_v0=6.2ms(60) world.mountain_native_mask_visual_upload=5.8ms(37)
+cloud_occlusion_render_probe: PASS CloudOccluderField exists in live scene
+cloud_occlusion_render_probe: field_present=true renderer=world_space_shader children=0
+[FrameBudget] streaming=5.1ms topology=0.0ms visual=4.5ms spawn=0.0ms total=9.6ms/6.0ms world.streaming_v0=5.1ms(60) world.mountain_native_mask_visual_upload=4.5ms(44)
+[FrameBudget] streaming=0.6ms topology=0.0ms visual=0.0ms spawn=0.0ms total=0.6ms/6.0ms world.streaming_v0=0.6ms(60) world.mountain_native_mask_visual_upload=0.0ms(60)
+[FrameBudget] streaming=0.6ms topology=0.0ms visual=0.0ms spawn=0.0ms total=0.6ms/6.0ms world.streaming_v0=0.6ms(60) world.mountain_native_mask_visual_upload=0.0ms(60)
+[FrameBudget] streaming=0.6ms topology=0.0ms visual=0.0ms spawn=0.0ms total=0.6ms/6.0ms world.streaming_v0=0.6ms(60) world.mountain_native_mask_visual_upload=0.0ms(60)
+cloud_occlusion_render_probe: PASS overcast is darker than clear
+cloud_occlusion_render_probe: cloudy_cover=0.379 cloudy_occlusion=0.253 field_z=395
+cloud_occlusion_render_probe: cloudy_shader_diff=0.01551 threshold=0.01200
+cloud_occlusion_render_probe: PASS cloudy shader layer changes rendered pixels
+cloud_occlusion_render_probe: z_gate_diff=0.00360 max=0.00400
+cloud_occlusion_render_probe: PASS non-surface z gate disables cloud-shadow layer
+cloud_occlusion_render_probe: roof_gate_diff=0.00000 max=0.00400
+cloud_occlusion_render_probe: PASS roof/indoor gate disables cloud-shadow layer
+cloud_occlusion_render_probe: luma clear=0.350 cloudy=0.313 overcast=0.202
+cloud_occlusion_render_probe: z_gate_diff=0.00360 roof_gate_diff=0.00000 max=0.00400
+cloud_occlusion_render_probe: ALL CHECKS PASSED
+WARNING: 14 ObjectDB instances were leaked at exit (run with `--verbose` for details).
+   at: cleanup (core/object/object.cpp:2535)
+ERROR: 7 resources still in use at exit (run with --verbose for details).
+   at: clear (core/io/resource.cpp:822)

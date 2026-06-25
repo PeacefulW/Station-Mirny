@@ -98,6 +98,22 @@ func _physics_process(delta: float) -> void:
 	if _mountain_resolver != null and streamer != null:
 		_mountain_resolver.update_from_player_position(global_position, streamer)
 	_update_mountain_debug_overlay(global_position, streamer)
+	_update_debug_cloud_cover(delta)
+
+
+## Dev: +/- плавно крутят облачность в реалтайме — видно, как тучки растут,
+## плывут и сливаются в пасмурность. Пинит cloud_cover в WeatherRuntime.
+func _update_debug_cloud_cover(delta: float) -> void:
+	if WeatherRuntime == null or not WeatherRuntime.has_method("nudge_debug_cloud_cover"):
+		return
+	var rate: float = 0.35 * delta
+	var change: float = 0.0
+	if Input.is_physical_key_pressed(KEY_EQUAL) or Input.is_physical_key_pressed(KEY_KP_ADD):
+		change += rate
+	if Input.is_physical_key_pressed(KEY_MINUS) or Input.is_physical_key_pressed(KEY_KP_SUBTRACT):
+		change -= rate
+	if change != 0.0:
+		WeatherRuntime.nudge_debug_cloud_cover(change)
 
 
 func _unhandled_input(event: InputEvent) -> void:
@@ -399,9 +415,9 @@ func _update_player_visual(delta: float) -> void:
 		_visual_clip = next_clip
 	var clip_fps: float = _atlas_fps_for_visual_clip(_visual_clip)
 	_visual_time = fposmod(
-			_visual_time + delta * clip_fps,
-			float(PLAYER_RUN_ATLAS_COLUMNS),
-		)
+		_visual_time + delta * clip_fps,
+		float(PLAYER_RUN_ATLAS_COLUMNS),
+	)
 	var frame_index: int = int(floor(_visual_time)) % PLAYER_RUN_ATLAS_COLUMNS
 	_apply_player_visual_frame(_visual_clip, frame_index, _visual_direction)
 

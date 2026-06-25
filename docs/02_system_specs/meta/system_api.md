@@ -132,7 +132,9 @@ Role:
 - single owner of weather state (ADR-0007 layers 2 slow + 3 local); evolves a
   data-driven weather regime over game time and drives the wind target that
   `WindRuntime` publishes
-- governing spec: `docs/02_system_specs/world/weather_runtime.md`
+- governing specs:
+  `docs/02_system_specs/world/weather_runtime.md`,
+  `docs/02_system_specs/world/cloud_occlusion_lighting.md`
 
 Confirmed readable state (live axes; smooth values are pull-model getters):
 
@@ -140,6 +142,7 @@ Confirmed readable state (live axes; smooth values are pull-model getters):
 |---|---|---|
 | `get_active_regime_id()` | method | Active regime id (`core:clear/cloudy/overcast` in V0) |
 | `get_cloud_cover()` | method | `0` clear .. `1` overcast |
+| `get_cloud_occlusion()` | method | `0` direct sun open .. `1` direct sun blocked; derived from `cloud_cover`, no new save state |
 | `get_target_wind_strength()` | method | `0..1` wind target consumed by `WindRuntime` |
 | `get_target_wind_gustiness()` | method | `0..1` gust character target |
 | `get_target_wind_heading_deg()` | method | Wind heading target in degrees |

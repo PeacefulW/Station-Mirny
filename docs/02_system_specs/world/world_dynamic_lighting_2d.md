@@ -4,11 +4,12 @@ doc_type: system_spec
 status: approved
 source_of_truth: true
 owner: engineering+art
-version: 1.0
-last_updated: 2026-06-24
+version: 1.1
+last_updated: 2026-06-25
 related_docs:
   - ../../05_adrs/0005-light-is-gameplay-system.md
   - ../../05_adrs/0001-runtime-work-and-dirty-update-foundation.md
+  - cloud_occlusion_lighting.md
   - plains_ground_cosmetic_shading.md
   - ../progression/player_sun_shadow_v0.md
 ---
@@ -34,6 +35,21 @@ builds only the **visual illumination** (light/normal shading + torch glow). The
 gameplay visibility authority (fauna AI, stress, sanctuary truth) is **separate and
 NOT derived from these Light2D nodes** — noted here, not built here. No system may
 query the renderer/lights for gameplay visibility.
+
+## Cloud Occlusion Boundary
+
+[`cloud_occlusion_lighting.md`](cloud_occlusion_lighting.md) now rides this
+visual sun: `WeatherRuntime.get_cloud_occlusion()` lowers the `DirectionalLight2D`
+direct-sun energy and cools the `CanvasModulate` ambient in open-sky context.
+`CloudOccluderField` adds a bounded world-space shader cloud-shadow layer for
+the top-down renderer; it intentionally does not use `LightOccluder2D` because
+the project already proved Godot 2D occluder shadows project to screen-edge
+infinity in this camera model, and it does not use subtractive `PointLight2D`
+blobs because render probes proved they do not darken this ground. This replaces
+the old screen-space cloud darkening / flatten / sun-ray overlays. It is still
+presentation-only: cloud response does **not** make `Light2D` nodes a gameplay
+authority, and gameplay systems still must not read the renderer for visibility
+(ADR-0005).
 
 ## Validation (done)
 
@@ -122,6 +138,10 @@ reads in a dark ambient, and `DirectionalLight2D` lights the ground. Captures in
    spores/fireflies and the torch stay visible). Torch is **off by default with a dev
    on/off toggle (key F)**, lower energy/range (0.9 / 2.2) so it no longer washes the
    day. Probe captures: day-natural / night-pitch-black / night-torch-pool.
+   **Cloud occlusion update landed 2026-06-25:** open-sky cloud occlusion now
+   multiplies the real `SunLight2D` direct key and cools/dims the ambient floor;
+   the old screen-space cloud darkening, flatten, and sun-ray overlays are no
+   longer part of the live scene.
 2. Occluder cast shadows (sun + torch), proximity-bounded. **Not started.**
 3. (Later, separate) gameplay visibility authority per ADR-0005.
 
@@ -129,4 +149,5 @@ reads in a dark ambient, and `DirectionalLight2D` lights the ground. Captures in
 - `docs/02_system_specs/README.md` — index entry (added with this draft).
 - On promote: reconcile `plains_ground_cosmetic_shading.md` (the in-shader directional
   shade becomes redundant once the real sun lights normals).
-- If a public light/visibility API appears later, update `system_api.md` (Iter 3).
+- If a public light/visibility authority API appears later, update
+  `system_api.md` in that authority iteration.

@@ -16,8 +16,6 @@ const ATLAS_FRAMES_PER_DIRECTION: int = 16
 const DEFAULT_CONTACT_UV: float = 0.773
 const SHADOW_OPACITY_SCALE: float = 0.45
 const SHADOW_VISIBILITY_EPSILON: float = 0.006
-const DIRECT_SUN_FADE_START_COVER: float = 0.72
-const DIRECT_SUN_FADE_END_COVER: float = 0.95
 ## Длина тени = доля высоты фигуры, «уложенной» на землю вдоль shadow_dir.
 ## Минимум держим заметным: тело непрозрачно и рисуется ПОВЕРХ тени, поэтому при
 ## высоком солнце тень обязана вылезать из-под тела (путь Factorio: видна всегда).
@@ -240,15 +238,11 @@ func _light_angle() -> float:
 
 
 func _direct_sun_factor() -> float:
-	var cloud_cover: float = 0.0
 	var weather_runtime: Node = _get_weather_runtime()
-	if weather_runtime != null and weather_runtime.has_method("get_cloud_cover"):
-		cloud_cover = clampf(float(weather_runtime.call("get_cloud_cover")), 0.0, 1.0)
-	return 1.0 - WorldVisualLightingProfile.smoothstep_float(
-		DIRECT_SUN_FADE_START_COVER,
-		DIRECT_SUN_FADE_END_COVER,
-		cloud_cover,
-	)
+	if weather_runtime == null or not weather_runtime.has_method("get_cloud_occlusion"):
+		return 1.0
+	var cloud_occlusion: float = clampf(float(weather_runtime.call("get_cloud_occlusion")), 0.0, 1.0)
+	return 1.0 - cloud_occlusion
 
 
 func _surface_context_factor() -> float:
