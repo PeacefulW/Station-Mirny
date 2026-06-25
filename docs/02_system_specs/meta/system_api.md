@@ -154,6 +154,7 @@ Emits `weather_changed` on regime change (see `event_contracts.md`).
 Developer-only (not for gameplay code):
 | `set_debug_regime(id)` / `clear_debug_regime()` | method | Freeze on / release a forced regime |
 | `debug_cycle_regime()` | method | Smooth ping-pong through clear→cloudy→overcast; bound to player hotkey `K` for in-game presentation checks |
+| `set_debug_cloud_cover(v)` / `nudge_debug_cloud_cover(delta)` / `clear_debug_cloud_cover()` | method | Pin/ramp/release `cloud_cover` in real time; player holds `+`/`-` to watch clouds grow, drift, merge (cloud occlusion tuning) |
 
 Not documented here as safe entrypoints:
 - direct writes to weather state by any other system

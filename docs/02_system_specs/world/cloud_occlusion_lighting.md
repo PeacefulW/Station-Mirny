@@ -4,7 +4,7 @@ doc_type: system_spec
 status: draft
 owner: engineering+design
 source_of_truth: true
-version: 0.4
+version: 0.5
 last_updated: 2026-06-25
 related_docs:
   - weather_runtime.md
@@ -208,6 +208,17 @@ strength; overlap/field density = merged shade.
   `PointLight2D` nodes are not used as cloud-shadow inputs. This is the
   sanctuary guarantee (below).
 
+**Night fade (a shadow needs a sun).** A cloud shadow only exists while there is
+a direct sun to block, so the shader layer opacity is multiplied by a
+**sun-presence** factor (`0` at night .. `1` at midday) read from
+`DaylightSystem.get_sun_day_factor()` (day-cycle brightness, independent of cloud
+cover). At night the spatial shadows fade fully out; at dawn they fade back in.
+The cloud **state** (cover) is unaffected, so an overnight-overcast sky reads as
+overcast at sunrise: as the sun rises it is already dimmed by the persisting
+cover (global response) while the shadows fade back in. Drift uses real-time
+wind (`wind_gust_scroll_px`), so cloud *speed* does **not** depend on day length
+or the game-clock rate.
+
 ### Gameplay coupling — `EnvironmentVisibilityAuthority` (minimal slice)
 
 ADR-0005: gameplay reads an **authority**, not the renderer. New thin authority:
@@ -269,6 +280,10 @@ pool stay distinct; underground/roofed visibility scalar is unaffected by cover.
   campfire/torch `PointLight2D` pool stays warm and bright (sanctuary).
 - **Underground & roofed**: visuals and the visibility scalar are unaffected by
   cloud cover (probe).
+- **Night**: spatial cloud shadows fade out with the sun (none at deep night),
+  fade back in at dawn; cloud cover state persists so an overnight-overcast sky
+  reads as overcast at sunrise. Cloud drift speed is real-time wind, independent
+  of day length (`cloud_night_probe`).
 - **Gameplay**: `get_open_surface_light_level()` falls with cover on open sky;
   roofed/underground contexts are not reduced by cloud cover and remain governed
   by their own light rules; no gameplay system reads the `Light2D` nodes
@@ -333,17 +348,34 @@ pool stay distinct; underground/roofed visibility scalar is unaffected by cover.
   is darker than clear through global sun response; underground/roofed gates
   remove the shader layer.
 
-### Iteration 4 — `EnvironmentVisibilityAuthority` (minimal)
+### Iteration 4 — `EnvironmentVisibilityAuthority` (minimal) — DEFERRED
 
-- Authority + `get_open_surface_light_level()`; one stub consumer hook
-  (fauna/stress) reading it. Probe: scalar drops with cover on open sky, stays
-  unaffected by cover under roof/underground; static check that no system reads
-  the lights.
+- **Deferred (no consumers yet).** The project has no fauna or stress systems, so
+  an open-surface darkness scalar would feed nothing — building it now is a
+  scalar into a vacuum. Revisit when the first consumer (fauna AI / player
+  stress) lands: then add the authority + `get_open_surface_light_level()`
+  reading the **same** occlusion model (not the renderer, ADR-0005), one consumer
+  hook, and the `system_api.md` entry. Until then overcast/night darkness is
+  presentation-only; the ADR-0005 gameplay light authority stays a future,
+  separate contract.
 
-### Iteration 5 — Tuning + probes
+### Iteration 5 — Tuning + dev controls + night fade — DONE
 
-- Calibrate `O` curve, shader scale/softness/opacity, ambient cool-shift; sanctuary +
-  contrast + perf probes.
+- **Status: landed 2026-06-25.** Tuned for large, sparse, slowly drifting cumulus
+  shadow blobs that grow and merge into overcast (authored shader uniforms:
+  `cloud_scale_px`, threshold `mix(A, B, coverage)`, `peak`, `edge`,
+  `cloud_scroll_scale`, `shadow_color`; `A`/`B` set how rare clouds are at low
+  cover and how total the overcast merge is).
+- **Night fade**: shader opacity × `DaylightSystem.get_sun_day_factor()` → shadows
+  gone at night, fade in at dawn; cover state persists (see Spatial section).
+- **Dev controls (not a gameplay path)**: hold `+` / `-` to ramp `WeatherRuntime`
+  cloud cover in real time (`nudge_debug_cloud_cover`) and watch clouds grow,
+  drift, and merge live; `K` still cycles regimes.
+- Probes: `cloud_occlusion_render_probe` (layer visible at a fixed cloudy cover,
+  overcast darker, z/roof sanctuary gates), `cloud_night_probe` (fade by night,
+  partial at dawn), `cloud_occluder_field_probe` + `cloud_occlusion_light_probe`
+  (shader-layer + no Light2D children structure guards), `cloud_sweep_probe`
+  (visual cover sweep, dev).
 
 ## Required Updates
 
@@ -364,4 +396,8 @@ At implementation time:
 - Iteration 3: `system_api.md` — no update required in the landed slice because
   no new public `WeatherRuntime` field descriptor or sampler was introduced.
 - Iteration 4: `system_api.md` — add the `EnvironmentVisibilityAuthority` read
-  surface when it lands.
+  surface when it lands (deferred — no consumers yet).
+- Iteration 5: `system_api.md` — `WeatherRuntime` dev cover override
+  (`set_debug_cloud_cover` / `nudge_debug_cloud_cover` / `clear_debug_cloud_cover`);
+  `DaylightSystem.get_sun_day_factor()` is documented in this spec (DaylightSystem
+  has no `system_api` entry).
