@@ -1,4 +1,6 @@
 shader_type canvas_item;
+// Shaded: затемняется ночью через CanvasModulate. NORMAL_MAP отдаём плоским (ниже),
+// чтобы Light2D не двоил рельеф (он уже в COLOR) — иначе «пластилин».
 
 uniform sampler2D cover_mask : filter_nearest;
 uniform vec2 mask_tile_count = vec2(32.0, 32.0);
@@ -130,7 +132,7 @@ void fragment() {
 			vec3 final_normal = blend_normals(shape_normal, detail_normal);
 
 			COLOR = vec4(final_color, shape_mask.a * cover);
-			NORMAL_MAP = final_normal * 0.5 + 0.5;
+			NORMAL_MAP = vec3(0.5, 0.5, 1.0);
 		}
 	}
 }

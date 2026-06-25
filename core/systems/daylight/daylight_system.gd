@@ -9,11 +9,26 @@ extends CanvasModulate
 ## HUD живёт в CanvasLayer и не тонируется; подземный свет — геймплейная
 ## система (ADR-0005), поэтому underground остаётся нейтральным.
 const WeatherPresentationCurves = preload("res://core/systems/world/weather_presentation_curves.gd")
-const COLOR_NIGHT := Color(0.32, 0.38, 0.56)
-const COLOR_DAWN := Color(0.86, 0.74, 0.78)
-const COLOR_DAY := Color(1.0, 1.0, 1.0)
-const COLOR_DUSK := Color(1.0, 0.80, 0.58)
+## Эти цвета теперь — AMBIENT-ПОЛ (а не полная заливка): ключ даёт реальный
+## DirectionalLight2D (солнце), поэтому день приглушён, ночь по-настоящему тёмная
+## (свет=безопасность, тьма=давление, ADR-0005). См.
+## docs/02_system_specs/world/world_dynamic_lighting_2d.md.
+## День — привычно-светлый (ambient почти как раньше), солнце лишь мягкий ключ.
+## Ночь — ПОЧТИ ЧЁРНАЯ: без источника света видимость ~ноль (свет=безопасность,
+## тьма=давление, ADR-0005). Светлячки/споры (blend_add) и факел остаются видимы.
+const COLOR_NIGHT := Color(0.03, 0.035, 0.05)
+const COLOR_DAWN := Color(0.55, 0.48, 0.52)
+const COLOR_DAY := Color(0.85, 0.85, 0.83)
+const COLOR_DUSK := Color(0.66, 0.50, 0.40)
 const COLOR_UNDERGROUND := Color(1.0, 1.0, 1.0)
+## Солнце — МЯГКИЙ ключ (рельеф по нормали), не второй фонарь: иначе день
+## пересвечивается. Угол — из WorldVisualLightingProfile по времени суток.
+const SUN_DAY_ENERGY := 0.45
+const SUN_COLOR_DAY := Color(1.0, 0.92, 0.74)
+const SUN_COLOR_LOW := Color(1.0, 0.72, 0.46)
+## Нормировка яркости ambient -> сила солнца (средние новых COLOR_*).
+const AMBIENT_NIGHT_AVG := 0.038
+const AMBIENT_DAY_AVG := 0.843
 ## Множитель пасмурности при cloud_cover = 1: холоднее (тёплый R гасится
 ## сильнее B) и темнее. Это outside-ambient тон-сдвиг (sanctuary-контракт):
 ## применяется только на поверхности; underground и свет источников не трогает.
@@ -24,9 +39,18 @@ var _target_color: Color = COLOR_DAY
 ## Скорость перехода между цветами (за секунду).
 var _transition_speed: float = 1.0
 var _current_z: int = 0
+## Реальное солнце-ключ (Iteration 1). Тени-окклюдеры — Iteration 2.
+var _sun: DirectionalLight2D = null
 
 
 func _ready() -> void:
+	_sun = DirectionalLight2D.new()
+	_sun.name = "SunLight2D"
+	_sun.energy = SUN_DAY_ENERGY
+	_sun.color = SUN_COLOR_DAY
+	_sun.rotation = deg_to_rad(WorldVisualLightingProfile.DEFAULT_LIGHT_ANGLE_DEG)
+	_sun.shadow_enabled = false
+	add_child(_sun)
 	EventBus.time_of_day_changed.connect(_on_time_of_day_changed)
 	EventBus.time_tick.connect(_on_time_tick)
 	EventBus.z_level_changed.connect(_on_z_level_changed)
@@ -42,6 +66,29 @@ func _process(delta: float) -> void:
 	if _is_surface_context():
 		effective_target *= _weather_tint()
 	color = color.lerp(effective_target, _transition_speed * delta)
+	_update_sun(delta)
+
+
+## Солнце ведётся от текущей ambient-яркости (плавно вместе с CanvasModulate):
+## энергия = доля дня, угол = время суток. Под землёй солнце выключено
+## (подземный свет — отдельная геймплейная система, ADR-0005).
+func _update_sun(delta: float) -> void:
+	if _sun == null:
+		return
+	var surface: bool = _is_surface_context()
+	_sun.enabled = surface
+	if not surface:
+		return
+	var ambient_avg: float = (color.r + color.g + color.b) / 3.0
+	var strength: float = clampf(
+		(ambient_avg - AMBIENT_NIGHT_AVG) / maxf(AMBIENT_DAY_AVG - AMBIENT_NIGHT_AVG, 0.001),
+		0.0, 1.0,
+	)
+	var weight: float = clampf(_transition_speed * delta, 0.0, 1.0)
+	_sun.energy = lerpf(_sun.energy, SUN_DAY_ENERGY * strength, weight)
+	_sun.color = SUN_COLOR_LOW.lerp(SUN_COLOR_DAY, strength)
+	if TimeManager:
+		_sun.rotation = deg_to_rad(WorldVisualLightingProfile.light_angle_deg_for_hour(TimeManager.current_hour))
 
 
 ## Множитель пасмурности по облачности WeatherRuntime (white при ясной).

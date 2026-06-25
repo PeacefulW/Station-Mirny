@@ -1,4 +1,7 @@
 shader_type canvas_item;
+// Shaded (не unshaded!): гора должна затемняться ночью через CanvasModulate.
+// Она НЕ пишет NORMAL_MAP -> Light2D светит её плоско (без двойного рельефа),
+// весь рельеф приходит из её собственного шейдинга (light_ambient/light_diffuse).
 
 // Live mountain presentation (model: "facade IS the tile").
 // The dark vertical wall is rendered ON the edge mountain tile's own cell -- the

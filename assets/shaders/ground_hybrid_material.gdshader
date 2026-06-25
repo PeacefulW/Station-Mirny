@@ -31,6 +31,7 @@ uniform sampler2D grass_dense_albedo_tex : repeat_enable, filter_linear_mipmap;
 uniform sampler2D orange_biofield_albedo_tex : repeat_enable, filter_linear_mipmap;
 uniform sampler2D grass_normal_tex : repeat_enable, filter_linear_mipmap;
 uniform sampler2D rock_top_albedo_tex : repeat_enable, filter_linear_mipmap;
+uniform sampler2D rock_top_normal_tex : repeat_enable, filter_linear_mipmap;
 uniform sampler2D rock_foothill_albedo_tex : repeat_enable, filter_linear_mipmap;
 
 uniform float top_world_scale_px = 384.0;
@@ -206,6 +207,7 @@ void fragment() {
 		vec3 top_color = top_albedo * top_brightness;
 
 		float grass_total = 0.0;
+		float rock_normal_mask = 0.0;
 		float organic_strength = clamp(organic_overlay_strength, 0.0, 1.0);
 		if (organic_strength > 0.001) {
 			// --- aperiodic world fields ---
@@ -263,6 +265,7 @@ void fragment() {
 			float rock_rim = smoothstep(0.02, 0.30, rock_region) * (1.0 - smoothstep(0.45, 0.95, rock_region));
 			top_color = mix(top_color, top_color * 0.90, rock_rim * 0.4);
 			top_color = mix(top_color, rock_color * mix(0.94, 1.05, top_breakup), rock_region * 0.92);
+			rock_normal_mask = max(rock_normal_mask, rock_region * 0.85);
 
 			// --- grass ladder with strand-level dissolve ---
 			vec3 transition_color = texture(grass_transition_albedo_tex, detail_uv + vec2(0.31, -0.17)).rgb;
@@ -331,6 +334,7 @@ void fragment() {
 				* smoothstep(scree_threshold - 0.16, scree_threshold + 0.16, scree_field)
 				* (0.5 + 0.5 * scree_grain);
 			top_color = mix(top_color, rock_color * 0.96, clamp(scree * scree_strength, 0.0, 1.0));
+			rock_normal_mask = max(rock_normal_mask, clamp(scree * scree_strength, 0.0, 1.0) * 0.70);
 
 			// --- large aperiodic tone drift: keeps far zoom alive, no grid ---
 			if (macro_drift_strength > 0.001 && macro_drift_scale_px > 1.0) {
@@ -372,12 +376,20 @@ void fragment() {
 		vec3 shape_normal = unpack_normal(texture(shape_normal_atlas, UV).rgb);
 		vec3 top_normal = unpack_normal(texture(top_normal_tex, top_uv).rgb);
 		vec3 top_normal_secondary = unpack_normal(texture(top_normal_tex, top_uv_secondary).rgb);
-		if (organic_strength > 0.001 && grass_total > 0.001) {
+		if (organic_strength > 0.001) {
 			vec2 detail_uv = world_pos / max(detail_world_scale_px, 1.0);
-			vec3 grass_normal = unpack_normal(texture(grass_normal_tex, detail_uv * 0.92 + vec2(0.11, 0.37)).rgb);
-			float grass_normal_mix = grass_total * 0.55;
-			top_normal = normalize(mix(top_normal, grass_normal, grass_normal_mix));
-			top_normal_secondary = normalize(mix(top_normal_secondary, grass_normal, grass_normal_mix * 0.72));
+			if (rock_normal_mask > 0.001) {
+				vec3 rock_normal = unpack_normal(texture(rock_top_normal_tex, detail_uv * 1.12 + vec2(0.07, 0.61)).rgb);
+				float rock_normal_mix = clamp(rock_normal_mask, 0.0, 0.90);
+				top_normal = normalize(mix(top_normal, rock_normal, rock_normal_mix));
+				top_normal_secondary = normalize(mix(top_normal_secondary, rock_normal, rock_normal_mix * 0.86));
+			}
+			if (grass_total > 0.001) {
+				vec3 grass_normal = unpack_normal(texture(grass_normal_tex, detail_uv * 0.92 + vec2(0.11, 0.37)).rgb);
+				float grass_normal_mix = grass_total * 0.55;
+				top_normal = normalize(mix(top_normal, grass_normal, grass_normal_mix));
+				top_normal_secondary = normalize(mix(top_normal_secondary, grass_normal, grass_normal_mix * 0.72));
+			}
 		}
 		vec3 face_normal = unpack_normal(texture(face_normal_tex, face_uv).rgb);
 		vec3 detail_normal = normalize(

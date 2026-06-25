@@ -17,6 +17,7 @@
 [ext_resource type="Texture2D" path="res://assets/textures/world/biomes/plains/ground/orange_biofield_normal.png" id="14"]
 [ext_resource type="Texture2D" path="res://assets/textures/world/biomes/plains/ground/rock_top_albedo.png" id="15"]
 [ext_resource type="Texture2D" path="res://assets/textures/world/biomes/plains/ground/foothill_albedo.png" id="16"]
+[ext_resource type="Texture2D" path="res://assets/textures/world/biomes/plains/ground/rock_top_normal.png" id="17"]
 
 [resource]
 script = ExtResource("1")
@@ -37,7 +38,8 @@ extra_textures = {
 &"grass_transition_albedo": ExtResource("9"),
 &"orange_biofield_albedo": ExtResource("13"),
 &"rock_foothill_albedo": ExtResource("16"),
-&"rock_top_albedo": ExtResource("15")
+&"rock_top_albedo": ExtResource("15"),
+&"rock_top_normal": ExtResource("17")
 }
 sampling_params = {
 "back_rim_darkening": 0.96,

@@ -14,6 +14,7 @@ related_docs:
   - ../meta/packet_schemas.md
   - ../meta/save_and_persistence.md
   - wind_and_grass_scatter_presentation.md
+  - cloud_occlusion_lighting.md
   - ../../05_adrs/0001-runtime-work-and-dirty-update-foundation.md
   - ../../05_adrs/0004-host-authoritative-multiplayer.md
   - ../../05_adrs/0005-light-is-gameplay-system.md
@@ -258,6 +259,16 @@ and, later, host-authoritative with presentation-only clients (ADR-0004/0007).
 V0 is single-player; no replication is wired, but no design choice blocks it.
 
 ## Cloud Presentation Model
+
+> **SUPERSEDED (2026-06-25).** The Iteration 2b presentation below — the
+> `broken`/`deck`/`flatten`/`sun_ray` curves and their `CloudShadowOverlay`
+> (screen-darkening), `OvercastFlattenOverlay`, and `SunRayOverlay` — is being
+> replaced by real sun occlusion: cloud cover blocks the real `DirectionalLight2D`
+> sun (drifting `LightOccluder2D` shadows + global energy drop at overcast). The
+> cloud-cover *state* and its owner (`WeatherRuntime`) are unchanged; only how
+> cover becomes light changes. Source of truth for cloud presentation is now
+> [`cloud_occlusion_lighting.md`](cloud_occlusion_lighting.md). The text below is
+> retained for history until that spec's Iteration 2 lands.
 
 Cloud presentation is **realistic and regime-distinct**, driven by `cloud_cover`
 through two separable response curves rather than one monotonic "more cover =

@@ -24,6 +24,7 @@ material_texture_params = {
 "orange_biofield_albedo_tex": &"orange_biofield_albedo",
 "rock_foothill_albedo_tex": &"rock_foothill_albedo",
 "rock_top_albedo_tex": &"rock_top_albedo",
+"rock_top_normal_tex": &"rock_top_normal",
 "top_albedo_tex": &"top_albedo",
 "top_modulation": &"top_modulation",
 "top_normal_tex": &"top_normal"

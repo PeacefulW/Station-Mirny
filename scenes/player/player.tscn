@@ -8,6 +8,7 @@
 [ext_resource type="Resource" path="res://data/balance/survival_balance.tres" id="4_survbal"]
 [ext_resource type="Resource" path="res://data/balance/player_balance.tres" id="6_player_balance"]
 [ext_resource type="Script" uid="uid://d1ar37qoal6x5" path="res://core/entities/components/inventory_component.gd" id="6_75vfm"]
+[ext_resource type="Script" path="res://core/entities/player/player_torch.gd" id="12_torch"]
 [ext_resource type="Script" path="res://core/entities/player/player_camera.gd" id="7_camera"]
 [ext_resource type="Texture2D" path="res://assets/sprites/player/player_run_backward_mixamo_16dir_16frames_256.png" id="8_back"]
 [ext_resource type="Texture2D" path="res://assets/sprites/player/player_strafe_left_mixamo_16dir_16frames_256.png" id="9_left"]
@@ -71,3 +72,6 @@ collision_mask = 4
 
 [node name="AttackShape" type="CollisionShape2D" parent="AttackArea" unique_id=907261228]
 shape = SubResource("attack_shape")
+
+[node name="Torch" type="PointLight2D" parent="."]
+script = ExtResource("12_torch")
