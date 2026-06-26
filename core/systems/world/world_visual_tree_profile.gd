@@ -18,6 +18,17 @@ static func palette_autumn() -> Array[Color]:
 static func bark_color() -> Color:
 	return Color8(86, 62, 40)
 
+
+static func bark_palette() -> Dictionary:
+	return {
+		"shadow": Color8(45, 30, 20),
+		"dark": Color8(64, 42, 27),
+		"mid": Color8(86, 62, 40),
+		"warm": Color8(120, 82, 48),
+		"highlight": Color8(156, 112, 66),
+		"moss": Color8(72, 83, 48),
+	}
+
 ## Разброс оттенка кроны между деревьями (жёлто-золотой <-> рыже-оранжевый).
 static func canopy_tints() -> Array[Color]:
 	return [
@@ -74,31 +85,31 @@ static func variant_params(index: int) -> Dictionary:
 	match archetype:
 		0: # тонкое высокое
 			p = {
-				"gnarl": lerpf(0.26, 0.46, sub), "trunk_len": lerpf(86.0, 100.0, sub),
-				"trunk_w": lerpf(17.0, 21.0, sub), "canopy_count": int(lerpf(95.0, 125.0, sub)),
-				"canopy_radius": lerpf(32.0, 40.0, sub), "split_angle": 0.50, "len_ratio": 0.66,
-				"lean": lerpf(-0.05, 0.05, sub),
+				"gnarl": lerpf(0.20, 0.34, sub), "trunk_len": lerpf(96.0, 118.0, sub),
+				"trunk_w": lerpf(26.0, 32.0, sub), "canopy_count": int(lerpf(110.0, 145.0, sub)),
+				"canopy_radius": lerpf(36.0, 45.0, sub), "split_angle": 0.44, "len_ratio": 0.68,
+				"lean": lerpf(-0.025, 0.025, sub),
 			}
 		1: # широкое раскидистое
 			p = {
-				"gnarl": lerpf(0.40, 0.60, sub), "trunk_len": lerpf(54.0, 68.0, sub),
-				"trunk_w": lerpf(22.0, 27.0, sub), "canopy_count": int(lerpf(130.0, 165.0, sub)),
-				"canopy_radius": lerpf(47.0, 57.0, sub), "split_angle": 0.74, "len_ratio": 0.75,
-				"lean": lerpf(-0.06, 0.06, sub),
+				"gnarl": lerpf(0.30, 0.46, sub), "trunk_len": lerpf(78.0, 96.0, sub),
+				"trunk_w": lerpf(32.0, 40.0, sub), "canopy_count": int(lerpf(145.0, 185.0, sub)),
+				"canopy_radius": lerpf(50.0, 62.0, sub), "split_angle": 0.58, "len_ratio": 0.72,
+				"lean": lerpf(-0.035, 0.035, sub),
 			}
 		2: # витое
 			p = {
-				"gnarl": lerpf(0.72, 1.0, sub), "trunk_len": lerpf(64.0, 80.0, sub),
-				"trunk_w": lerpf(19.0, 24.0, sub), "canopy_count": int(lerpf(100.0, 135.0, sub)),
-				"canopy_radius": lerpf(38.0, 46.0, sub), "split_angle": 0.66, "len_ratio": 0.70,
-				"lean": lerpf(-0.08, 0.08, sub),
+				"gnarl": lerpf(0.34, 0.54, sub), "trunk_len": lerpf(82.0, 100.0, sub),
+				"trunk_w": lerpf(29.0, 37.0, sub), "canopy_count": int(lerpf(120.0, 155.0, sub)),
+				"canopy_radius": lerpf(43.0, 54.0, sub), "split_angle": 0.54, "len_ratio": 0.70,
+				"lean": lerpf(-0.045, 0.045, sub),
 			}
 		_: # наклонённое ветром (наклон уходит в крону, ствол стоит)
 			p = {
-				"gnarl": lerpf(0.44, 0.66, sub), "trunk_len": lerpf(70.0, 86.0, sub),
-				"trunk_w": lerpf(18.0, 23.0, sub), "canopy_count": int(lerpf(105.0, 140.0, sub)),
-				"canopy_radius": lerpf(40.0, 48.0, sub), "split_angle": 0.60, "len_ratio": 0.72,
-				"lean": (0.11 + sub * 0.05) * (1.0 if index % 2 == 0 else -1.0),
+				"gnarl": lerpf(0.28, 0.44, sub), "trunk_len": lerpf(88.0, 108.0, sub),
+				"trunk_w": lerpf(28.0, 36.0, sub), "canopy_count": int(lerpf(120.0, 160.0, sub)),
+				"canopy_radius": lerpf(42.0, 52.0, sub), "split_angle": 0.50, "len_ratio": 0.70,
+				"lean": (0.035 + sub * 0.025) * (1.0 if index % 2 == 0 else -1.0),
 			}
 	p["seed"] = 4000 + index * 13
 	p["tint"] = tints[index % tints.size()]

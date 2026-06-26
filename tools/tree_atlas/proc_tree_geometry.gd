@@ -14,7 +14,7 @@ var p_seed: int = 1
 var p_gnarl: float = 0.5
 var p_trunk_len: float = 70.0
 var p_trunk_w: float = 21.0
-var p_taper_along: float = 0.60
+var p_taper_along: float = 0.68
 var p_split_angle: float = 0.62
 var p_split_jitter: float = 0.26
 var p_len_ratio: float = 0.70
@@ -34,6 +34,8 @@ var base_pos: Vector2 = Vector2.ZERO
 var _branches: Array = []
 var _leaves: Array = []
 var _base_ao: PackedVector2Array = PackedVector2Array()
+var _root_ao_blobs: Array = []
+var _bark_palette: Dictionary = {}
 var _built: bool = false
 
 
@@ -48,33 +50,42 @@ func build() -> void:
 	_built = true
 	if p_palette.is_empty():
 		p_palette = TreeProfile.palette_autumn()
+	_bark_palette = TreeProfile.bark_palette()
+	p_bark = _palette_color("mid", p_bark)
 	var rng := RandomNumberGenerator.new()
 	rng.seed = p_seed
-	_base_ao = _ellipse(base_pos + Vector2(0, -p_trunk_w * 0.28), p_trunk_w * 1.7, p_trunk_w * 0.6)
+	_base_ao = _ellipse(base_pos + Vector2(0, -p_trunk_w * 0.20), p_trunk_w * 2.35, p_trunk_w * 0.86)
 	var counter: Array = [0]
-	_branch(rng, base_pos, Vector2.UP, p_trunk_len, p_trunk_w, 5, 5, counter, true)
 	_roots(rng, base_pos, p_trunk_w)
+	_branch(rng, base_pos, Vector2.UP, p_trunk_len, p_trunk_w, 5, 5, counter, true)
 
 
 func _roots(rng: RandomNumberGenerator, base: Vector2, _unused: float = 0.0) -> void:
-	# Подсказка корней, не «паучьи лапы»: 2-3 коротких почти-вертикальных корня в
-	# тон ствола, сливаются с раструбом основания (грунтовка, не тёмные ноги).
-	var dark := Color(p_bark.r * 0.84, p_bark.g * 0.84, p_bark.b * 0.84, 1.0)
-	var n: int = rng.randi_range(2, 3)
-	for i: int in range(n):
-		var spread: float = lerpf(-0.5, 0.5, float(i) / float(maxi(n - 1, 1)))
-		var d: Vector2 = Vector2.DOWN.rotated(spread + rng.randf_range(-0.08, 0.08))
-		var pts: Array = [base]
-		var widths: Array = [p_trunk_w * rng.randf_range(0.40, 0.58)]
-		var p: Vector2 = base
-		var seg: float = p_trunk_w * rng.randf_range(0.42, 0.66)
-		for s: int in range(2):
-			d = d.rotated(rng.randf_range(-p_gnarl, p_gnarl) * 0.35).normalized()
-			p = p + d * seg
-			pts.append(p)
-			widths.append(float(widths[widths.size() - 1]) * 0.42)
-			seg *= 0.62
-		_stroke(pts, widths, dark, 0.88)
+	# Короткие buttress-root лапы дают вес у основания без baked grass fringe.
+	var root_color: Color = _palette_color("dark", Color(p_bark.r * 0.84, p_bark.g * 0.84, p_bark.b * 0.84, 1.0)).lerp(_palette_color("mid", p_bark), 0.42)
+	var root_defs: Array = [
+		{"start": Vector2(-0.30, 0.08), "dir": Vector2(-0.92, 0.40), "len": 1.08, "width": 0.44},
+		{"start": Vector2(0.30, 0.08), "dir": Vector2(0.90, 0.42), "len": 1.00, "width": 0.40},
+		{"start": Vector2(-0.02, 0.20), "dir": Vector2(-0.12, 1.00), "len": 0.76, "width": 0.34},
+	]
+	if rng.randf() < 0.38:
+		root_defs.append({"start": Vector2(0.12, 0.18), "dir": Vector2(0.34, 0.94), "len": 0.66, "width": 0.28})
+	for i: int in range(root_defs.size()):
+		var root_def: Dictionary = root_defs[i] as Dictionary
+		var d: Vector2 = (root_def["dir"] as Vector2).rotated(rng.randf_range(-0.08, 0.08)).normalized()
+		var p: Vector2 = base + (root_def["start"] as Vector2) * p_trunk_w
+		var pts: Array = [p]
+		var start_width: float = p_trunk_w * float(root_def["width"]) * rng.randf_range(0.90, 1.08)
+		var widths: Array = [start_width]
+		var seg: float = p_trunk_w * float(root_def["len"]) * rng.randf_range(0.86, 1.10)
+		p = p + d * seg
+		pts.append(p)
+		widths.append(start_width * 0.32)
+		_stroke(pts, widths, root_color, 1.02, false, 0, _detail_seed(i, 9), true)
+		_root_ao_blobs.append({
+			"pts": _ellipse(p + Vector2(0.0, p_trunk_w * 0.07), p_trunk_w * rng.randf_range(0.30, 0.46), p_trunk_w * rng.randf_range(0.10, 0.18)),
+			"alpha": rng.randf_range(0.08, 0.14),
+		})
 
 
 func _branch(rng: RandomNumberGenerator, start: Vector2, dir: Vector2, length: float, width: float, depth: int, max_depth: int, counter: Array, is_trunk: bool) -> void:
@@ -87,19 +98,34 @@ func _branch(rng: RandomNumberGenerator, start: Vector2, dir: Vector2, length: f
 	var p: Vector2 = start
 	var d: Vector2 = dir
 	var w: float = width
-	var pts: Array = [p]
-	var widths: Array = [width * 1.4 if is_trunk else width]
+	var pts: Array = []
+	var widths: Array = []
+	if is_trunk:
+		var lower_base := start + Vector2(0.0, width * 0.24)
+		var upper_base := start + Vector2(0.0, width * 0.02)
+		pts.append(lower_base)
+		widths.append(width * 1.20)
+		pts.append(upper_base)
+		widths.append(width * 1.12)
+		p = upper_base
+	else:
+		pts.append(p)
+		widths.append(width)
 	# Наклон ветром сильнее в кроне (ветки), слабее в стволе → ствол стоит, а не «падает».
 	var lean_here: float = p_lean * (0.4 if is_trunk else 1.0)
 	for i: int in range(steps):
 		var twist: float = rng.randf_range(-p_gnarl, p_gnarl) + lean_here
 		d = d.rotated(twist).normalized()
+		if is_trunk:
+			d = Vector2(clampf(d.x, -0.34, 0.34), minf(d.y, -0.72)).normalized()
 		var t_end: float = float(i + 1) / float(steps)
 		w = lerpf(width, width * p_taper_along, t_end)
+		if is_trunk and i <= 1:
+			w = maxf(w, lerpf(width * 1.24, width * 1.08, t_end * 2.0))
 		p = p + d * seg_len
 		pts.append(p)
 		widths.append(w)
-	_stroke(pts, widths, p_bark, tone)
+	_stroke(pts, widths, p_bark, tone, is_trunk, depth, _detail_seed(counter[0], depth))
 	if depth <= 0 or w < p_min_width:
 		_canopy(rng, p, p_canopy_count)
 		return
@@ -118,7 +144,7 @@ func _branch(rng: RandomNumberGenerator, start: Vector2, dir: Vector2, length: f
 
 # Непрерывная лента по центральной линии: левый край вперёд, правый назад —
 # один полигон, без щелей на изгибах. Шейдинг: левая/правая сторона по свету.
-func _stroke(pts: Array, widths: Array, bark: Color, tone: float) -> void:
+func _stroke(pts: Array, widths: Array, bark: Color, tone: float, is_trunk: bool = false, depth: int = 0, detail_seed: int = 0, is_root: bool = false) -> void:
 	var count: int = pts.size()
 	if count < 2:
 		return
@@ -132,8 +158,10 @@ func _stroke(pts: Array, widths: Array, bark: Color, tone: float) -> void:
 		var dir: Vector2 = _dir_at(pts, i)
 		var nrm: Vector2 = dir.orthogonal().normalized()
 		var hw: float = float(widths[i]) * 0.5
-		left.append(pts[i] - nrm * hw)
-		right.append(pts[i] + nrm * hw)
+		var rough_left: float = 1.0 + sin(float(i) * 2.17 + float(detail_seed % 97) * 0.13) * (0.055 if hw > 5.0 else 0.02)
+		var rough_right: float = 1.0 + cos(float(i) * 1.91 + float(detail_seed % 113) * 0.11) * (0.055 if hw > 5.0 else 0.02)
+		left.append(pts[i] - nrm * hw * rough_left)
+		right.append(pts[i] + nrm * hw * rough_right)
 		var f_l: float = clampf((-nrm).dot(p_light_dir) * 0.34 + 0.82, 0.58, 1.12) * tone
 		var f_r: float = clampf(nrm.dot(p_light_dir) * 0.34 + 0.82, 0.58, 1.12) * tone
 		lcol.append(_shade(bark, f_l))
@@ -144,7 +172,16 @@ func _stroke(pts: Array, widths: Array, bark: Color, tone: float) -> void:
 	for i: int in range(count - 1, -1, -1):
 		poly.append(right[i])
 		cols.append(rcol[i])
-	_branches.append({"pts": poly, "cols": cols})
+	_branches.append({
+		"pts": poly,
+		"cols": cols,
+		"center": pts.duplicate(),
+		"widths": widths.duplicate(),
+		"is_trunk": is_trunk,
+		"is_root": is_root,
+		"depth": depth,
+		"detail_seed": detail_seed,
+	})
 
 
 func _dir_at(pts: Array, i: int) -> Vector2:
@@ -158,6 +195,129 @@ func _dir_at(pts: Array, i: int) -> Vector2:
 	if d.length() < 0.001:
 		return Vector2.UP
 	return d.normalized()
+
+
+func _detail_seed(index: int, salt: int) -> int:
+	return int(abs((p_seed * 928371 + index * 5237 + salt * 193) % 2147483647))
+
+
+func _palette_color(name: String, fallback: Color) -> Color:
+	var value: Variant = _bark_palette.get(name, fallback)
+	if value is Color:
+		return value as Color
+	return fallback
+
+
+func _with_alpha(color: Color, alpha: float) -> Color:
+	return Color(color.r, color.g, color.b, alpha)
+
+
+func _draw_root_grounding() -> void:
+	for blob_variant: Variant in _root_ao_blobs:
+		var blob: Dictionary = blob_variant as Dictionary
+		draw_colored_polygon(blob.get("pts", PackedVector2Array()) as PackedVector2Array, Color(0, 0, 0, float(blob.get("alpha", 0.12))))
+
+
+func _draw_bark_details(branch: Dictionary) -> void:
+	var centers: Array = branch.get("center", []) as Array
+	var widths: Array = branch.get("widths", []) as Array
+	if centers.size() < 2 or widths.size() < 2:
+		return
+	if bool(branch.get("is_root", false)):
+		return
+	var rng := RandomNumberGenerator.new()
+	rng.seed = int(branch.get("detail_seed", p_seed))
+	var is_trunk: bool = bool(branch.get("is_trunk", false))
+	_draw_branch_edge_shadow(branch)
+	var knot_budget: int = 3 if is_trunk else 1
+	var knots_drawn: int = 0
+	for i: int in range(centers.size() - 1):
+		var a: Vector2 = centers[i]
+		var b: Vector2 = centers[i + 1]
+		var tangent: Vector2 = b - a
+		if tangent.length() < 0.001:
+			continue
+		tangent = tangent.normalized()
+		var normal: Vector2 = tangent.orthogonal().normalized()
+		var w: float = float(widths[min(i, widths.size() - 1)])
+		if w < 5.0:
+			continue
+		var crack_count: int = clampi(int(round(w / 5.2)), 1, 5)
+		for _c: int in range(crack_count):
+			var offset: float = rng.randf_range(-w * 0.28, w * 0.28)
+			var t0: float = rng.randf_range(0.05, 0.58)
+			var t1: float = minf(t0 + rng.randf_range(0.18, 0.44), 0.96)
+			var p0: Vector2 = a.lerp(b, t0) + normal * offset
+			var p1: Vector2 = a.lerp(b, t1) + normal * (offset + rng.randf_range(-w * 0.08, w * 0.08))
+			var mid: Vector2 = (p0 + p1) * 0.5 + normal * rng.randf_range(-1.8, 1.8)
+			draw_polyline(
+				PackedVector2Array([p0, mid, p1]),
+				_with_alpha(_palette_color("shadow", Color(0.16, 0.10, 0.06)), rng.randf_range(0.26, 0.56)),
+				maxf(1.8, w * 0.055),
+				true,
+			)
+		if w > 8.5 and rng.randf() < (0.62 if is_trunk else 0.28):
+			var light_normal: Vector2 = normal if normal.dot(p_light_dir) > (-normal).dot(p_light_dir) else -normal
+			var t_start: float = rng.randf_range(0.08, 0.50)
+			var t_end: float = minf(t_start + rng.randf_range(0.22, 0.50), 0.95)
+			var ridge0: Vector2 = a.lerp(b, t_start) + light_normal * rng.randf_range(w * 0.08, w * 0.26)
+			var ridge1: Vector2 = a.lerp(b, t_end) + light_normal * rng.randf_range(w * 0.08, w * 0.26)
+			draw_polyline(
+				PackedVector2Array([ridge0, (ridge0 + ridge1) * 0.5, ridge1]),
+				_with_alpha(_palette_color("highlight", Color(0.62, 0.42, 0.24)), rng.randf_range(0.18, 0.36)),
+				maxf(1.5, w * 0.038),
+				true,
+			)
+		if w > 11.0 and knots_drawn < knot_budget and rng.randf() < (0.44 if is_trunk else 0.16):
+			_draw_knot(a.lerp(b, rng.randf_range(0.25, 0.72)), tangent, normal, w, rng)
+			knots_drawn += 1
+		if w > 13.0 and rng.randf() < 0.055:
+			var moss_center: Vector2 = a.lerp(b, rng.randf_range(0.18, 0.82)) + normal * rng.randf_range(-w * 0.22, w * 0.22)
+			draw_colored_polygon(
+				_oriented_ellipse(moss_center, tangent, normal, w * 0.12, w * 0.045, 9),
+				_with_alpha(_palette_color("moss", Color(0.28, 0.33, 0.18)), 0.24),
+			)
+
+
+func _draw_branch_edge_shadow(branch: Dictionary) -> void:
+	var centers: Array = branch.get("center", []) as Array
+	var widths: Array = branch.get("widths", []) as Array
+	if centers.size() < 2 or widths.size() < 2:
+		return
+	var shadow_pts := PackedVector2Array()
+	var width_sum: float = 0.0
+	for i: int in range(centers.size()):
+		var dir: Vector2 = _dir_at(centers, i)
+		var normal: Vector2 = dir.orthogonal().normalized()
+		var shadow_normal: Vector2 = normal if normal.dot(p_light_dir) < (-normal).dot(p_light_dir) else -normal
+		var w: float = float(widths[min(i, widths.size() - 1)])
+		width_sum += w
+		shadow_pts.append((centers[i] as Vector2) + shadow_normal * w * 0.38)
+	draw_polyline(
+		shadow_pts,
+		_with_alpha(_palette_color("dark", Color(0.24, 0.15, 0.09)), 0.34),
+		maxf(2.0, (width_sum / float(widths.size())) * 0.11),
+		true,
+	)
+
+
+func _draw_knot(center: Vector2, tangent: Vector2, normal: Vector2, width: float, rng: RandomNumberGenerator) -> void:
+	var pos: Vector2 = center + normal * rng.randf_range(-width * 0.18, width * 0.18)
+	var rx: float = maxf(3.0, width * rng.randf_range(0.14, 0.22))
+	var ry: float = maxf(1.8, width * rng.randf_range(0.065, 0.11))
+	draw_colored_polygon(
+		_oriented_ellipse(pos, tangent, normal, rx * 1.35, ry * 1.28, 14),
+		_with_alpha(_palette_color("warm", Color(0.48, 0.32, 0.19)), 0.46),
+	)
+	draw_colored_polygon(
+		_oriented_ellipse(pos, tangent, normal, rx, ry, 14),
+		_with_alpha(_palette_color("shadow", Color(0.18, 0.11, 0.07)), 0.64),
+	)
+	var hi_pos: Vector2 = pos - normal * ry * 0.22 + tangent * rx * 0.20
+	draw_colored_polygon(
+		_oriented_ellipse(hi_pos, tangent, normal, rx * 0.48, ry * 0.34, 10),
+		_with_alpha(_palette_color("highlight", Color(0.60, 0.42, 0.24)), 0.34),
+	)
 
 
 func _canopy(rng: RandomNumberGenerator, center: Vector2, count: int) -> void:
@@ -234,6 +394,12 @@ func get_content_bounds() -> Rect2:
 	for pt: Vector2 in _base_ao:
 		mn = mn.min(pt)
 		mx = mx.max(pt)
+	for blob_variant: Variant in _root_ao_blobs:
+		var blob: Dictionary = blob_variant as Dictionary
+		var pts: PackedVector2Array = blob.get("pts", PackedVector2Array()) as PackedVector2Array
+		for pt: Vector2 in pts:
+			mn = mn.min(pt)
+			mx = mx.max(pt)
 	if mn.x > mx.x:
 		return Rect2(base_pos, Vector2.ZERO)
 	return Rect2(mn, mx - mn)
@@ -258,14 +424,26 @@ func _ellipse(center: Vector2, rx: float, ry: float) -> PackedVector2Array:
 	return pts
 
 
+func _oriented_ellipse(center: Vector2, tangent: Vector2, normal: Vector2, rx: float, ry: float, steps: int) -> PackedVector2Array:
+	var pts := PackedVector2Array()
+	var safe_steps: int = maxi(steps, 6)
+	for i: int in range(safe_steps):
+		var a: float = TAU * float(i) / float(safe_steps)
+		pts.append(center + tangent * cos(a) * rx + normal * sin(a) * ry)
+	return pts
+
+
 func _shade(c: Color, f: float) -> Color:
 	return Color(c.r * f, c.g * f, c.b * f, 1.0)
 
 
 func _draw() -> void:
 	if _base_ao.size() > 0:
-		draw_colored_polygon(_base_ao, Color(0, 0, 0, 0.14))
+		draw_colored_polygon(_base_ao, Color(0, 0, 0, 0.20))
+	_draw_root_grounding()
 	for seg: Dictionary in _branches:
 		draw_polygon(seg["pts"], seg["cols"])
+	for seg: Dictionary in _branches:
+		_draw_bark_details(seg)
 	for leaf: Dictionary in _leaves:
 		draw_colored_polygon(leaf["pts"], leaf["col"])

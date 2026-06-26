@@ -11,14 +11,14 @@
 	"frames": [
 		{
 			"alpha_bbox": [
-				96,
-				155,
-				177,
-				229
+				121,
+				90,
+				220,
+				294
 			],
 			"anchor_local": [
 				192,
-				371
+				354
 			],
 			"frame_rect": [
 				0,
@@ -27,18 +27,18 @@
 				384
 			],
 			"index": 0,
-			"visible_height": 229
+			"visible_height": 294
 		},
 		{
 			"alpha_bbox": [
-				434,
-				157,
-				200,
-				227
+				384,
+				57,
+				272,
+				327
 			],
 			"anchor_local": [
-				192,
-				367
+				197,
+				353
 			],
 			"frame_rect": [
 				384,
@@ -47,18 +47,18 @@
 				384
 			],
 			"index": 1,
-			"visible_height": 227
+			"visible_height": 327
 		},
 		{
 			"alpha_bbox": [
-				768,
-				195,
-				232,
-				189
+				868,
+				49,
+				284,
+				335
 			],
 			"anchor_local": [
-				199,
-				362
+				179,
+				348
 			],
 			"frame_rect": [
 				768,
@@ -67,18 +67,18 @@
 				384
 			],
 			"index": 2,
-			"visible_height": 189
+			"visible_height": 335
 		},
 		{
 			"alpha_bbox": [
-				1308,
-				125,
-				162,
-				259
+				1200,
+				30,
+				336,
+				354
 			],
 			"anchor_local": [
-				192,
-				364
+				123,
+				347
 			],
 			"frame_rect": [
 				1152,
@@ -87,18 +87,18 @@
 				384
 			],
 			"index": 3,
-			"visible_height": 259
+			"visible_height": 354
 		},
 		{
 			"alpha_bbox": [
-				109,
-				593,
-				204,
-				175
+				47,
+				482,
+				312,
+				286
 			],
 			"anchor_local": [
 				192,
-				365
+				347
 			],
 			"frame_rect": [
 				0,
@@ -107,18 +107,18 @@
 				384
 			],
 			"index": 4,
-			"visible_height": 175
+			"visible_height": 286
 		},
 		{
 			"alpha_bbox": [
-				447,
-				576,
-				212,
-				192
+				403,
+				460,
+				320,
+				308
 			],
 			"anchor_local": [
 				192,
-				365
+				346
 			],
 			"frame_rect": [
 				384,
@@ -127,18 +127,18 @@
 				384
 			],
 			"index": 5,
-			"visible_height": 192
+			"visible_height": 308
 		},
 		{
 			"alpha_bbox": [
-				811,
-				592,
-				242,
-				176
+				768,
+				479,
+				360,
+				289
 			],
 			"anchor_local": [
-				192,
-				362
+				219,
+				341
 			],
 			"frame_rect": [
 				768,
@@ -147,18 +147,18 @@
 				384
 			],
 			"index": 6,
-			"visible_height": 176
+			"visible_height": 289
 		},
 		{
 			"alpha_bbox": [
-				1152,
-				513,
-				267,
-				255
+				1178,
+				419,
+				330,
+				349
 			],
 			"anchor_local": [
-				221,
-				291
+				192,
+				335
 			],
 			"frame_rect": [
 				1152,
@@ -167,18 +167,18 @@
 				384
 			],
 			"index": 7,
-			"visible_height": 255
+			"visible_height": 349
 		},
 		{
 			"alpha_bbox": [
-				56,
-				1000,
-				210,
-				152
+				61,
+				896,
+				291,
+				256
 			],
 			"anchor_local": [
 				192,
-				372
+				353
 			],
 			"frame_rect": [
 				0,
@@ -187,18 +187,18 @@
 				384
 			],
 			"index": 8,
-			"visible_height": 152
+			"visible_height": 256
 		},
 		{
 			"alpha_bbox": [
-				489,
-				966,
-				195,
-				186
+				433,
+				881,
+				282,
+				271
 			],
 			"anchor_local": [
 				192,
-				363
+				350
 			],
 			"frame_rect": [
 				384,
@@ -207,14 +207,14 @@
 				384
 			],
 			"index": 9,
-			"visible_height": 186
+			"visible_height": 271
 		},
 		{
 			"alpha_bbox": [
-				897,
-				957,
-				227,
-				195
+				860,
+				813,
+				258,
+				339
 			],
 			"anchor_local": [
 				192,
@@ -227,18 +227,18 @@
 				384
 			],
 			"index": 10,
-			"visible_height": 195
+			"visible_height": 339
 		},
 		{
 			"alpha_bbox": [
 				1152,
-				963,
-				241,
-				189
+				829,
+				339,
+				323
 			],
 			"anchor_local": [
-				200,
-				365
+				243,
+				344
 			],
 			"frame_rect": [
 				1152,
@@ -247,18 +247,18 @@
 				384
 			],
 			"index": 11,
-			"visible_height": 189
+			"visible_height": 323
 		},
 		{
 			"alpha_bbox": [
-				25,
-				1352,
-				198,
-				184
+				118,
+				1244,
+				266,
+				292
 			],
 			"anchor_local": [
-				192,
-				368
+				184,
+				354
 			],
 			"frame_rect": [
 				0,
@@ -267,18 +267,18 @@
 				384
 			],
 			"index": 12,
-			"visible_height": 184
+			"visible_height": 292
 		},
 		{
 			"alpha_bbox": [
-				386,
-				1309,
-				223,
-				227
+				450,
+				1231,
+				275,
+				305
 			],
 			"anchor_local": [
 				192,
-				327
+				347
 			],
 			"frame_rect": [
 				384,
@@ -287,18 +287,18 @@
 				384
 			],
 			"index": 13,
-			"visible_height": 227
+			"visible_height": 305
 		},
 		{
 			"alpha_bbox": [
-				869,
-				1294,
-				237,
-				242
+				846,
+				1179,
+				306,
+				357
 			],
 			"anchor_local": [
-				192,
-				365
+				156,
+				347
 			],
 			"frame_rect": [
 				768,
@@ -307,18 +307,18 @@
 				384
 			],
 			"index": 14,
-			"visible_height": 242
+			"visible_height": 357
 		},
 		{
 			"alpha_bbox": [
-				1213,
-				1336,
-				170,
-				200
+				1194,
+				1195,
+				342,
+				341
 			],
 			"anchor_local": [
 				192,
-				360
+				339
 			],
 			"frame_rect": [
 				1152,
@@ -327,7 +327,7 @@
 				384
 			],
 			"index": 15,
-			"visible_height": 200
+			"visible_height": 341
 		}
 	],
 	"generator": "procedural (tools/tree_atlas/proc_tree_geometry.gd) via WorldVisualTreeProfile",
