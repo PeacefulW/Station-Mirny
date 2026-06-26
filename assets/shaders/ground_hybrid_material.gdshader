@@ -50,6 +50,11 @@ uniform float orange_field_scale_px = 1450.0;
 uniform float orange_coverage = 0.30;
 uniform float rock_field_scale_px = 1050.0;
 uniform float rock_coverage = 0.26;
+// Visual-only extra rock islets on bare ground. Decoupled from rock_coverage so
+// it drives ONLY color + normal, never grass_density (the placement field
+// mirrored in grass_scatter.cpp). More visible rock, zero placement impact, no
+// WORLD_VERSION bump. See plains_ground_field_composition.md Iteration 4.
+uniform float rock_visual_coverage = 0.26;
 uniform float macro_drift_scale_px = 5200.0;
 uniform float macro_drift_strength = 0.08;
 // Macro-mass coverage field (very long wavelength) and procedural paths:
@@ -262,10 +267,16 @@ void fragment() {
 			float rock_crumble = (smoothstep(0.30, 0.74, luma(rock_color)) - 0.5) * 0.18;
 			float rock_region = smoothstep(rock_threshold - 0.24, rock_threshold + 0.24, rock_field + rock_crumble);
 			rock_region *= 1.0 - smoothstep(0.30, 0.62, grass_field) * 0.78;
-			float rock_rim = smoothstep(0.02, 0.30, rock_region) * (1.0 - smoothstep(0.45, 0.95, rock_region));
+			// Visual-only region: extra islets on bare ground for color + normal
+			// ONLY. Never feeds grass_density, so no C++ mirror, no version bump.
+			float rock_visual_threshold = mix(0.86, 0.52, clamp(rock_visual_coverage, 0.0, 1.0));
+			float rock_region_visual = smoothstep(rock_visual_threshold - 0.24, rock_visual_threshold + 0.24, rock_field + rock_crumble);
+			rock_region_visual *= 1.0 - smoothstep(0.30, 0.62, grass_field) * 0.78;
+			rock_region_visual = max(rock_region_visual, rock_region);
+			float rock_rim = smoothstep(0.02, 0.30, rock_region_visual) * (1.0 - smoothstep(0.45, 0.95, rock_region_visual));
 			top_color = mix(top_color, top_color * 0.90, rock_rim * 0.4);
-			top_color = mix(top_color, rock_color * mix(0.94, 1.05, top_breakup), rock_region * 0.92);
-			rock_normal_mask = max(rock_normal_mask, rock_region * 0.85);
+			top_color = mix(top_color, rock_color * mix(0.94, 1.05, top_breakup), rock_region_visual * 0.92);
+			rock_normal_mask = max(rock_normal_mask, rock_region_visual * 0.85);
 
 			// --- grass ladder with strand-level dissolve ---
 			vec3 transition_color = texture(grass_transition_albedo_tex, detail_uv + vec2(0.31, -0.17)).rgb;

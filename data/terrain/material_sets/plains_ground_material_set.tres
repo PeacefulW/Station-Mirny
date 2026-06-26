@@ -57,6 +57,7 @@ sampling_params = {
 "orange_coverage": 0.22,
 "rock_field_scale_px": 1200.0,
 "rock_coverage": 0.22,
+"rock_visual_coverage": 0.45,
 "macro_drift_scale_px": 2200.0,
 "macro_drift_strength": 0.12,
 "macro_mass_scale_px": 7000.0,
