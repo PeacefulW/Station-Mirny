@@ -4,8 +4,8 @@ doc_type: system_spec
 status: draft
 owner: engineering
 source_of_truth: true
-version: 1.3
-last_updated: 2026-06-28
+version: 1.4
+last_updated: 2026-06-29
 related_docs:
   - ../README.md
   - system_api.md
@@ -33,15 +33,13 @@ This pass covers only shapes confirmed in current code:
 
 ## Current Draft Blockers
 
-This document remains draft after the 2026-06-28 pass because several confirmed
+This document remains draft after the 2026-06-29 pass because several confirmed
 native result dictionaries are presentation/debug/probe surfaces rather than
 stable gameplay packet contracts.
 
 Known blockers:
 - `MountainPlateauRasterImageResult` has a broad preset-dependent debug tail;
   only the stable consumed keys are documented below.
-- Grass scatter output is implemented, but its governing
-  `wind_and_grass_scatter_presentation.md` spec remains draft.
 - Future network packet design remains out of scope.
 
 ## Out of Scope

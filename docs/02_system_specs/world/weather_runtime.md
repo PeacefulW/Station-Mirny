@@ -1,11 +1,11 @@
 ---
 title: Weather Runtime V0
 doc_type: system_spec
-status: draft
+status: approved
 owner: engineering+design
 source_of_truth: true
-version: 0.6
-last_updated: 2026-06-25
+version: 1.0
+last_updated: 2026-06-29
 related_docs:
   - ../../00_governance/ENGINEERING_STANDARDS.md
   - ../../00_governance/WORKFLOW.md
@@ -82,6 +82,14 @@ V0 includes:
   read (ADR-0005, NON_NEGOTIABLE_EXPERIENCE).
 - Save of slow weather state only; local instantaneous values reconstruct on
   load (ADR-0007).
+
+## Approval Closure
+
+Approved on 2026-06-29 for V0: `WeatherRuntime` owns weather state, live
+`cloud_cover` / wind targets, `weather_changed`, the derived
+`get_cloud_occlusion()` read, and slow-state persistence. Remaining weather
+tuning items below are balance/presentation follow-ups, not blockers for the V0
+contract.
 
 ## Out of Scope
 
@@ -327,8 +335,8 @@ flatten pass — are full-screen and **gated by surface context**
 (`_is_surface_context()`, `z == 0`, exactly like the ambient tone shift): they do
 **nothing** underground or in roofed/interior context, so weather never intrudes
 on the safe space. Every surface overlay MUST carry this gate; a missing gate on
-any one of them is a sanctuary regression (`weather_cloud_probe` asserts the
-cloud-shadow `cloud_cover` is `0` underground). Within an open-surface scene a
+any one of them is a sanctuary regression. Historical cloud-shadow probes
+asserted `cloud_cover` is `0` underground. Within an open-surface scene a
 pure screen pass has no light map, so it cannot yet spare a warm island around a
 campfire / electric light. V0 accepts this coarse context-gate and **reserves**
 a per-light warmth mask for when the ADR-0005 gameplay light map exists; the
@@ -411,7 +419,7 @@ This design is wrong if:
 
 ## Open Questions
 
-Remaining (tuning, not blockers for Iteration 1):
+Remaining V0 tuning (not approval blockers):
 
 - Regime durations for V0 (`min/max_duration_hours` per regime) — how long
   weather lingers. A balance pass on the authored bands, decided when the
@@ -427,17 +435,11 @@ Resolved:
   `WorldVisualWindProfile` keeps only gust shape.
 - Season does NOT bias regime selection in V0; the selection function takes a
   `season` argument as a reserved hook for a later data-driven seasonal bias.
-- Cloud presentation is realistic and regime-distinct (see **Cloud Presentation
-  Model**): two response curves — a monotonic `deck` (ambient dim/cool + the
-  overcast flatten pass) and a `broken` hump (discrete drifting cloud shadows
-  peaking in the cloudy regime and fading by overcast, plus rare sun-ray
-  accents). Overcast adds a surface screen-space desaturate + contrast-cut pass
-  for its flat leaden read; cloudy keeps bright sunlit gaps against large dark
-  shadows and occasional warm rays. Sanctuary holds via surface-context gating,
-  with a per-light warmth mask reserved for the ADR-0005 light map.
-- Overcast "flatness" is honest (screen-space desaturate + contrast-cut), not
-  faked with cold tone alone; cloudy "bright gaps" come from keeping ambient
-  bright in the cloudy regime, not from additive highlights.
+- Active cloud presentation moved to
+  [`cloud_occlusion_lighting.md`](cloud_occlusion_lighting.md): cloud cover now
+  derives a real sun-occlusion scalar and a bounded `CloudOccluderField` shader
+  layer. The old `broken` / `deck` / `flatten` / `sun_ray` screen-space overlay
+  model below is retained only as superseded implementation history.
 
 ## Implementation Iterations
 
@@ -468,16 +470,16 @@ Resolved:
   (`cover_op`) with a deliberately narrow shape-threshold range. This avoids a
   low-frequency iso-contour sweeping across the view once as the threshold drops
   during a regime change (observed "vertical band" artifact). Guarded by
-  `tools/cloud_transition_probe.gd` (horizontal luma spread stays flat across
-  the `cloud_cover` ramp, with no mid-transition spike).
+  a transition probe (horizontal luma spread stays flat across the
+  `cloud_cover` ramp, with no mid-transition spike).
 - Noise source: the field is sampled from a **seamless procedural noise texture**
   (`FastNoiseLite` → `NoiseTexture2D`, `repeat_enable` + mipmaps), not a
   hand-rolled `fract()` hash. Cloud shadows are world-locked, so `world_pos` is
   large; a hash-based noise loses low bits at large coordinates and quantizes
   into a rectangular grid (observed "blocky / cut-off clouds" artifact away from
   the origin). Hardware texture wrap keeps full precision within the tile.
-  Guarded by `tools/cloud_shader_iso.gd` (sharp-edge fraction at far world
-  coordinates stays ≈ the near-origin baseline).
+  Guarded by a shader isolation probe (sharp-edge fraction at far world
+  coordinates stays approximately the near-origin baseline).
 - Cold desaturated ambient tone shift folded into the existing `Daylight`
   ambient (`COLOR_OVERCAST_TINT`, applied only when `_is_surface_context()`),
   with the sanctuary constraint (outside-ambient only; underground neutral;
@@ -485,7 +487,7 @@ Resolved:
 - Dev visibility helpers (requested while validating): `WeatherRuntime`
   `debug_cycle_regime()` smooth ping-pong (player hotkey **K**) and a
   `HudWeatherWidget` top-right readout (`UI_HUD_WEATHER`: regime name + cloud %).
-- Probe (`tools/weather_cloud_probe.gd`): overcast darker + colder than clear;
+- Historical weather/cloud probe: overcast darker + colder than clear;
   cloud shadows present at overcast and markedly stronger than clear-sky; clear
   near-cloudless; sanctuary holds (underground ambient stays neutral under
   overcast). All checks pass.
@@ -518,16 +520,16 @@ uses the real `DirectionalLight2D` sun instead of screen-space overlays.
   presentation-only, not ADR-0005 gameplay light.
 - Sanctuary: all three surface overlays (cloud shadows, sun rays, flatten) gate
   on surface context (`cloud_cover`/strength forced to `0` when `z != 0`), so the
-  underground stays neutral; `weather_cloud_probe` asserts the cloud-shadow
-  `cloud_cover` is `0` underground.
+  underground stays neutral. These checks are historical; the active runtime now
+  uses the `cloud_occlusion_lighting.md` probe set.
 - Probes:
-  - extend `weather_cloud_probe` — **cloudy** has high *local* contrast (sunlit
+  - historical weather/cloud render probe — **cloudy** has high *local* contrast (sunlit
     gaps + dark shadows); **overcast** has *low* local contrast and is
     desaturated; and the **inversion** holds: distinct-shadow strength at
     overcast < at cloudy. Sun rays are measurable in cloudy and gone by
     overcast.
-  - `cloud_transition_probe` still flat (no band) at the new large scale;
-    `cloud_shader_iso` still smooth at far coordinates.
+  - transition and shader-isolation probes stayed flat/smooth at the new large
+    scale and far coordinates.
   - `cloud_shadow_style_probe` locks the readable style: large footprint,
     screen-space darkening, no `cloud_shadow_color`, bounded peak darkening.
   - sanctuary: flatten pass leaves underground/roofed context neutral (warm

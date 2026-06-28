@@ -4,8 +4,8 @@ doc_type: docs_index
 status: approved
 owner: design+engineering
 source_of_truth: true
-version: 1.12
-last_updated: 2026-06-28
+version: 1.13
+last_updated: 2026-06-29
 related_docs:
   - 00_governance/WORKFLOW.md
   - 00_governance/ENGINEERING_STANDARDS.md
@@ -70,10 +70,10 @@ Templates for future docs.
 - [Plains Ground Field Composition - Macro-Masses and Paths](02_system_specs/world/plains_ground_field_composition.md)
 - [Plains Ground Cosmetic Shading - Form and Contact Weight](02_system_specs/world/plains_ground_cosmetic_shading.md)
 - [World Dynamic Lighting 2D - Sun, Torch, Ambient](02_system_specs/world/world_dynamic_lighting_2d.md)
-- [Wind Runtime V0 and Grass Scatter Presentation](02_system_specs/world/wind_and_grass_scatter_presentation.md) (draft)
+- [Wind Runtime V0 and Grass Scatter Presentation](02_system_specs/world/wind_and_grass_scatter_presentation.md)
 - [Plains Trees Presentation and Depth Layering V0](02_system_specs/world/plains_trees_presentation.md) (draft)
-- [Weather Runtime V0](02_system_specs/world/weather_runtime.md) (draft)
-- [Cloud Occlusion & Overcast Darkness](02_system_specs/world/cloud_occlusion_lighting.md) (draft)
+- [Weather Runtime V0](02_system_specs/world/weather_runtime.md)
+- [Cloud Occlusion & Overcast Darkness](02_system_specs/world/cloud_occlusion_lighting.md)
 - [Engineering Networks](02_system_specs/base/engineering_networks.md)
 - [Building and Rooms](02_system_specs/base/building_and_rooms.md)
 - [Automation and Logistics](02_system_specs/base/automation_and_logistics.md)

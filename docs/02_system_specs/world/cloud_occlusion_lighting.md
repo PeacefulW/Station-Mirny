@@ -1,11 +1,11 @@
 ---
 title: Cloud Occlusion & Overcast Darkness
 doc_type: system_spec
-status: draft
+status: approved
 owner: engineering+design
 source_of_truth: true
-version: 0.5
-last_updated: 2026-06-25
+version: 1.0
+last_updated: 2026-06-29
 related_docs:
   - weather_runtime.md
   - world_dynamic_lighting_2d.md
@@ -24,8 +24,8 @@ Replace the screen-space cloud presentation (a darkening overlay +
 `OvercastFlattenOverlay` + `SunRayOverlay`) with one physically honest model:
 **cloud cover occludes the real sun** (`DirectionalLight2D`), producing real
 drifting shadows and, at full cover, real overcast darkness — because the direct
-light is genuinely blocked. One authoritative cloud-occlusion model feeds both
-the renderer and a minimal gameplay visibility scalar (ADR-0005).
+light is genuinely blocked. One authoritative cloud-occlusion model feeds the
+renderer now and reserves the future ADR-0005 gameplay visibility seam.
 
 This supersedes the Iteration 2b cloud presentation in `weather_runtime.md`
 (the `broken`/`deck`/`flatten`/`sun_ray` response curves and their three
@@ -84,17 +84,24 @@ category "severe weather = darkness even in day").
   `DirectionalLight2D` energy and cools the ambient (surface only).
 - A **`CloudOccluderField`**: one view-bounded world-space shader shadow layer;
   field patches grow/merge with cover.
-- A minimal **`EnvironmentVisibilityAuthority`**: `get_open_surface_light_level()`
-  in `[0 dark .. 1 bright]` for gameplay, read from the same occlusion model
-  (NOT scraped from the renderer).
+- A reserved seam for a future **`EnvironmentVisibilityAuthority`**. It is not
+  part of the approved active V0 implementation; see the deferred iteration.
 - Retire the three old overlays.
+
+## Approval Closure
+
+Approved on 2026-06-29 for the active V0 slice: `WeatherRuntime`
+`get_cloud_occlusion()`, `DaylightSystem` sun/ambient response,
+`CloudOccluderField`, night fade, dev cover controls, and removal of the old
+screen-space cloud overlays. `EnvironmentVisibilityAuthority` remains deferred
+until a first gameplay consumer exists.
 
 ## Out of Scope
 
 - Visible cloud *bodies* overhead (shadows on the ground only — chosen).
 - Full ADR-0005 gameplay light authority (per-tile light grid, torches as
-  gameplay light): this builds only the open-surface darkness scalar; a larger
-  authority graduates to its own ADR.
+  gameplay light), including `EnvironmentVisibilityAuthority` and
+  `get_open_surface_light_level()`. A larger authority graduates to its own ADR.
 - Cloud shadow patches on anything other than the cloud field.
 - New save state (cover already persists via weather Iteration 3) or
   `WORLD_VERSION` change.
@@ -104,16 +111,16 @@ category "severe weather = darkness even in day").
 
 | Question | Answer |
 |---|---|
-| Canonical data, overlay, or visual only? | Cloud-occlusion model is environment-runtime state (derived from weather, ADR-0007 layers 2/3); sun response + shader shadow layer are presentation (layer 4); the visibility scalar is a gameplay-authority read. No worldgen/terrain truth. |
+| Canonical data, overlay, or visual only? | Cloud-occlusion model is environment-runtime state (derived from weather, ADR-0007 layers 2/3); sun response + shader shadow layer are presentation (layer 4). The gameplay visibility authority is reserved, not active in approved V0. No worldgen/terrain truth. |
 | Save/load? | No new state. Cover persists via weather slow state; everything here derives. |
 | Deterministic? | Field is a pure function of world/view pos + accumulated wind drift; cover changes threshold/softness/opacity, not the sampled coordinates. The global scalar is a pure function of cover. |
 | Must it work on unloaded chunks? | Weather is global; shader layer/authority are view/position-local and need no chunk data. |
 | C++ or main thread? | One world-space shader layer + a few scalar writes on the main thread. No native, no heavy loops. |
 | Dirty unit | The global weather state (cover) + the current view shader uniforms. |
-| Single owner | Scalar/cover: `WeatherRuntime`. Sun response: `DaylightSystem`. Spatial shader layer: `CloudOccluderField`. Gameplay scalar: `EnvironmentVisibilityAuthority`. |
+| Single owner | Scalar/cover: `WeatherRuntime`. Sun response: `DaylightSystem`. Spatial shader layer: `CloudOccluderField`. Future gameplay scalar: deferred `EnvironmentVisibilityAuthority`. |
 | 10x/100x | Cost is independent of world size; the layer is one view-bounded pass. |
 | Hidden fallback? | None. If the sun light or weather owner is missing, fail explicitly. |
-| Gameplay coupling | Yes, minimal: one authoritative open-surface darkness scalar. Gameplay reads the authority, never the lights (ADR-0005). |
+| Gameplay coupling | Not active in approved V0. Future gameplay must read an authority, never the `Light2D` nodes (ADR-0005). |
 
 ## Data Model
 
@@ -163,7 +170,7 @@ shader state, and the visibility scalar all derive on load.
 | Cloud occlusion scalar + cover | `WeatherRuntime` (getters) |
 | Sun energy/colour + ambient cool-shift response | `DaylightSystem` |
 | Spatial moving shadows (shader layer) | `CloudOccluderField` (new) |
-| Open-surface darkness for gameplay | `EnvironmentVisibilityAuthority` (new) |
+| Future open-surface darkness for gameplay | Deferred `EnvironmentVisibilityAuthority` |
 
 ### Global sun response (`DaylightSystem`)
 
@@ -219,9 +226,10 @@ cover (global response) while the shadows fade back in. Drift uses real-time
 wind (`wind_gust_scroll_px`), so cloud *speed* does **not** depend on day length
 or the game-clock rate.
 
-### Gameplay coupling — `EnvironmentVisibilityAuthority` (minimal slice)
+### Future gameplay coupling — `EnvironmentVisibilityAuthority` (deferred)
 
-ADR-0005: gameplay reads an **authority**, not the renderer. New thin authority:
+ADR-0005: gameplay reads an **authority**, not the renderer. When a first
+consumer exists, add a thin authority:
 
 - `get_open_surface_light_level(world_pos) → [0 dark .. 1 bright]`
   `= day_phase_brightness × (1 − O(cover))` for open sky. The cloud multiplier
@@ -233,8 +241,8 @@ ADR-0005: gameplay reads an **authority**, not the renderer. New thin authority:
   occlusion model → one truth, two readers. Gameplay does **not** query the
   `Light2D` nodes.
 - Consumers (fauna boldness, player stress) read this scalar; their behaviour
-  tuning is separate work. This iteration lands the authority + read surface and
-  one stub consumer hook.
+  tuning is separate work. No authority, read surface, or stub consumer lands in
+  the approved active V0 slice.
 - This is the **first slice** of the deferred ADR-0005 gameplay light authority.
   If it grows (per-tile grid, torches-as-gameplay-light), it graduates to its own
   ADR; flagged here, not built here.
@@ -254,8 +262,9 @@ hostile contrast:
   context. The colder and darker it is outside, the more the fire/torch read as
   safety — exactly the ADR-0005 fantasy.
 
-Guarded by a render + authority probe: overcast outside vs a lit interior/torch
-pool stay distinct; underground/roofed visibility scalar is unaffected by cover.
+Guarded by render probes: overcast outside vs a lit interior/torch pool stay
+distinct; underground/roofed visuals are unaffected by cover. The future
+visibility scalar gets its own authority probe when it lands.
 
 ## Performance Class
 
@@ -264,7 +273,7 @@ pool stay distinct; underground/roofed visibility scalar is unaffected by cover.
 - `CloudOccluderField`: one world-space shader layer; **view-bounded** by
   `WorldViewOverlay`, uniform-only per frame; empty at clear, faded at full
   overcast. `background`/visual cost class.
-- `EnvironmentVisibilityAuthority`: O(1) scalar reads.
+- Future `EnvironmentVisibilityAuthority`: O(1) scalar reads when implemented.
 - No native code, no per-tile/per-chunk loops, no startup prepass, no
   `WORLD_VERSION` change.
 
@@ -278,16 +287,14 @@ pool stay distinct; underground/roofed visibility scalar is unaffected by cover.
 - **Overcast**: the `DirectionalLight2D` sun energy is near-zero; the open
   surface is uniformly cool, dim, flat (direct beam blocked everywhere); a
   campfire/torch `PointLight2D` pool stays warm and bright (sanctuary).
-- **Underground & roofed**: visuals and the visibility scalar are unaffected by
-  cloud cover (probe).
+- **Underground & roofed**: visuals are unaffected by cloud cover (probe).
 - **Night**: spatial cloud shadows fade out with the sun (none at deep night),
   fade back in at dawn; cloud cover state persists so an overnight-overcast sky
   reads as overcast at sunrise. Cloud drift speed is real-time wind, independent
   of day length (`cloud_night_probe`).
-- **Gameplay**: `get_open_surface_light_level()` falls with cover on open sky;
-  roofed/underground contexts are not reduced by cloud cover and remain governed
-  by their own light rules; no gameplay system reads the `Light2D` nodes
-  (static check).
+- **Gameplay seam**: `EnvironmentVisibilityAuthority` /
+  `get_open_surface_light_level()` is deferred until the first consumer; no
+  gameplay system may read the `Light2D` nodes.
 - **Cleanup**: the cloud screen-darkening overlay, `OvercastFlattenOverlay`, and
   `SunRayOverlay` are removed (static check); the look no longer uses additive
   "sun rays".

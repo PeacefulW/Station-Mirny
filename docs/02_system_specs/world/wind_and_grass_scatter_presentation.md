@@ -1,11 +1,11 @@
 ---
 title: Wind Runtime V0 and Grass Scatter Presentation
 doc_type: system_spec
-status: draft
+status: approved
 owner: engineering+design
 source_of_truth: true
-version: 0.14
-last_updated: 2026-06-19
+version: 1.0
+last_updated: 2026-06-29
 related_docs:
   - ../../00_governance/ENGINEERING_STANDARDS.md
   - ../../00_governance/WORKFLOW.md
@@ -74,6 +74,14 @@ orange biofield cores. Wind strength is one shared truth: when later systems
   state; the dust overlay lives in world space (under the Daylight modulate)
   so it tints with day/night. The world-space full-screen overlay
   infrastructure is shared via base class `WorldViewOverlay`.
+
+## Approval Closure
+
+Approved on 2026-06-29 for V0: `WindRuntime` owns and publishes the wind globals,
+`WeatherRuntime` drives wind targets, native grass scatter writes the bounded
+presentation buffer, and the grass shader consumes the shared wind state.
+Remaining open questions are visual tuning or future gameplay hooks, not
+blockers for the V0 contract.
 
 ## Out of Scope
 
@@ -536,6 +544,8 @@ This design is wrong if:
 
 ## Open Questions
 
+These are follow-ups, not approval blockers for V0:
+
 - Does `WindRuntime` deserve gameplay-readable API now or only at the first
   gameplay consumer? (V0: defer; keep state private to presentation.)
 - Orange biofield: is per-instance tint enough, or does the generator export a
@@ -557,12 +567,12 @@ Resolved:
 
 ## Implementation Iterations
 
-### Iteration 0 — Spec landing
+### Iteration 0 — Spec landing — DONE
 
-- This spec lands as draft; both doc indexes link it.
+- This spec landed as draft; both doc indexes link it.
 - No runtime changes.
 
-### Iteration 1 — Wind runtime + globals + dev-scene proof
+### Iteration 1 — Wind runtime + globals + dev-scene proof — DONE
 
 - Add `shader_globals` entries, `WindRuntime` autoload,
   `WorldVisualWindProfile`.
@@ -573,7 +583,7 @@ Resolved:
   strength 0 freeze.
 - Doc updates: `system_api.md` only if a public read surface is added.
 
-### Iteration 2 — Atlas export + native grass buffer + runtime layer
+### Iteration 2 — Atlas export + native grass buffer + runtime layer — DONE
 
 - Move tuft painting into the generator/export tool; commit the PNG atlas.
 - Implement `WorldCore.build_grass_scatter_buffer` (fields mirrored from the
@@ -585,7 +595,7 @@ Resolved:
   `terrain_hybrid_presentation.md` (cross-reference to this spec if its ground
   composition section needs the grass layer note).
 
-### Iteration 3 — Tuning and optional LOD
+### Iteration 3 — Tuning and optional LOD — RESERVED
 
 - Density/size/tint tuning via authored data + probes.
 - Optional: importance-ordered buffers + zoom-based `visible_instance_count`.
@@ -650,7 +660,8 @@ Landed as:
 - `docs/README.md` and `docs/02_system_specs/README.md`: link this spec (done
   with spec landing).
 - `packet_schemas.md`: required when the native buffer call lands
-  (Iteration 2).
+  (Iteration 2; done).
 - `system_api.md`: required only if `WindRuntime` exposes a public read/API.
+  `get_wind_gustiness()` and debug override entries are documented.
 - `event_contracts.md`, `commands.md`: not required in V0 (no events, no
   mutations) — recheck at each iteration.

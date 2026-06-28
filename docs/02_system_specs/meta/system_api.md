@@ -4,8 +4,8 @@ doc_type: system_spec
 status: draft
 owner: engineering
 source_of_truth: true
-version: 0.7
-last_updated: 2026-06-28
+version: 0.8
+last_updated: 2026-06-29
 related_docs:
   - ../README.md
   - commands.md
@@ -51,7 +51,7 @@ It covers only the minimal core set confirmed in code during this pass:
 
 ## Current Draft Blockers
 
-This document remains draft after the 2026-06-28 pass because it now documents
+This document remains draft after the 2026-06-29 pass because it now documents
 both stable gameplay surfaces and dev/probe native surfaces. Before approval,
 engineering must either promote those dev/probe surfaces as stable public API
 or split them into a dedicated debug/probe API document.
@@ -60,8 +60,6 @@ Known blockers:
 - `WorldCore.build_mountain_plateau_raster_image(...)` returns a broad
   preset-dependent debug/probe dictionary; only the stable consumed keys are
   documented in `packet_schemas.md`.
-- `WeatherRuntime` and `WindRuntime` are implemented, but their governing
-  world specs are still draft.
 - This is a code-confirmed snapshot of listed surfaces, not a full repository
   API inventory.
 
