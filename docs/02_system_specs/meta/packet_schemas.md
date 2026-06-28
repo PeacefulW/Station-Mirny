@@ -4,8 +4,8 @@ doc_type: system_spec
 status: draft
 owner: engineering
 source_of_truth: true
-version: 1.2
-last_updated: 2026-06-24
+version: 1.3
+last_updated: 2026-06-28
 related_docs:
   - ../README.md
   - system_api.md
@@ -28,6 +28,21 @@ This pass covers only shapes confirmed in current code:
 - save payload dictionaries
 - command result dictionaries
 - runtime native packet/result dictionaries
+- dev/probe native result dictionaries that are currently consumed by world
+  runtime tooling
+
+## Current Draft Blockers
+
+This document remains draft after the 2026-06-28 pass because several confirmed
+native result dictionaries are presentation/debug/probe surfaces rather than
+stable gameplay packet contracts.
+
+Known blockers:
+- `MountainPlateauRasterImageResult` has a broad preset-dependent debug tail;
+  only the stable consumed keys are documented below.
+- Grass scatter output is implemented, but its governing
+  `wind_and_grass_scatter_presentation.md` spec remains draft.
+- Future network packet design remains out of scope.
 
 ## Out of Scope
 
@@ -842,6 +857,131 @@ Current code notes:
   component
 - this result is not part of `ChunkPacketV1` and must not be persisted
 
+### `MountainHaloMaskResult`
+
+Returned by native
+`WorldCore.build_mountain_halo_mask(solid_halo, chunk_size, tile_size_px, pixels_per_tile, origin_world_x, origin_world_y)`.
+
+```text
+{
+  "mask": PackedByteArray,
+  "width": int,
+  "height": int,
+  "step_px": float,
+  "solid_sample_count": int,
+  "halo_side": int,
+  "halo_radius_tiles"?: int,
+  "pixels_per_tile"?: int,
+}
+```
+
+`WorldChunkPacketBackend` appends worker metadata to completed halo-mask
+results:
+
+```text
+{
+  ...MountainHaloMaskResult,
+  "success": bool,
+  "epoch": int,
+  "revision": int,
+  "reason": StringName,
+  "mask_purpose": StringName,      # "mountain" or "terrain_edge"
+  "target_chunk": Vector2i,
+  "mask_origin_world": Vector2,
+  "queued_msec": int,
+  "worker_started_msec": int,
+  "worker_elapsed_ms": int,
+  "queue_wait_ms": int,
+  "request_to_complete_ms": int,
+}
+```
+
+Current code notes:
+- `mask.size()` must equal `width * height` for `success = true`
+- `step_px = tile_size_px / pixels_per_tile`
+- invalid input returns an empty mask with zero dimensions
+- the mask is derived runtime presentation/cache data; it is not packet truth,
+  terrain, walkability, navigation, or save data
+- `mask_purpose = "terrain_edge"` reuses the same shape for dry-terrain edge
+  presentation masks
+
+### `MountainPlateauRasterImageResult`
+
+Returned by native
+`WorldCore.build_mountain_plateau_raster_image(packets, target_chunk, preset, top_image, face_image)`.
+This is an authoring/probe and legacy runtime raster helper. The result shape
+has a broad preset-dependent debug tail; the stable consumed core is:
+
+```text
+{
+  "ready": bool,
+  "success"?: bool,
+  "mountain_image"?: Image,
+  "mountain_normal_image"?: Image,
+  "image"?: Image,
+  "normal_image"?: Image,
+  "ground_image"?: Image,
+  "ground_normal_image"?: Image,
+  "hit_mask": PackedByteArray,
+  "hit_mask_width": int,
+  "hit_mask_height": int,
+  "hit_mask_origin_world": Vector2,
+  "hit_mask_step_px": float,
+  "hit_mask_threshold": float,
+  "hit_mask_solid_pixel_count": int,
+  "top_mask"?: PackedByteArray,
+  "top_mask_width"?: int,
+  "top_mask_height"?: int,
+  "top_mask_origin_world"?: Vector2,
+  "top_mask_step_px"?: float,
+  "render_origin_world": Vector2,
+  "render_size_world": Vector2,
+  "mountain_tile_count": int,
+  "target_mountain_tile_count"?: int,
+  "bounds_position": Vector2i,
+  "bounds_size": Vector2i,
+  "sample_step_px": float,
+  "render_padding_tiles": int,
+  "image_width": int,
+  "image_height": int,
+  "normal_ready": bool,
+  "normal_image_width"?: int,
+  "normal_image_height"?: int,
+  "normal_pixel_count": int,
+  "native": bool,
+  "timing_total_ms": float,
+}
+```
+
+`WorldChunkPacketBackend` appends worker metadata to completed raster results:
+
+```text
+{
+  ...MountainPlateauRasterImageResult,
+  "epoch": int,
+  "revision": int,
+  "raster_purpose": StringName,
+  "target_chunk": Vector2i,
+  "source_chunks": Array,
+  "source_chunk_count": int,
+  "queued_msec": int,
+  "worker_started_msec": int,
+  "worker_elapsed_ms": int,
+  "queue_wait_ms": int,
+  "request_to_complete_ms": int,
+}
+```
+
+Current code notes:
+- worker-side `success` is normalized from native `ready`
+- image keys are optional and depend on preset flags (`runtime_mountain_only`,
+  normal output, ground output, top-mask output)
+- timing and tuning keys beyond `timing_total_ms` are debug/probe data; they
+  are intentionally not part of the stable consumed core in this draft
+- this result is derived presentation/probe data only; it is not
+  `ChunkPacketV1`, save state, authoritative terrain, walkability, collision,
+  or navigation data
+
 ### `GrassScatterBufferResult`
 
 Returned by native
@@ -916,5 +1056,7 @@ Current code notes:
 ## Not Currently Confirmed
 
 The current code still does not confirm packet fields for future biome,
-placement, roof-runtime, entrance-runtime, drought, or
-environment layers.
+placement, roof-runtime, entrance-runtime, drought, or environment layers.
+The complete preset-specific debug tail of `MountainPlateauRasterImageResult`
+is also intentionally not approved here; only the stable consumed core above is
+documented.

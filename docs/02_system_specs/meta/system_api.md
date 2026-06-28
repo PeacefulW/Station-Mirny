@@ -4,8 +4,8 @@ doc_type: system_spec
 status: draft
 owner: engineering
 source_of_truth: true
-version: 0.6
-last_updated: 2026-05-03
+version: 0.7
+last_updated: 2026-06-28
 related_docs:
   - ../README.md
   - commands.md
@@ -36,6 +36,8 @@ It covers only the minimal core set confirmed in code during this pass:
 
 - `EventBus`
 - `TimeManager`
+- `WeatherRuntime`
+- `WindRuntime`
 - `ItemRegistry`
 - `SaveManager`
 - `PlayerAuthority`
@@ -43,6 +45,25 @@ It covers only the minimal core set confirmed in code during this pass:
 - `BuildingSystem`
 - `WorldCore`
 - `WorldStreamer`
+- `WorldBoundsSettings`
+- `FoundationGenSettings`
+- `LakeGenSettings`
+
+## Current Draft Blockers
+
+This document remains draft after the 2026-06-28 pass because it now documents
+both stable gameplay surfaces and dev/probe native surfaces. Before approval,
+engineering must either promote those dev/probe surfaces as stable public API
+or split them into a dedicated debug/probe API document.
+
+Known blockers:
+- `WorldCore.build_mountain_plateau_raster_image(...)` returns a broad
+  preset-dependent debug/probe dictionary; only the stable consumed keys are
+  documented in `packet_schemas.md`.
+- `WeatherRuntime` and `WindRuntime` are implemented, but their governing
+  world specs are still draft.
+- This is a code-confirmed snapshot of listed surfaces, not a full repository
+  API inventory.
 
 ## Out of Scope
 
@@ -141,6 +162,7 @@ Confirmed readable state (live axes; smooth values are pull-model getters):
 | Surface | Kind | Notes |
 |---|---|---|
 | `get_active_regime_id()` | method | Active regime id (`core:clear/cloudy/overcast` in V0) |
+| `get_active_display_name_key()` | method | Localization key for the active regime; used by HUD weather UI |
 | `get_cloud_cover()` | method | `0` clear .. `1` overcast |
 | `get_cloud_occlusion()` | method | `0` direct sun open .. `1` direct sun blocked; derived from `cloud_cover`, no new save state |
 | `get_target_wind_strength()` | method | `0..1` wind target consumed by `WindRuntime` |
@@ -155,6 +177,13 @@ Developer-only (not for gameplay code):
 | `set_debug_regime(id)` / `clear_debug_regime()` | method | Freeze on / release a forced regime |
 | `debug_cycle_regime()` | method | Smooth ping-pong through clear→cloudy→overcast; bound to player hotkey `K` for in-game presentation checks |
 | `set_debug_cloud_cover(v)` / `nudge_debug_cloud_cover(delta)` / `clear_debug_cloud_cover()` | method | Pin/ramp/release `cloud_cover` in real time; player holds `+`/`-` to watch clouds grow, drift, merge (cloud occlusion tuning) |
+
+Confirmed persistence entrypoints:
+
+| Surface | Kind | Notes |
+|---|---|---|
+| `export_save_dict()` | method | SaveCollectors-only slow weather save shape |
+| `restore_persisted_state(data)` | method | SaveAppliers-only restore path; unknown regimes fall back to `core:clear` |
 
 Not documented here as safe entrypoints:
 - direct writes to weather state by any other system
@@ -373,6 +402,8 @@ Confirmed public native surface:
 | `generate_chunk_packets_batch(seed: int, coords: PackedVector2Array, world_version: int, settings_packed: PackedFloat32Array)` | `Array` | Returns one canonical chunk packet per requested coordinate; current chunk generation emits ground, mountain, and Lake Generation L2 bed terrain classes and reads the `WorldPrePass` substrate for lake fields. |
 | `make_world_preview_patch_image(packet: Dictionary, render_mode: StringName)` | `Image` | Builds a lightweight preview patch image from an existing `ChunkPacketV1`; current modes are terrain, mountain id, and mountain classification. Terrain mode reads ground, mountain, and lake-bed packet terrain ids; it does not generate chunks. |
 | `build_mountain_contour_debug(solid_halo: PackedByteArray, chunk_size: int, tile_size_px: int)` | `Dictionary` | Debug-only native marching-squares helper for Mountain Contour Mesh L1. Input is a compact `(chunk_size + 2)^2` solid mask with a one-tile halo; output contains derived `vertices: PackedVector2Array` and `indices: PackedInt32Array`. This is visual/debug data only, not packet truth, save state, collision, or walkability. |
+| `build_mountain_halo_mask(solid_halo: PackedByteArray, chunk_size: int, tile_size_px: int, pixels_per_tile: int, origin_world_x: float, origin_world_y: float)` | `Dictionary` | Derived native mask helper for runtime mountain and terrain-edge presentation. Returns `MountainHaloMaskResult` from `packet_schemas.md`; not packet truth, save state, collision, or terrain ownership. |
+| `build_mountain_plateau_raster_image(packets: Array, target_chunk: Vector2i, preset: Dictionary, top_image: Image, face_image: Image)` | `Dictionary` | Authoring/probe raster helper still used by the worker backend. Returns `MountainPlateauRasterImageResult` from `packet_schemas.md`; broad debug/probe output, not the normal chunk packet or save shape. |
 | `resolve_world_foundation_spawn_tile(seed: int, world_version: int, settings_packed: PackedFloat32Array)` | `Dictionary` | Resolves the V1 foundation spawn tile from the substrate and returns the shape documented as `WorldFoundationSpawnResult` in `packet_schemas.md` |
 | `build_grass_scatter_buffer(seed: int, chunk_coord: Vector2i, terrain_ids: PackedInt32Array, lake_flags: PackedByteArray, params: PackedFloat32Array)` | `Dictionary` | Presentation-only deterministic grass tuft placement for one chunk; returns the `GrassScatterBufferResult` shape from `packet_schemas.md` (ready `MultiMesh` buffer). Density mirrors the ground material's aperiodic world fields; never packet truth, save state, collision, or walkability. |
 
@@ -395,6 +426,9 @@ Current code notes:
   persisted and must not be mutated by script code.
 - Preview spawn resolution uses the shared worker wrapper, not a main-thread
   GDScript fallback.
+- Mountain halo and plateau raster outputs are derived native presentation or
+  debug/probe results. They must not be persisted or treated as authoritative
+  terrain, walkability, navigation, or chunk packet data.
 
 Not documented here as safe entrypoints:
 - direct calls to `world_prepass::*` helpers from script, because they are native
@@ -444,21 +478,32 @@ Not documented here as safe entrypoints:
 - direct mutation of native packet dictionaries outside the documented methods
 - mutation of dictionaries returned by `get_chunk_packet()`
 
-### World Bounds and Foundation Settings
+### World Bounds, Foundation, and Lake Settings
 
 Owner files:
 - `core/resources/world_bounds_settings.gd`
 - `core/resources/foundation_gen_settings.gd`
+- `core/resources/lake_gen_settings.gd`
 
 Role:
-- data resources for finite cylindrical bounds and V1 foundation settings
+- data resources for finite cylindrical bounds, V1 foundation settings, and
+  current lake-generation settings
 
 Confirmed readable entrypoints:
 
 | Surface | Return | Notes |
 |---|---|---|
+| `WorldBoundsSettings.to_save_dict()` | `Dictionary` | Writes bounds into `world.json` |
 | `WorldBoundsSettings.for_preset(preset: StringName)` | `WorldBoundsSettings` | Returns `small`, `medium`, or `large` V1 bounds |
 | `WorldBoundsSettings.from_save_dict(data: Dictionary)` | `WorldBoundsSettings` | Rebuilds bounds from `world.json` |
+| `FoundationGenSettings.to_save_dict()` | `Dictionary` | Writes foundation settings into `world.json` |
 | `FoundationGenSettings.for_bounds(world_bounds: WorldBoundsSettings)` | `FoundationGenSettings` | Builds default band settings from saved bounds |
 | `FoundationGenSettings.from_save_dict(data: Dictionary, world_bounds: WorldBoundsSettings)` | `FoundationGenSettings` | Rebuilds foundation settings from `world.json` |
 | `FoundationGenSettings.write_to_settings_packed(settings_packed: PackedFloat32Array, world_bounds: WorldBoundsSettings)` | `PackedFloat32Array` | Appends V1 foundation indices `9-14` to the native settings packet |
+| `LakeGenSettings.to_save_dict()` | `Dictionary` | Writes lake settings into `world.json` |
+| `LakeGenSettings.from_save_dict(data: Dictionary)` | `LakeGenSettings` | Rebuilds lake settings from `world.json` |
+| `LakeGenSettings.write_to_settings_packed(settings_packed: PackedFloat32Array)` | `PackedFloat32Array` | Appends Lake Generation indices `15-21` to the native settings packet |
+
+Not documented here as safe entrypoints:
+- direct mutation of settings resources after `WorldStreamer` has frozen them
+  into its current packed native settings
