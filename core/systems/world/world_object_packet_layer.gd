@@ -4,6 +4,7 @@ extends Node2D
 const WorldDecorBatchLayer = preload("res://core/systems/world/world_decor_batch_layer.gd")
 const TREE_BATCH_SHADER = preload("res://assets/shaders/tree_decor_atlas_batch.gdshader")
 const TREE_SHADOW_SHADER = preload("res://assets/shaders/tree_silhouette_shadow.gdshader")
+const ObjectCollisionDebugLayer = preload("res://core/systems/world/object_collision_debug_layer.gd")
 
 const OBJECT_KIND_ROCK: int = 1
 const OBJECT_KIND_LIVING_FLORA: int = 2
@@ -110,6 +111,12 @@ var _tree_collider_count: int = 0
 var _big_grass_rock_collision_body: StaticBody2D = null
 var _big_grass_rock_collision_shape_owner_ids: Array[int] = []
 var _big_grass_rock_collider_count: int = 0
+## Dev-оверлей коллизий (F11): рамки камней/валунов/деревьев, presentation only.
+var _collision_debug_layer: ObjectCollisionDebugLayer = null
+var _debug_collisions_visible: bool = false
+var _rock_debug_rects: Array[Rect2] = []
+var _tree_debug_rects: Array[Rect2] = []
+var _big_grass_rock_debug_rects: Array[Rect2] = []
 var _tree_shadow_layer: MultiMeshInstance2D = null
 var _tree_shadow_material: ShaderMaterial = null
 var _sun_light_angle_deg: float = 120.0
@@ -659,6 +666,8 @@ func _sync_rock_batches(
 		if _rock_batch_layer != null and is_instance_valid(_rock_batch_layer):
 			_rock_batch_layer.clear_batches()
 		_clear_collision_shapes()
+		_rock_debug_rects = []
+		_sync_collision_debug_layer()
 		return
 	var batch_layer: WorldDecorBatchLayer = _ensure_rock_batch_layer()
 	batch_layer.set_atlas_layout(ROCK_FRAME_COLUMNS, ROCK_FRAME_ROWS, ROCK_FRAME_COUNT)
@@ -881,20 +890,21 @@ func _ensure_big_grass_rock_collision_body() -> StaticBody2D:
 
 func _sync_collision_shapes(collision_records: Array[Dictionary]) -> void:
 	_clear_collision_shapes()
-	if collision_records.is_empty():
-		return
-	var body: StaticBody2D = _ensure_collision_body()
-	for record: Dictionary in collision_records:
-		var shape := CircleShape2D.new()
-		shape.radius = float(record.get("radius", 10.0))
-		var owner_id: int = body.create_shape_owner(body)
-		body.shape_owner_add_shape(owner_id, shape)
-		body.shape_owner_set_transform(
-			owner_id,
-			Transform2D(0.0, record.get("position", Vector2.ZERO) as Vector2),
-		)
-		_collision_shape_owner_ids.append(owner_id)
-	_collider_count = _collision_shape_owner_ids.size()
+	_rock_debug_rects = _debug_rects_from_records(collision_records)
+	if not collision_records.is_empty():
+		var body: StaticBody2D = _ensure_collision_body()
+		for record: Dictionary in collision_records:
+			var shape := CircleShape2D.new()
+			shape.radius = float(record.get("radius", 10.0))
+			var owner_id: int = body.create_shape_owner(body)
+			body.shape_owner_add_shape(owner_id, shape)
+			body.shape_owner_set_transform(
+				owner_id,
+				Transform2D(0.0, record.get("position", Vector2.ZERO) as Vector2),
+			)
+			_collision_shape_owner_ids.append(owner_id)
+		_collider_count = _collision_shape_owner_ids.size()
+	_sync_collision_debug_layer()
 
 
 func _clear_collision_shapes() -> void:
@@ -909,20 +919,21 @@ func _clear_collision_shapes() -> void:
 
 func _sync_big_grass_rock_collision(collision_records: Array[Dictionary]) -> void:
 	_clear_big_grass_rock_collision_shapes()
-	if collision_records.is_empty():
-		return
-	var body: StaticBody2D = _ensure_big_grass_rock_collision_body()
-	for record: Dictionary in collision_records:
-		var shape := CircleShape2D.new()
-		shape.radius = float(record.get("radius", 22.0))
-		var owner_id: int = body.create_shape_owner(body)
-		body.shape_owner_add_shape(owner_id, shape)
-		body.shape_owner_set_transform(
-			owner_id,
-			Transform2D(0.0, record.get("position", Vector2.ZERO) as Vector2),
-		)
-		_big_grass_rock_collision_shape_owner_ids.append(owner_id)
-	_big_grass_rock_collider_count = _big_grass_rock_collision_shape_owner_ids.size()
+	_big_grass_rock_debug_rects = _debug_rects_from_records(collision_records)
+	if not collision_records.is_empty():
+		var body: StaticBody2D = _ensure_big_grass_rock_collision_body()
+		for record: Dictionary in collision_records:
+			var shape := CircleShape2D.new()
+			shape.radius = float(record.get("radius", 22.0))
+			var owner_id: int = body.create_shape_owner(body)
+			body.shape_owner_add_shape(owner_id, shape)
+			body.shape_owner_set_transform(
+				owner_id,
+				Transform2D(0.0, record.get("position", Vector2.ZERO) as Vector2),
+			)
+			_big_grass_rock_collision_shape_owner_ids.append(owner_id)
+		_big_grass_rock_collider_count = _big_grass_rock_collision_shape_owner_ids.size()
+	_sync_collision_debug_layer()
 
 
 func _clear_big_grass_rock_collision_shapes() -> void:
@@ -937,20 +948,21 @@ func _clear_big_grass_rock_collision_shapes() -> void:
 
 func _sync_tree_collision(collision_records: Array[Dictionary]) -> void:
 	_clear_tree_collision_shapes()
-	if not TREE_COLLISION_ENABLED or collision_records.is_empty():
-		return
-	var body: StaticBody2D = _ensure_tree_collision_body()
-	for record: Dictionary in collision_records:
-		var shape := CircleShape2D.new()
-		shape.radius = float(record.get("radius", 12.0))
-		var owner_id: int = body.create_shape_owner(body)
-		body.shape_owner_add_shape(owner_id, shape)
-		body.shape_owner_set_transform(
-			owner_id,
-			Transform2D(0.0, record.get("position", Vector2.ZERO) as Vector2),
-		)
-		_tree_collision_shape_owner_ids.append(owner_id)
-	_tree_collider_count = _tree_collision_shape_owner_ids.size()
+	_tree_debug_rects = _debug_rects_from_records(collision_records) if TREE_COLLISION_ENABLED else []
+	if TREE_COLLISION_ENABLED and not collision_records.is_empty():
+		var body: StaticBody2D = _ensure_tree_collision_body()
+		for record: Dictionary in collision_records:
+			var shape := CircleShape2D.new()
+			shape.radius = float(record.get("radius", 12.0))
+			var owner_id: int = body.create_shape_owner(body)
+			body.shape_owner_add_shape(owner_id, shape)
+			body.shape_owner_set_transform(
+				owner_id,
+				Transform2D(0.0, record.get("position", Vector2.ZERO) as Vector2),
+			)
+			_tree_collision_shape_owner_ids.append(owner_id)
+		_tree_collider_count = _tree_collision_shape_owner_ids.size()
+	_sync_collision_debug_layer()
 
 
 func _ensure_tree_collision_body() -> StaticBody2D:
@@ -974,6 +986,49 @@ func _clear_tree_collision_shapes() -> void:
 	_tree_collision_shape_owner_ids.clear()
 
 
+static func _debug_rects_from_records(records: Array[Dictionary]) -> Array[Rect2]:
+	var rects: Array[Rect2] = []
+	for record: Dictionary in records:
+		var position: Vector2 = record.get("position", Vector2.ZERO) as Vector2
+		var radius: float = float(record.get("radius", 10.0))
+		rects.append(Rect2(position - Vector2(radius, radius), Vector2(radius, radius) * 2.0))
+	return rects
+
+
+## Dev-тумблер (F11, WorldStreamer.toggle_debug_object_collisions): рамки
+## коллайдеров камней/валунов/деревьев. Presentation only.
+func set_debug_collisions_visible(enabled: bool) -> void:
+	if enabled == _debug_collisions_visible:
+		return
+	_debug_collisions_visible = enabled
+	if not enabled:
+		if _collision_debug_layer != null and is_instance_valid(_collision_debug_layer):
+			_collision_debug_layer.visible = false
+		return
+	if _collision_debug_layer != null and is_instance_valid(_collision_debug_layer):
+		_collision_debug_layer.visible = true
+	_sync_collision_debug_layer()
+
+
+func _ensure_collision_debug_layer() -> ObjectCollisionDebugLayer:
+	if _collision_debug_layer != null and is_instance_valid(_collision_debug_layer):
+		return _collision_debug_layer
+	_collision_debug_layer = ObjectCollisionDebugLayer.new()
+	_collision_debug_layer.name = "ObjectCollisionDebugLayer"
+	add_child(_collision_debug_layer)
+	return _collision_debug_layer
+
+
+func _sync_collision_debug_layer() -> void:
+	if not _debug_collisions_visible:
+		return
+	var combined: Array[Rect2] = []
+	combined.append_array(_rock_debug_rects)
+	combined.append_array(_tree_debug_rects)
+	combined.append_array(_big_grass_rock_debug_rects)
+	_ensure_collision_debug_layer().set_debug_boxes(combined)
+
+
 func _clear_batches() -> void:
 	_rock_count = 0
 	_living_flora_count = 0
@@ -984,6 +1039,10 @@ func _clear_batches() -> void:
 	_clear_collision_shapes()
 	_clear_tree_collision_shapes()
 	_clear_big_grass_rock_collision_shapes()
+	_rock_debug_rects = []
+	_tree_debug_rects = []
+	_big_grass_rock_debug_rects = []
+	_sync_collision_debug_layer()
 	visible = false
 	if _rock_batch_layer != null and is_instance_valid(_rock_batch_layer):
 		_rock_batch_layer.clear_batches()

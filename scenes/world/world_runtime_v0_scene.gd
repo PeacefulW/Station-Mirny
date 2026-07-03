@@ -49,6 +49,9 @@ func _unhandled_input(event: InputEvent) -> void:
 	elif key_event.keycode == KEY_F10:
 		_world_streamer.toggle_debug_mountain_contour()
 		get_viewport().set_input_as_handled()
+	elif key_event.keycode == KEY_F11:
+		_world_streamer.toggle_debug_object_collisions()
+		get_viewport().set_input_as_handled()
 	elif key_event.keycode == KEY_ESCAPE:
 		PlayerAuthority.clear_cache()
 		get_tree().change_scene_to_file("res://scenes/ui/main_menu.tscn")

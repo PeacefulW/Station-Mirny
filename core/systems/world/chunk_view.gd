@@ -147,6 +147,7 @@ var _grass_edge_small_rock_columns: int = 1
 var _grass_edge_small_rock_rows: int = 1
 var _grass_edge_small_rock_frame_count: int = 1
 var _object_packet_layer: WorldObjectPacketLayer = null
+var _debug_object_collisions_visible: bool = false
 var _object_packet_visual_dirty: bool = false
 var _pending_object_packet_visual: Dictionary = { }
 var _grass_scatter_layers: Array[MultiMeshInstance2D] = []
@@ -533,6 +534,13 @@ func set_debug_overlays(grid_visible: bool, solid_mask_visible: bool, contour_vi
 	_debug_solid_mask_visible = solid_mask_visible
 	_debug_contour_visible = contour_visible
 	_sync_debug_layer()
+
+
+## Дев-оверлей коллизий объектного пакета (камни/валуны/деревья, F11).
+func set_debug_object_collisions_visible(enabled: bool) -> void:
+	_debug_object_collisions_visible = enabled
+	if _object_packet_layer != null and is_instance_valid(_object_packet_layer):
+		_object_packet_layer.set_debug_collisions_visible(enabled)
 
 
 func apply_sun_lighting(
@@ -2287,6 +2295,7 @@ func _ensure_object_packet_layer() -> WorldObjectPacketLayer:
 	_object_packet_layer.texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS
 	add_child(_object_packet_layer)
 	_object_packet_layer.set_world_origin_y(position.y)
+	_object_packet_layer.set_debug_collisions_visible(_debug_object_collisions_visible)
 	return _object_packet_layer
 
 

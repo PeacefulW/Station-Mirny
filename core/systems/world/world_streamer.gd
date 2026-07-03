@@ -143,6 +143,8 @@ var _did_warn_roof_layer_explosion: bool = false
 var _debug_tile_grid_visible: bool = false
 var _debug_mountain_solid_visible: bool = false
 var _debug_mountain_contour_visible: bool = false
+## Dev-оверлей коллизий камней/валунов/деревьев (F11), presentation only.
+var _debug_object_collisions_visible: bool = false
 var _contour_world_core: Object = null
 var _mountain_mask_preset: Dictionary = { }
 var _mountain_top_fill_texture: Texture2D = null
@@ -425,6 +427,21 @@ func toggle_debug_mountain_contour() -> bool:
 	_debug_mountain_contour_visible = not _debug_mountain_contour_visible
 	_refresh_debug_visuals_for_loaded_chunks()
 	return _debug_mountain_contour_visible
+
+
+## F11: рамки коллайдеров камней/валунов/деревьев (Factorio-style), presentation only.
+func toggle_debug_object_collisions() -> bool:
+	_debug_object_collisions_visible = not _debug_object_collisions_visible
+	_apply_object_collision_debug_visibility_to_loaded_chunks()
+	return _debug_object_collisions_visible
+
+
+func _apply_object_collision_debug_visibility_to_loaded_chunks() -> void:
+	for chunk_coord_variant: Variant in _chunk_views.keys():
+		var chunk_view: ChunkView = _chunk_views.get(chunk_coord_variant) as ChunkView
+		if chunk_view == null:
+			continue
+		chunk_view.set_debug_object_collisions_visible(_debug_object_collisions_visible)
 
 
 func get_mountain_contour_debug_state(chunk_coord: Vector2i) -> Dictionary:
@@ -1936,6 +1953,7 @@ func _ensure_chunk_view(chunk_coord: Vector2i) -> ChunkView:
 		_debug_mountain_solid_visible,
 		_debug_mountain_contour_visible,
 	)
+	chunk_view.set_debug_object_collisions_visible(_debug_object_collisions_visible)
 	chunk_view.set_plains_rock_scatter_sources(_plains_rock_scatter_atlases)
 	chunk_view.set_living_flora_source(_plains_living_flora_atlas)
 	chunk_view.set_spiky_flora_sources(_plains_spiky_flora_atlases)
