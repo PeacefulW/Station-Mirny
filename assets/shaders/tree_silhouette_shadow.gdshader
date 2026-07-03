@@ -1,9 +1,12 @@
 shader_type canvas_item;
-render_mode blend_mix;
+render_mode blend_mix, unshaded;
 
 // Силуэт-тень дерева: та же атлас-текстура, но вершинный сдвиг «кладёт» силуэт на
 // землю по направлению от солнца (крона уезжает по shadow_dir с сжатием,
 // основание стоит), фрагмент — тёмный по альфе. Один материал на shadow-слой.
+// unshaded ОБЯЗАТЕЛЕН (как у player_silhouette_shadow.gdshader): иначе дневное
+// DirectionalLight2D-солнце доливает свою добавочную засветку поверх уже
+// нарисованной тени и стирает её на фоне освещённой травы.
 // Контракт: docs/02_system_specs/world/plains_trees_presentation.md
 
 uniform float atlas_columns = 4.0;

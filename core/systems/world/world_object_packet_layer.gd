@@ -57,8 +57,9 @@ const TREE_SHADOW_HEIGHT_SCALE: float = 0.11
 const TREE_SHADOW_CENTER_Y_SCALE: float = 0.02
 const TREE_SHADOW_MIN_WIDTH_PX: float = 18.0
 const TREE_SHADOW_MIN_HEIGHT_PX: float = 6.0
-# Силуэт-тень — отдельный слой ниже травы/деревьев (на земле).
-const TREE_SHADOW_Z_INDEX: int = 4
+# Силуэт-тень — поверх ВСЕЙ травяной/объектной лесенки и поверх игрока
+# (WorldRuntimeConstants.Z_CAST_SHADOW), а не под травой.
+const TREE_SHADOW_Z_INDEX: int = WorldRuntimeConstants.Z_CAST_SHADOW
 # Дерево — препятствие: маленький круг у комля (ствол), крона проходима.
 # Chunk-scoped статика на том же obstacle-слое, что крупные камни (LAW 10:
 # готово к reveal вместе с объектным слоем; шейп-овнеры на одном теле, не нода-на-дерево).
