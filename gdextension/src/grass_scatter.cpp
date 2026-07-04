@@ -14,9 +14,18 @@ using namespace godot;
 namespace grass_scatter {
 namespace {
 
-constexpr int32_t TERRAIN_MOUNTAIN_WALL_ID = 3;
-constexpr int32_t TERRAIN_MOUNTAIN_FOOT_ID = 4;
-constexpr float GRASS_MOUNTAIN_CLEARANCE_PX = 64.0f;
+// Раньше гора рисовалась НАД травой (z 300/301), поэтому любой промах клиренса
+// был скрыт горой. Теперь гора ниже лесенки (Z_MOUNTAIN_TOP/PAGE = 19,
+// mountain_object_occlusion.md), и клиренс должен видеть гору НАДЁЖНО, включая
+// случаи, когда сама гора стоит в СОСЕДНЕМ чанке. Прежняя проверка сэмплировала
+// только chunk-local terrain_ids (out-of-bounds -> "не гора"), поэтому пучки у
+// шва чанка рядом с горой в соседнем чанке не получали клиренса вовсе — никакое
+// увеличение радиуса это не чинило (tmp_grass_mountain_overlap_probe,
+// 2026-07-04: тот же оффендер на 64px и 128px). Клиренс теперь читает
+// mountain_solid_halo — тот же per-tile halo (WALL|FOOT, walkable=0,
+// mountain_id>0), что WorldStreamer уже строит через 3x3 соседних чанка для
+// mountain_top_mask_underlay (world_streamer.gd::_build_mountain_solid_halo).
+constexpr float GRASS_MOUNTAIN_CLEARANCE_PX = 128.0f;
 
 // --- GLSL field mirror -------------------------------------------------------
 // One formula, two transcriptions: these functions mirror the aperiodic world
@@ -232,50 +241,53 @@ inline float hash_unit(uint64_t p_hash, uint64_t p_salt) {
 	return static_cast<float>(world_utils::splitmix64(p_hash ^ p_salt) >> 40U) / 16777216.0f;
 }
 
-inline bool is_mountain_terrain(int32_t p_terrain_id) {
-	return p_terrain_id == TERRAIN_MOUNTAIN_WALL_ID ||
-			p_terrain_id == TERRAIN_MOUNTAIN_FOOT_ID;
-}
-
-bool sample_hits_mountain_surface(
-		float p_local_x,
-		float p_local_y,
-		const int32_t *p_terrain_ids,
-		int32_t p_chunk_size_tiles,
-		float p_tile_size_px) {
-	const float chunk_size_px = static_cast<float>(p_chunk_size_tiles) * p_tile_size_px;
-	if (p_local_x < 0.0f || p_local_y < 0.0f || p_local_x >= chunk_size_px || p_local_y >= chunk_size_px) {
-		return false;
-	}
-	const int32_t tile_x = world_utils::clamp_value(
-			static_cast<int32_t>(std::floor(p_local_x / p_tile_size_px)),
-			0,
-			p_chunk_size_tiles - 1);
-	const int32_t tile_y = world_utils::clamp_value(
-			static_cast<int32_t>(std::floor(p_local_y / p_tile_size_px)),
-			0,
-			p_chunk_size_tiles - 1);
-	const int64_t tile_index = static_cast<int64_t>(tile_y) * p_chunk_size_tiles + tile_x;
-	return is_mountain_terrain(p_terrain_ids[tile_index]);
-}
-
+// halo — один байт на тайл, halo_side x halo_side, halo_side = chunk_size_tiles
+// + 2*halo_radius_tiles; тайл (0,0) чанка живёт по индексу
+// (halo_radius_tiles, halo_radius_tiles). Внешние тайлы взяты из 3x3 соседних
+// чанков (см. комментарий у GRASS_MOUNTAIN_CLEARANCE_PX). local_x/local_y —
+// chunk-local ПИКСЕЛИ, могут уходить за [0, chunk_size_px) в пределах halo.
+//
+// Раньше клиренс сэмплировал только 8 точек на фиксированном радиусе
+// (кардинально + диагонально). Это могло ПЕРЕСКОЧИТЬ тонкую горную полосу:
+// если она уже clearance_px, точка ровно на clearance_px могла упасть уже за
+// ней, в чистой зоне, и с БОЛЬШИМ радиусом это происходило чаще (128px
+// пропускал to, что ловил 96px — tmp_grass_mountain_overlap_probe,
+// 2026-07-04). Вместо кольца точек проверяем ВСЕ тайлы halo в пределах
+// clearance_px (полный диск), так что тонкую полосу пропустить нельзя.
 bool has_grass_mountain_clearance(
 		float p_local_x,
 		float p_local_y,
-		const int32_t *p_terrain_ids,
-		int32_t p_chunk_size_tiles,
+		const uint8_t *p_halo,
+		int32_t p_halo_side,
+		int32_t p_halo_radius_tiles,
 		float p_tile_size_px,
 		float p_clearance_px) {
-	const float diagonal_clearance = p_clearance_px * 0.72f;
-	return !sample_hits_mountain_surface(p_local_x, p_local_y, p_terrain_ids, p_chunk_size_tiles, p_tile_size_px) &&
-			!sample_hits_mountain_surface(p_local_x + p_clearance_px, p_local_y, p_terrain_ids, p_chunk_size_tiles, p_tile_size_px) &&
-			!sample_hits_mountain_surface(p_local_x - p_clearance_px, p_local_y, p_terrain_ids, p_chunk_size_tiles, p_tile_size_px) &&
-			!sample_hits_mountain_surface(p_local_x, p_local_y + p_clearance_px, p_terrain_ids, p_chunk_size_tiles, p_tile_size_px) &&
-			!sample_hits_mountain_surface(p_local_x, p_local_y - p_clearance_px, p_terrain_ids, p_chunk_size_tiles, p_tile_size_px) &&
-			!sample_hits_mountain_surface(p_local_x + diagonal_clearance, p_local_y + diagonal_clearance, p_terrain_ids, p_chunk_size_tiles, p_tile_size_px) &&
-			!sample_hits_mountain_surface(p_local_x - diagonal_clearance, p_local_y + diagonal_clearance, p_terrain_ids, p_chunk_size_tiles, p_tile_size_px) &&
-			!sample_hits_mountain_surface(p_local_x + diagonal_clearance, p_local_y - diagonal_clearance, p_terrain_ids, p_chunk_size_tiles, p_tile_size_px) &&
-			!sample_hits_mountain_surface(p_local_x - diagonal_clearance, p_local_y - diagonal_clearance, p_terrain_ids, p_chunk_size_tiles, p_tile_size_px);
+	const int32_t center_tile_x = static_cast<int32_t>(std::floor(p_local_x / p_tile_size_px)) + p_halo_radius_tiles;
+	const int32_t center_tile_y = static_cast<int32_t>(std::floor(p_local_y / p_tile_size_px)) + p_halo_radius_tiles;
+	const int32_t tile_reach = static_cast<int32_t>(std::ceil(p_clearance_px / p_tile_size_px));
+	const float clearance_sq = p_clearance_px * p_clearance_px;
+	for (int32_t dy = -tile_reach; dy <= tile_reach; dy++) {
+		const int32_t ty = center_tile_y + dy;
+		if (ty < 0 || ty >= p_halo_side) {
+			continue;
+		}
+		const int64_t halo_row = static_cast<int64_t>(ty) * p_halo_side;
+		for (int32_t dx = -tile_reach; dx <= tile_reach; dx++) {
+			const int32_t tx = center_tile_x + dx;
+			if (tx < 0 || tx >= p_halo_side) {
+				continue;
+			}
+			const float dist_x_px = static_cast<float>(dx) * p_tile_size_px;
+			const float dist_y_px = static_cast<float>(dy) * p_tile_size_px;
+			if (dist_x_px * dist_x_px + dist_y_px * dist_y_px > clearance_sq) {
+				continue;
+			}
+			if (p_halo[halo_row + tx] != 0) {
+				return false;
+			}
+		}
+	}
+	return true;
 }
 
 } // namespace
@@ -286,6 +298,8 @@ Dictionary build_buffer(
 		int64_t p_chunk_y,
 		const PackedInt32Array &p_terrain_ids,
 		const PackedByteArray &p_lake_flags,
+		const PackedByteArray &p_mountain_halo,
+		int64_t p_mountain_halo_radius_tiles,
 		const PackedFloat32Array &p_params) {
 	Dictionary result;
 	result["bucket_buffers"] = Array();
@@ -309,6 +323,13 @@ Dictionary build_buffer(
 		result["error"] = "grass_scatter: terrain_ids меньше площади чанка";
 		return result;
 	}
+	const int32_t halo_radius_tiles = static_cast<int32_t>(p_mountain_halo_radius_tiles);
+	const int32_t halo_side = chunk_size_tiles + halo_radius_tiles * 2;
+	if (halo_radius_tiles <= 0 || p_mountain_halo.size() != static_cast<int64_t>(halo_side) * halo_side) {
+		result["error"] = "grass_scatter: mountain_halo размер не совпадает с ожидаемым halo_side";
+		return result;
+	}
+	const uint8_t *mountain_halo = p_mountain_halo.ptr();
 
 	const float chunk_size_px = static_cast<float>(chunk_size_tiles) * tile_size_px;
 	const float cell_px = chunk_size_px / static_cast<float>(grid_side);
@@ -366,12 +387,14 @@ Dictionary build_buffer(
 			}
 			// Grass is only presentation, but mountain masks draw above it with
 			// organic edges. Keep roots clear of the canonical mountain surface
-			// so tufts cannot peek out under the overlay.
+			// (cross-chunk halo, not just this chunk's own tiles) so tufts cannot
+			// peek out under the overlay.
 			if (!has_grass_mountain_clearance(
 						local_x,
 						local_y,
-						terrain_ids,
-						chunk_size_tiles,
+						mountain_halo,
+						halo_side,
+						halo_radius_tiles,
 						tile_size_px,
 						GRASS_MOUNTAIN_CLEARANCE_PX)) {
 				continue;

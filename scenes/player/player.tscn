@@ -16,7 +16,7 @@
 [ext_resource type="Script" path="res://core/entities/player/player_sun_shadow.gd" id="11_shadow"]
 
 [sub_resource type="RectangleShape2D" id="player_shape"]
-size = Vector2(31, 31)
+size = Vector2(24, 16)
 
 [sub_resource type="CircleShape2D" id="attack_shape"]
 radius = 96.0
@@ -48,6 +48,7 @@ region_enabled = true
 region_rect = Rect2(0, 0, 256, 256)
 
 [node name="CollisionShape2D" type="CollisionShape2D" parent="." unique_id=543236914]
+position = Vector2(0, 15)
 shape = SubResource("player_shape")
 
 [node name="Camera2D" type="Camera2D" parent="." unique_id=1547136717]

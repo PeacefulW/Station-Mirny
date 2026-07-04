@@ -1,9 +1,8 @@
 class_name ObjectCollisionDebugLayer
 extends Node2D
-## Dev-оверлей: квадраты вокруг коллайдеров камней/валунов/деревьев (в стиле
-## Factorio). Включается WorldStreamer.toggle_debug_object_collisions() (хоткей
-## F11 в scenes/world/world_runtime_v0_scene.gd). Presentation only (ADR-0007):
-## не влияет на геймплей, коллизии, сохранения.
+## Dev-оверлей: квадраты вокруг коллайдеров (в стиле Factorio). Включается
+## через F11 в scenes/world/world_runtime_v0_scene.gd. Presentation only
+## (ADR-0007): не влияет на геймплей, коллизии, сохранения.
 
 const WorldRuntimeConstants = preload("res://core/systems/world/world_runtime_constants.gd")
 
@@ -23,6 +22,10 @@ func _ready() -> void:
 func set_debug_boxes(rects: Array[Rect2]) -> void:
 	_rects = rects
 	queue_redraw()
+
+
+func get_debug_box_count() -> int:
+	return _rects.size()
 
 
 func _draw() -> void:

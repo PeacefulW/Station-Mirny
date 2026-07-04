@@ -413,8 +413,11 @@ painting is forbidden.
    decorative path used for shoreline/mountain mask work.
 3. Native returns the finished buffer; the visual upload job assigns it to the
    chunk's grass `MultiMesh` (one bounded copy). Native placement rejects
-   candidates inside local mountain-edge clearance, so decorative grass cannot
-   peek from under the organic runtime mountain mask.
+   candidates inside mountain-edge clearance (`WorldCore.build_grass_scatter_buffer`
+   takes the same cross-chunk `mountain_solid_halo` `WorldStreamer` already
+   builds for the mountain mask, not just the chunk's own tiles — see
+   `mountain_object_occlusion.md` and `packet_schemas.md`), so decorative grass
+   cannot peek from under the organic runtime mountain mask.
 4. Every frame, `WindRuntime` advances wind state and writes the three global
    uniforms once.
 5. The grass shader animates vertices from globals + per-instance data. No
@@ -444,8 +447,12 @@ existing nodes, no buffer rebuilds; layers cache the applied anchor and
 reset it when their batches rebuild). Native returns the tuft buffer
 pre-split per chunk-local stripe (`bucket_buffers`, sparse
 `MultiMeshInstance2D` nodes per non-empty stripe). Mountain presentation
-sits above the whole ladder (`Z_MOUNTAIN_TOP/PAGE`), ground/edge/blob layers
-below it, contact shadows just below the ladder.
+sits BELOW the whole ladder (`Z_MOUNTAIN_TOP/PAGE = 19`, since 2026-07-04 —
+see `mountain_object_occlusion.md`): trees/rocks/player always draw over the
+mountain, which is geometrically correct because objects never stand on
+mountain tiles and their sprites extend upward from their anchors.
+Ground/edge/blob layers sit below the mountain, contact shadows just below
+the ladder.
 
 ### Diff refresh
 
@@ -655,12 +662,49 @@ Landed as:
   and `tools/grass_wind_dir_probe.gd` (windowed: grass moves under wind, calm
   freezes, close-up saved). Regression: weather/grass/dust/day-night/gdunit green.
 
+### Iteration 5 — Cross-chunk mountain clearance fix — DONE
+
+Bug (2026-07-04, reported after `mountain_object_occlusion.md`'s z-order flip
+put the mountain below the grass ladder): grass tufts occasionally rendered
+visibly on/inside solid mountain rock. Root cause: `has_grass_mountain_clearance`
+only read the current chunk's own `terrain_ids` (out-of-bounds samples silently
+read as "not mountain"), so a candidate near a chunk seam got zero clearance
+whenever the nearest mountain tile sat in the *neighbouring* chunk — no
+clearance-distance value could fix this, confirmed by an identical offending
+tuft surviving both a 64px and a 128px clearance. A second, independent flaw
+also surfaced while diagnosing this: the old clearance check sampled 8 fixed
+points on a ring at `clearance_px`, which could jump clean over a mountain
+feature thinner than the sampled radius — worse at *larger* radii, not better.
+
+- Native clearance now reads `mountain_solid_halo` (per-tile solid bytes,
+  `halo_side = chunk_size_tiles + 2*halo_radius_tiles`), the same cross-chunk
+  halo `WorldStreamer._build_mountain_solid_halo` already builds from the 3x3
+  neighbouring chunks for the mountain mask itself — no new computation, just
+  reuse of an existing per-chunk-cached array.
+- `has_grass_mountain_clearance` now scans every halo tile inside a filled
+  disk of radius `GRASS_MOUNTAIN_CLEARANCE_PX` around the candidate instead of
+  8 ring points, so a thin mountain feature cannot be skipped over.
+- `build_grass_scatter_buffer` signature gained `mountain_halo` +
+  `mountain_halo_radius_tiles` params (see `packet_schemas.md`); the
+  `WorldStreamer` call site passes `_get_cached_mountain_solid_halo(chunk_coord)`
+  (already computed for the mountain mask) straight through.
+- Verified via `tools/tmp_grass_mountain_overlap_probe.gd` (windowed, deleted
+  after use): sampled every rendered tuft's sprite span against the mountain's
+  solid mask at multiple world locations/densities; overlap count went from a
+  reproducible non-zero count to 0 across repeated runs and a different
+  mountain layout. Regression test added:
+  `tools/world_streamer_visual_patch_smoke_test.gd::_assert_grass_scatter_sees_cross_chunk_mountain_halo`
+  (a pure-plains target chunk with a synthetic halo carrying a mountain in the
+  simulated neighbour chunk; asserts every surviving tuft origin respects
+  clearance against the halo, not the chunk's own empty `terrain_ids`).
+
 ## Required Updates
 
 - `docs/README.md` and `docs/02_system_specs/README.md`: link this spec (done
   with spec landing).
 - `packet_schemas.md`: required when the native buffer call lands
-  (Iteration 2; done).
+  (Iteration 2; done). Signature + clearance mechanism updated again for
+  Iteration 5 (cross-chunk halo); done.
 - `system_api.md`: required only if `WindRuntime` exposes a public read/API.
   `get_wind_gustiness()` and debug override entries are documented.
 - `event_contracts.md`, `commands.md`: not required in V0 (no events, no

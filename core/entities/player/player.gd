@@ -6,6 +6,7 @@ extends CharacterBody2D
 # --- Константы ---
 const MountainResolver = preload("res://core/systems/world/mountain_resolver.gd")
 const HarvestQuery = preload("res://core/systems/world/harvest_query.gd")
+const ObjectCollisionDebugLayer = preload("res://core/systems/world/object_collision_debug_layer.gd")
 const WorldRuntimeConstants = preload("res://core/systems/world/world_runtime_constants.gd")
 const WorldStreamer = preload("res://core/systems/world/world_streamer.gd")
 const SCRAP_ITEM_ID: String = "base:scrap"
@@ -49,6 +50,8 @@ var _camera: PlayerCamera = null
 var _mountain_debug_layer: CanvasLayer = null
 var _mountain_debug_panel: PanelContainer = null
 var _mountain_debug_label: Label = null
+var _collision_debug_layer: ObjectCollisionDebugLayer = null
+var _debug_collision_visible: bool = false
 var _visual: Sprite2D = null
 var _visual_time: float = 0.0
 var _visual_direction: int = PLAYER_RUN_ATLAS_DEFAULT_DIRECTION
@@ -327,20 +330,28 @@ func _can_occupy_world(target_pos: Vector2) -> bool:
 
 func _build_occupancy_sample_points(target_pos: Vector2) -> Array[Vector2]:
 	var half_extents: Vector2 = _resolve_blocking_half_extents()
+	var sample_center: Vector2 = target_pos + _resolve_blocking_local_center()
 	var edge_x: float = maxf(4.0, half_extents.x - 2.0)
 	var edge_y: float = maxf(4.0, half_extents.y - 2.0)
 	# Sample the full footprint so diagonal motion cannot cut through impassable tiles.
 	return [
-		target_pos,
-		target_pos + Vector2(-edge_x, 0.0),
-		target_pos + Vector2(edge_x, 0.0),
-		target_pos + Vector2(0.0, -edge_y),
-		target_pos + Vector2(0.0, edge_y),
-		target_pos + Vector2(-edge_x, -edge_y),
-		target_pos + Vector2(edge_x, -edge_y),
-		target_pos + Vector2(-edge_x, edge_y),
-		target_pos + Vector2(edge_x, edge_y),
+		sample_center,
+		sample_center + Vector2(-edge_x, 0.0),
+		sample_center + Vector2(edge_x, 0.0),
+		sample_center + Vector2(0.0, -edge_y),
+		sample_center + Vector2(0.0, edge_y),
+		sample_center + Vector2(-edge_x, -edge_y),
+		sample_center + Vector2(edge_x, -edge_y),
+		sample_center + Vector2(-edge_x, edge_y),
+		sample_center + Vector2(edge_x, edge_y),
 	]
+
+
+func _resolve_blocking_local_center() -> Vector2:
+	var collision_shape_node: CollisionShape2D = get_node_or_null("CollisionShape2D") as CollisionShape2D
+	if collision_shape_node == null:
+		return Vector2.ZERO
+	return collision_shape_node.position
 
 
 func _resolve_blocking_half_extents() -> Vector2:
@@ -357,6 +368,75 @@ func _resolve_blocking_half_extents() -> Vector2:
 		var capsule: CapsuleShape2D = shape as CapsuleShape2D
 		return Vector2(capsule.radius, capsule.radius + capsule.height * 0.5)
 	return Vector2(20.0, 20.0)
+
+
+func set_debug_collision_visible(enabled: bool) -> void:
+	if enabled == _debug_collision_visible:
+		if enabled:
+			_sync_collision_debug_layer()
+		return
+	_debug_collision_visible = enabled
+	if not enabled:
+		if _collision_debug_layer != null and is_instance_valid(_collision_debug_layer):
+			_collision_debug_layer.visible = false
+		return
+	_sync_collision_debug_layer()
+
+
+func _sync_collision_debug_layer() -> void:
+	if not _debug_collision_visible:
+		return
+	var layer: ObjectCollisionDebugLayer = _ensure_collision_debug_layer()
+	layer.visible = true
+	layer.set_debug_boxes(_build_collision_debug_rects())
+
+
+func _ensure_collision_debug_layer() -> ObjectCollisionDebugLayer:
+	if _collision_debug_layer != null and is_instance_valid(_collision_debug_layer):
+		return _collision_debug_layer
+	_collision_debug_layer = ObjectCollisionDebugLayer.new()
+	_collision_debug_layer.name = "PlayerCollisionDebugLayer"
+	add_child(_collision_debug_layer)
+	return _collision_debug_layer
+
+
+func _build_collision_debug_rects() -> Array[Rect2]:
+	var rects: Array[Rect2] = []
+	var collision_shape_node: CollisionShape2D = get_node_or_null("CollisionShape2D") as CollisionShape2D
+	if collision_shape_node == null or collision_shape_node.shape == null or collision_shape_node.disabled:
+		return rects
+	var shape_rect: Rect2 = _collision_shape_local_rect(collision_shape_node.shape)
+	if shape_rect.size.x <= 0.0 or shape_rect.size.y <= 0.0:
+		return rects
+	rects.append(_transformed_rect_bounds(shape_rect, collision_shape_node.transform))
+	return rects
+
+
+func _collision_shape_local_rect(shape: Shape2D) -> Rect2:
+	if shape is RectangleShape2D:
+		var rect_size: Vector2 = (shape as RectangleShape2D).size
+		return Rect2(rect_size * -0.5, rect_size)
+	if shape is CircleShape2D:
+		var radius: float = (shape as CircleShape2D).radius
+		var circle_size := Vector2(radius, radius) * 2.0
+		return Rect2(circle_size * -0.5, circle_size)
+	if shape is CapsuleShape2D:
+		var capsule: CapsuleShape2D = shape as CapsuleShape2D
+		var capsule_size := Vector2(capsule.radius * 2.0, capsule.radius * 2.0 + capsule.height)
+		return Rect2(capsule_size * -0.5, capsule_size)
+	return Rect2()
+
+
+func _transformed_rect_bounds(rect: Rect2, transform: Transform2D) -> Rect2:
+	var top_left: Vector2 = transform * rect.position
+	var top_right: Vector2 = transform * (rect.position + Vector2(rect.size.x, 0.0))
+	var bottom_left: Vector2 = transform * (rect.position + Vector2(0.0, rect.size.y))
+	var bottom_right: Vector2 = transform * (rect.position + rect.size)
+	var min_x: float = minf(minf(top_left.x, top_right.x), minf(bottom_left.x, bottom_right.x))
+	var min_y: float = minf(minf(top_left.y, top_right.y), minf(bottom_left.y, bottom_right.y))
+	var max_x: float = maxf(maxf(top_left.x, top_right.x), maxf(bottom_left.x, bottom_right.x))
+	var max_y: float = maxf(maxf(top_left.y, top_right.y), maxf(bottom_left.y, bottom_right.y))
+	return Rect2(Vector2(min_x, min_y), Vector2(max_x - min_x, max_y - min_y))
 
 
 func update_movement_velocity() -> void:

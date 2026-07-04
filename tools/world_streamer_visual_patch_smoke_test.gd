@@ -7,7 +7,8 @@ const WorldRuntimeConstants = preload("res://core/systems/world/world_runtime_co
 const WorldTileSetFactory = preload("res://core/systems/world/world_tile_set_factory.gd")
 
 const GRASS_INSTANCE_STRIDE: int = 12
-const GRASS_MOUNTAIN_CLEARANCE_PX: float = 64.0
+const GRASS_MOUNTAIN_CLEARANCE_PX: float = 128.0
+const GRASS_MOUNTAIN_HALO_RADIUS_TILES: int = 8
 
 var _failed: bool = false
 
@@ -62,6 +63,7 @@ func _init() -> void:
 	_assert_runtime_mountain_ground_patch_disabled()
 	_assert_full_mountain_surface_keeps_ground_underlay()
 	_assert_grass_scatter_keeps_mountain_clearance()
+	_assert_grass_scatter_sees_cross_chunk_mountain_halo()
 
 	if _failed:
 		quit(1)
@@ -228,12 +230,15 @@ func _assert_grass_scatter_keeps_mountain_clearance() -> void:
 		for x: int in range(7, 9):
 			var mountain_index: int = WorldRuntimeConstants.local_to_index(Vector2i(x, y))
 			terrain_ids[mountain_index] = WorldRuntimeConstants.TERRAIN_MOUNTAIN_WALL
+	var halo: PackedByteArray = _build_solid_halo_from_terrain_ids(terrain_ids, GRASS_MOUNTAIN_HALO_RADIUS_TILES)
 	var result: Dictionary = world_core.call(
 		"build_grass_scatter_buffer",
 		WorldRuntimeConstants.DEFAULT_WORLD_SEED,
 		Vector2i.ZERO,
 		terrain_ids,
 		lake_flags,
+		halo,
+		GRASS_MOUNTAIN_HALO_RADIUS_TILES,
 		_build_dense_grass_params()
 	) as Dictionary
 	_assert(
@@ -257,6 +262,59 @@ func _assert_grass_scatter_keeps_mountain_clearance() -> void:
 			)
 			offset += GRASS_INSTANCE_STRIDE
 	_assert(checked_count == instance_count, "Grass bucket buffers must align with instance_count.")
+
+## Regression for the 2026-07-04 grass-in-mountain bug: a mountain sitting in a
+## NEIGHBOURING chunk must still clear grass near the shared seam. The target
+## chunk here is pure plains (no mountain tile of its own); only the halo
+## (representing the neighbour chunk) carries solid cells near one edge.
+func _assert_grass_scatter_sees_cross_chunk_mountain_halo() -> void:
+	var world_core: Object = ClassDB.instantiate("WorldCore")
+	_assert(world_core != null, "WorldCore must be available for cross-chunk grass clearance checks.")
+	if world_core == null:
+		return
+	var terrain_ids := PackedInt32Array()
+	terrain_ids.resize(WorldRuntimeConstants.CHUNK_CELL_COUNT)
+	for index: int in range(WorldRuntimeConstants.CHUNK_CELL_COUNT):
+		terrain_ids[index] = WorldRuntimeConstants.TERRAIN_PLAINS_GROUND
+	var lake_flags := PackedByteArray()
+	lake_flags.resize(WorldRuntimeConstants.CHUNK_CELL_COUNT)
+	var halo_radius: int = GRASS_MOUNTAIN_HALO_RADIUS_TILES
+	var halo_side: int = WorldRuntimeConstants.CHUNK_SIZE + halo_radius * 2
+	var halo := PackedByteArray()
+	halo.resize(halo_side * halo_side)
+	# Neighbour chunk to the west (tx < 0 in halo space) is solid mountain along
+	# the whole shared seam.
+	for ty: int in range(halo_side):
+		for tx: int in range(halo_radius):
+			halo[ty * halo_side + tx] = 1
+	var result: Dictionary = world_core.call(
+		"build_grass_scatter_buffer",
+		WorldRuntimeConstants.DEFAULT_WORLD_SEED,
+		Vector2i.ZERO,
+		terrain_ids,
+		lake_flags,
+		halo,
+		halo_radius,
+		_build_dense_grass_params()
+	) as Dictionary
+	_assert(
+		not result.has("error"),
+		"Cross-chunk grass halo buffer build must not return an error: %s" % str(result.get("error", ""))
+	)
+	var bucket_buffers: Array = result.get("bucket_buffers", []) as Array
+	var checked_count: int = 0
+	for bucket_variant: Variant in bucket_buffers:
+		var bucket: PackedFloat32Array = bucket_variant as PackedFloat32Array
+		var offset: int = 0
+		while offset + GRASS_INSTANCE_STRIDE <= bucket.size():
+			var local_x: float = float(bucket[offset + 3])
+			checked_count += 1
+			_assert(
+				local_x >= GRASS_MOUNTAIN_CLEARANCE_PX * 0.99,
+				"Grass scatter ignored a mountain halo cell from the neighbouring chunk at local_x=%.1f." % local_x
+			)
+			offset += GRASS_INSTANCE_STRIDE
+	_assert(checked_count > 0, "Cross-chunk grass halo check must generate grass instances to verify.")
 
 func _build_dense_grass_params() -> PackedFloat32Array:
 	return PackedFloat32Array([
@@ -318,6 +376,25 @@ func _grass_origin_has_mountain_clearance(terrain_ids: PackedInt32Array, local_x
 		if _grass_sample_hits_mountain(terrain_ids, local_x + offset.x, local_y + offset.y):
 			return false
 	return true
+
+## Mirrors WorldStreamer._build_mountain_solid_halo's layout for a synthetic
+## single-chunk test: the chunk's own tiles land at halo offset
+## (halo_radius_tiles, halo_radius_tiles); there is no real neighbour data, so
+## the padding ring stays zero (not-mountain), matching a chunk with no
+## adjacent mountains.
+func _build_solid_halo_from_terrain_ids(terrain_ids: PackedInt32Array, halo_radius_tiles: int) -> PackedByteArray:
+	var halo_side: int = WorldRuntimeConstants.CHUNK_SIZE + halo_radius_tiles * 2
+	var halo := PackedByteArray()
+	halo.resize(halo_side * halo_side)
+	for y: int in range(WorldRuntimeConstants.CHUNK_SIZE):
+		for x: int in range(WorldRuntimeConstants.CHUNK_SIZE):
+			var index: int = WorldRuntimeConstants.local_to_index(Vector2i(x, y))
+			var terrain_id: int = int(terrain_ids[index])
+			if terrain_id == WorldRuntimeConstants.TERRAIN_MOUNTAIN_WALL \
+					or terrain_id == WorldRuntimeConstants.TERRAIN_MOUNTAIN_FOOT:
+				var halo_row: int = (y + halo_radius_tiles) * halo_side
+				halo[halo_row + x + halo_radius_tiles] = 1
+	return halo
 
 func _grass_sample_hits_mountain(terrain_ids: PackedInt32Array, local_x: float, local_y: float) -> bool:
 	if local_x < 0.0 \

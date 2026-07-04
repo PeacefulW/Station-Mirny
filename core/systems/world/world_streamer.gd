@@ -1155,6 +1155,8 @@ func _mountain_native_mask_visual_apply_tick() -> bool:
 			_grass_scatter_material,
 			_grass_shadow_material,
 			_grass_spore_material,
+			_get_cached_mountain_solid_halo(chunk_coord).get("halo", PackedByteArray()) as PackedByteArray,
+			MOUNTAIN_HALO_MASK_RADIUS_TILES,
 		)
 		if grass_applied:
 			chunk_view.set_grass_scatter_lod_fraction(_grass_lod_fraction)

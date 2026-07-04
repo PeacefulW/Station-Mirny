@@ -81,12 +81,22 @@ constexpr int32_t DEPTH_STRIPES_PER_CHUNK = 64;
 // rendered below the grass ladder) and "spore_buffer" (sparse glowing motes
 // above strong orange_region cores, drifting on the wind globals). Both are
 // 12-float MultiMesh layouts; spore color packs (phase, drift_seed, _, alpha).
+// p_mountain_halo: per-tile solid flags (WALL|FOOT, walkable=0, mountain_id>0),
+// halo_side x halo_side square (halo_side = chunk_size_tiles +
+// 2*p_mountain_halo_radius_tiles), chunk's own tile (0,0) at halo index
+// (p_mountain_halo_radius_tiles, p_mountain_halo_radius_tiles). Same layout as
+// WorldStreamer._build_mountain_solid_halo (world_streamer.gd), reused so grass
+// clearance sees mountain tiles in NEIGHBOURING chunks too — a chunk-local-only
+// check misses candidates near a chunk seam next to a mountain in the adjacent
+// chunk regardless of clearance distance.
 godot::Dictionary build_buffer(
 		int64_t p_seed,
 		int64_t p_chunk_x,
 		int64_t p_chunk_y,
 		const godot::PackedInt32Array &p_terrain_ids,
 		const godot::PackedByteArray &p_lake_flags,
+		const godot::PackedByteArray &p_mountain_halo,
+		int64_t p_mountain_halo_radius_tiles,
 		const godot::PackedFloat32Array &p_params);
 
 // Плотность травы поля в мировой точке (та же формула sample_fields, что красит

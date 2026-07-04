@@ -49,9 +49,15 @@ const SPIKY_FLORA_FRAME_COUNT: int = 4
 const TREE_FRAME_COLUMNS: int = 4
 const TREE_FRAME_ROWS: int = 4
 const TREE_FRAME_COUNT: int = 16
-# Основание дерева в кадре атласа — на доле (frame-margin)/frame от верха. Спрайт
-# центрируется в точке, поэтому сдвигаем его вверх на (frac-0.5)*size, чтобы комель
-# лёг в точку земли; полоса depth-лесенки тогда падает на «ноги» (см. spec).
+# Метаданные генератора: per-frame точка комля (anchor_local, px) для каждого из
+# 16 нарисованных вариантов дерева. Раньше комель считался ОДНОЙ усреднённой
+# константой на все кадры (TREE_BASE_ANCHOR_OFFSET_FRAC ниже) — но варианты
+# заметно расходятся по позиции ствола (anchor_local.x: 123..243 из 384,
+# anchor_local.y: 335..354), поэтому у части деревьев спрайт/коллизия садились
+# мимо истинного комля. Формула переноса — см. _tree_frame_anchor_fraction.
+const TREE_ATLAS_META_PATH: String = "res://assets/sprites/flora/atlases/plains_trees_atlas.json"
+# Фоллбэк, если метаданные недоступны/битые (громкая ошибка в _ensure_tree_frame_anchors_loaded,
+# не тихая деградация): доля от верха кадра до комля, усреднённая по старому подбору.
 const TREE_BASE_ANCHOR_OFFSET_FRAC: float = 0.46875
 const TREE_SHADOW_WIDTH_SCALE: float = 0.34
 const TREE_SHADOW_HEIGHT_SCALE: float = 0.11
@@ -515,6 +521,59 @@ func _append_spiky_flora(
 	_spiky_flora_count += 1
 
 
+## Доля (0..1 от frame_width/frame_height) от левого-верхнего угла кадра атласа
+## до точки комля дерева, по frame_index — из плоских метаданных генератора
+## (TREE_ATLAS_META_PATH). Кэшируется статически на весь сеанс (один разовый
+## парсинг JSON на первый вызов, не на инстанс/кадр — LAW 1).
+static var _tree_frame_anchor_fractions: Array[Vector2] = []
+static var _tree_frame_anchors_ready: bool = false
+
+
+static func _tree_frame_anchor_fraction(frame_index: int) -> Vector2:
+	_ensure_tree_frame_anchors_loaded()
+	if frame_index >= 0 and frame_index < _tree_frame_anchor_fractions.size():
+		return _tree_frame_anchor_fractions[frame_index]
+	push_error(
+		"WorldObjectPacketLayer: no tree anchor metadata for frame_index=%d in %s — using approximate frame-average fallback." % [
+			frame_index, TREE_ATLAS_META_PATH,
+		],
+	)
+	return Vector2(0.5, 0.5 + TREE_BASE_ANCHOR_OFFSET_FRAC)
+
+
+static func _ensure_tree_frame_anchors_loaded() -> void:
+	if _tree_frame_anchors_ready:
+		return
+	_tree_frame_anchors_ready = true
+	if not FileAccess.file_exists(TREE_ATLAS_META_PATH):
+		push_error(
+			"WorldObjectPacketLayer: missing tree atlas metadata %s — all tree frames will use the approximate frame-average anchor fallback (sprite/collision misalignment expected for off-centre variants)." % TREE_ATLAS_META_PATH,
+		)
+		return
+	var parsed: Variant = JSON.parse_string(FileAccess.get_file_as_string(TREE_ATLAS_META_PATH))
+	if not (parsed is Dictionary):
+		push_error("WorldObjectPacketLayer: tree atlas metadata %s is not valid JSON." % TREE_ATLAS_META_PATH)
+		return
+	var meta: Dictionary = parsed as Dictionary
+	var frame_count: int = int(meta.get("frame_count", TREE_FRAME_COUNT))
+	var frame_width: float = maxf(1.0, float(meta.get("frame_width", 384.0)))
+	var frame_height: float = maxf(1.0, float(meta.get("frame_height", 384.0)))
+	var fractions: Array[Vector2] = []
+	fractions.resize(frame_count)
+	fractions.fill(Vector2(0.5, 0.5 + TREE_BASE_ANCHOR_OFFSET_FRAC))
+	for frame_variant: Variant in (meta.get("frames", []) as Array):
+		var frame: Dictionary = frame_variant as Dictionary
+		var index: int = int(frame.get("index", -1))
+		var anchor_local: Array = frame.get("anchor_local", []) as Array
+		if index < 0 or index >= fractions.size() or anchor_local.size() < 2:
+			continue
+		fractions[index] = Vector2(
+			float(anchor_local[0]) / frame_width,
+			float(anchor_local[1]) / frame_height,
+		)
+	_tree_frame_anchor_fractions = fractions
+
+
 func _append_tree(
 		position: Vector2,
 		size_px: float,
@@ -527,9 +586,11 @@ func _append_tree(
 ) -> void:
 	if _tree_atlas == null:
 		return
-	# Спрайт центрируется в позиции → сдвигаем центр вверх, чтобы комель кадра лёг
-	# в точку земли; полоса depth-лесенки тогда падает на «ноги» дерева.
-	var sprite_position: Vector2 = position - Vector2(0.0, size_px * TREE_BASE_ANCHOR_OFFSET_FRAC)
+	# Спрайт центрируется в позиции → сдвигаем центр так, чтобы КОНКРЕТНО ЭТОГО
+	# кадра комель лёг в точку земли (per-frame anchor_local, не единая
+	# усреднённая константа — см. комментарий у TREE_ATLAS_META_PATH выше).
+	var anchor_fraction: Vector2 = _tree_frame_anchor_fraction(frame_index)
+	var sprite_position: Vector2 = position - size_px * (anchor_fraction - Vector2(0.5, 0.5))
 	WorldDecorBatchLayer.append_instance(
 		tree_buffer,
 		sprite_position,
@@ -555,10 +616,17 @@ func _append_tree(
 		maxf(size_px / 96.0, 0.42),
 	)
 	if TREE_COLLISION_ENABLED:
+		var collision_radius: float = clampf(
+			size_px * TREE_COLLISION_RADIUS_SCALE,
+			TREE_COLLISION_MIN_RADIUS_PX,
+			TREE_COLLISION_MAX_RADIUS_PX,
+		)
 		tree_collision_records.append(
 			{
-				"position": position,
-				"radius": clampf(size_px * TREE_COLLISION_RADIUS_SCALE, TREE_COLLISION_MIN_RADIUS_PX, TREE_COLLISION_MAX_RADIUS_PX),
+				# Круг чуть выше точки земли (утоплен в ствол): игрок может
+				# подойти к дереву вплотную с юга (запрос пользователя 2026-07-04).
+				"position": position - Vector2(0.0, collision_radius * 0.5),
+				"radius": collision_radius,
 			},
 		)
 	_tree_count += 1

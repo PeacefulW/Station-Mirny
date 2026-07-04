@@ -243,6 +243,8 @@ func apply_pending_grass_scatter_visual(
 		grass_material: ShaderMaterial,
 		shadow_material: ShaderMaterial,
 		spore_material: ShaderMaterial,
+		mountain_solid_halo: PackedByteArray,
+		mountain_solid_halo_radius_tiles: int,
 ) -> bool:
 	if not _grass_scatter_visual_dirty:
 		return false
@@ -257,6 +259,8 @@ func apply_pending_grass_scatter_visual(
 		chunk_coord,
 		_pending_terrain_ids,
 		_pending_lake_flags,
+		mountain_solid_halo,
+		mountain_solid_halo_radius_tiles,
 		grass_params,
 	) as Dictionary
 	assert(

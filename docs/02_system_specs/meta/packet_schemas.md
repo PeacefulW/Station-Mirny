@@ -983,7 +983,7 @@ Current code notes:
 ### `GrassScatterBufferResult`
 
 Returned by native
-`WorldCore.build_grass_scatter_buffer(seed, chunk_coord, terrain_ids, lake_flags, params)`.
+`WorldCore.build_grass_scatter_buffer(seed, chunk_coord, terrain_ids, lake_flags, mountain_halo, mountain_halo_radius_tiles, params)`.
 Governing spec:
 `docs/02_system_specs/world/wind_and_grass_scatter_presentation.md`.
 
@@ -1027,10 +1027,23 @@ Current code notes:
 - placement is deterministic for the same seed, chunk, inputs, and params;
   origins are chunk-local pixels (the grass layer node sits at the chunk
   origin)
-- candidates reject local mountain wall/foot terrain within the authored
-  mountain-edge clearance before instance emission, so presentation-only grass
-  tufts cannot appear under the organic runtime mountain mask; samples outside
-  the current chunk are not read by this chunk-local buffer builder
+- candidates reject mountain wall/foot terrain within the authored
+  mountain-edge clearance (`GRASS_MOUNTAIN_CLEARANCE_PX`, `grass_scatter.cpp`)
+  before instance emission, so presentation-only grass tufts cannot appear
+  under the organic runtime mountain mask. The clearance check reads
+  `mountain_halo` — a per-tile solid byte array, `halo_side x halo_side`
+  (`halo_side = chunk_size_tiles + 2*mountain_halo_radius_tiles`), the SAME
+  layout `WorldStreamer._build_mountain_solid_halo` already builds from the 3x3
+  neighbouring chunks for the mountain mask itself (`world_streamer.gd`) — NOT
+  the chunk's own `terrain_ids` alone. A chunk-local-only check (pre-2026-07-04)
+  went blind for candidates near a chunk seam whose nearest mountain tile sat in
+  the *neighbouring* chunk, regardless of clearance distance; reusing the
+  existing cross-chunk halo fixes this with no new native computation. The
+  clearance test itself scans every halo tile within `clearance_px` (a filled
+  disk at tile granularity), not a fixed ring of sample points at
+  `clearance_px` — a ring can jump clean over a mountain feature thinner than
+  the sampled radius, and does so more often at *larger* radii (verified by
+  `tools/tmp_grass_mountain_overlap_probe.gd`, 2026-07-04, since deleted)
 - buckets follow the shared mid-layer depth ladder
   (`WorldRuntimeConstants.DEPTH_STRIPE_PX` / `DEPTH_STRIPES_PER_CHUNK`,
   mirrored as `grass_scatter::DEPTH_STRIPE_PX/DEPTH_STRIPES_PER_CHUNK`): the

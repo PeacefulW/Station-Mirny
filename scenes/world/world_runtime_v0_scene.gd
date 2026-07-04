@@ -50,7 +50,8 @@ func _unhandled_input(event: InputEvent) -> void:
 		_world_streamer.toggle_debug_mountain_contour()
 		get_viewport().set_input_as_handled()
 	elif key_event.keycode == KEY_F11:
-		_world_streamer.toggle_debug_object_collisions()
+		var debug_collisions_visible: bool = _world_streamer.toggle_debug_object_collisions()
+		_set_player_debug_collision_visible(debug_collisions_visible)
 		get_viewport().set_input_as_handled()
 	elif key_event.keycode == KEY_ESCAPE:
 		PlayerAuthority.clear_cache()
@@ -68,6 +69,12 @@ func _bootstrap_scene() -> void:
 			TimeManager.reset_for_new_game()
 		return
 	SaveManager.load_game(pending_slot)
+
+func _set_player_debug_collision_visible(enabled: bool) -> void:
+	var player: Player = PlayerAuthority.get_local_player()
+	if player == null:
+		return
+	player.set_debug_collision_visible(enabled)
 
 func _on_world_initialized(_seed_value: int) -> void:
 	_world_initialized = true
