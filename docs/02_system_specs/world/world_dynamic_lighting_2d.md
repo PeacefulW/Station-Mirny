@@ -4,8 +4,8 @@ doc_type: system_spec
 status: approved
 source_of_truth: true
 owner: engineering+art
-version: 1.1
-last_updated: 2026-06-25
+version: 1.2
+last_updated: 2026-07-05
 related_docs:
   - ../../05_adrs/0005-light-is-gameplay-system.md
   - ../../05_adrs/0001-runtime-work-and-dirty-update-foundation.md
@@ -44,7 +44,11 @@ direct-sun energy and cools the `CanvasModulate` ambient in open-sky context.
 `CloudOccluderField` adds a bounded world-space shader cloud-shadow layer for
 the top-down renderer; it intentionally does not use `LightOccluder2D` because
 the project already proved Godot 2D occluder shadows project to screen-edge
-infinity in this camera model, and it does not use subtractive `PointLight2D`
+infinity in this camera model **for a directional light** (clouds ride the sun).
+That infinity artifact is directional-only: a **point** light (the torch) casts
+correctly bounded radial occluder shadows here (Iteration 2, landed 2026-07-04),
+which is why torch-vs-mountain occlusion does use `LightOccluder2D`. Cloud
+occlusion still does not use subtractive `PointLight2D`
 blobs because render probes proved they do not darken this ground. This replaces
 the old screen-space cloud darkening / flatten / sun-ray overlays. It is still
 presentation-only: cloud response does **not** make `Light2D` nodes a gameplay
@@ -88,10 +92,52 @@ reads in a dark ambient, and `DirectionalLight2D` lights the ground. Captures in
 - Depends on quality terrain normal maps (authored externally) for the relief payoff.
 
 ### Iteration 2 — Cast shadows (occluders)
-- `LightOccluder2D` on **significant near-player objects** (trees, big rocks, walls),
-  proximity-activated (LAW 13) — NOT on mass decor (grass/pebbles).
-- `shadow_enabled` on sun (long day shadows) and torch (moving shadows as the player
-  walks — the atmospheric goal). Bounded cost = lights × occluders in range.
+- **Torch vs mountain geometry (landed 2026-07-04).** The player torch
+  (`PointLight2D`) now sets `shadow_enabled=true` and is occluded on
+  ground/open-terrain receivers by
+  `LightOccluder2D` nodes that `ChunkView` builds from each chunk's mountain solid
+  mask as facade-inset open contour polylines (proximity-bounded to the player's
+  chunk ±1, LAW 13; rebuilt when the mask changes on digging). So torch light is blocked by
+  mountain walls on the walkable/open world, does not bend around corners, and follows what the player has
+  excavated — the "inside a dug pocket is lit, the rock beyond the walls stays
+  dark" fantasy (ADR-0005 category 5, underground = earned light).
+  - **Mountain sprite lighting = shader-gated point-light pass.**
+    The large `mountain_top_mask_underlay.gdshader` sprite does **not** consume
+    the engine occluder shadow texture as its final shape. Render feedback showed
+    that even open contour occluders create visible line/square bands when their
+    binary shadow map is applied over the mountain sprite. Instead, the shader's
+    `light()` pass accepts point lights only through the smoothed wall/facade mask;
+    roof/deep rock behind the contour receives no point-light contribution. The
+    runtime mountain visual mask is kept at 8 samples/tile (`step_px = 8 px`);
+    4 samples/tile (`step_px = 16 px`) exposed the mask texel grid as stair steps
+    on uneven torch-lit facades. This keeps the torch pool smooth like the ground
+    while still letting the facade catch warm light.
+  - **Ground/open-terrain occluder geometry = open contour, facade-inset, not filled cells.**
+    Occluders are open `OccluderPolygon2D` contour segments extracted from the
+    facade-inset solid mask, then lightly smoothed so the torch shadow does not
+    expose raw orthogonal mask-grid corners on uneven walls. The inset mirrors
+    `facade_height_px` (72 px, material set), so the visible wall FACE/facade
+    remains separate from the roof/deep rock blocker.
+    Filled/horizontally run-merged mask-cell quads are explicitly rejected: they
+    cast one rectangular shadow slab per mask row/cell run, which shows up as
+    translucent square/step bands around the torch edge. PCF blur
+    (`shadow_filter_smooth = 9`) is only final edge softening; it must not be
+    relied on to hide rectangular occluder geometry.
+    Structural smoke: `tools/mountain_torch_occluder_shape_smoke_test.gd` asserts
+    that mountain torch occluders are open contour segments, not closed filled
+    rect quads.
+  - **Point light ≠ directional light (key finding).** The project earlier found
+    `LightOccluder2D` shadows project to screen-edge infinity in this camera —
+    but that is a **directional** (sun/cloud) artifact. A render-proof spike
+    confirmed a **point** torch casts correctly bounded, radial occluder shadows
+    here. Occluder/light layer separation keeps this scoped: mountain occluders
+    use `occluder_light_mask = 1` and the torch uses that as its
+    `shadow_item_cull_mask`; the sun's shadow cull is a separate reserved layer
+    (`1<<8`), so the sun never casts (infinity-prone) shadows from these occluders.
+- **Object occluders (trees, big rocks) — deferred.** Same engine mechanism can
+  extend to significant near-player objects later; not built here.
+- `shadow_enabled` on the sun (long day shadows) remains the directional path
+  (its own projected-shadow shader), not these occluders.
 
 ## Out of Scope
 - Gameplay visibility authority (fauna/stress/sanctuary) — separate ADR-0005 contract.
@@ -142,7 +188,18 @@ reads in a dark ambient, and `DirectionalLight2D` lights the ground. Captures in
    multiplies the real `SunLight2D` direct key and cools/dims the ambient floor;
    the old screen-space cloud darkening, flatten, and sun-ray overlays are no
    longer part of the live scene.
-2. Occluder cast shadows (sun + torch), proximity-bounded. **Not started.**
+2. Occluder cast shadows, proximity-bounded. **Torch vs mountain: landed
+   2026-07-04.** `player_torch.gd` enables `shadow_enabled` + PCF13 and culls to
+   the mountain occluder layer; `ChunkView` builds/rebuilds facade-inset open
+   contour `LightOccluder2D` geometry from the mountain solid mask on the
+   mask-upload and dig-patch paths; `WorldStreamer._update_mountain_light_occluders`
+   enables occluders only for the player's chunk ±1 and syncs dirty chunks per
+   tick. The mountain mask shader gates point-light contribution to facade pixels
+   instead of consuming the engine shadow texture on the large mountain sprite.
+   Filled/run-merged rect occluders and direct engine-shadow application on the
+   mountain sprite were rejected after visual feedback: they block light but leave
+   visible rectangular/linear torch-shadow bands. Object occluders (trees/rocks)
+   and any sun occluder path remain unstarted.
 3. (Later, separate) gameplay visibility authority per ADR-0005.
 
 ## Required Updates

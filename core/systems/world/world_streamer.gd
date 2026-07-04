@@ -51,8 +51,13 @@ const MOUNTAIN_INTERIOR_FILL_SAFETY_MARGIN_TILES: int = 2
 # ~= 412 px + 48 px shadow draw overlap -> 460 px; foothill outer search is
 # 154 + 96 = 250 px. ceil(460 / 64) = 8 tiles.
 const MOUNTAIN_HALO_MASK_RADIUS_TILES: int = 8
-const MOUNTAIN_HALO_MASK_PIXELS_PER_TILE: int = 4
+const MOUNTAIN_HALO_MASK_PIXELS_PER_TILE: int = 8
 const MOUNTAIN_NATIVE_MASK_RUNTIME_ENABLED: bool = true
+# Torch shadows (world_dynamic_lighting_2d.md Iter 2): only chunks within this
+# chunk radius of the player build mountain LightOccluder2D geometry (LAW 13).
+# The torch reaches ~9 tiles; the player can stand at a chunk edge, so ±1 chunk
+# (a 3x3 block, 48 tiles across) covers everything the torch can reach.
+const MOUNTAIN_LIGHT_OCCLUDER_CHUNK_RADIUS: int = 1
 # The walkable plains surface is composed entirely by the world-space ground
 # material (ground_hybrid_material.gdshader). The terrain-edge mask is a
 # bounded SHORELINE enhancement only: it is built solely for chunks whose halo
@@ -216,6 +221,7 @@ var _grass_lod_min_zoom: float = 0.18
 var _grass_lod_min_fraction: float = 0.35
 var _grass_lod_fraction: float = 1.0
 var _ladder_anchor_stripe: int = LADDER_ANCHOR_UNSET
+var _mountain_light_occluder_center_chunk: Vector2i = INVALID_CHUNK_COORD
 var _mountain_native_mask_visual_upload_count_total: int = 0
 var _mountain_native_mask_visual_upload_count_last_tick: int = 0
 var _mountain_native_mask_visual_upload_elapsed_ms_last: float = 0.0
@@ -1193,6 +1199,37 @@ func _update_player_chunk_coord() -> void:
 		_rebuild_desired_chunk_cache()
 	_update_grass_scatter_lod()
 	_update_mid_ladder_anchor()
+	_update_mountain_light_occluders()
+
+
+## Торч-тени (world_dynamic_lighting_2d.md Iter 2): только чанки рядом с игроком
+## держат LightOccluder2D-геометрию горы. При смене чанка игрока — перевесить флаг
+## enabled по дальности; каждый тик — досборка «грязных» ближних чанков (после
+## копки или свежеприехавшей маски). Дёшево: sync ранний выход, пока не dirty.
+func _update_mountain_light_occluders() -> void:
+	if _player_chunk_coord == INVALID_CHUNK_COORD:
+		return
+	var center: Vector2i = _player_chunk_coord
+	var r: int = MOUNTAIN_LIGHT_OCCLUDER_CHUNK_RADIUS
+	if center != _mountain_light_occluder_center_chunk:
+		_mountain_light_occluder_center_chunk = center
+		var in_range: Dictionary = {}
+		for dy: int in range(-r, r + 1):
+			for dx: int in range(-r, r + 1):
+				in_range[_canonicalize_chunk_coord(center + Vector2i(dx, dy))] = true
+		for chunk_coord_variant: Variant in _chunk_views.keys():
+			var cv: ChunkView = _chunk_views.get(chunk_coord_variant) as ChunkView
+			if cv != null:
+				cv.set_mountain_light_occluders_enabled(in_range.has(_canonicalize_chunk_coord(chunk_coord_variant)))
+	for dy2: int in range(-r, r + 1):
+		for dx2: int in range(-r, r + 1):
+			var near_coord: Vector2i = _canonicalize_chunk_coord(center + Vector2i(dx2, dy2))
+			var near_view: ChunkView = _chunk_views.get(near_coord) as ChunkView
+			if near_view == null:
+				continue
+			# Idempotent: covers chunks streamed in while the player stood still.
+			near_view.set_mountain_light_occluders_enabled(true)
+			near_view.sync_mountain_light_occluders()
 
 
 ## Zoom-LOD травы: буфер чанка отсортирован native-кодом по важности (крупные

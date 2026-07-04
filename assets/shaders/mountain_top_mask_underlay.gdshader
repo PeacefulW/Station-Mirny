@@ -95,6 +95,12 @@ uniform vec2 shadow_draw_uv_min = vec2(0.1, 0.1);
 uniform vec2 shadow_draw_uv_max = vec2(0.9, 0.9);
 uniform float shadow_blend_texels = 4.0;
 
+// Fragment -> light pass gate. Godot's engine LightOccluder2D shadow map is
+// binary geometry and showed visible rectangular/line bands on this large mask
+// sprite. The mountain shader therefore accepts PointLight2D only on the visible
+// wall facade; roof/deep rock behind the contour receives no point-light pass.
+varying float point_light_facade_accept;
+
 float luma(vec3 c) {
 	return dot(c, vec3(0.299, 0.587, 0.114));
 }
@@ -252,7 +258,12 @@ void fragment() {
 			prev = cur;
 		}
 	}
-	bool is_wall = body_area > 0.5 && top_here >= 0.5 && edge_below >= 0.0 && edge_below <= wall_texels;
+	float wall_valid = step(0.0, edge_below);
+	float wall_solid_mask = smoothstep(0.38, 0.66, top_here);
+	float wall_base_fade = smoothstep(-0.50, 0.15, edge_below);
+	float wall_top_fade = 1.0 - smoothstep(wall_texels - 1.65, wall_texels + 1.65, edge_below);
+	float wall_mask = body_area * wall_valid * wall_solid_mask * wall_base_fade * wall_top_fade;
+	bool is_wall = wall_mask > 0.02;
 
 	// OPEN pixel: cosmetic roof eave just below the silhouette ("козырёк").
 	// overhang_px <= 0.5 disables the eave entirely (mountains stand directly
@@ -425,7 +436,12 @@ void fragment() {
 	vec3 facade_color = face_col.rgb * (light_ambient + light_diffuse * clamp(dot(face_n, light_dir), 0.0, 1.0));
 
 	vec3 color = top_lit;
-	float out_alpha = top_here * top_col.a * top_surface_alpha;
+	// Gate the roof by body_area (the tiny chunk overlap) like walls/overhang/
+	// coverage already are. Without this the roof's translucent silhouette edge
+	// leaked into the WIDE projected-shadow overlap band (MASK_SHADOW_CHUNK_OVERLAP_PX,
+	// 48 px), so two neighbouring chunk sprites double-composited their edges into a
+	// brighter rectangular seam — very visible once the torch lit the rock at night.
+	float out_alpha = top_here * top_col.a * top_surface_alpha * body_area;
 
 	if (top_band_px > 0.5) {
 		// Shoreline band: keep the top fill only near the open contour. The
@@ -446,7 +462,7 @@ void fragment() {
 		out_alpha *= band_alpha;
 	}
 
-	if (is_wall) {
+	if (wall_mask > 0.001) {
 		float wall_depth = clamp(edge_below / wall_texels, 0.0, 1.0); // 0 = base (south), 1 = top (north)
 		float strata_noise = fbm2(vec2(world_px.x / 260.0, world_px.y / 92.0));
 		float strata_wave = 0.5 + 0.5 * sin(world_px.y * 0.135 + world_px.x * 0.010 + strata_noise * 4.5);
@@ -457,9 +473,9 @@ void fragment() {
 		float cleft = smoothstep(0.48, 0.67, wall_depth) * (1.0 - smoothstep(0.77, 0.92, wall_depth));
 		float base_debris = (1.0 - smoothstep(0.00, 0.125, wall_depth)) * smoothstep(0.62, 0.92, fbm2(world_px / 32.0 + vec2(12.0, 71.0)));
 		float crack = smoothstep(0.80, 0.94, fbm2(vec2(world_px.x / 46.0, world_px.y / 18.0) + vec2(5.0, -31.0))) * smoothstep(0.12, 0.82, wall_depth);
-		color = facade_color * vertical_mass;
-		color = mix(color, color * 0.72, strata_line * 0.42);
-		color = mix(color, color * 0.84, smoothstep(0.58, 0.86, broad_layer) * 0.22);
+		vec3 wall_color = facade_color * vertical_mass;
+		wall_color = mix(wall_color, wall_color * 0.72, strata_line * 0.42);
+		wall_color = mix(wall_color, wall_color * 0.84, smoothstep(0.58, 0.86, broad_layer) * 0.22);
 		// Lit rock instead of painted color: the exposed upper cut is the wall
 		// albedo brightened and warmed by the low sun (shadow length is the
 		// documented low-sun proxy from WorldVisualLightingProfile).
@@ -469,10 +485,10 @@ void fragment() {
 		float sun_daylight = smoothstep(0.05, 0.45, projected_shadow_opacity);
 		float low_sun_warmth = clamp((projected_shadow_length_px - 80.0) / 280.0, 0.0, 1.0);
 		vec3 sun_warm_tint = mix(vec3(1.0), vec3(1.16, 0.93, 0.76), (0.35 + low_sun_warmth * 0.65) * sun_daylight);
-		color = mix(color, face_col.rgb * mix(1.10, 1.30, sun_daylight) * sun_warm_tint, cut_highlight * 0.22);
-		color = mix(color, cleft_color, cleft * 0.28);
-		color = mix(color, crack_color, crack * 0.38);
-		color = mix(color, base_debris_color, base_debris * 0.55);
+		wall_color = mix(wall_color, face_col.rgb * mix(1.10, 1.30, sun_daylight) * sun_warm_tint, cut_highlight * 0.22);
+		wall_color = mix(wall_color, cleft_color, cleft * 0.28);
+		wall_color = mix(wall_color, crack_color, crack * 0.38);
+		wall_color = mix(wall_color, base_debris_color, base_debris * 0.55);
 		float top_rim = smoothstep(0.77, 1.0, wall_depth);
 		float base_outline = 1.0 - smoothstep(0.0, 1.0 / max(sample_step_px, 1.0), edge_below);
 		vec3 rim_lip = face_col.rgb * mix(1.12, 1.45, sun_daylight) * sun_warm_tint;
@@ -483,9 +499,10 @@ void fragment() {
 			float wall_bio_gate = smoothstep(0.60, 0.72, wall_bio_field) * biofield_rim_strength;
 			rim_lip = mix(rim_lip, biofield_rim_color * (0.82 + small_mottle * 0.36), wall_bio_gate);
 		}
-		color = mix(color, rim_lip, top_rim * 0.30);
-		color = mix(color, vec3(0.0, 0.0, 0.0), clamp(base_outline, 0.0, 1.0) * base_outline_strength);
-		out_alpha = wall_surface_alpha;
+		wall_color = mix(wall_color, rim_lip, top_rim * 0.30);
+		wall_color = mix(wall_color, vec3(0.0, 0.0, 0.0), clamp(base_outline, 0.0, 1.0) * base_outline_strength);
+		color = mix(color, wall_color, wall_mask);
+		out_alpha = max(out_alpha, wall_mask * wall_surface_alpha);
 	}
 
 	// Cosmetic roof eave over the open space just below the silhouette.
@@ -520,5 +537,21 @@ void fragment() {
 	}
 	color = mix(color, inner_lip, inner_rim * lip_mix * top_here);
 
+	point_light_facade_accept = wall_mask;
 	COLOR = vec4(color, out_alpha);
+}
+
+void light() {
+	if (LIGHT_IS_DIRECTIONAL) {
+		// Keep the existing directional-light behavior for the sun; the sun's
+		// occluder cull layer is separate from mountain torch occluders.
+		LIGHT = vec4(LIGHT_COLOR.rgb * COLOR.rgb * LIGHT_ENERGY, LIGHT_COLOR.a);
+	} else {
+		float accept = clamp(point_light_facade_accept, 0.0, 1.0);
+		// Point lights are clipped by the shader mask, not by the engine shadow
+		// texture on this sprite. This removes the line/square bands while still
+		// letting the same torch light open ground through regular Light2D rules.
+		SHADOW_MODULATE = vec4(1.0);
+		LIGHT = vec4(LIGHT_COLOR.rgb * COLOR.rgb * LIGHT_ENERGY * accept, LIGHT_COLOR.a * accept);
+	}
 }

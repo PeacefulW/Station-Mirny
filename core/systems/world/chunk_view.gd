@@ -108,6 +108,16 @@ var _mountain_top_mask_origin_world: Vector2 = Vector2.ZERO
 var _mountain_top_mask_step_px: float = 0.0
 var _mountain_top_mask_texture_scale: float = 0.70
 var _mountain_top_mask_visual_dirty: bool = false
+## Engine torch shadows (world_dynamic_lighting_2d.md Iter 2): LightOccluder2D
+## nodes built as facade-inset contour polylines from this chunk's mountain solid
+## mask, so the player torch (PointLight2D, shadow_enabled) is blocked by mountain
+## walls on ground/open terrain and follows what is dug. The mountain sprite itself
+## gates point-light acceptance in its shader to avoid shadow-map line artifacts.
+## Built only for chunks near the player (streamer-driven, LAW 13); rebuilt when
+## the mask changes (dig) via the dirty flag.
+var _mountain_light_occluder_root: Node2D = null
+var _mountain_light_occluders_enabled: bool = false
+var _mountain_light_occluders_dirty: bool = false
 var _mountain_foothill_overlay_sprite: Sprite2D = null
 var _mountain_foothill_overlay_material: ShaderMaterial = null
 var _mountain_foothill_overlay_canvas_texture: ImageTexture = null
@@ -955,6 +965,322 @@ func apply_pending_mountain_native_mask_visual(
 	return true
 
 
+# --- Engine torch shadows: mountain light occluders --------------------------
+# LightOccluder2D contour polylines built from this chunk's mountain solid mask
+# so the player torch (PointLight2D, shadow_enabled) is blocked by mountain walls
+# on ground/open terrain and follows what is dug. Mountain pixels accept point
+# lights in the shader instead of consuming this shadow map directly. Enabled only
+# for chunks near the player (WorldStreamer-driven, LAW 13); rebuilt lazily when dirty.
+# See docs/02_system_specs/world/world_dynamic_lighting_2d.md (Iteration 2).
+
+## Occluder cull layer; matches PlayerTorch.MOUNTAIN_OCCLUDER_LIGHT_LAYER so ONLY
+## the torch casts these shadows (the sun's shadow cull is a separate layer).
+const MOUNTAIN_OCCLUDER_LIGHT_LAYER: int = 1
+## The occluder body is the mountain solid mask ERODED from the south by the
+## facade height, so the visible wall face (facade, drawn on the south strip of
+## the solid region) sits on the LIT side of the occluder and catches the torch,
+## while the rock/roof behind it blocks the light. Mirrors the material set's
+## `facade_height_px` (mountain_mask_underlay_material_set.tres).
+const MOUNTAIN_OCCLUDER_FACADE_INSET_PX: float = 72.0
+const MOUNTAIN_OCCLUDER_CONTOUR_SEGMENT_LIMIT: int = 24
+const MOUNTAIN_OCCLUDER_SMOOTH_PASSES: int = 1
+
+
+## Streamer toggles this per proximity. Enabling marks the chunk dirty so the next
+## sync builds; disabling frees the occluder nodes immediately.
+func set_mountain_light_occluders_enabled(enabled: bool) -> void:
+	if enabled == _mountain_light_occluders_enabled:
+		return
+	_mountain_light_occluders_enabled = enabled
+	if enabled:
+		_mountain_light_occluders_dirty = true
+	else:
+		_clear_mountain_light_occluders()
+
+
+## Cheap per-tick call from the streamer for in-range chunks: rebuilds only when
+## the mask changed (dig / freshly-arrived mountain). Early-outs otherwise.
+func sync_mountain_light_occluders() -> void:
+	if not _mountain_light_occluders_enabled or not _mountain_light_occluders_dirty:
+		return
+	_mountain_light_occluders_dirty = false
+	_rebuild_mountain_light_occluders()
+
+
+func mark_mountain_light_occluders_dirty() -> void:
+	if _mountain_light_occluders_enabled:
+		_mountain_light_occluders_dirty = true
+
+
+func get_mountain_light_occluder_debug_state() -> Dictionary:
+	var count: int = 0
+	var closed_count: int = 0
+	var total_verts: int = 0
+	var max_verts: int = 0
+	if _mountain_light_occluder_root != null and is_instance_valid(_mountain_light_occluder_root):
+		count = _mountain_light_occluder_root.get_child_count()
+		for child: Node in _mountain_light_occluder_root.get_children():
+			var occ := child as LightOccluder2D
+			if occ == null or occ.occluder == null:
+				continue
+			if occ.occluder.closed:
+				closed_count += 1
+			var vc: int = occ.occluder.polygon.size()
+			total_verts += vc
+			max_verts = maxi(max_verts, vc)
+	return {
+		"enabled": _mountain_light_occluders_enabled,
+		"dirty": _mountain_light_occluders_dirty,
+		"occluder_count": count,
+		"closed_count": closed_count,
+		"total_verts": total_verts,
+		"max_verts": max_verts,
+	}
+
+
+func _rebuild_mountain_light_occluders() -> void:
+	var root: Node2D = _ensure_mountain_light_occluder_root()
+	for child: Node in root.get_children():
+		child.free()
+	# Open contour segments, not filled mask-cell quads. Filled quads create the
+	# rectangular stair-step torch shadow visible at night because every mask row
+	# projects as its own block. The contour is cut from the facade-inset solid
+	# region so the facade remains on the lit side while the roof/deep rock behind
+	# the edge blocks the torch.
+	var step: float = _mountain_top_mask_step_px
+	if step <= 0.0 or _mountain_top_mask_bytes.is_empty() \
+			or _mountain_top_mask_width <= 0 or _mountain_top_mask_height <= 0:
+		return
+	var chunk_origin: Vector2 = WorldRuntimeConstants.chunk_origin_px(chunk_coord)
+	var chunk_size_px: float = float(WorldRuntimeConstants.CHUNK_SIZE * WorldRuntimeConstants.TILE_SIZE_PX)
+	var start_cx: int = floori((chunk_origin.x - _mountain_top_mask_origin_world.x) / step)
+	var start_cy: int = floori((chunk_origin.y - _mountain_top_mask_origin_world.y) / step)
+	var span: int = ceili(chunk_size_px / step)
+	# Erode the south facade strip: a cell is an occluder (roof/deep rock) only if
+	# solid AND still solid `facade_texels` to the south, so the visible wall FACE
+	# (facade) is left on the lit side of the occluder.
+	var facade_texels: int = maxi(1, roundi(MOUNTAIN_OCCLUDER_FACADE_INSET_PX / step))
+	var edges_by_start: Dictionary = {}
+	var edge_count: int = 0
+	for row: int in range(span):
+		var cy: int = start_cy + row
+		for col: int in range(span):
+			var cx: int = start_cx + col
+			if not _mountain_occluder_cell_solid(cx, cy, facade_texels):
+				continue
+			if not _mountain_occluder_cell_solid(cx, cy - 1, facade_texels):
+				_add_mountain_occluder_edge(edges_by_start, Vector2i(cx, cy), Vector2i(cx + 1, cy))
+				edge_count += 1
+			if not _mountain_occluder_cell_solid(cx + 1, cy, facade_texels):
+				_add_mountain_occluder_edge(edges_by_start, Vector2i(cx + 1, cy), Vector2i(cx + 1, cy + 1))
+				edge_count += 1
+			if not _mountain_occluder_cell_solid(cx, cy + 1, facade_texels):
+				_add_mountain_occluder_edge(edges_by_start, Vector2i(cx + 1, cy + 1), Vector2i(cx, cy + 1))
+				edge_count += 1
+			if not _mountain_occluder_cell_solid(cx - 1, cy, facade_texels):
+				_add_mountain_occluder_edge(edges_by_start, Vector2i(cx, cy + 1), Vector2i(cx, cy))
+				edge_count += 1
+	for traced_path: Dictionary in _trace_mountain_occluder_paths(edges_by_start, edge_count, step, chunk_origin):
+		var closed: bool = bool(traced_path.get("closed", false))
+		var contour: PackedVector2Array = _simplify_mountain_occluder_polyline(
+			traced_path.get("points", PackedVector2Array()) as PackedVector2Array,
+			closed,
+		)
+		contour = _smooth_mountain_occluder_polyline(contour, closed)
+		_add_mountain_occluder_contour(root, contour, closed)
+
+
+func _mask_cell_solid(cell_x: int, cell_y: int) -> bool:
+	if cell_x < 0 or cell_y < 0 or cell_x >= _mountain_top_mask_width or cell_y >= _mountain_top_mask_height:
+		return false
+	var index: int = cell_y * _mountain_top_mask_width + cell_x
+	if index < 0 or index >= _mountain_top_mask_bytes.size():
+		return false
+	return int(_mountain_top_mask_bytes[index]) > MOUNTAIN_NATIVE_MASK_SOLID_THRESHOLD
+
+
+func _mountain_occluder_cell_solid(cell_x: int, cell_y: int, facade_texels: int) -> bool:
+	return _mask_cell_solid(cell_x, cell_y) and _mask_cell_solid(cell_x, cell_y + facade_texels)
+
+
+func _add_mountain_occluder_edge(edges_by_start: Dictionary, start: Vector2i, end: Vector2i) -> void:
+	var key: String = _mountain_occluder_point_key(start)
+	var edges: Array = edges_by_start.get(key, [])
+	edges.append(end)
+	edges_by_start[key] = edges
+
+
+func _trace_mountain_occluder_paths(
+		edges_by_start: Dictionary,
+		edge_count: int,
+		step: float,
+		chunk_origin: Vector2,
+) -> Array[Dictionary]:
+	var paths: Array[Dictionary] = []
+	var remaining: int = edge_count
+	while remaining > 0:
+		var start_point: Vector2i = _find_mountain_occluder_edge_start(edges_by_start)
+		if start_point == Vector2i(-2147483648, -2147483648):
+			break
+		var first_edge: Dictionary = _pop_mountain_occluder_edge(edges_by_start, start_point)
+		if first_edge.is_empty():
+			break
+		remaining -= 1
+		var loop := PackedVector2Array()
+		loop.append(_mountain_occluder_corner_to_local(start_point, step, chunk_origin))
+		var current: Vector2i = first_edge["end"]
+		var guard: int = 0
+		while current != start_point and guard < edge_count + 2:
+			loop.append(_mountain_occluder_corner_to_local(current, step, chunk_origin))
+			var next_edge: Dictionary = _pop_mountain_occluder_edge(edges_by_start, current)
+			if next_edge.is_empty():
+				break
+			current = next_edge["end"]
+			remaining -= 1
+			guard += 1
+		var closed: bool = current == start_point
+		if (closed and loop.size() >= 3) or (not closed and loop.size() >= 2):
+			paths.append({"points": loop, "closed": closed})
+	return paths
+
+
+func _pop_mountain_occluder_edge(edges_by_start: Dictionary, start: Vector2i) -> Dictionary:
+	var key: String = _mountain_occluder_point_key(start)
+	if not edges_by_start.has(key):
+		return {}
+	var edges: Array = edges_by_start[key]
+	if edges.is_empty():
+		edges_by_start.erase(key)
+		return {}
+	var end: Vector2i = edges.pop_back()
+	if edges.is_empty():
+		edges_by_start.erase(key)
+	else:
+		edges_by_start[key] = edges
+	return {"end": end}
+
+
+func _find_mountain_occluder_edge_start(edges_by_start: Dictionary) -> Vector2i:
+	for key: String in edges_by_start.keys():
+		var edges: Array = edges_by_start[key]
+		if not edges.is_empty():
+			return _mountain_occluder_point_from_key(key)
+	return Vector2i(-2147483648, -2147483648)
+
+
+func _mountain_occluder_point_key(point: Vector2i) -> String:
+	return "%d:%d" % [point.x, point.y]
+
+
+func _mountain_occluder_point_from_key(key: String) -> Vector2i:
+	var parts: PackedStringArray = key.split(":")
+	if parts.size() != 2:
+		return Vector2i(-2147483648, -2147483648)
+	return Vector2i(int(parts[0]), int(parts[1]))
+
+
+func _mountain_occluder_corner_to_local(point: Vector2i, step: float, chunk_origin: Vector2) -> Vector2:
+	var world_pos: Vector2 = _mountain_top_mask_origin_world \
+			+ Vector2(float(point.x), float(point.y)) * step
+	return world_pos - chunk_origin
+
+
+func _simplify_mountain_occluder_polyline(points: PackedVector2Array, closed: bool) -> PackedVector2Array:
+	if points.size() <= 2:
+		return points
+	var simplified := PackedVector2Array()
+	var point_count: int = points.size()
+	if closed:
+		for index: int in range(point_count):
+			var previous: Vector2 = points[(index - 1 + point_count) % point_count]
+			var current: Vector2 = points[index]
+			var next: Vector2 = points[(index + 1) % point_count]
+			if absf((current - previous).cross(next - current)) > 0.001:
+				simplified.append(current)
+	else:
+		simplified.append(points[0])
+		for index: int in range(1, point_count - 1):
+			var previous: Vector2 = points[index - 1]
+			var current: Vector2 = points[index]
+			var next: Vector2 = points[index + 1]
+			if absf((current - previous).cross(next - current)) > 0.001:
+				simplified.append(current)
+		simplified.append(points[point_count - 1])
+	return simplified if simplified.size() >= 2 else points
+
+
+func _smooth_mountain_occluder_polyline(points: PackedVector2Array, closed: bool) -> PackedVector2Array:
+	if MOUNTAIN_OCCLUDER_SMOOTH_PASSES <= 0 or points.size() < 3:
+		return points
+	var current: PackedVector2Array = points
+	for _pass: int in range(MOUNTAIN_OCCLUDER_SMOOTH_PASSES):
+		var point_count: int = current.size()
+		if point_count < 3:
+			break
+		var smoothed := PackedVector2Array()
+		if closed:
+			for index: int in range(point_count):
+				var a: Vector2 = current[index]
+				var b: Vector2 = current[(index + 1) % point_count]
+				smoothed.append(a.lerp(b, 0.25))
+				smoothed.append(a.lerp(b, 0.75))
+		else:
+			smoothed.append(current[0])
+			for index: int in range(point_count - 1):
+				var a: Vector2 = current[index]
+				var b: Vector2 = current[index + 1]
+				smoothed.append(a.lerp(b, 0.25))
+				smoothed.append(a.lerp(b, 0.75))
+			smoothed.append(current[point_count - 1])
+		current = smoothed
+	return current
+
+
+func _add_mountain_occluder_contour(root: Node2D, contour: PackedVector2Array, closed: bool) -> void:
+	if contour.size() < 2:
+		return
+	var start_index: int = 0
+	while start_index < contour.size() - 1:
+		var end_index: int = mini(start_index + MOUNTAIN_OCCLUDER_CONTOUR_SEGMENT_LIMIT, contour.size() - 1)
+		var polyline := PackedVector2Array()
+		for index: int in range(start_index, end_index + 1):
+			polyline.append(contour[index])
+		_add_mountain_occluder_polyline(root, polyline)
+		start_index = end_index
+	if closed:
+		var closing_segment := PackedVector2Array([contour[contour.size() - 1], contour[0]])
+		_add_mountain_occluder_polyline(root, closing_segment)
+
+
+func _add_mountain_occluder_polyline(root: Node2D, points: PackedVector2Array) -> void:
+	if points.size() < 2:
+		return
+	var occ := LightOccluder2D.new()
+	occ.occluder_light_mask = MOUNTAIN_OCCLUDER_LIGHT_LAYER
+	var poly := OccluderPolygon2D.new()
+	poly.closed = false
+	poly.cull_mode = OccluderPolygon2D.CULL_DISABLED
+	poly.polygon = points
+	occ.occluder = poly
+	root.add_child(occ)
+
+
+func _ensure_mountain_light_occluder_root() -> Node2D:
+	if _mountain_light_occluder_root != null and is_instance_valid(_mountain_light_occluder_root):
+		return _mountain_light_occluder_root
+	_mountain_light_occluder_root = Node2D.new()
+	_mountain_light_occluder_root.name = "MountainLightOccluders"
+	add_child(_mountain_light_occluder_root)
+	return _mountain_light_occluder_root
+
+
+func _clear_mountain_light_occluders() -> void:
+	_mountain_light_occluders_dirty = false
+	if _mountain_light_occluder_root != null and is_instance_valid(_mountain_light_occluder_root):
+		for child: Node in _mountain_light_occluder_root.get_children():
+			child.free()
+
+
 func apply_terrain_edge_mask_data(mask_result: Dictionary, mask_origin_world: Vector2) -> bool:
 	var mask_bytes: PackedByteArray = mask_result.get("mask", PackedByteArray()) as PackedByteArray
 	var mask_width: int = int(mask_result.get("width", 0))
@@ -1175,6 +1501,8 @@ func _upload_mountain_mask_texture(
 	sprite.texture = _mountain_top_mask_texture
 	sprite.visible = true
 	_sync_mountain_foothill_overlay_visual(foothill_texture, foothill_normal_texture)
+	# Mountain solid geometry (re)appeared or changed -> rebuild torch occluders.
+	mark_mountain_light_occluders_dirty()
 
 
 func _upload_terrain_edge_mask_texture(
@@ -1289,6 +1617,7 @@ func _clear_mountain_top_mask(preserve_foothill: bool = false) -> void:
 		_mountain_top_mask_sprite.visible = false
 		_mountain_top_mask_sprite.scale = Vector2.ONE
 		_mountain_top_mask_sprite.material = null
+	_clear_mountain_light_occluders()
 	if not preserve_foothill:
 		_clear_mountain_foothill_mask()
 		_clear_mountain_foothill_overlay()
@@ -1420,6 +1749,7 @@ func apply_mountain_local_dig_patch(local_coord: Vector2i, padding_px: int = 2) 
 		patched = true
 	if patched:
 		_mountain_page_debug["local_dig_patch_count"] = int(_mountain_page_debug.get("local_dig_patch_count", 0)) + 1
+		mark_mountain_light_occluders_dirty()
 	return patched
 
 
@@ -1436,6 +1766,7 @@ func apply_mountain_world_dig_patch(world_tile: Vector2i, padding_px: int = 2) -
 		patched = true
 	if patched:
 		_mountain_page_debug["world_dig_patch_count"] = int(_mountain_page_debug.get("world_dig_patch_count", 0)) + 1
+		mark_mountain_light_occluders_dirty()
 	return patched
 
 
@@ -1452,6 +1783,7 @@ func apply_mountain_world_dig_collision_patch(world_tile: Vector2i, padding_px: 
 		patched = true
 	if patched:
 		_mountain_page_debug["world_dig_collision_patch_count"] = int(_mountain_page_debug.get("world_dig_collision_patch_count", 0)) + 1
+		mark_mountain_light_occluders_dirty()
 	return patched
 
 
