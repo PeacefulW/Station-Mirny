@@ -34,6 +34,7 @@ uniform sampler2D rock_top_albedo_tex : repeat_enable, filter_linear_mipmap;
 uniform sampler2D rock_top_normal_tex : repeat_enable, filter_linear_mipmap;
 uniform sampler2D rock_foothill_albedo_tex : repeat_enable, filter_linear_mipmap;
 
+uniform bool temporary_disable_terrain_normals = true;
 uniform float top_world_scale_px = 384.0;
 uniform float face_world_scale_px = 224.0;
 uniform float macro_world_scale_px = 896.0;
@@ -384,33 +385,36 @@ void fragment() {
 			back_color * back_mask
 		) / total_mask;
 
-		vec3 shape_normal = unpack_normal(texture(shape_normal_atlas, UV).rgb);
-		vec3 top_normal = unpack_normal(texture(top_normal_tex, top_uv).rgb);
-		vec3 top_normal_secondary = unpack_normal(texture(top_normal_tex, top_uv_secondary).rgb);
-		if (organic_strength > 0.001) {
-			vec2 detail_uv = world_pos / max(detail_world_scale_px, 1.0);
-			if (rock_normal_mask > 0.001) {
-				vec3 rock_normal = unpack_normal(texture(rock_top_normal_tex, detail_uv * 1.12 + vec2(0.07, 0.61)).rgb);
-				float rock_normal_mix = clamp(rock_normal_mask, 0.0, 0.90);
-				top_normal = normalize(mix(top_normal, rock_normal, rock_normal_mix));
-				top_normal_secondary = normalize(mix(top_normal_secondary, rock_normal, rock_normal_mix * 0.86));
-			}
-			if (grass_total > 0.001) {
-				vec3 grass_normal = unpack_normal(texture(grass_normal_tex, detail_uv * 0.92 + vec2(0.11, 0.37)).rgb);
-				float grass_normal_mix = grass_total * 0.55;
-				top_normal = normalize(mix(top_normal, grass_normal, grass_normal_mix));
-				top_normal_secondary = normalize(mix(top_normal_secondary, grass_normal, grass_normal_mix * 0.72));
-			}
-		}
-		vec3 face_normal = unpack_normal(texture(face_normal_tex, face_uv).rgb);
-		vec3 detail_normal = normalize(
-			normalize(top_normal + top_normal_secondary) * top_mask +
-			face_normal * face_mask +
-			normalize(top_normal + top_normal_secondary) * back_mask
-		);
-		vec3 final_normal = blend_normals(shape_normal, detail_normal);
-
 		COLOR = vec4(final_color, mask.a);
-		NORMAL_MAP = final_normal * 0.5 + 0.5;
+		if (temporary_disable_terrain_normals) {
+			NORMAL_MAP = vec3(0.5, 0.5, 1.0);
+		} else {
+			vec3 shape_normal = unpack_normal(texture(shape_normal_atlas, UV).rgb);
+			vec3 top_normal = unpack_normal(texture(top_normal_tex, top_uv).rgb);
+			vec3 top_normal_secondary = unpack_normal(texture(top_normal_tex, top_uv_secondary).rgb);
+			if (organic_strength > 0.001) {
+				vec2 detail_uv = world_pos / max(detail_world_scale_px, 1.0);
+				if (rock_normal_mask > 0.001) {
+					vec3 rock_normal = unpack_normal(texture(rock_top_normal_tex, detail_uv * 1.12 + vec2(0.07, 0.61)).rgb);
+					float rock_normal_mix = clamp(rock_normal_mask, 0.0, 0.90);
+					top_normal = normalize(mix(top_normal, rock_normal, rock_normal_mix));
+					top_normal_secondary = normalize(mix(top_normal_secondary, rock_normal, rock_normal_mix * 0.86));
+				}
+				if (grass_total > 0.001) {
+					vec3 grass_normal = unpack_normal(texture(grass_normal_tex, detail_uv * 0.92 + vec2(0.11, 0.37)).rgb);
+					float grass_normal_mix = grass_total * 0.55;
+					top_normal = normalize(mix(top_normal, grass_normal, grass_normal_mix));
+					top_normal_secondary = normalize(mix(top_normal_secondary, grass_normal, grass_normal_mix * 0.72));
+				}
+			}
+			vec3 face_normal = unpack_normal(texture(face_normal_tex, face_uv).rgb);
+			vec3 detail_normal = normalize(
+				normalize(top_normal + top_normal_secondary) * top_mask +
+				face_normal * face_mask +
+				normalize(top_normal + top_normal_secondary) * back_mask
+			);
+			vec3 final_normal = blend_normals(shape_normal, detail_normal);
+			NORMAL_MAP = final_normal * 0.5 + 0.5;
+		}
 	}
 }

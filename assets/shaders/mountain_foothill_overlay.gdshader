@@ -30,6 +30,7 @@ uniform vec2 chunk_uv_max = vec2(0.9, 0.9);
 uniform float light_angle_deg = 234.0;
 uniform float light_ambient = 0.70;
 uniform float light_diffuse = 0.26;
+uniform bool temporary_disable_terrain_normals = true;
 uniform float normal_mix = 1.0;
 uniform float normal_strength = 0.42;
 uniform vec3 dust_tint = vec3(0.88, 0.80, 0.70);
@@ -184,7 +185,7 @@ void fragment() {
 	float a = radians(light_angle_deg);
 	vec3 light_dir = normalize(vec3(cos(a), sin(a), 0.72));
 	vec3 normal = vec3(0.0, 0.0, 1.0);
-	if (normal_mix > 0.001) {
+	if (!temporary_disable_terrain_normals && normal_mix > 0.001) {
 		normal = normalize(mix(normal, unpack_normal(texture(foothill_normal_texture, warped_uv).rgb), clamp(normal_mix, 0.0, 1.0)));
 	}
 	float light = light_ambient + light_diffuse * clamp(dot(normal, light_dir), 0.0, 1.0);

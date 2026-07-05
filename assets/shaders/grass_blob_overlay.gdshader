@@ -20,6 +20,7 @@ uniform float edge_clearance_px = 22.0;
 uniform float edge_feather_low = 0.10;
 uniform float edge_feather_high = 0.68;
 uniform float max_alpha = 0.94;
+uniform bool temporary_disable_terrain_normals = true;
 uniform float normal_mix = 0.0;
 uniform float normal_strength = 0.18;
 uniform float light_angle_deg = 234.0;
@@ -167,7 +168,7 @@ void fragment() {
 	float a = radians(light_angle_deg);
 	vec3 light_dir = normalize(vec3(cos(a), sin(a), 0.70));
 	vec3 normal = vec3(0.0, 0.0, 1.0);
-	if (normal_mix > 0.001) {
+	if (!temporary_disable_terrain_normals && normal_mix > 0.001) {
 		normal = normalize(mix(
 			normal,
 			unpack_normal(texture(grass_normal_texture, grass_uv).rgb),

@@ -22,6 +22,7 @@ uniform sampler2D face_normal_texture : filter_linear_mipmap, repeat_enable;
 uniform vec2 top_texture_size = vec2(1024.0, 1024.0);
 uniform vec2 face_texture_size = vec2(1024.0, 1024.0);
 uniform vec2 world_origin_px = vec2(0.0, 0.0);
+uniform bool temporary_disable_terrain_normals = true;
 uniform float top_texture_scale = 0.70;
 uniform float face_texture_scale = 0.46;
 uniform float texture_zoom = 0.7;
@@ -354,17 +355,20 @@ void fragment() {
 	vec4 top_col = texture(top_texture, top_uv);
 	top_col.rgb *= top_variation;
 	top_col.rgb = mix(top_col.rgb, top_col.rgb * top_dust_tint, smoothstep(0.68, 0.96, macro) * 0.20);
-	float h_c = luma(top_col.rgb);
-	float h_x = luma(texture(top_texture, top_uv_dx).rgb);
-	float h_y = luma(texture(top_texture, top_uv_dy).rgb);
-	vec3 top_n = normalize(vec3(
-		mask_grad.x * 2.2 + (h_c - h_x) * normal_strength * 0.38,
-		mask_grad.y * 2.2 + (h_c - h_y) * normal_strength * 0.38,
-		1.0
-	));
-	if (material_normal_mix > 0.001) {
-		vec3 top_detail_n = unpack_normal(texture(top_normal_texture, top_uv).rgb);
-		top_n = normalize(mix(top_n, blend_normals(top_n, top_detail_n), clamp(material_normal_mix, 0.0, 1.0)));
+	vec3 top_n = vec3(0.0, 0.0, 1.0);
+	if (!temporary_disable_terrain_normals) {
+		float h_c = luma(top_col.rgb);
+		float h_x = luma(texture(top_texture, top_uv_dx).rgb);
+		float h_y = luma(texture(top_texture, top_uv_dy).rgb);
+		top_n = normalize(vec3(
+			mask_grad.x * 2.2 + (h_c - h_x) * normal_strength * 0.38,
+			mask_grad.y * 2.2 + (h_c - h_y) * normal_strength * 0.38,
+			1.0
+		));
+		if (material_normal_mix > 0.001) {
+			vec3 top_detail_n = unpack_normal(texture(top_normal_texture, top_uv).rgb);
+			top_n = normalize(mix(top_n, blend_normals(top_n, top_detail_n), clamp(material_normal_mix, 0.0, 1.0)));
+		}
 	}
 	vec3 top_lit = top_col.rgb * (light_ambient + light_diffuse * clamp(dot(top_n, light_dir), 0.0, 1.0));
 	if (terrace_strength > 0.001 && top_here >= 0.5) {
@@ -421,17 +425,20 @@ void fragment() {
 	vec2 face_uv_dy = (world_px + vec2(0.0, grad_px)) * face_texture_scale / tz / max(face_texture_size, vec2(1.0));
 	vec4 face_col = texture(face_texture, face_uv);
 	face_col.rgb *= 0.86 + (macro - 0.5) * 0.10;
-	float fh_c = luma(face_col.rgb);
-	float fh_x = luma(texture(face_texture, face_uv_dx).rgb);
-	float fh_y = luma(texture(face_texture, face_uv_dy).rgb);
-	vec3 face_n = normalize(vec3(
-		mask_grad.x * 1.55 + (fh_c - fh_x) * normal_strength * 0.62,
-		mask_grad.y * 1.55 + (fh_c - fh_y) * normal_strength * 0.62,
-		1.0
-	));
-	if (material_normal_mix > 0.001) {
-		vec3 face_detail_n = unpack_normal(texture(face_normal_texture, face_uv).rgb);
-		face_n = normalize(mix(face_n, blend_normals(face_n, face_detail_n), clamp(material_normal_mix, 0.0, 1.0)));
+	vec3 face_n = vec3(0.0, 0.0, 1.0);
+	if (!temporary_disable_terrain_normals) {
+		float fh_c = luma(face_col.rgb);
+		float fh_x = luma(texture(face_texture, face_uv_dx).rgb);
+		float fh_y = luma(texture(face_texture, face_uv_dy).rgb);
+		face_n = normalize(vec3(
+			mask_grad.x * 1.55 + (fh_c - fh_x) * normal_strength * 0.62,
+			mask_grad.y * 1.55 + (fh_c - fh_y) * normal_strength * 0.62,
+			1.0
+		));
+		if (material_normal_mix > 0.001) {
+			vec3 face_detail_n = unpack_normal(texture(face_normal_texture, face_uv).rgb);
+			face_n = normalize(mix(face_n, blend_normals(face_n, face_detail_n), clamp(material_normal_mix, 0.0, 1.0)));
+		}
 	}
 	vec3 facade_color = face_col.rgb * (light_ambient + light_diffuse * clamp(dot(face_n, light_dir), 0.0, 1.0));
 

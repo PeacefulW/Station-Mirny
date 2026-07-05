@@ -13,6 +13,7 @@ extends PointLight2D
 
 const ENERGY: float = 0.9
 const RANGE_SCALE: float = 2.2
+const LIGHT_HEIGHT: float = 140.0
 const LIGHT_COLOR: Color = Color(1.0, 0.78, 0.5)
 const TEXTURE_SIZE: int = 512
 ## Dev-toggle: keycode for on/off. Off by default so the true (torch-less) day/night
@@ -29,6 +30,7 @@ func _ready() -> void:
 	color = LIGHT_COLOR
 	energy = ENERGY
 	texture_scale = RANGE_SCALE
+	height = LIGHT_HEIGHT
 	# Engine radial shadows: the mountain occluders block the pool so light does
 	# not pass through walls or bend around corners (incl. runtime-dug geometry).
 	shadow_enabled = true

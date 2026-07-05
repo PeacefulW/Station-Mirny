@@ -14,6 +14,7 @@ uniform sampler2D face_modulation : repeat_enable, filter_linear;
 uniform sampler2D top_normal_tex : repeat_enable, filter_linear;
 uniform sampler2D face_normal_tex : repeat_enable, filter_linear;
 
+uniform bool temporary_disable_terrain_normals = true;
 uniform vec4 top_dark_color : source_color = vec4(0.23, 0.19, 0.15, 1.0);
 uniform vec4 top_light_color : source_color = vec4(0.40, 0.335, 0.265, 1.0);
 uniform vec4 face_dark_color : source_color = vec4(0.16, 0.12, 0.095, 1.0);
@@ -120,19 +121,22 @@ void fragment() {
 				back_color * back_mask
 			) / total_mask;
 
-			vec3 shape_normal = unpack_normal(texture(shape_normal_atlas, UV).rgb);
-			vec3 top_detail_normal = unpack_normal(texture(top_normal_tex, top_uv).rgb);
-			vec3 top_secondary_normal = unpack_normal(texture(face_normal_tex, top_uv_secondary + vec2(0.41, 0.23)).rgb);
-			vec3 face_detail_normal = unpack_normal(texture(face_normal_tex, face_uv).rgb);
-			vec3 detail_normal = normalize(
-				normalize(top_detail_normal + top_secondary_normal) * top_mask +
-				face_detail_normal * face_mask +
-				normalize(top_detail_normal + top_secondary_normal) * back_mask
-			);
-			vec3 final_normal = blend_normals(shape_normal, detail_normal);
-
 			COLOR = vec4(final_color, shape_mask.a * cover);
-			NORMAL_MAP = vec3(0.5, 0.5, 1.0);
+			if (temporary_disable_terrain_normals) {
+				NORMAL_MAP = vec3(0.5, 0.5, 1.0);
+			} else {
+				vec3 shape_normal = unpack_normal(texture(shape_normal_atlas, UV).rgb);
+				vec3 top_detail_normal = unpack_normal(texture(top_normal_tex, top_uv).rgb);
+				vec3 top_secondary_normal = unpack_normal(texture(face_normal_tex, top_uv_secondary + vec2(0.41, 0.23)).rgb);
+				vec3 face_detail_normal = unpack_normal(texture(face_normal_tex, face_uv).rgb);
+				vec3 detail_normal = normalize(
+					normalize(top_detail_normal + top_secondary_normal) * top_mask +
+					face_detail_normal * face_mask +
+					normalize(top_detail_normal + top_secondary_normal) * back_mask
+				);
+				vec3 final_normal = blend_normals(shape_normal, detail_normal);
+				NORMAL_MAP = final_normal * 0.5 + 0.5;
+			}
 		}
 	}
 }

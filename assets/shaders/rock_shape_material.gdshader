@@ -8,6 +8,7 @@ uniform sampler2D face_modulation : repeat_enable, filter_linear;
 uniform sampler2D top_normal_tex : repeat_enable, filter_linear;
 uniform sampler2D face_normal_tex : repeat_enable, filter_linear;
 
+uniform bool temporary_disable_terrain_normals = true;
 uniform vec4 top_dark_color : source_color = vec4(0.30, 0.24, 0.20, 1.0);
 uniform vec4 top_light_color : source_color = vec4(0.49, 0.41, 0.34, 1.0);
 uniform vec4 face_dark_color : source_color = vec4(0.22, 0.18, 0.16, 1.0);
@@ -106,18 +107,21 @@ void fragment() {
 			back_color * back_mask
 		) / total_mask;
 
-		vec3 shape_normal = unpack_normal(texture(shape_normal_atlas, UV).rgb);
-		vec3 top_normal = unpack_normal(texture(top_normal_tex, top_uv).rgb);
-		vec3 top_normal_secondary = unpack_normal(texture(face_normal_tex, top_uv_secondary + vec2(0.41, 0.23)).rgb);
-		vec3 face_normal = unpack_normal(texture(face_normal_tex, face_uv).rgb);
-		vec3 detail_normal = normalize(
-			normalize(top_normal + top_normal_secondary) * top_mask +
-			face_normal * face_mask +
-			normalize(top_normal + top_normal_secondary) * back_mask
-		);
-		vec3 final_normal = blend_normals(shape_normal, detail_normal);
-
 		COLOR = vec4(final_color, mask.a);
-		NORMAL_MAP = final_normal * 0.5 + 0.5;
+		if (temporary_disable_terrain_normals) {
+			NORMAL_MAP = vec3(0.5, 0.5, 1.0);
+		} else {
+			vec3 shape_normal = unpack_normal(texture(shape_normal_atlas, UV).rgb);
+			vec3 top_normal = unpack_normal(texture(top_normal_tex, top_uv).rgb);
+			vec3 top_normal_secondary = unpack_normal(texture(face_normal_tex, top_uv_secondary + vec2(0.41, 0.23)).rgb);
+			vec3 face_normal = unpack_normal(texture(face_normal_tex, face_uv).rgb);
+			vec3 detail_normal = normalize(
+				normalize(top_normal + top_normal_secondary) * top_mask +
+				face_normal * face_mask +
+				normalize(top_normal + top_normal_secondary) * back_mask
+			);
+			vec3 final_normal = blend_normals(shape_normal, detail_normal);
+			NORMAL_MAP = final_normal * 0.5 + 0.5;
+		}
 	}
 }
