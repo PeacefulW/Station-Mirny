@@ -156,21 +156,18 @@ Shader hybrid shade + sun-model plumbing to the shared ground material.
 
 ### Iteration 2 — Contact AO / object weight
 
-Per-object contact occlusion under scatter objects. Trees now reuse the **same
-contact-shadow path the rocks/flora already use** (`WorldDecorBatchLayer` flat
-contact ellipse: projected length forced to 0, opacity
-`CONTACT_SHADOW_BASE_OPACITY + sun*scale`, so it is sun-gated by construction and
-automatically reused by the future rock objects). The tree contact ellipse buffer
-was already built per tree (`TREE_SHADOW_*` scales) but the batch was previously
-fed an empty shadow buffer; Iteration 2 simply wires it in — tight, low-opacity,
-sun-gated — re-introducing the base "weight" that was disabled earlier.
+Per-object contact occlusion under scatter objects. Rocks/flora still use the
+shared `WorldDecorBatchLayer` flat contact ellipse: projected length forced to 0,
+opacity `CONTACT_SHADOW_BASE_OPACITY + sun*scale`, so it is sun-gated by
+construction and automatically reused by future rock objects.
 
-**Status: landed 2026-06-24** (verified via render probe; no DLL/version/contract
-change — one GDScript wiring change in `world_object_packet_layer.gd`).
+Tree contact ellipses are disabled (`TREE_CONTACT_SHADOW_ENABLED=false`) because
+the flat oval reads as a baked spot under the trunk. Tree PNG frames are exported
+without baked base AO/root grounding, and tree shadowing comes from the separate
+sun silhouette layer plus future directional light shadows.
 
-Tunables if the weight needs adjusting: `TREE_SHADOW_WIDTH_SCALE` /
-`TREE_SHADOW_HEIGHT_SCALE` / `TREE_SHADOW_CENTER_Y_SCALE` and the per-instance
-alpha in `_append_tree` (and the shared `CONTACT_SHADOW_BASE_OPACITY`).
+**Status: adjusted 2026-07-05** after the tree atlas was regenerated without
+baked oval base shadows.
 
 ## Required Updates
 

@@ -14,7 +14,9 @@ const SHADOW_FIELD_SHADER = preload("res://assets/shaders/mountain_torch_shadow_
 const VIEW_SIZE: Vector2i = Vector2i(1280, 720)
 const SAMPLE_FRAMES: int = 180
 const WARMUP_FRAMES: int = 30
-const TORCH_RADIUS_PX: float = 512.0 * 2.2 * 0.5
+const TORCH_TEXTURE_SIZE: int = 1024
+const TORCH_TEXTURE_SCALE: float = 1.1
+const TORCH_RADIUS_PX: float = float(TORCH_TEXTURE_SIZE) * TORCH_TEXTURE_SCALE * 0.5
 
 var _root_2d: Node2D = null
 var _torch: PointLight2D = null
@@ -79,8 +81,8 @@ func _build_scene() -> void:
 
 	_torch = PointLight2D.new()
 	_torch.position = Vector2(VIEW_SIZE) * 0.5
-	_torch.texture = _make_radial(512)
-	_torch.texture_scale = 2.2
+	_torch.texture = _make_radial(TORCH_TEXTURE_SIZE)
+	_torch.texture_scale = TORCH_TEXTURE_SCALE
 	_torch.energy = 0.9
 	_torch.color = Color(1.0, 0.78, 0.5)
 	_torch.shadow_enabled = false

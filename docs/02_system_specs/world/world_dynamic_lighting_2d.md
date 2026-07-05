@@ -162,11 +162,12 @@ Two owners, deliberately split:
     distance-to-edge terraces follow the same contour and read as facade ribs once a
     warm point light hits the wall. The live material keeps `face_texture_scale >= 1.0`
     so the face albedo is not stretched into a blurry smear.
-  - **Facade foot search quality.** The shadow field may ray-march blockers at the
-    coarser world step, but facade foot lookup must use a dedicated fine step with
-    interpolated crossing and a small open-ground bias. Reusing the 10 px ray-march
-    step for the south foot quantizes front-lit wall self-occlusion into visible
-    horizontal bands.
+  - **Facade foot search quality.** The shadow field ray-marches blockers at an
+    8 px world step, but facade foot lookup uses a dedicated fine step with
+    interpolated crossing and a small open-ground bias. Facade fragments first push
+    their origin along the smoothed solid-mask contour normal, with the old southward
+    foot search as fallback; this avoids near-wall "comb" teeth when the torch stands
+    close to an irregular or vertical mountain edge.
   - **Stitched mask source.** The field texture around the player is composited from
     the cross-chunk `mountain_solid_halo` (`WorldStreamer._get_cached_mountain_solid_halo`,
     radius-8 halo, 512 px skirt); a torch straddling a chunk seam unions the 2×2
@@ -235,10 +236,12 @@ Two owners, deliberately split:
   pool, so the live field must union the neighbour halos, not rely on a single chunk).
 - **Torch field — march step is a cost/reliability/edge knob.** The world-constant
   `march_step_px` must stay below the thinnest dug wall (1 tile = 64 px) or a thin rib
-  leaks light; a finer step also reduces umbra-edge aliasing but costs samples across
-  the pool. Soft edge quality is a **penumbra** concern (the hard `max` umbra shows fine
-  edge serration on a near-binary mask), tuned in the live pass — not a shape defect
-  (the shadow already follows the silhouette, unlike the retired rectangular occluders).
+  leaks light; the live pass uses 8 px / 80 max samples so the pool remains covered.
+  Segment-center sampling and a terminal `segment_weight` fade prevent new samples
+  from appearing as hard concentric bands while the torch or fragment distance changes.
+  Soft edge quality is a **penumbra** concern, tuned in the live pass — not a shape
+  defect (the shadow already follows the silhouette, unlike the retired rectangular
+  occluders).
 
 ## Acceptance Criteria
 - [ ] `DaylightSystem` drives an ambient floor; a `DirectionalLight2D` sun + player

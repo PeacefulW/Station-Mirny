@@ -35,10 +35,10 @@ render_mode blend_mix, unshaded;
 // fraction of d would grow the step with distance and skip thin walls near the pool edge
 // (a 1-tile / 64 px dug wall could fall between two samples). Invariant:
 // MARCH_MAX * march_step_px must be >= torch_radius_px so the whole pool is covered.
-const int MARCH_MAX = 64;
+const int MARCH_MAX = 80;
 // Upper bound on the southward foot search for a facade fragment
 // (facade_height / facade_foot_step_px). Kept separate from the ray-march step:
-// a coarse 10 px search quantizes wall self-occlusion into visible ribbed bands.
+// a coarse ray-march search quantizes wall self-occlusion into visible ribbed bands.
 const int FACADE_MAX = 32;
 
 // Set every frame by WorldViewOverlay._process (do not write these here).
@@ -61,13 +61,15 @@ uniform vec2 torch_world_pos = vec2(0.0);
 uniform float torch_radius_px = 563.0;
 // World-space distance between march samples. Must stay below the thinnest solid
 // feature the shadow needs to catch (a 1-tile dug wall is 64 px). Matching the mask
-// resolution (~8-10 px) also keeps the umbra edge from aliasing into stair teeth.
-uniform float march_step_px = 10.0;
+// resolution (~8 px) also keeps the umbra edge from aliasing into stair teeth.
+uniform float march_step_px = 8.0;
 // Fine southward search step used only to find a facade fragment's open foot.
 uniform float facade_foot_step_px = 4.0;
 // Push the chosen foot slightly into open ground; otherwise a smoothed mask crossing
 // can leave the origin on the rock edge and front-lit walls self-shadow in bands.
 uniform float foot_open_bias_px = 6.0;
+// World-space step for contour-normal probes used by facade-origin lookup.
+uniform float normal_probe_step_px = 4.0;
 // 0 = torch off (whole pass is a no-op), 1 = enabled torch at normal energy.
 uniform float torch_strength = 0.0;
 
@@ -87,6 +89,67 @@ float mask_solid(vec2 world_px) {
 	return inside * smoothstep(mask_threshold_low, mask_threshold_high, m);
 }
 
+vec2 mask_solid_gradient(vec2 world_px) {
+	float probe = max(normal_probe_step_px, 1.0);
+	float left = mask_solid(world_px - vec2(probe, 0.0));
+	float right = mask_solid(world_px + vec2(probe, 0.0));
+	float up = mask_solid(world_px - vec2(0.0, probe));
+	float down = mask_solid(world_px + vec2(0.0, probe));
+	return vec2(right - left, down - up);
+}
+
+vec3 facade_origin_from_normal(vec2 world_px, float self_solid) {
+	vec2 gradient = mask_solid_gradient(world_px);
+	vec2 open_dir = vec2(0.0, 1.0);
+	if (dot(gradient, gradient) > 0.0001) {
+		open_dir = -normalize(gradient);
+	}
+
+	float previous_solid = self_solid;
+	float previous_dist = 0.0;
+	for (int j = 1; j <= FACADE_MAX; j++) {
+		float dist_px = float(j) * facade_foot_step_px;
+		if (dist_px > facade_height_px) {
+			break;
+		}
+		float current_solid = mask_solid(world_px + open_dir * dist_px);
+		if (current_solid < 0.5 && previous_solid >= 0.5) {
+			float cross = clamp(
+				(previous_solid - 0.5) / max(previous_solid - current_solid, 0.0001),
+				0.0,
+				1.0
+			);
+			float open_dist = mix(previous_dist, dist_px, cross) + foot_open_bias_px;
+			return vec3(world_px + open_dir * open_dist, 1.0);
+		}
+		previous_solid = current_solid;
+		previous_dist = dist_px;
+	}
+
+	previous_solid = self_solid;
+	previous_dist = 0.0;
+	for (int j = 1; j <= FACADE_MAX; j++) {
+		float south = float(j) * facade_foot_step_px;
+		if (south > facade_height_px) {
+			break;
+		}
+		float current_solid = mask_solid(world_px + vec2(0.0, south));
+		if (current_solid < 0.5 && previous_solid >= 0.5) {
+			float cross = clamp(
+				(previous_solid - 0.5) / max(previous_solid - current_solid, 0.0001),
+				0.0,
+				1.0
+			);
+			float foot_south = mix(previous_dist, south, cross) + foot_open_bias_px;
+			return vec3(world_px + vec2(0.0, foot_south), 1.0);
+		}
+		previous_solid = current_solid;
+		previous_dist = south;
+	}
+
+	return vec3(world_px, 0.0);
+}
+
 // Visibility along the straight line from `origin` (open ground) to the torch.
 // World-constant step + early break -> reliable across the whole pool. We sample a
 // small cross-section and accumulate transmittance instead of a hard max blocker:
@@ -97,17 +160,22 @@ float line_visibility(vec2 origin, vec2 torch, float dist) {
 	vec2 side = vec2(-dir.y, dir.x);
 	float visibility = 1.0;
 	for (int i = 1; i <= MARCH_MAX; i++) {
-		float march_dist = float(i) * march_step_px;
-		if (march_dist >= dist) {
+		float march_dist = (float(i) - 0.5) * march_step_px;
+		float remaining = dist - march_dist;
+		if (remaining <= -march_step_px * 0.5) {
 			break;
 		}
-		float t = march_dist / max(dist, 0.001);
+		float segment_weight = smoothstep(-march_step_px * 0.5, march_step_px * 0.5, remaining);
+		if (segment_weight <= 0.001) {
+			continue;
+		}
+		float t = clamp(march_dist / max(dist, 0.001), 0.0, 1.0);
 		float spread = mix(2.0, 12.0, t);
 		vec2 center = origin + dir * march_dist;
 		float solid = mask_solid(center) * 0.50
 			+ mask_solid(center + side * spread) * 0.25
 			+ mask_solid(center - side * spread) * 0.25;
-		visibility *= 1.0 - clamp(solid * 0.86, 0.0, 0.96);
+		visibility *= 1.0 - clamp(solid * 0.80 * segment_weight, 0.0, 0.94);
 	}
 	return clamp(visibility, 0.0, 1.0);
 }
@@ -127,30 +195,9 @@ void fragment() {
 			vec2 origin = world_px;
 			float evaluate = 1.0;
 			if (self_solid >= 0.5) {
-				evaluate = 0.0;
-				float previous_solid = self_solid;
-				float previous_south = 0.0;
-				for (int j = 1; j <= FACADE_MAX; j++) {
-					float south = float(j) * facade_foot_step_px;
-					if (south > facade_height_px) {
-						break;  // deep interior -> roof, not a facade
-					}
-					vec2 foot = world_px + vec2(0.0, south);
-					float current_solid = mask_solid(foot);
-					if (current_solid < 0.5 && previous_solid >= 0.5) {
-						float cross = clamp(
-							(previous_solid - 0.5) / max(previous_solid - current_solid, 0.0001),
-							0.0,
-							1.0
-						);
-						float foot_south = mix(previous_south, south, cross) + foot_open_bias_px;
-						origin = world_px + vec2(0.0, foot_south);
-						evaluate = 1.0;
-						break;
-					}
-					previous_solid = current_solid;
-					previous_south = south;
-				}
+				vec3 facade_origin = facade_origin_from_normal(world_px, self_solid);
+				origin = facade_origin.xy;
+				evaluate = facade_origin.z;
 			}
 			if (evaluate > 0.5) {
 				float d_origin = distance(origin, torch_world_pos);

@@ -5,8 +5,8 @@ const TreeProfile = preload("res://core/systems/world/world_visual_tree_profile.
 # Геометрия одного процедурного дерева для tool-экспорта атласа равнинных
 # деревьев. Ветки — непрерывные полигональные ленты (обводка по центральной
 # линии), без щелей. Корни в землю, объёмная крона со светом p_light_dir.
-# НЕТ травяной бахромы у комля (запрещено спекой — трава у комля приходит от
-# depth-лесенки в рантайме, не запекается). Только compute+draw; данные —
+# НЕТ травяной бахромы и baked contact-shadow у комля: трава/тени приходят из
+# рантайма, не из PNG-атласа. Только compute+draw; данные —
 # WorldVisualTreeProfile, передаются tool-экспортёром.
 # Контракт: docs/02_system_specs/world/plains_trees_presentation.md
 
@@ -33,8 +33,6 @@ var base_pos: Vector2 = Vector2.ZERO
 
 var _branches: Array = []
 var _leaves: Array = []
-var _base_ao: PackedVector2Array = PackedVector2Array()
-var _root_ao_blobs: Array = []
 var _bark_palette: Dictionary = {}
 var _built: bool = false
 
@@ -54,7 +52,6 @@ func build() -> void:
 	p_bark = _palette_color("mid", p_bark)
 	var rng := RandomNumberGenerator.new()
 	rng.seed = p_seed
-	_base_ao = _ellipse(base_pos + Vector2(0, -p_trunk_w * 0.20), p_trunk_w * 2.35, p_trunk_w * 0.86)
 	var counter: Array = [0]
 	_roots(rng, base_pos, p_trunk_w)
 	_branch(rng, base_pos, Vector2.UP, p_trunk_len, p_trunk_w, 5, 5, counter, true)
@@ -82,10 +79,6 @@ func _roots(rng: RandomNumberGenerator, base: Vector2, _unused: float = 0.0) -> 
 		pts.append(p)
 		widths.append(start_width * 0.32)
 		_stroke(pts, widths, root_color, 1.02, false, 0, _detail_seed(i, 9), true)
-		_root_ao_blobs.append({
-			"pts": _ellipse(p + Vector2(0.0, p_trunk_w * 0.07), p_trunk_w * rng.randf_range(0.30, 0.46), p_trunk_w * rng.randf_range(0.10, 0.18)),
-			"alpha": rng.randf_range(0.08, 0.14),
-		})
 
 
 func _branch(rng: RandomNumberGenerator, start: Vector2, dir: Vector2, length: float, width: float, depth: int, max_depth: int, counter: Array, is_trunk: bool) -> void:
@@ -210,12 +203,6 @@ func _palette_color(name: String, fallback: Color) -> Color:
 
 func _with_alpha(color: Color, alpha: float) -> Color:
 	return Color(color.r, color.g, color.b, alpha)
-
-
-func _draw_root_grounding() -> void:
-	for blob_variant: Variant in _root_ao_blobs:
-		var blob: Dictionary = blob_variant as Dictionary
-		draw_colored_polygon(blob.get("pts", PackedVector2Array()) as PackedVector2Array, Color(0, 0, 0, float(blob.get("alpha", 0.12))))
 
 
 func _draw_bark_details(branch: Dictionary) -> void:
@@ -391,15 +378,6 @@ func get_content_bounds() -> Rect2:
 		for pt: Vector2 in leaf["pts"]:
 			mn = mn.min(pt)
 			mx = mx.max(pt)
-	for pt: Vector2 in _base_ao:
-		mn = mn.min(pt)
-		mx = mx.max(pt)
-	for blob_variant: Variant in _root_ao_blobs:
-		var blob: Dictionary = blob_variant as Dictionary
-		var pts: PackedVector2Array = blob.get("pts", PackedVector2Array()) as PackedVector2Array
-		for pt: Vector2 in pts:
-			mn = mn.min(pt)
-			mx = mx.max(pt)
 	if mn.x > mx.x:
 		return Rect2(base_pos, Vector2.ZERO)
 	return Rect2(mn, mx - mn)
@@ -413,14 +391,6 @@ func _blob(center: Vector2, size: float, rng: RandomNumberGenerator) -> PackedVe
 		var a: float = start_ang + TAU * float(i) / float(verts)
 		var r: float = size * rng.randf_range(0.84, 1.12)
 		pts.append(center + Vector2(cos(a) * r, sin(a) * r))
-	return pts
-
-
-func _ellipse(center: Vector2, rx: float, ry: float) -> PackedVector2Array:
-	var pts := PackedVector2Array()
-	for i: int in range(20):
-		var a: float = TAU * float(i) / 20.0
-		pts.append(center + Vector2(cos(a) * rx, sin(a) * ry))
 	return pts
 
 
@@ -438,9 +408,6 @@ func _shade(c: Color, f: float) -> Color:
 
 
 func _draw() -> void:
-	if _base_ao.size() > 0:
-		draw_colored_polygon(_base_ao, Color(0, 0, 0, 0.20))
-	_draw_root_grounding()
 	for seg: Dictionary in _branches:
 		draw_polygon(seg["pts"], seg["cols"])
 	for seg: Dictionary in _branches:

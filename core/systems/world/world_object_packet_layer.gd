@@ -64,6 +64,7 @@ const TREE_SHADOW_HEIGHT_SCALE: float = 0.11
 const TREE_SHADOW_CENTER_Y_SCALE: float = 0.02
 const TREE_SHADOW_MIN_WIDTH_PX: float = 18.0
 const TREE_SHADOW_MIN_HEIGHT_PX: float = 6.0
+const TREE_CONTACT_SHADOW_ENABLED: bool = false
 # Силуэт-тень — поверх ВСЕЙ травяной/объектной лесенки и поверх игрока
 # (WorldRuntimeConstants.Z_CAST_SHADOW), а не под травой.
 const TREE_SHADOW_Z_INDEX: int = WorldRuntimeConstants.Z_CAST_SHADOW
@@ -390,6 +391,7 @@ func get_debug_state() -> Dictionary:
 		"spiky_flora_count": _spiky_flora_count,
 		"tree_count": _tree_count,
 		"tree_collider_count": _tree_collider_count,
+		"tree_contact_shadow_enabled": TREE_CONTACT_SHADOW_ENABLED,
 		"big_grass_rock_count": _big_grass_rock_count,
 		"big_grass_rock_collider_count": _big_grass_rock_collider_count,
 		"grass_edge_small_rock_count": _grass_edge_small_rock_count,
@@ -601,20 +603,21 @@ func _append_tree(
 		phase,
 		size_px / 64.0,
 	)
-	var shadow_size := Vector2(
-		maxf(size_px * TREE_SHADOW_WIDTH_SCALE, TREE_SHADOW_MIN_WIDTH_PX),
-		maxf(size_px * TREE_SHADOW_HEIGHT_SCALE, TREE_SHADOW_MIN_HEIGHT_PX),
-	)
-	WorldDecorBatchLayer.append_instance(
-		tree_shadow_buffer,
-		position + Vector2(0.0, size_px * TREE_SHADOW_CENTER_Y_SCALE),
-		shadow_size,
-		0,
-		Color(1.0, 1.0, 1.0, 0.85),
-		0.0,
-		phase,
-		maxf(size_px / 96.0, 0.42),
-	)
+	if TREE_CONTACT_SHADOW_ENABLED:
+		var shadow_size := Vector2(
+			maxf(size_px * TREE_SHADOW_WIDTH_SCALE, TREE_SHADOW_MIN_WIDTH_PX),
+			maxf(size_px * TREE_SHADOW_HEIGHT_SCALE, TREE_SHADOW_MIN_HEIGHT_PX),
+		)
+		WorldDecorBatchLayer.append_instance(
+			tree_shadow_buffer,
+			position + Vector2(0.0, size_px * TREE_SHADOW_CENTER_Y_SCALE),
+			shadow_size,
+			0,
+			Color(1.0, 1.0, 1.0, 0.85),
+			0.0,
+			phase,
+			maxf(size_px / 96.0, 0.42),
+		)
 	if TREE_COLLISION_ENABLED:
 		var collision_radius: float = clampf(
 			size_px * TREE_COLLISION_RADIUS_SCALE,
@@ -805,9 +808,8 @@ func _sync_tree_batch(tree_buffer: PackedFloat32Array, tree_shadow_buffer: Packe
 	var batch_layer: WorldDecorBatchLayer = _ensure_tree_batch_layer()
 	batch_layer.set_atlas_layout(TREE_FRAME_COLUMNS, TREE_FRAME_ROWS, TREE_FRAME_COUNT)
 	batch_layer.set_animation(1, 0.0)
-	# Контактный AO-пул у комля (тот же путь, что камни/флора: плоский эллипс,
-	# длина=0, гейт по дневному солнцу) + силуэт-тень ниже. «Вес» под деревом.
-	# См. docs/02_system_specs/world/plains_ground_cosmetic_shading.md (Итерация 2).
+	# Деревья не получают плоский овальный contact AO: он читается как пятно,
+	# а не как тень. Дальняя силуэт-тень от солнца остаётся отдельным слоем ниже.
 	batch_layer.set_batches([_tree_atlas], [tree_buffer], tree_shadow_buffer)
 	_sync_tree_silhouette(tree_buffer)
 
