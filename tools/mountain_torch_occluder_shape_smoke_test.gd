@@ -1,7 +1,8 @@
 extends SceneTree
 
-const ChunkView = preload("res://core/systems/world/chunk_view.gd")
 const MOUNTAIN_SHADER_PATH: String = "res://assets/shaders/mountain_top_mask_underlay.gdshader"
+const TORCH_SHADOW_FIELD_SHADER_PATH: String = "res://assets/shaders/mountain_torch_shadow_field.gdshader"
+const MOUNTAIN_MATERIAL_SET_PATH: String = "res://data/terrain/material_sets/mountain_mask_underlay_material_set.tres"
 const WORLD_STREAMER_PATH: String = "res://core/systems/world/world_streamer.gd"
 
 var _failed: bool = false
@@ -10,74 +11,11 @@ var _failed: bool = false
 func _init() -> void:
 	_assert_mountain_shader_gates_point_lights()
 	_assert_mountain_mask_runtime_resolution()
-
-	var mask_width: int = 32
-	var mask_height: int = 32
-	var mask := PackedByteArray()
-	mask.resize(mask_width * mask_height)
-	for y: int in range(4, 24):
-		for x: int in range(4, 28):
-			mask[y * mask_width + x] = 255
-	var debug: Dictionary = _build_debug_for_mask(mask, mask_width, mask_height, Vector2.ZERO)
-	_assert(int(debug.get("occluder_count", 0)) > 0, "Mountain torch occluders must be built.")
-	_assert(
-		int(debug.get("closed_count", 0)) == 0,
-		"Mountain torch occluders must be open contour segments, not filled rect quads.",
-	)
-	_assert(
-		int(debug.get("max_verts", 0)) > 2,
-		"Mountain torch occluders should carry contour polylines instead of two-point stubs only.",
-	)
-
-	var crossing_width: int = 96
-	var crossing_height: int = 32
-	var crossing_mask := PackedByteArray()
-	crossing_mask.resize(crossing_width * crossing_height)
-	for y: int in range(4, 24):
-		for x: int in range(0, crossing_width):
-			crossing_mask[y * crossing_width + x] = 255
-	var crossing_debug: Dictionary = _build_debug_for_mask(
-		crossing_mask,
-		crossing_width,
-		crossing_height,
-		Vector2(-256.0, 0.0),
-	)
-	_assert(
-		int(crossing_debug.get("occluder_count", 0)) > 0,
-		"Mountain torch occluders must keep open contour paths that cross chunk borders.",
-	)
-	_assert(
-		int(crossing_debug.get("closed_count", 0)) == 0,
-		"Chunk-border contour paths must remain open occluder segments.",
-	)
+	_assert_mountain_facade_texture_scale()
+	_assert_mountain_facade_no_terraces()
+	_assert_torch_shadow_field_facade_foot_smooth()
 
 	quit(1 if _failed else 0)
-
-
-func _build_debug_for_mask(
-		mask: PackedByteArray,
-		mask_width: int,
-		mask_height: int,
-		origin_world: Vector2,
-) -> Dictionary:
-	var view := ChunkView.new()
-	root.add_child(view)
-	view.configure(Vector2i.ZERO)
-	var applied: bool = view.apply_mountain_native_mask_data({
-		"mask": mask,
-		"width": mask_width,
-		"height": mask_height,
-		"step_px": 8.0,
-		"solid_sample_count": mask_width * mask_height,
-		"pixels_per_tile": 8,
-	}, origin_world)
-	_assert(applied, "ChunkView must accept the synthetic mountain mask.")
-
-	view.set_mountain_light_occluders_enabled(true)
-	view.sync_mountain_light_occluders()
-	var debug: Dictionary = view.get_mountain_light_occluder_debug_state()
-	view.queue_free()
-	return debug
 
 
 func _assert(condition: bool, message: String) -> void:
@@ -113,10 +51,17 @@ func _assert_mountain_shader_gates_point_lights() -> void:
 		shader_source.contains("SHADOW_MODULATE = vec4(1.0)"),
 		"Mountain shader must not apply the engine shadow texture to the mountain sprite point-light pass.",
 	)
-	var chunk_view_source: String = FileAccess.get_file_as_string("res://core/systems/world/chunk_view.gd")
 	_assert(
-		chunk_view_source.contains("_smooth_mountain_occluder_polyline"),
-		"Mountain torch occluder contour must smooth the traced mask grid; raw orthogonal cell edges show stair steps under the torch.",
+		not shader_source.contains("strata_wave") and not shader_source.contains("strata_line"),
+		"Mountain facade shader must not reintroduce procedural horizontal strata; torch light makes them read as ribbed bands.",
+	)
+	_assert(
+		not shader_source.contains("cut_highlight")
+				and not shader_source.contains("cleft =")
+				and not shader_source.contains("top_rim")
+				and not shader_source.contains("base_debris =")
+				and not shader_source.contains("wall_depth)"),
+		"Mountain facade shader must not use quantized wall_depth tonal bands; the 8px mask depth reads as ribbed contour stripes under torch light.",
 	)
 
 
@@ -125,4 +70,44 @@ func _assert_mountain_mask_runtime_resolution() -> void:
 	_assert(
 		streamer_source.contains("const MOUNTAIN_HALO_MASK_PIXELS_PER_TILE: int = 8"),
 		"Runtime mountain visual mask must stay at 8 px/tile samples; 4 samples/tile exposes 16px stair steps under torch light.",
+	)
+
+
+func _assert_mountain_facade_texture_scale() -> void:
+	var material_set: Resource = load(MOUNTAIN_MATERIAL_SET_PATH)
+	_assert(material_set != null, "Mountain mask material set must load.")
+	if material_set == null:
+		return
+	var sampling_params: Dictionary = material_set.get("sampling_params") as Dictionary
+	_assert(
+		float(sampling_params.get("face_texture_scale", 0.0)) >= 1.0,
+		"Mountain facade face_texture_scale must not stretch the face albedo into a blurry smear.",
+	)
+
+
+func _assert_mountain_facade_no_terraces() -> void:
+	var material_set: Resource = load(MOUNTAIN_MATERIAL_SET_PATH)
+	_assert(material_set != null, "Mountain mask material set must load.")
+	if material_set == null:
+		return
+	var sampling_params: Dictionary = material_set.get("sampling_params") as Dictionary
+	_assert(
+		float(sampling_params.get("terrace_strength", 0.0)) <= 0.001,
+		"Live mountain material must not enable concentric height terraces; torch light reads them as ribbed contour bands.",
+	)
+
+
+func _assert_torch_shadow_field_facade_foot_smooth() -> void:
+	var shader_source: String = FileAccess.get_file_as_string(TORCH_SHADOW_FIELD_SHADER_PATH)
+	_assert(
+		shader_source.contains("facade_foot_step_px"),
+		"Torch shadow field must use a dedicated fine facade-foot step, not the coarser ray-march step.",
+	)
+	_assert(
+		not shader_source.contains("float south = float(j) * march_step_px"),
+		"Torch shadow field facade-foot search must not quantize wall self-occlusion by the 10px ray-march step.",
+	)
+	_assert(
+		shader_source.contains("foot_open_bias_px"),
+		"Torch shadow field must bias the facade foot into open ground so front-lit facades do not self-shadow in bands.",
 	)

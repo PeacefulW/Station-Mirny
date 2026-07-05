@@ -52,12 +52,9 @@ const MOUNTAIN_INTERIOR_FILL_SAFETY_MARGIN_TILES: int = 2
 # 154 + 96 = 250 px. ceil(460 / 64) = 8 tiles.
 const MOUNTAIN_HALO_MASK_RADIUS_TILES: int = 8
 const MOUNTAIN_HALO_MASK_PIXELS_PER_TILE: int = 8
+const MOUNTAIN_NATIVE_MASK_SOLID_THRESHOLD: int = 107
+const MOUNTAIN_TORCH_SHADOW_FIELD_WINDOW_SNAP_PX: float = 256.0
 const MOUNTAIN_NATIVE_MASK_RUNTIME_ENABLED: bool = true
-# Torch shadows (world_dynamic_lighting_2d.md Iter 2): only chunks within this
-# chunk radius of the player build mountain LightOccluder2D geometry (LAW 13).
-# The torch reaches ~9 tiles; the player can stand at a chunk edge, so ±1 chunk
-# (a 3x3 block, 48 tiles across) covers everything the torch can reach.
-const MOUNTAIN_LIGHT_OCCLUDER_CHUNK_RADIUS: int = 1
 # The walkable plains surface is composed entirely by the world-space ground
 # material (ground_hybrid_material.gdshader). The terrain-edge mask is a
 # bounded SHORELINE enhancement only: it is built solely for chunks whose halo
@@ -221,7 +218,6 @@ var _grass_lod_min_zoom: float = 0.18
 var _grass_lod_min_fraction: float = 0.35
 var _grass_lod_fraction: float = 1.0
 var _ladder_anchor_stripe: int = LADDER_ANCHOR_UNSET
-var _mountain_light_occluder_center_chunk: Vector2i = INVALID_CHUNK_COORD
 var _mountain_native_mask_visual_upload_count_total: int = 0
 var _mountain_native_mask_visual_upload_count_last_tick: int = 0
 var _mountain_native_mask_visual_upload_elapsed_ms_last: float = 0.0
@@ -233,6 +229,8 @@ var _mountain_native_mask_worker_elapsed_ms_max_total: float = 0.0
 var _mountain_native_mask_request_to_complete_ms_last: float = 0.0
 var _mountain_native_mask_request_to_complete_ms_max_total: float = 0.0
 var _mountain_surface_dig_visual_patch_skip_count_total: int = 0
+var _mountain_torch_shadow_field_mask_cache: Dictionary = {}
+var _mountain_torch_shadow_field_debug_state: Dictionary = {}
 var _sun_light_angle_deg: float = WorldVisualLightingProfile.DEFAULT_LIGHT_ANGLE_DEG
 var _sun_shadow_length_px: float = WorldVisualLightingProfile.DEFAULT_SHADOW_LENGTH_PX
 var _sun_shadow_opacity: float = WorldVisualLightingProfile.DEFAULT_SHADOW_OPACITY
@@ -640,6 +638,189 @@ func get_mountain_cover_render_debug_snapshot(world_tile: Vector2i) -> Dictionar
 	for key_variant: Variant in render_debug.keys():
 		debug_snapshot[key_variant] = render_debug[key_variant]
 	return debug_snapshot
+
+
+func get_mountain_torch_shadow_field_mask(torch_world_pos: Vector2, radius_px: float) -> Dictionary:
+	var debug_start_usec: int = Time.get_ticks_usec()
+	var step_px: float = float(WorldRuntimeConstants.TILE_SIZE_PX) / float(MOUNTAIN_HALO_MASK_PIXELS_PER_TILE)
+	var safe_radius: float = maxf(radius_px, float(WorldRuntimeConstants.TILE_SIZE_PX))
+	var window_snap: float = maxf(MOUNTAIN_TORCH_SHADOW_FIELD_WINDOW_SNAP_PX, step_px)
+	var origin := Vector2(
+		floorf((torch_world_pos.x - safe_radius) / window_snap) * window_snap,
+		floorf((torch_world_pos.y - safe_radius) / window_snap) * window_snap,
+	)
+	var width: int = ceili((safe_radius * 2.0 + window_snap) / step_px)
+	var height: int = width
+	var chunks: Array[Vector2i] = _build_chunk_coords_for_world_rect(
+		origin,
+		origin + Vector2(float(width), float(height)) * step_px,
+	)
+	var ready_results: Dictionary = {}
+	var any_solid: bool = false
+	var pending: bool = false
+	var signature_parts: Array[String] = [
+		"%d,%d,%d,%d" % [roundi(origin.x), roundi(origin.y), width, height],
+	]
+	for chunk_coord: Vector2i in chunks:
+		chunk_coord = _canonicalize_chunk_coord(chunk_coord)
+		var revision: int = _get_mountain_mask_revision(chunk_coord)
+		if not _has_loaded_mountain_halo_sources(chunk_coord):
+			pending = true
+			signature_parts.append("%s:%d:loading" % [str(chunk_coord), revision])
+			continue
+		var halo: Dictionary = _get_cached_mountain_solid_halo(chunk_coord)
+		var has_any: bool = bool(halo.get("has_any", false))
+		signature_parts.append("%s:%d:%s" % [str(chunk_coord), revision, "solid" if has_any else "empty"])
+		if not has_any:
+			continue
+		any_solid = true
+		var result: Dictionary = _get_ready_mountain_native_mask_result(chunk_coord)
+		if result.is_empty():
+			_request_mountain_native_mask_for_chunk(
+				chunk_coord,
+				halo.get("halo", PackedByteArray()) as PackedByteArray,
+				&"torch_shadow_field",
+			)
+			pending = true
+			continue
+		ready_results[chunk_coord] = result
+	if not any_solid:
+		_record_mountain_torch_shadow_field_debug(
+			debug_start_usec,
+			origin,
+			width,
+			height,
+			chunks.size(),
+			false,
+			false,
+			false,
+			0,
+			&"empty",
+		)
+		return {
+			"ready": true,
+			"mask": PackedByteArray(),
+			"width": 0,
+			"height": 0,
+			"step_px": step_px,
+			"origin_world": origin,
+			"solid_sample_count": 0,
+			"signature": "|".join(signature_parts),
+		}
+	if pending:
+		_record_mountain_torch_shadow_field_debug(
+			debug_start_usec,
+			origin,
+			width,
+			height,
+			chunks.size(),
+			false,
+			false,
+			true,
+			0,
+			&"pending",
+		)
+		return {
+			"ready": false,
+			"pending": true,
+			"signature": "|".join(signature_parts),
+		}
+	var signature: String = "|".join(signature_parts)
+	var cached: Dictionary = _mountain_torch_shadow_field_mask_cache.get("last", {}) as Dictionary
+	if not cached.is_empty() and str(cached.get("signature", "")) == signature:
+		_record_mountain_torch_shadow_field_debug(
+			debug_start_usec,
+			origin,
+			width,
+			height,
+			chunks.size(),
+			true,
+			false,
+			false,
+			int(cached.get("solid_sample_count", 0)),
+			&"cache_hit",
+		)
+		return cached
+	var bytes := PackedByteArray()
+	bytes.resize(width * height)
+	var solid_count: int = 0
+	var chunk_size_px: float = float(WorldRuntimeConstants.CHUNK_SIZE * WorldRuntimeConstants.TILE_SIZE_PX)
+	for chunk_variant: Variant in ready_results.keys():
+		var chunk_coord: Vector2i = chunk_variant as Vector2i
+		var result: Dictionary = ready_results.get(chunk_coord, {}) as Dictionary
+		var chunk_origin: Vector2 = WorldRuntimeConstants.chunk_origin_px(chunk_coord)
+		solid_count += _blit_mountain_native_mask_result_to_shadow_field(
+			result,
+			origin,
+			width,
+			height,
+			step_px,
+			chunk_origin,
+			chunk_origin + Vector2.ONE * chunk_size_px,
+			bytes,
+		)
+	cached = {
+		"ready": true,
+		"mask": bytes,
+		"width": width,
+		"height": height,
+		"step_px": step_px,
+		"origin_world": origin,
+		"solid_sample_count": solid_count,
+		"signature": signature,
+	}
+	_mountain_torch_shadow_field_mask_cache["last"] = cached
+	_record_mountain_torch_shadow_field_debug(
+		debug_start_usec,
+		origin,
+		width,
+		height,
+		chunks.size(),
+		false,
+		true,
+		false,
+		solid_count,
+		&"composed",
+	)
+	return cached
+
+
+func get_mountain_torch_shadow_field_debug_state() -> Dictionary:
+	return _mountain_torch_shadow_field_debug_state.duplicate()
+
+
+func _record_mountain_torch_shadow_field_debug(
+		start_usec: int,
+		origin: Vector2,
+		width: int,
+		height: int,
+		chunk_count: int,
+		cache_hit: bool,
+		composed: bool,
+		pending: bool,
+		solid_sample_count: int,
+		reason: StringName,
+) -> void:
+	var elapsed_ms: float = float(Time.get_ticks_usec() - start_usec) / 1000.0
+	var previous_max: float = float(_mountain_torch_shadow_field_debug_state.get("elapsed_ms_max", 0.0))
+	var previous_compose_count: int = int(_mountain_torch_shadow_field_debug_state.get("compose_count", 0))
+	var previous_cache_hit_count: int = int(_mountain_torch_shadow_field_debug_state.get("cache_hit_count", 0))
+	_mountain_torch_shadow_field_debug_state = {
+		"elapsed_ms_last": elapsed_ms,
+		"elapsed_ms_max": maxf(previous_max, elapsed_ms),
+		"origin": origin,
+		"width": width,
+		"height": height,
+		"pixel_count": width * height,
+		"chunk_count": chunk_count,
+		"cache_hit": cache_hit,
+		"cache_hit_count": previous_cache_hit_count + (1 if cache_hit else 0),
+		"composed": composed,
+		"compose_count": previous_compose_count + (1 if composed else 0),
+		"pending": pending,
+		"solid_sample_count": solid_sample_count,
+		"reason": reason,
+	}
 
 
 func set_active_mountain_component(mountain_id: int, component_id: int) -> void:
@@ -1199,37 +1380,6 @@ func _update_player_chunk_coord() -> void:
 		_rebuild_desired_chunk_cache()
 	_update_grass_scatter_lod()
 	_update_mid_ladder_anchor()
-	_update_mountain_light_occluders()
-
-
-## Торч-тени (world_dynamic_lighting_2d.md Iter 2): только чанки рядом с игроком
-## держат LightOccluder2D-геометрию горы. При смене чанка игрока — перевесить флаг
-## enabled по дальности; каждый тик — досборка «грязных» ближних чанков (после
-## копки или свежеприехавшей маски). Дёшево: sync ранний выход, пока не dirty.
-func _update_mountain_light_occluders() -> void:
-	if _player_chunk_coord == INVALID_CHUNK_COORD:
-		return
-	var center: Vector2i = _player_chunk_coord
-	var r: int = MOUNTAIN_LIGHT_OCCLUDER_CHUNK_RADIUS
-	if center != _mountain_light_occluder_center_chunk:
-		_mountain_light_occluder_center_chunk = center
-		var in_range: Dictionary = {}
-		for dy: int in range(-r, r + 1):
-			for dx: int in range(-r, r + 1):
-				in_range[_canonicalize_chunk_coord(center + Vector2i(dx, dy))] = true
-		for chunk_coord_variant: Variant in _chunk_views.keys():
-			var cv: ChunkView = _chunk_views.get(chunk_coord_variant) as ChunkView
-			if cv != null:
-				cv.set_mountain_light_occluders_enabled(in_range.has(_canonicalize_chunk_coord(chunk_coord_variant)))
-	for dy2: int in range(-r, r + 1):
-		for dx2: int in range(-r, r + 1):
-			var near_coord: Vector2i = _canonicalize_chunk_coord(center + Vector2i(dx2, dy2))
-			var near_view: ChunkView = _chunk_views.get(near_coord) as ChunkView
-			if near_view == null:
-				continue
-			# Idempotent: covers chunks streamed in while the player stood still.
-			near_view.set_mountain_light_occluders_enabled(true)
-			near_view.sync_mountain_light_occluders()
 
 
 ## Zoom-LOD травы: буфер чанка отсортирован native-кодом по важности (крупные
@@ -2433,6 +2583,7 @@ func _refresh_mountain_native_masks_around_tile(world_tile: Vector2i) -> void:
 		if dig_packet.is_empty():
 			continue
 		_bump_mountain_mask_revision(affected_chunk)
+		_mountain_torch_shadow_field_mask_cache.clear()
 		_mountain_solid_halo_cache.erase(affected_chunk)
 		_mountain_native_masks_by_chunk.erase(affected_chunk)
 		_mountain_native_mask_inflight_chunks.erase(affected_chunk)
@@ -2478,6 +2629,131 @@ func _build_mountain_native_mask_dirty_chunks_for_tile(world_tile: Vector2i) -> 
 	return dirty_chunks
 
 
+func _build_chunk_coords_for_world_rect(world_min: Vector2, world_max: Vector2) -> Array[Vector2i]:
+	var min_tile: Vector2i = _canonicalize_tile_coord(WorldRuntimeConstants.world_to_tile(world_min))
+	var max_tile: Vector2i = _canonicalize_tile_coord(WorldRuntimeConstants.world_to_tile(world_max))
+	var min_chunk: Vector2i = WorldRuntimeConstants.tile_to_chunk(min_tile)
+	var max_chunk: Vector2i = WorldRuntimeConstants.tile_to_chunk(max_tile)
+	var coords: Array[Vector2i] = []
+	for cy: int in range(min_chunk.y, max_chunk.y + 1):
+		for cx: int in range(min_chunk.x, max_chunk.x + 1):
+			coords.append(_canonicalize_chunk_coord(Vector2i(cx, cy)))
+	return coords
+
+
+func _sample_mountain_native_mask_result(mask_result: Dictionary, chunk_coord: Vector2i, world_pos: Vector2) -> int:
+	var mask_bytes: PackedByteArray = mask_result.get("mask", PackedByteArray()) as PackedByteArray
+	var width: int = int(mask_result.get("width", 0))
+	var height: int = int(mask_result.get("height", 0))
+	var step_px: float = float(mask_result.get("step_px", 0.0))
+	if width <= 0 or height <= 0 or step_px <= 0.0 or mask_bytes.size() != width * height:
+		return 0
+	var origin: Vector2 = mask_result.get(
+		"mask_origin_world",
+		_build_mountain_native_mask_origin(chunk_coord),
+	) as Vector2
+	var mask_pos: Vector2 = (world_pos - origin) / step_px
+	var x: int = floori(mask_pos.x)
+	var y: int = floori(mask_pos.y)
+	if x < 0 or y < 0 or x >= width or y >= height:
+		return 0
+	return int(mask_bytes[y * width + x])
+
+
+func _blit_mountain_native_mask_result_to_shadow_field(
+		mask_result: Dictionary,
+		window_origin: Vector2,
+		window_width: int,
+		window_height: int,
+		window_step_px: float,
+		copy_min: Vector2,
+		copy_max: Vector2,
+		target_bytes: PackedByteArray,
+) -> int:
+	var mask_bytes: PackedByteArray = mask_result.get("mask", PackedByteArray()) as PackedByteArray
+	var source_width: int = int(mask_result.get("width", 0))
+	var source_height: int = int(mask_result.get("height", 0))
+	var source_step_px: float = float(mask_result.get("step_px", 0.0))
+	if source_width <= 0 \
+			or source_height <= 0 \
+			or source_step_px <= 0.0 \
+			or window_width <= 0 \
+			or window_height <= 0 \
+			or window_step_px <= 0.0 \
+			or mask_bytes.size() != source_width * source_height \
+			or target_bytes.size() != window_width * window_height:
+		return 0
+	var source_origin: Vector2 = mask_result.get("mask_origin_world", Vector2.ZERO) as Vector2
+	var source_max: Vector2 = source_origin + Vector2(float(source_width), float(source_height)) * source_step_px
+	var window_max: Vector2 = window_origin + Vector2(float(window_width), float(window_height)) * window_step_px
+	var blit_min := Vector2(
+		maxf(source_origin.x, maxf(window_origin.x, copy_min.x)),
+		maxf(source_origin.y, maxf(window_origin.y, copy_min.y)),
+	)
+	var blit_max := Vector2(
+		minf(source_max.x, minf(window_max.x, copy_max.x)),
+		minf(source_max.y, minf(window_max.y, copy_max.y)),
+	)
+	if blit_min.x >= blit_max.x or blit_min.y >= blit_max.y:
+		return 0
+
+	var dst_x0: int = clampi(ceili((blit_min.x - window_origin.x) / window_step_px - 0.5), 0, window_width)
+	var dst_y0: int = clampi(ceili((blit_min.y - window_origin.y) / window_step_px - 0.5), 0, window_height)
+	var dst_x1: int = clampi(floori((blit_max.x - window_origin.x) / window_step_px - 0.5) + 1, 0, window_width)
+	var dst_y1: int = clampi(floori((blit_max.y - window_origin.y) / window_step_px - 0.5) + 1, 0, window_height)
+	if dst_x0 >= dst_x1 or dst_y0 >= dst_y1:
+		return 0
+
+	var added_solid: int = 0
+	if absf(source_step_px - window_step_px) <= 0.001:
+		var copy_width: int = dst_x1 - dst_x0
+		var first_sample_x: float = window_origin.x + (float(dst_x0) + 0.5) * window_step_px
+		var src_x0: int = floori((first_sample_x - source_origin.x) / source_step_px)
+		if src_x0 < 0 or src_x0 + copy_width > source_width:
+			return 0
+		for dst_y: int in range(dst_y0, dst_y1):
+			var sample_y: float = window_origin.y + (float(dst_y) + 0.5) * window_step_px
+			var src_y: int = floori((sample_y - source_origin.y) / source_step_px)
+			if src_y < 0 or src_y >= source_height:
+				continue
+			var dst_index: int = dst_y * window_width + dst_x0
+			var src_index: int = src_y * source_width + src_x0
+			for _i: int in range(copy_width):
+				var previous: int = int(target_bytes[dst_index])
+				var value: int = int(mask_bytes[src_index])
+				if value > previous:
+					target_bytes[dst_index] = value
+					if previous <= MOUNTAIN_NATIVE_MASK_SOLID_THRESHOLD \
+							and value > MOUNTAIN_NATIVE_MASK_SOLID_THRESHOLD:
+						added_solid += 1
+				dst_index += 1
+				src_index += 1
+		return added_solid
+
+	for dst_y: int in range(dst_y0, dst_y1):
+		var sample_y: float = window_origin.y + (float(dst_y) + 0.5) * window_step_px
+		var src_y: int = floori((sample_y - source_origin.y) / source_step_px)
+		if src_y < 0 or src_y >= source_height:
+			continue
+		var dst_row: int = dst_y * window_width
+		var src_row: int = src_y * source_width
+		for dst_x: int in range(dst_x0, dst_x1):
+			var sample_x: float = window_origin.x + (float(dst_x) + 0.5) * window_step_px
+			var src_x: int = floori((sample_x - source_origin.x) / source_step_px)
+			if src_x < 0 or src_x >= source_width:
+				continue
+			var dst_index: int = dst_row + dst_x
+			var previous: int = int(target_bytes[dst_index])
+			var value: int = int(mask_bytes[src_row + src_x])
+			if value <= previous:
+				continue
+			target_bytes[dst_index] = value
+			if previous <= MOUNTAIN_NATIVE_MASK_SOLID_THRESHOLD \
+					and value > MOUNTAIN_NATIVE_MASK_SOLID_THRESHOLD:
+				added_solid += 1
+	return added_solid
+
+
 func _forget_mountain_mask(
 		chunk_coord: Vector2i,
 		clear_view: bool,
@@ -2488,6 +2764,7 @@ func _forget_mountain_mask(
 	_drop_mountain_native_mask_visual_upload(chunk_coord)
 	if bump_revision:
 		_bump_mountain_mask_revision(chunk_coord)
+		_mountain_torch_shadow_field_mask_cache.clear()
 	_mountain_solid_halo_cache.erase(chunk_coord)
 	_mountain_native_masks_by_chunk.erase(chunk_coord)
 	_mountain_native_mask_inflight_chunks.erase(chunk_coord)

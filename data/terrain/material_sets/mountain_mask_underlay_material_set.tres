@@ -23,7 +23,7 @@ extra_textures = {
 &"scree_albedo": ExtResource("8")
 }
 sampling_params = {
-"face_texture_scale": 0.46,
+"face_texture_scale": 1.15,
 "facade_height_px": 72.0,
 "texture_zoom": 0.7,
 "normal_strength": 0.48,
@@ -35,7 +35,7 @@ sampling_params = {
 "roof_drift_scale_px": 5200.0,
 "roof_drift_strength": 0.12,
 "roof_vein_strength": 0.22,
-"terrace_strength": 1.0,
+"terrace_strength": 0.0,
 "terrace_inner_px": 56.0,
 "terrace_upper_px": 124.0,
 "terrace_wobble_px": 22.0,

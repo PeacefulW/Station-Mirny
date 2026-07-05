@@ -9,22 +9,22 @@ shader_type canvas_item;
 // visible wall == the real solid tile == collision == mining (WYSIWYG): dig one
 // tile, stand on it, the neighbouring mountain tile is the wall right there.
 //   - roof (top texture, bump-lit) on interior solid;
-//   - wall (face texture, bump-lit, layered strata) on the south strip of solid
-//     up to facade_height_px, with separate top rim, dark cleft, and base line;
+//   - wall (face texture, bump-lit) on the south strip of solid
+//     up to facade_height_px, without quantized depth bands;
 //   - a small COSMETIC roof eave ("козырёк") drawn a few px below the silhouette;
 //   - the chunk's own tiles are drawn from a halo mask, with a tiny opaque-underlay
 //     clip overlap to cover subpixel seams while camera movement is fractional.
 
 uniform sampler2D top_texture : filter_linear_mipmap, repeat_enable;
-uniform sampler2D face_texture : filter_linear_mipmap, repeat_enable;
+uniform sampler2D face_texture : filter_linear, repeat_enable;
 uniform sampler2D top_normal_texture : filter_linear_mipmap, repeat_enable;
-uniform sampler2D face_normal_texture : filter_linear_mipmap, repeat_enable;
+uniform sampler2D face_normal_texture : filter_linear, repeat_enable;
 uniform vec2 top_texture_size = vec2(1024.0, 1024.0);
 uniform vec2 face_texture_size = vec2(1024.0, 1024.0);
 uniform vec2 world_origin_px = vec2(0.0, 0.0);
 uniform bool temporary_disable_terrain_normals = true;
 uniform float top_texture_scale = 0.70;
-uniform float face_texture_scale = 0.46;
+uniform float face_texture_scale = 1.15;
 uniform float texture_zoom = 0.7;
 uniform float sample_step_px = 1.0;
 uniform float facade_height_px = 72.0; // height of the south wall strip WITHIN the solid tile
@@ -419,7 +419,7 @@ void fragment() {
 			- max(-side_signed, 0.0) * side_shade_strength * rim_breakup;
 	}
 
-	// Wall -- layered strata, controlled relief, and sparse base chips.
+	// Wall -- controlled relief and sparse base chips.
 	vec2 face_uv = world_px * face_texture_scale / tz / max(face_texture_size, vec2(1.0));
 	vec2 face_uv_dx = (world_px + vec2(grad_px, 0.0)) * face_texture_scale / tz / max(face_texture_size, vec2(1.0));
 	vec2 face_uv_dy = (world_px + vec2(0.0, grad_px)) * face_texture_scale / tz / max(face_texture_size, vec2(1.0));
@@ -470,43 +470,10 @@ void fragment() {
 	}
 
 	if (wall_mask > 0.001) {
-		float wall_depth = clamp(edge_below / wall_texels, 0.0, 1.0); // 0 = base (south), 1 = top (north)
-		float strata_noise = fbm2(vec2(world_px.x / 260.0, world_px.y / 92.0));
-		float strata_wave = 0.5 + 0.5 * sin(world_px.y * 0.135 + world_px.x * 0.010 + strata_noise * 4.5);
-		float strata_line = smoothstep(0.57, 0.78, strata_wave) * (1.0 - smoothstep(0.90, 1.0, strata_wave));
 		float broad_layer = fbm2(vec2(world_px.x / 520.0, world_px.y / 128.0) + vec2(41.0, -13.0));
-		float vertical_mass = mix(0.58, 1.04, wall_depth);
-		float cut_highlight = smoothstep(0.64, 1.0, wall_depth) * (0.70 + small_mottle * 0.30);
-		float cleft = smoothstep(0.48, 0.67, wall_depth) * (1.0 - smoothstep(0.77, 0.92, wall_depth));
-		float base_debris = (1.0 - smoothstep(0.00, 0.125, wall_depth)) * smoothstep(0.62, 0.92, fbm2(world_px / 32.0 + vec2(12.0, 71.0)));
-		float crack = smoothstep(0.80, 0.94, fbm2(vec2(world_px.x / 46.0, world_px.y / 18.0) + vec2(5.0, -31.0))) * smoothstep(0.12, 0.82, wall_depth);
-		vec3 wall_color = facade_color * vertical_mass;
-		wall_color = mix(wall_color, wall_color * 0.72, strata_line * 0.42);
-		wall_color = mix(wall_color, wall_color * 0.84, smoothstep(0.58, 0.86, broad_layer) * 0.22);
-		// Lit rock instead of painted color: the exposed upper cut is the wall
-		// albedo brightened and warmed by the low sun (shadow length is the
-		// documented low-sun proxy from WorldVisualLightingProfile).
-		// Ночной гейт: projected_shadow_opacity уже несёт дневную видимость
-		// солнца (профиль гасит тени к ночи) — солнечная подсветка кромок
-		// гаснет с ним же, иначе rim ночью читается как неоновое свечение.
-		float sun_daylight = smoothstep(0.05, 0.45, projected_shadow_opacity);
-		float low_sun_warmth = clamp((projected_shadow_length_px - 80.0) / 280.0, 0.0, 1.0);
-		vec3 sun_warm_tint = mix(vec3(1.0), vec3(1.16, 0.93, 0.76), (0.35 + low_sun_warmth * 0.65) * sun_daylight);
-		wall_color = mix(wall_color, face_col.rgb * mix(1.10, 1.30, sun_daylight) * sun_warm_tint, cut_highlight * 0.22);
-		wall_color = mix(wall_color, cleft_color, cleft * 0.28);
-		wall_color = mix(wall_color, crack_color, crack * 0.38);
-		wall_color = mix(wall_color, base_debris_color, base_debris * 0.55);
-		float top_rim = smoothstep(0.77, 1.0, wall_depth);
+		float face_breakup = 0.96 + (broad_layer - 0.5) * 0.10 + (small_mottle - 0.5) * 0.05;
+		vec3 wall_color = facade_color * face_breakup;
 		float base_outline = 1.0 - smoothstep(0.0, 1.0 / max(sample_step_px, 1.0), edge_below);
-		vec3 rim_lip = face_col.rgb * mix(1.12, 1.45, sun_daylight) * sun_warm_tint;
-		if (biofield_rim_strength > 0.001) {
-			// Sparse biofield creep onto lit wall lips, clustered by the same
-			// world-space field family as the ground's orange patches.
-			float wall_bio_field = fbm2(world_px / max(biofield_rim_scale_px, 1.0) + vec2(-27.3, 8.1));
-			float wall_bio_gate = smoothstep(0.60, 0.72, wall_bio_field) * biofield_rim_strength;
-			rim_lip = mix(rim_lip, biofield_rim_color * (0.82 + small_mottle * 0.36), wall_bio_gate);
-		}
-		wall_color = mix(wall_color, rim_lip, top_rim * 0.30);
 		wall_color = mix(wall_color, vec3(0.0, 0.0, 0.0), clamp(base_outline, 0.0, 1.0) * base_outline_strength);
 		color = mix(color, wall_color, wall_mask);
 		out_alpha = max(out_alpha, wall_mask * wall_surface_alpha);

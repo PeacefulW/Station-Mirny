@@ -131,15 +131,17 @@ resources, the active runtime uses a transitional native-mask presentation:
   tile painting where the native mask is active. The shader samples the accepted
   top/facade textures through that mask, keeping the visual surface organic
   while the canonical gameplay tile remains `64px`.
-- The active runtime shader may derive rim separation, layered facade strata,
-  form-based normals, macro color variation, sparse cracks/debris, and a
+- The active runtime shader may derive rim separation, form-based normals,
+  macro color variation, sparse cracks/debris, and a
   fresher exposed-cut look from the native mask plus existing top/facade
   textures. It may also apply a small deterministic world-space cosmetic warp
   to its mask UVs (craggy silhouette instead of a melted blur contour, within
   the same cosmetic margin as the roof eave), sun-relative flank shading probed
   from the mask along the light direction, aperiodic roof tone drift with
-  sparse vein cracks, and concentric height terraces derived from ring probes
-  of the mask distance-to-edge (lit plateau lips over dark step shadows).
+  sparse vein cracks. Live torch-lit mountain presentation must not enable
+  layered facade strata, quantized wall-depth bands, or concentric height
+  terraces derived from mask distance-to-edge; the warm point light makes those
+  contour-derived cues read as ribbed facade artifacts.
   Rim and cut highlights are derived from the rock albedo (brightened and
   warmed by the documented low-sun shadow-length parameter), never painted
   with fixed colors; the sun-driven brightening and warmth are additionally
