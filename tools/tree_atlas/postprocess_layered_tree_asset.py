@@ -98,6 +98,9 @@ def make_wind_mask(trunk: Image.Image, foliage: Image.Image) -> Image.Image:
     foliage_a = alpha_of(foliage)
     union = ImageChops.lighter(trunk_a, foliage_a)
     width, height = union.size
+    trunk_bbox = trunk_a.getbbox() or (0, 0, width, height)
+    trunk_top = trunk_bbox[1]
+    trunk_height = max(trunk_bbox[3] - trunk_bbox[1], 1)
     gray = Image.new("L", union.size, 0)
     pixels = gray.load()
     fa = foliage_a.load()
@@ -109,10 +112,12 @@ def make_wind_mask(trunk: Image.Image, foliage: Image.Image) -> Image.Image:
             t = ta[x, y]
             if f <= 4:
                 if t > 4:
-                    pixels[x, y] = 0
+                    trunk_vertical = 1.0 - (y - trunk_top) / trunk_height
+                    trunk_motion = max(0.0, min(1.0, (trunk_vertical - 0.12) / 0.68))
+                    pixels[x, y] = min(255, int(t * trunk_motion * 0.72))
                 continue
             # Leaf clusters move; pixels overlapping trunk are damped.
-            damp = 0.35 if t > 20 else 1.0
+            damp = 0.58 if t > 20 else 1.0
             pixels[x, y] = min(255, int(f * vertical * damp))
     return Image.merge("RGBA", (gray, gray, gray, union))
 
@@ -193,13 +198,13 @@ def make_snow_mask(albedo: Image.Image, foliage: Image.Image, trunk: Image.Image
     foliage_alpha = alpha_of(foliage)
     trunk_alpha = alpha_of(trunk)
     foliage_edges = exposed_top_edges(foliage_alpha, weight=1.0)
-    trunk_edges = exposed_top_edges(trunk_alpha, weight=0.23)
+    trunk_edges = exposed_top_edges(trunk_alpha, weight=0.64)
     foliage_snow = spread_snow(foliage_edges, foliage_alpha, depth_px=74, strength=1.22)
-    trunk_snow = spread_snow(trunk_edges, trunk_alpha, depth_px=28, strength=0.38)
+    trunk_snow = spread_snow(trunk_edges, trunk_alpha, depth_px=58, strength=1.05)
     gray = ImageChops.lighter(foliage_snow, trunk_snow)
     noise = procedural_noise(gray.size, low=138, high=255, phase=0.4)
     gray = ImageChops.multiply(gray, noise)
-    gray = gray.point(lambda value: 0 if value < 10 else min(255, int(value * 1.32)), "L")
+    gray = gray.point(lambda value: 0 if value < 10 else min(255, int(value * 1.46)), "L")
     gray = gray.filter(ImageFilter.GaussianBlur(1.35))
     return Image.merge("RGBA", (gray, gray, gray, alpha))
 
@@ -238,7 +243,7 @@ def make_season_mask(foliage: Image.Image, trunk: Image.Image, snow_mask: Image.
 
 def make_snow_overlay(snow_mask: Image.Image) -> Image.Image:
     snow = snow_mask.getchannel("R")
-    alpha = snow.point(lambda value: 0 if value < 16 else min(int((value - 10) * 1.18), 232), "L")
+    alpha = snow.point(lambda value: 0 if value < 14 else min(int((value - 8) * 1.34), 242), "L")
     return Image.merge(
         "RGBA",
         (
@@ -380,6 +385,7 @@ def save_outputs(asset_dir: Path, copy_to: Path | None = None) -> None:
         "anchor": list(anchor),
         "sort_offset": anchor[1],
         "collision_radius": 18,
+        "plant_depth_px": int(classification.get("runtime_plant_depth_px", 0)),
         "wind_strength": 0.45,
         "snow_capacity": 0.8,
         "layers": {

@@ -12,6 +12,7 @@ import postprocess_layered_tree_asset as post
 from postprocess_layered_tree_asset import (
     alpha_of,
     load_rgba,
+    make_wind_mask,
     make_snow_mask,
     make_snow_overlay,
     processed_shadow,
@@ -116,6 +117,63 @@ class LayeredTreePostprocessTest(unittest.TestCase):
                         lower_cluster_hits += 1
 
         self.assertGreater(lower_cluster_hits, 250)
+
+    def test_snow_overlay_reaches_visible_upper_trunk(self) -> None:
+        albedo = load_rgba(ASSET_DIR / "albedo.png")
+        foliage = load_rgba(ASSET_DIR / "foliage.png")
+        trunk = load_rgba(ASSET_DIR / "trunk.png")
+        trunk_alpha = alpha_of(trunk)
+        foliage_alpha = alpha_of(foliage)
+
+        snow_overlay = make_snow_overlay(make_snow_mask(albedo, foliage, trunk))
+        snow_alpha = alpha_of(snow_overlay)
+        bbox = trunk_alpha.getbbox()
+
+        self.assertIsNotNone(bbox)
+        assert bbox is not None
+        visible_hits = 0
+        visible_candidates = 0
+        for x in range(bbox[0], bbox[2]):
+            for y in range(bbox[1], min(bbox[3], bbox[1] + 280)):
+                if trunk_alpha.getpixel((x, y)) > 48 and foliage_alpha.getpixel((x, y)) < 20:
+                    visible_candidates += 1
+                    if snow_alpha.getpixel((x, y)) > 18:
+                        visible_hits += 1
+
+        self.assertGreater(visible_candidates, 1000)
+        self.assertGreater(visible_hits / visible_candidates, 0.24)
+
+    def test_wind_mask_reaches_visible_upper_trunk(self) -> None:
+        foliage = load_rgba(ASSET_DIR / "foliage.png")
+        trunk = load_rgba(ASSET_DIR / "trunk.png")
+        trunk_alpha = alpha_of(trunk)
+        foliage_alpha = alpha_of(foliage)
+        wind = make_wind_mask(trunk, foliage).getchannel("R")
+        bbox = trunk_alpha.getbbox()
+
+        self.assertIsNotNone(bbox)
+        assert bbox is not None
+        moving_upper_trunk = 0
+        visible_upper_trunk = 0
+        for x in range(bbox[0], bbox[2]):
+            for y in range(bbox[1], min(bbox[3], bbox[1] + 300)):
+                if trunk_alpha.getpixel((x, y)) > 48 and foliage_alpha.getpixel((x, y)) < 20:
+                    visible_upper_trunk += 1
+                    if wind.getpixel((x, y)) > 24:
+                        moving_upper_trunk += 1
+
+        self.assertGreater(visible_upper_trunk, 1000)
+        self.assertGreater(moving_upper_trunk / visible_upper_trunk, 0.18)
+
+    def test_baked_root_sinks_some_roots_below_anchor(self) -> None:
+        albedo = load_rgba(ASSET_DIR / "albedo.png")
+        alpha = alpha_of(albedo)
+        bbox = alpha.getbbox()
+        anchor_y = _asset_anchor()[1]
+
+        self.assertIsNotNone(bbox)
+        assert bbox is not None
+        self.assertGreater(bbox[3] - anchor_y, 42)
 
     def test_snow_mask_has_no_dark_vertical_gaps_inside_caps(self) -> None:
         albedo = load_rgba(ASSET_DIR / "albedo.png")

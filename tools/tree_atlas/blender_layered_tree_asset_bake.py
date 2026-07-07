@@ -23,6 +23,7 @@ FRAME_SIZE = 768
 FIXED_SUN_AZIMUTH_DEGREES = 315.0
 ALBEDO_SUN_ELEVATION_DEGREES = 52.0
 SHADOW_SUN_ELEVATION_DEGREES = 42.0
+ROOT_EMBED_FRACTION = 0.065
 LEAF_VALUE_THRESHOLD = 0.34
 LEAF_SAT_THRESHOLD = 0.88
 LEAF_HUE_MIN = 15.0
@@ -36,6 +37,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--frame-size", type=int, default=FRAME_SIZE)
     parser.add_argument("--yaw-degrees", type=float, default=18.0)
     parser.add_argument("--sun-angle-degrees", type=float, default=FIXED_SUN_AZIMUTH_DEGREES)
+    parser.add_argument("--root-embed-fraction", type=float, default=ROOT_EMBED_FRACTION)
     argv = sys.argv
     if "--" in argv:
         argv = argv[argv.index("--") + 1 :]
@@ -81,14 +83,16 @@ def all_world_corners(objects: list[bpy.types.Object]) -> list[Vector]:
     return corners
 
 
-def normalize_tree(objects: list[bpy.types.Object], yaw_degrees: float) -> None:
+def normalize_tree(objects: list[bpy.types.Object], yaw_degrees: float, root_embed_fraction: float) -> None:
     corners = all_world_corners(objects)
     min_x = min(c.x for c in corners)
     max_x = max(c.x for c in corners)
     min_y = min(c.y for c in corners)
     max_y = max(c.y for c in corners)
     min_z = min(c.z for c in corners)
-    center = Vector(((min_x + max_x) * 0.5, (min_y + max_y) * 0.5, min_z))
+    max_z = max(c.z for c in corners)
+    root_z = min_z + (max_z - min_z) * max(0.0, min(root_embed_fraction, 0.22))
+    center = Vector(((min_x + max_x) * 0.5, (min_y + max_y) * 0.5, root_z))
     root = bpy.data.objects.new("TreeRoot", None)
     bpy.context.collection.objects.link(root)
     root.rotation_euler[2] = math.radians(yaw_degrees)
@@ -297,7 +301,7 @@ def main() -> None:
     args = parse_args()
     clear_scene()
     objects = import_tree(args.glb)
-    normalize_tree(objects, args.yaw_degrees)
+    normalize_tree(objects, args.yaw_degrees, args.root_embed_fraction)
     classification = classify_objects(objects)
     corners = all_world_corners(objects)
     min_z = min(c.z for c in corners)
@@ -327,6 +331,8 @@ def main() -> None:
         "anchor": list(anchor),
         "yaw_degrees": args.yaw_degrees,
         "sun_angle_degrees": args.sun_angle_degrees,
+        "root_embed_fraction": args.root_embed_fraction,
+        "runtime_plant_depth_px": 0,
         "classification": classification,
         "layers": {
             "albedo": "albedo.png",

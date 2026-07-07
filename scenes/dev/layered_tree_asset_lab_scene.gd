@@ -4,15 +4,26 @@ extends Node2D
 const TREE_DIR: String = "res://assets/sprites/flora/layered_trees/tree_01"
 const FOLIAGE_WIND_SHADER: Shader = preload("res://assets/shaders/layered_tree_foliage_wind.gdshader")
 const SNOW_ACCUMULATION_SHADER: Shader = preload("res://assets/shaders/layered_tree_snow_accumulation.gdshader")
+const TRUNK_SEASON_SHADER: Shader = preload("res://assets/shaders/layered_tree_trunk_season.gdshader")
+const MAX_WIND_STRENGTH_PX: float = 18.0
+const SHADOW_DIRECTION: Vector2 = Vector2(0.887216, -0.461354)
 
 var _meta: Dictionary = {}
 var _root_position: Vector2 = Vector2(512.0, 620.0)
 var _tree_scale: float = 0.86
-var _wind_strength_px: float = 2.4
+var _wind_strength_px: float = 3.0
+var _plant_depth_px: float = 0.0
 var _season_amount: float = 0.0
 var _shadow_hour: float = 14.5
-var _shadow_anchor_delta_px: Vector2 = Vector2.ZERO
-var _shadow_sprite: Sprite2D = null
+var _shadow_length_scale: float = 1.0
+var _shadow_width_scale: float = 1.0
+var _shadow_backward_stretch_scale: float = 1.0
+var _shadow_root: Node2D = null
+var _shadow_polygons: Array[Polygon2D] = []
+var _shadow_texture: Texture2D = null
+var _shadow_frame_size: Vector2 = Vector2(768.0, 768.0)
+var _shadow_anchor_px: Vector2 = Vector2(384.0, 650.0)
+var _trunk_material: ShaderMaterial = null
 var _foliage_material: ShaderMaterial = null
 var _snow_material: ShaderMaterial = null
 var _snow_sprite: Sprite2D = null
@@ -33,6 +44,9 @@ func _process(_delta: float) -> void:
 	if _foliage_material != null:
 		_foliage_material.set_shader_parameter("wind_strength_px", _wind_strength_px)
 		_foliage_material.set_shader_parameter("season_amount", _season_amount)
+	if _trunk_material != null:
+		_trunk_material.set_shader_parameter("wind_strength_px", _wind_strength_px)
+		_trunk_material.set_shader_parameter("season_amount", _season_amount)
 	if _snow_sprite != null:
 		_snow_sprite.visible = _season_amount > 0.01
 	if _snow_material != null:
@@ -58,10 +72,10 @@ func _unhandled_input(event: InputEvent) -> void:
 			_season_amount = minf(_season_amount + 0.05, 1.0)
 			get_viewport().set_input_as_handled()
 		KEY_EQUAL, KEY_PLUS:
-			_wind_strength_px = minf(_wind_strength_px + 0.4, 8.0)
+			_wind_strength_px = minf(_wind_strength_px + 0.6, MAX_WIND_STRENGTH_PX)
 			get_viewport().set_input_as_handled()
 		KEY_MINUS:
-			_wind_strength_px = maxf(_wind_strength_px - 0.4, 0.0)
+			_wind_strength_px = maxf(_wind_strength_px - 0.6, 0.0)
 			get_viewport().set_input_as_handled()
 		KEY_Q:
 			_shadow_hour = maxf(_shadow_hour - 0.25, 13.0)
@@ -95,13 +109,25 @@ func get_debug_snapshot() -> Dictionary:
 		"anchor": _meta.get("anchor", []),
 		"has_shadow": get_node_or_null("Shadow") != null,
 		"has_trunk": get_node_or_null("Trunk") != null,
+		"has_trunk_season_material": _trunk_material != null,
 		"has_foliage": get_node_or_null("Foliage") != null,
 		"has_snow": get_node_or_null("SnowOverlay") != null,
 		"wind_strength_px": _wind_strength_px,
+		"max_wind_strength_px": MAX_WIND_STRENGTH_PX,
+		"plant_depth_px": _plant_depth_px,
 		"snow_enabled": _season_amount > 0.01,
 		"season_amount": _season_amount,
 		"shadow_hour": _shadow_hour,
+		"shadow_rotation_degrees": 0.0,
+		"shadow_length_scale": _shadow_length_scale,
+		"shadow_width_scale": _shadow_width_scale,
+		"shadow_backward_stretch_scale": _shadow_backward_stretch_scale,
 	}
+
+
+func set_debug_shadow_hour(hour: float) -> void:
+	_shadow_hour = clampf(hour, 13.0, 16.0)
+	_apply_shadow_hour()
 
 
 func _build_tree() -> void:
@@ -110,21 +136,24 @@ func _build_tree() -> void:
 	var anchor_array: Array = _meta.get("anchor", [frame_width * 0.5, frame_height * 0.84]) as Array
 	var anchor := Vector2(float(anchor_array[0]), float(anchor_array[1]))
 	var center := Vector2(frame_width, frame_height) * 0.5
+	_plant_depth_px = float(_meta.get("plant_depth_px", 0.0))
 	var sprite_position: Vector2 = _root_position - (anchor - center) * _tree_scale
-	_shadow_anchor_delta_px = anchor - center
+	var planted_sprite_position: Vector2 = sprite_position + Vector2(0.0, _plant_depth_px * _tree_scale)
 
-	var shadow := _make_sprite("Shadow", "%s/shadow.png" % TREE_DIR, sprite_position, _tree_scale)
-	shadow.z_index = 0
-	shadow.modulate = Color(1.0, 1.0, 1.0, 0.95)
-	_shadow_sprite = shadow
-	add_child(shadow)
-	_apply_shadow_hour()
+	_build_shadow(frame_width, frame_height, anchor)
 
-	var trunk := _make_sprite("Trunk", "%s/trunk.png" % TREE_DIR, sprite_position, _tree_scale)
+	var trunk := _make_sprite("Trunk", "%s/trunk.png" % TREE_DIR, planted_sprite_position, _tree_scale)
 	trunk.z_index = 2
+	_trunk_material = ShaderMaterial.new()
+	_trunk_material.shader = TRUNK_SEASON_SHADER
+	_trunk_material.set_shader_parameter("snow_mask_texture", _load_png_texture("%s/snow_mask.png" % TREE_DIR))
+	_trunk_material.set_shader_parameter("wind_mask_texture", _load_png_texture("%s/wind_mask.png" % TREE_DIR))
+	_trunk_material.set_shader_parameter("wind_strength_px", _wind_strength_px)
+	_trunk_material.set_shader_parameter("season_amount", _season_amount)
+	trunk.material = _trunk_material
 	add_child(trunk)
 
-	var foliage := _make_sprite("Foliage", "%s/foliage.png" % TREE_DIR, sprite_position, _tree_scale)
+	var foliage := _make_sprite("Foliage", "%s/foliage.png" % TREE_DIR, planted_sprite_position, _tree_scale)
 	foliage.z_index = 3
 	_foliage_material = ShaderMaterial.new()
 	_foliage_material.shader = FOLIAGE_WIND_SHADER
@@ -135,7 +164,7 @@ func _build_tree() -> void:
 	foliage.material = _foliage_material
 	add_child(foliage)
 
-	_snow_sprite = _make_sprite("SnowOverlay", "%s/snow_overlay.png" % TREE_DIR, sprite_position, _tree_scale)
+	_snow_sprite = _make_sprite("SnowOverlay", "%s/snow_overlay.png" % TREE_DIR, planted_sprite_position, _tree_scale)
 	_snow_sprite.z_index = 4
 	_snow_sprite.visible = _season_amount > 0.01
 	_snow_material = ShaderMaterial.new()
@@ -171,29 +200,116 @@ func _build_hud() -> void:
 func _update_hud() -> void:
 	if _hud_label == null:
 		return
-	_hud_label.text = "Layered tree asset lab | Space winter | Z/X season %.2f | +/- wind %.1f px | Q/E shadow %.1f h | 1/2/3" % [
+	_hud_label.text = "Layered tree asset lab | Space winter | Z/X season %.2f | +/- wind %.1f/%0.0f px | Q/E fixed NE shadow %.1f h | 1/2/3" % [
 		_season_amount,
 		_wind_strength_px,
+		MAX_WIND_STRENGTH_PX,
 		_shadow_hour,
 	]
 
 
 func _apply_shadow_hour() -> void:
-	if _shadow_sprite == null:
+	if _shadow_root == null:
 		return
 	var t: float = clampf((_shadow_hour - 13.0) / 3.0, 0.0, 1.0)
-	var angle: float = deg_to_rad(lerpf(0.0, 72.0, t))
-	var scale_vec := Vector2(
-		_tree_scale * lerpf(0.97, 1.08, t),
-		_tree_scale * lerpf(0.96, 1.18, t)
-	)
-	var scaled_anchor_delta := Vector2(
-		_shadow_anchor_delta_px.x * scale_vec.x,
-		_shadow_anchor_delta_px.y * scale_vec.y
-	)
-	_shadow_sprite.rotation = angle
-	_shadow_sprite.scale = scale_vec
-	_shadow_sprite.position = _root_position - scaled_anchor_delta.rotated(angle)
+	var day_edge: float = absf(t - 0.5) * 2.0
+	_shadow_length_scale = lerpf(1.0, 1.85, day_edge)
+	_shadow_width_scale = 1.0
+	_shadow_backward_stretch_scale = 1.0
+	var opacity: float = lerpf(0.70, 0.95, day_edge)
+	for polygon: Polygon2D in _shadow_polygons:
+		polygon.modulate = Color(1.0, 1.0, 1.0, opacity)
+	_rebuild_shadow_polygons()
+
+
+func _build_shadow(frame_width: float, frame_height: float, anchor: Vector2) -> void:
+	_shadow_texture = _load_png_texture("%s/shadow.png" % TREE_DIR)
+	_shadow_frame_size = Vector2(frame_width, frame_height)
+	_shadow_anchor_px = anchor
+	_shadow_polygons.clear()
+
+	_shadow_root = Node2D.new()
+	_shadow_root.name = "Shadow"
+	_shadow_root.position = _root_position
+	_shadow_root.z_index = 0
+	add_child(_shadow_root)
+
+	for polygon_name: String in ["ShadowBack", "ShadowForward"]:
+		var polygon := Polygon2D.new()
+		polygon.name = polygon_name
+		polygon.texture = _shadow_texture
+		polygon.texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS
+		polygon.modulate = Color(1.0, 1.0, 1.0, 0.95)
+		_shadow_root.add_child(polygon)
+		_shadow_polygons.append(polygon)
+	_apply_shadow_hour()
+
+
+func _rebuild_shadow_polygons() -> void:
+	if _shadow_polygons.size() != 2:
+		return
+	var rect_points: Array[Vector2] = [
+		Vector2(0.0, 0.0),
+		Vector2(_shadow_frame_size.x, 0.0),
+		_shadow_frame_size,
+		Vector2(0.0, _shadow_frame_size.y),
+	]
+	var back_points: Array[Vector2] = _clip_shadow_polygon(rect_points, false)
+	var forward_points: Array[Vector2] = _clip_shadow_polygon(rect_points, true)
+	_set_shadow_polygon(_shadow_polygons[0], back_points, false)
+	_set_shadow_polygon(_shadow_polygons[1], forward_points, true)
+
+
+func _set_shadow_polygon(polygon: Polygon2D, texture_points: Array[Vector2], stretch_forward: bool) -> void:
+	var local_points: Array[Vector2] = []
+	for point: Vector2 in texture_points:
+		local_points.append(_shadow_texture_point_to_local(point, stretch_forward))
+	polygon.polygon = PackedVector2Array(local_points)
+	polygon.uv = PackedVector2Array(texture_points)
+
+
+func _shadow_texture_point_to_local(point: Vector2, stretch_forward: bool) -> Vector2:
+	var delta: Vector2 = point - _shadow_anchor_px
+	if stretch_forward:
+		var forward_distance: float = maxf(delta.dot(SHADOW_DIRECTION), 0.0)
+		delta += SHADOW_DIRECTION * forward_distance * (_shadow_length_scale - 1.0)
+	return delta * _tree_scale
+
+
+func _clip_shadow_polygon(points: Array[Vector2], keep_forward: bool) -> Array[Vector2]:
+	if points.is_empty():
+		return []
+	var clipped: Array[Vector2] = []
+	for index: int in range(points.size()):
+		var current: Vector2 = points[index]
+		var previous: Vector2 = points[(index + points.size() - 1) % points.size()]
+		var current_inside: bool = _shadow_point_inside(current, keep_forward)
+		var previous_inside: bool = _shadow_point_inside(previous, keep_forward)
+		if current_inside:
+			if not previous_inside:
+				clipped.append(_shadow_line_intersection(previous, current))
+			clipped.append(current)
+		elif previous_inside:
+			clipped.append(_shadow_line_intersection(previous, current))
+	return clipped
+
+
+func _shadow_point_inside(point: Vector2, keep_forward: bool) -> bool:
+	var distance: float = _shadow_signed_distance(point)
+	return distance >= -0.01 if keep_forward else distance <= 0.01
+
+
+func _shadow_line_intersection(a: Vector2, b: Vector2) -> Vector2:
+	var da: float = _shadow_signed_distance(a)
+	var db: float = _shadow_signed_distance(b)
+	var denominator: float = da - db
+	if absf(denominator) < 0.0001:
+		return a
+	return a.lerp(b, clampf(da / denominator, 0.0, 1.0))
+
+
+func _shadow_signed_distance(point: Vector2) -> float:
+	return (point - _shadow_anchor_px).dot(SHADOW_DIRECTION)
 
 
 func _make_sprite(sprite_name: String, path: String, position: Vector2, scale_factor: float) -> Sprite2D:

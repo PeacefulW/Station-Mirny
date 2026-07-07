@@ -27,11 +27,27 @@ func _run() -> void:
 	_assert(bool(snapshot.get("has_trunk", false)), "Layered tree lab must create trunk sprite.")
 	_assert(bool(snapshot.get("has_foliage", false)), "Layered tree lab must create foliage sprite.")
 	_assert(bool(snapshot.get("has_snow", false)), "Layered tree lab must create snow overlay sprite.")
+	_assert(bool(snapshot.get("has_trunk_season_material", false)), "Layered tree lab must apply winter material to trunk.")
 	_assert(float(snapshot.get("wind_strength_px", 0.0)) > 0.0, "Layered tree lab must expose nonzero foliage wind.")
+	_assert(float(snapshot.get("max_wind_strength_px", 0.0)) >= 18.0, "Layered tree lab must allow stronger maximum wind.")
+	_assert(float(snapshot.get("plant_depth_px", 999.0)) <= 4.0, "Tree root depth must come from Blender bake, not runtime sprite offset.")
 	_assert(snapshot.has("season_amount"), "Layered tree lab must expose season amount.")
 	_assert(absf(float(snapshot.get("season_amount", -1.0))) < 0.01, "Layered tree lab must start without winter accumulation.")
 	_assert(snapshot.has("shadow_hour"), "Layered tree lab must expose baked shadow hour.")
 	_assert(absf(float(snapshot.get("shadow_hour", 0.0)) - 14.5) < 0.01, "Layered tree lab must start at the neutral baked shadow hour.")
+	_assert(snapshot.has("shadow_rotation_degrees"), "Layered tree lab must expose shadow rotation.")
+	_assert(absf(float(snapshot.get("shadow_rotation_degrees", 999.0))) < 0.01, "Sun shadow direction must remain fixed north-east.")
+	_assert(absf(float(snapshot.get("shadow_length_scale", 0.0)) - 1.0) < 0.01, "Neutral sun shadow must keep baked length.")
+	_assert(absf(float(snapshot.get("shadow_width_scale", 0.0)) - 1.0) < 0.01, "Sun shadow width must stay baked.")
+	_assert(scene.has_method("set_debug_shadow_hour"), "Layered tree lab must expose debug shadow hour setter.")
+	if scene.has_method("set_debug_shadow_hour"):
+		scene.call("set_debug_shadow_hour", 13.0)
+		await process_frame
+		snapshot = scene.call("get_debug_snapshot") as Dictionary
+		_assert(float(snapshot.get("shadow_length_scale", 0.0)) > 1.45, "Sunrise shadow must stretch along its baked direction.")
+		_assert(absf(float(snapshot.get("shadow_width_scale", 0.0)) - 1.0) < 0.01, "Sunrise shadow must not get wider.")
+		_assert(absf(float(snapshot.get("shadow_backward_stretch_scale", 0.0)) - 1.0) < 0.01, "Sunrise shadow must not stretch back under the tree root.")
+		_assert(absf(float(snapshot.get("shadow_rotation_degrees", 999.0))) < 0.01, "Sunrise shadow direction must remain fixed north-east.")
 	scene.queue_free()
 	await process_frame
 	if _failed:

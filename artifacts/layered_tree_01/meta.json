@@ -5,10 +5,11 @@
 	"frame_height": 768,
 	"anchor": [
 		384,
-		567
+		539
 	],
-	"sort_offset": 567,
+	"sort_offset": 539,
 	"collision_radius": 18,
+	"plant_depth_px": 0,
 	"wind_strength": 0.45,
 	"snow_capacity": 0.8,
 	"layers": {
