@@ -1,0 +1,32 @@
+{
+	"asset": "tree_01_layered_glb",
+	"source_glb": "M:\\Downloads\\1.glb",
+	"frame_width": 768,
+	"frame_height": 768,
+	"anchor": [
+		384,
+		567
+	],
+	"sort_offset": 567,
+	"collision_radius": 18,
+	"wind_strength": 0.45,
+	"snow_capacity": 0.8,
+	"layers": {
+		"albedo": "albedo.png",
+		"trunk": "trunk.png",
+		"foliage": "foliage.png",
+		"shadow": "shadow.png",
+		"wind_mask": "wind_mask.png",
+		"snow_mask": "snow_mask.png",
+		"snow_overlay": "snow_overlay.png",
+		"height": "height.png",
+		"normal": "normal.png"
+	},
+	"alpha_bbox": [
+		299,
+		122,
+		163,
+		469
+	],
+	"notes": "Prototype layered tree asset from one GLB. Static trunk/foliage layers; runtime wind should use wind_mask and keep trunk/root pinned."
+}
