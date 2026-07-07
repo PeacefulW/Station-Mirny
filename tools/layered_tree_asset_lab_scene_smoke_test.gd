@@ -28,6 +28,8 @@ func _run() -> void:
 	_assert(bool(snapshot.get("has_foliage", false)), "Layered tree lab must create foliage sprite.")
 	_assert(bool(snapshot.get("has_snow", false)), "Layered tree lab must create snow overlay sprite.")
 	_assert(float(snapshot.get("wind_strength_px", 0.0)) > 0.0, "Layered tree lab must expose nonzero foliage wind.")
+	_assert(snapshot.has("season_amount"), "Layered tree lab must expose season amount.")
+	_assert(absf(float(snapshot.get("season_amount", -1.0))) < 0.01, "Layered tree lab must start without winter accumulation.")
 	_assert(snapshot.has("shadow_hour"), "Layered tree lab must expose baked shadow hour.")
 	_assert(absf(float(snapshot.get("shadow_hour", 0.0)) - 14.5) < 0.01, "Layered tree lab must start at the neutral baked shadow hour.")
 	scene.queue_free()

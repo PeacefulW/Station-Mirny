@@ -117,53 +117,123 @@ def make_wind_mask(trunk: Image.Image, foliage: Image.Image) -> Image.Image:
     return Image.merge("RGBA", (gray, gray, gray, union))
 
 
+def shifted_luma(image: Image.Image, dx: int, dy: int) -> Image.Image:
+    width, height = image.size
+    out = Image.new("L", image.size, 0)
+    src_x0 = max(0, -dx)
+    src_y0 = max(0, -dy)
+    src_x1 = min(width, width - dx)
+    src_y1 = min(height, height - dy)
+    if src_x1 <= src_x0 or src_y1 <= src_y0:
+        return out
+    crop = image.crop((src_x0, src_y0, src_x1, src_y1))
+    out.paste(crop, (src_x0 + dx, src_y0 + dy))
+    return out
+
+
+def procedural_noise(size: tuple[int, int], *, low: int, high: int, phase: float = 0.0) -> Image.Image:
+    width, height = size
+    out = Image.new("L", size, 0)
+    pixels = out.load()
+    span = high - low
+    for y in range(height):
+        for x in range(width):
+            value = (
+                0.50
+                + 0.22 * math.sin(x * 0.083 + y * 0.041 + phase)
+                + 0.18 * math.sin(x * 0.019 - y * 0.127 + phase * 1.7)
+                + 0.10 * math.sin(x * 0.211 + y * 0.173 + phase * 0.37)
+            )
+            pixels[x, y] = max(0, min(255, int(low + span * value)))
+    return out.filter(ImageFilter.GaussianBlur(0.9))
+
+
+def exposed_top_edges(source_alpha: Image.Image, *, weight: float = 1.0) -> Image.Image:
+    width, height = source_alpha.size
+    src = source_alpha.load()
+    edge = Image.new("L", source_alpha.size, 0)
+    dst = edge.load()
+    for y in range(height):
+        for x in range(width):
+            current = src[x, y]
+            if current <= 18:
+                continue
+            above = 0
+            for sample_y in (y - 2, y - 4, y - 7):
+                if sample_y < 0:
+                    continue
+                for sample_x in range(max(0, x - 3), min(width, x + 4)):
+                    above = max(above, src[sample_x, sample_y])
+            exposure = max(0.0, current - above * 0.58) / 255.0
+            if above <= 12:
+                exposure = max(exposure, 0.72 * current / 255.0)
+            if exposure <= 0.05:
+                continue
+            dst[x, y] = max(dst[x, y], min(255, int(255.0 * exposure * weight)))
+    return edge.filter(ImageFilter.MaxFilter(3)).filter(ImageFilter.GaussianBlur(0.65))
+
+
+def spread_snow(edge: Image.Image, target_alpha: Image.Image, *, depth_px: int, strength: float) -> Image.Image:
+    accumulation = Image.new("L", edge.size, 0)
+    softened_edge = edge.filter(ImageFilter.MaxFilter(7)).filter(ImageFilter.GaussianBlur(1.35))
+    for offset in range(0, depth_px, 2):
+        progress = offset / max(depth_px - 1, 1)
+        decay = (1.0 - progress) ** 1.45
+        dx = int(round(math.sin(offset * 0.33) * 3.0 + math.sin(offset * 0.071) * 2.0))
+        shifted = shifted_luma(softened_edge, dx, offset)
+        blurred = shifted.filter(ImageFilter.GaussianBlur(1.20 + offset * 0.040))
+        band = blurred.point(lambda value, decay=decay: min(255, int(value * decay * strength)), "L")
+        accumulation = ImageChops.lighter(accumulation, band)
+    alpha_gate = target_alpha.point(lambda value: 0 if value <= 12 else min(255, int(value * 1.16)), "L")
+    return ImageChops.multiply(accumulation, alpha_gate)
+
+
 def make_snow_mask(albedo: Image.Image, foliage: Image.Image, trunk: Image.Image) -> Image.Image:
     alpha = union_alpha(albedo)
     foliage_alpha = alpha_of(foliage)
     trunk_alpha = alpha_of(trunk)
-    width, height = alpha.size
+    foliage_edges = exposed_top_edges(foliage_alpha, weight=1.0)
+    trunk_edges = exposed_top_edges(trunk_alpha, weight=0.23)
+    foliage_snow = spread_snow(foliage_edges, foliage_alpha, depth_px=74, strength=1.22)
+    trunk_snow = spread_snow(trunk_edges, trunk_alpha, depth_px=28, strength=0.38)
+    gray = ImageChops.lighter(foliage_snow, trunk_snow)
+    noise = procedural_noise(gray.size, low=138, high=255, phase=0.4)
+    gray = ImageChops.multiply(gray, noise)
+    gray = gray.point(lambda value: 0 if value < 10 else min(255, int(value * 1.32)), "L")
+    gray = gray.filter(ImageFilter.GaussianBlur(1.35))
+    return Image.merge("RGBA", (gray, gray, gray, alpha))
+
+
+def make_season_mask(foliage: Image.Image, trunk: Image.Image, snow_mask: Image.Image) -> Image.Image:
+    foliage_alpha = alpha_of(foliage)
+    trunk_alpha = alpha_of(trunk)
+    snow = snow_mask.getchannel("R")
+    width, height = foliage_alpha.size
+    drop = Image.new("L", foliage_alpha.size, 0)
+    cold = Image.new("L", foliage_alpha.size, 0)
+    drop_px = drop.load()
+    cold_px = cold.load()
     foliage_px = foliage_alpha.load()
     trunk_px = trunk_alpha.load()
-    gray = Image.new("L", alpha.size, 0)
-    gray_px = gray.load()
-
-    def paint_runs(source_px, *, depth_px: int, weight: float, trunk_damping: float) -> None:
+    snow_px = snow.load()
+    for y in range(height):
+        vertical = 1.0 - y / max(height - 1, 1)
         for x in range(width):
-            y = 0
-            while y < height:
-                while y < height and source_px[x, y] <= 18:
-                    y += 1
-                run_start = y
-                while y < height and source_px[x, y] > 18:
-                    y += 1
-                run_end = y
-                run_height = run_end - run_start
-                if run_height < 5:
-                    continue
-                local_depth = max(8, min(depth_px, int(run_height * 0.58)))
-                local_depth = int(local_depth * (0.88 + 0.16 * math.sin(x * 0.067)))
-                for yy in range(run_start, min(run_end, run_start + local_depth)):
-                    source_alpha = source_px[x, yy]
-                    if source_alpha <= 18:
-                        continue
-                    depth = (yy - run_start) / max(local_depth - 1, 1)
-                    contour = (1.0 - depth) ** 1.35
-                    noise = (
-                        0.82
-                        + 0.16 * math.sin(x * 0.17 + yy * 0.09)
-                        + 0.10 * math.sin(x * 0.041 - yy * 0.13)
-                        + 0.06 * math.sin(x * 0.31 + yy * 0.27)
-                    )
-                    overlap_damp = trunk_damping if trunk_px[x, yy] > 20 else 1.0
-                    coverage = 0.42 + 0.58 * (source_alpha / 255.0)
-                    value = int(255.0 * contour * noise * coverage * weight * overlap_damp)
-                    if value > gray_px[x, yy]:
-                        gray_px[x, yy] = max(0, min(255, value))
-
-    paint_runs(foliage_px, depth_px=66, weight=1.0, trunk_damping=0.42)
-    paint_runs(trunk_px, depth_px=24, weight=0.22, trunk_damping=1.0)
-    gray = gray.filter(ImageFilter.GaussianBlur(0.45))
-    return Image.merge("RGBA", (gray, gray, gray, alpha))
+            f = foliage_px[x, y]
+            if f <= 18:
+                continue
+            noise = (
+                0.50
+                + 0.24 * math.sin(x * 0.071 + y * 0.109)
+                + 0.18 * math.sin(x * 0.173 - y * 0.037)
+                + 0.10 * math.sin(x * 0.023 + y * 0.251)
+            )
+            branch_damp = 0.18 if trunk_px[x, y] > 24 else 0.0
+            order = max(0.0, min(1.0, noise * 0.82 + vertical * 0.12 + branch_damp))
+            drop_px[x, y] = int(order * 255.0)
+            cold_px[x, y] = max(snow_px[x, y], int(255.0 * max(0.0, vertical - 0.28) * 0.42))
+    drop = drop.filter(ImageFilter.GaussianBlur(1.1))
+    return Image.merge("RGBA", (snow, drop, cold, foliage_alpha))
 
 
 def make_snow_overlay(snow_mask: Image.Image) -> Image.Image:
@@ -236,7 +306,17 @@ def composite_on_ground(*layers: Image.Image) -> Image.Image:
     return bg
 
 
-def make_preview(asset_dir: Path, albedo: Image.Image, trunk: Image.Image, foliage: Image.Image, shadow: Image.Image, wind_mask: Image.Image, snow_mask: Image.Image, snow_overlay: Image.Image) -> Image.Image:
+def make_preview(
+    asset_dir: Path,
+    albedo: Image.Image,
+    trunk: Image.Image,
+    foliage: Image.Image,
+    shadow: Image.Image,
+    wind_mask: Image.Image,
+    snow_mask: Image.Image,
+    snow_overlay: Image.Image,
+    season_mask: Image.Image,
+) -> Image.Image:
     tile_w, tile_h = albedo.size
     scale = 0.5
     panels = [
@@ -245,6 +325,7 @@ def make_preview(asset_dir: Path, albedo: Image.Image, trunk: Image.Image, folia
         ("snow overlay", composite_on_ground(shadow, trunk, foliage, snow_overlay)),
         ("wind mask", wind_mask),
         ("snow mask", snow_mask),
+        ("season mask", season_mask),
     ]
     thumb_w = int(tile_w * scale)
     thumb_h = int(tile_h * scale)
@@ -275,6 +356,7 @@ def save_outputs(asset_dir: Path, copy_to: Path | None = None) -> None:
     wind_mask = make_wind_mask(trunk, foliage)
     snow_mask = make_snow_mask(albedo, foliage, trunk)
     snow_overlay = make_snow_overlay(snow_mask)
+    season_mask = make_season_mask(foliage, trunk, snow_mask)
     height = make_height(albedo)
     normal = make_normal_from_height(height)
 
@@ -283,6 +365,7 @@ def save_outputs(asset_dir: Path, copy_to: Path | None = None) -> None:
         "wind_mask.png": wind_mask,
         "snow_mask.png": snow_mask,
         "snow_overlay.png": snow_overlay,
+        "season_mask.png": season_mask,
         "height.png": height.convert("RGBA"),
         "normal.png": normal,
     }
@@ -307,6 +390,7 @@ def save_outputs(asset_dir: Path, copy_to: Path | None = None) -> None:
             "wind_mask": "wind_mask.png",
             "snow_mask": "snow_mask.png",
             "snow_overlay": "snow_overlay.png",
+            "season_mask": "season_mask.png",
             "height": "height.png",
             "normal": "normal.png",
         },
@@ -316,7 +400,7 @@ def save_outputs(asset_dir: Path, copy_to: Path | None = None) -> None:
     with (asset_dir / "meta.json").open("w", encoding="utf-8") as fh:
         json.dump(meta, fh, indent="\t", ensure_ascii=False)
 
-    preview = make_preview(asset_dir, albedo, trunk, foliage, shadow, wind_mask, snow_mask, snow_overlay)
+    preview = make_preview(asset_dir, albedo, trunk, foliage, shadow, wind_mask, snow_mask, snow_overlay, season_mask)
     preview.save(asset_dir / "preview_panel.png")
 
     if copy_to is not None:
@@ -329,6 +413,7 @@ def save_outputs(asset_dir: Path, copy_to: Path | None = None) -> None:
             "wind_mask.png",
             "snow_mask.png",
             "snow_overlay.png",
+            "season_mask.png",
             "height.png",
             "normal.png",
             "meta.json",

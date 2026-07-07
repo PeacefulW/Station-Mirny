@@ -19,6 +19,7 @@
 		"wind_mask": "wind_mask.png",
 		"snow_mask": "snow_mask.png",
 		"snow_overlay": "snow_overlay.png",
+		"season_mask": "season_mask.png",
 		"height": "height.png",
 		"normal": "normal.png"
 	},

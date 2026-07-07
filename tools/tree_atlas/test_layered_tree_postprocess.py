@@ -8,6 +8,7 @@ from pathlib import Path
 
 from PIL import Image
 
+import postprocess_layered_tree_asset as post
 from postprocess_layered_tree_asset import (
     alpha_of,
     load_rgba,
@@ -42,6 +43,26 @@ def _alpha_runs(alpha: Image.Image, x: int, threshold: int = 18) -> list[tuple[i
         if end - start > 8:
             runs.append((start, end))
     return runs
+
+
+def _dark_vertical_gap_count(image: Image.Image, alpha: Image.Image, bbox: tuple[int, int, int, int]) -> int:
+    stripe_count = 0
+    for x in range(bbox[0] + 2, bbox[2] - 2):
+        run = 0
+        for y in range(bbox[1], bbox[3]):
+            value = image.getpixel((x, y))
+            left = max(image.getpixel((x - 1, y)), image.getpixel((x - 2, y)))
+            right = max(image.getpixel((x + 1, y)), image.getpixel((x + 2, y)))
+            is_gap = value < 35 and left > 80 and right > 80 and alpha.getpixel((x, y)) > 18
+            if is_gap:
+                run += 1
+                continue
+            if run >= 8:
+                stripe_count += 1
+            run = 0
+        if run >= 8:
+            stripe_count += 1
+    return stripe_count
 
 
 class LayeredTreePostprocessTest(unittest.TestCase):
@@ -95,6 +116,41 @@ class LayeredTreePostprocessTest(unittest.TestCase):
                         lower_cluster_hits += 1
 
         self.assertGreater(lower_cluster_hits, 250)
+
+    def test_snow_mask_has_no_dark_vertical_gaps_inside_caps(self) -> None:
+        albedo = load_rgba(ASSET_DIR / "albedo.png")
+        foliage = load_rgba(ASSET_DIR / "foliage.png")
+        trunk = load_rgba(ASSET_DIR / "trunk.png")
+
+        snow_mask = make_snow_mask(albedo, foliage, trunk).getchannel("R")
+        foliage_alpha = alpha_of(foliage)
+        bbox = foliage_alpha.getbbox()
+
+        self.assertIsNotNone(bbox)
+        assert bbox is not None
+        self.assertLessEqual(_dark_vertical_gap_count(snow_mask, foliage_alpha, bbox), 2)
+
+    def test_season_mask_encodes_leaf_drop_variation(self) -> None:
+        self.assertTrue(hasattr(post, "make_season_mask"), "Postprocess must emit a reusable season mask.")
+        if not hasattr(post, "make_season_mask"):
+            return
+        albedo = load_rgba(ASSET_DIR / "albedo.png")
+        foliage = load_rgba(ASSET_DIR / "foliage.png")
+        trunk = load_rgba(ASSET_DIR / "trunk.png")
+
+        snow_mask = make_snow_mask(albedo, foliage, trunk)
+        season_mask = post.make_season_mask(foliage, trunk, snow_mask)
+        drop_order = season_mask.getchannel("G")
+        foliage_alpha = alpha_of(foliage)
+        values = [
+            drop_order.getpixel((x, y))
+            for y in range(foliage_alpha.height)
+            for x in range(foliage_alpha.width)
+            if foliage_alpha.getpixel((x, y)) > 32
+        ]
+
+        self.assertGreater(max(values) - min(values), 150)
+        self.assertGreater(len({value // 16 for value in values}), 10)
 
 
 if __name__ == "__main__":

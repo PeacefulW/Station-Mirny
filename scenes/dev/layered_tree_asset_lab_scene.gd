@@ -3,16 +3,18 @@ extends Node2D
 
 const TREE_DIR: String = "res://assets/sprites/flora/layered_trees/tree_01"
 const FOLIAGE_WIND_SHADER: Shader = preload("res://assets/shaders/layered_tree_foliage_wind.gdshader")
+const SNOW_ACCUMULATION_SHADER: Shader = preload("res://assets/shaders/layered_tree_snow_accumulation.gdshader")
 
 var _meta: Dictionary = {}
 var _root_position: Vector2 = Vector2(512.0, 620.0)
 var _tree_scale: float = 0.86
 var _wind_strength_px: float = 2.4
-var _snow_enabled: bool = false
+var _season_amount: float = 0.0
 var _shadow_hour: float = 14.5
 var _shadow_anchor_delta_px: Vector2 = Vector2.ZERO
 var _shadow_sprite: Sprite2D = null
 var _foliage_material: ShaderMaterial = null
+var _snow_material: ShaderMaterial = null
 var _snow_sprite: Sprite2D = null
 var _hud_label: Label = null
 
@@ -30,8 +32,11 @@ func _process(_delta: float) -> void:
 	queue_redraw()
 	if _foliage_material != null:
 		_foliage_material.set_shader_parameter("wind_strength_px", _wind_strength_px)
+		_foliage_material.set_shader_parameter("season_amount", _season_amount)
 	if _snow_sprite != null:
-		_snow_sprite.visible = _snow_enabled
+		_snow_sprite.visible = _season_amount > 0.01
+	if _snow_material != null:
+		_snow_material.set_shader_parameter("season_amount", _season_amount)
 	_apply_shadow_hour()
 	_update_hud()
 
@@ -44,7 +49,13 @@ func _unhandled_input(event: InputEvent) -> void:
 		return
 	match key_event.keycode:
 		KEY_SPACE:
-			_snow_enabled = not _snow_enabled
+			_season_amount = 1.0 if _season_amount < 0.5 else 0.0
+			get_viewport().set_input_as_handled()
+		KEY_Z:
+			_season_amount = maxf(_season_amount - 0.05, 0.0)
+			get_viewport().set_input_as_handled()
+		KEY_X:
+			_season_amount = minf(_season_amount + 0.05, 1.0)
 			get_viewport().set_input_as_handled()
 		KEY_EQUAL, KEY_PLUS:
 			_wind_strength_px = minf(_wind_strength_px + 0.4, 8.0)
@@ -87,7 +98,8 @@ func get_debug_snapshot() -> Dictionary:
 		"has_foliage": get_node_or_null("Foliage") != null,
 		"has_snow": get_node_or_null("SnowOverlay") != null,
 		"wind_strength_px": _wind_strength_px,
-		"snow_enabled": _snow_enabled,
+		"snow_enabled": _season_amount > 0.01,
+		"season_amount": _season_amount,
 		"shadow_hour": _shadow_hour,
 	}
 
@@ -117,13 +129,20 @@ func _build_tree() -> void:
 	_foliage_material = ShaderMaterial.new()
 	_foliage_material.shader = FOLIAGE_WIND_SHADER
 	_foliage_material.set_shader_parameter("wind_mask_texture", _load_png_texture("%s/wind_mask.png" % TREE_DIR))
+	_foliage_material.set_shader_parameter("season_mask_texture", _load_png_texture("%s/season_mask.png" % TREE_DIR))
 	_foliage_material.set_shader_parameter("wind_strength_px", _wind_strength_px)
+	_foliage_material.set_shader_parameter("season_amount", _season_amount)
 	foliage.material = _foliage_material
 	add_child(foliage)
 
 	_snow_sprite = _make_sprite("SnowOverlay", "%s/snow_overlay.png" % TREE_DIR, sprite_position, _tree_scale)
 	_snow_sprite.z_index = 4
-	_snow_sprite.visible = _snow_enabled
+	_snow_sprite.visible = _season_amount > 0.01
+	_snow_material = ShaderMaterial.new()
+	_snow_material.shader = SNOW_ACCUMULATION_SHADER
+	_snow_material.set_shader_parameter("snow_mask_texture", _load_png_texture("%s/snow_mask.png" % TREE_DIR))
+	_snow_material.set_shader_parameter("season_amount", _season_amount)
+	_snow_sprite.material = _snow_material
 	add_child(_snow_sprite)
 
 
@@ -152,8 +171,8 @@ func _build_hud() -> void:
 func _update_hud() -> void:
 	if _hud_label == null:
 		return
-	_hud_label.text = "Layered tree asset lab | Space snow: %s | +/- wind %.1f px | Q/E shadow %.1f h | 1/2/3" % [
-		"ON" if _snow_enabled else "OFF",
+	_hud_label.text = "Layered tree asset lab | Space winter | Z/X season %.2f | +/- wind %.1f px | Q/E shadow %.1f h | 1/2/3" % [
+		_season_amount,
 		_wind_strength_px,
 		_shadow_hour,
 	]
