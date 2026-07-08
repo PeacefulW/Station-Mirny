@@ -299,6 +299,13 @@ def alpha_bbox(image: Image.Image) -> list[int]:
     return [x0, y0, x1 - x0, y1 - y0]
 
 
+def asset_name_from_dir(asset_dir: Path) -> str:
+    name = asset_dir.name
+    if name.startswith("layered_"):
+        name = name[len("layered_") :]
+    return f"{name}_layered_glb"
+
+
 def composite_on_ground(*layers: Image.Image) -> Image.Image:
     width, height = layers[0].size
     bg = Image.new("RGBA", (width, height), (43, 39, 33, 255))
@@ -378,7 +385,7 @@ def save_outputs(asset_dir: Path, copy_to: Path | None = None) -> None:
         image.save(asset_dir / name)
 
     meta = {
-        "asset": "tree_01_layered_glb",
+        "asset": asset_name_from_dir(asset_dir),
         "source_glb": classification.get("source_glb", ""),
         "frame_width": albedo.width,
         "frame_height": albedo.height,

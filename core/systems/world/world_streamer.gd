@@ -80,7 +80,11 @@ const PLAINS_VOLCANIC_ROCK_ATLAS: Texture2D = preload("res://assets/sprites/reso
 const PLAINS_RARE_ROCK_FORMATION_ATLAS: Texture2D = preload("res://assets/sprites/resources/atlases/plains_rare_rock_formation_atlas.png")
 const PLAINS_TREE_ENABLED: bool = true
 const PLAINS_TREE_ATLAS: Texture2D = preload("res://assets/sprites/flora/atlases/plains_trees_atlas.png")
-const PLAINS_LAYERED_TREE_ASSET_DIR: String = "res://assets/sprites/flora/layered_trees/tree_01"
+const PLAINS_LAYERED_TREE_ASSET_DIRS: Array[String] = [
+	"res://assets/sprites/flora/layered_trees/tree_01",
+	"res://assets/sprites/flora/layered_trees/tree_02",
+	"res://assets/sprites/flora/layered_trees/tree_03",
+]
 const PLAINS_GRASS_BIG_ROCKS_ENABLED: bool = true
 const PLAINS_GRASS_BIG_ROCK_VARIANT_1: WorldObjectVariantData = preload("res://data/world_objects/variants/plains_grass_big_rock_01.tres")
 const PLAINS_GRASS_BIG_ROCK_VARIANT_2: WorldObjectVariantData = preload("res://data/world_objects/variants/plains_grass_big_rock_02.tres")
@@ -2148,7 +2152,7 @@ func _ensure_chunk_view(chunk_coord: Vector2i) -> ChunkView:
 	chunk_view.set_living_flora_source(_plains_living_flora_atlas)
 	chunk_view.set_spiky_flora_sources(_plains_spiky_flora_atlases)
 	chunk_view.set_tree_source(PLAINS_TREE_ATLAS if PLAINS_TREE_ENABLED else null)
-	chunk_view.set_layered_tree_asset_dir(PLAINS_LAYERED_TREE_ASSET_DIR if PLAINS_TREE_ENABLED else "")
+	chunk_view.set_layered_tree_asset_dirs(PLAINS_LAYERED_TREE_ASSET_DIRS if PLAINS_TREE_ENABLED else [])
 	chunk_view.set_big_grass_rock_sources(_plains_big_grass_rock_atlases)
 	chunk_view.set_grass_edge_small_rock_source(
 		_plains_grass_edge_small_rock_atlas,

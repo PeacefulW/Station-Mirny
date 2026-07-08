@@ -102,6 +102,7 @@ var _living_flora_atlas: Texture2D = null
 var _spiky_flora_atlases: Array[Texture2D] = []
 var _tree_atlas: Texture2D = null
 var _layered_tree_asset_dir: String = ""
+var _layered_tree_asset_dirs: Array[String] = []
 var _big_grass_rock_atlases: Array[Texture2D] = []
 var _grass_edge_small_rock_atlas: Texture2D = null
 var _grass_edge_small_rock_atlas_columns: int = 1
@@ -175,12 +176,17 @@ func set_tree_atlas(atlas: Texture2D) -> void:
 
 
 func set_layered_tree_asset_dir(asset_dir: String) -> void:
-	_layered_tree_asset_dir = asset_dir
+	set_layered_tree_asset_dirs([asset_dir] if not asset_dir.is_empty() else [])
+
+
+func set_layered_tree_asset_dirs(asset_dirs: Array) -> void:
+	_layered_tree_asset_dirs = _normalize_layered_tree_asset_dirs(asset_dirs)
+	_layered_tree_asset_dir = _layered_tree_asset_dirs[0] if not _layered_tree_asset_dirs.is_empty() else ""
 	if _layered_tree_layer != null and is_instance_valid(_layered_tree_layer):
-		if _layered_tree_asset_dir.is_empty():
+		if _layered_tree_asset_dirs.is_empty():
 			_layered_tree_layer.clear_instances()
 		else:
-			_layered_tree_layer.set_asset_dir(_layered_tree_asset_dir)
+			_layered_tree_layer.set_asset_dirs(_layered_tree_asset_dirs)
 
 
 func set_big_grass_rock_atlases(atlases: Array[Texture2D]) -> void:
@@ -428,6 +434,7 @@ func get_debug_state() -> Dictionary:
 		"tree_collider_count": _tree_collider_count,
 		"tree_contact_shadow_enabled": TREE_CONTACT_SHADOW_ENABLED,
 		"uses_layered_tree_runtime": _uses_layered_tree_runtime(),
+		"layered_tree_asset_count": _layered_tree_asset_dirs.size(),
 		"layered_tree_count": _layered_tree_instance_count(),
 		"layered_tree_shadow_count": _layered_tree_shadow_instance_count(),
 		"big_grass_rock_count": _big_grass_rock_count,
@@ -629,6 +636,7 @@ func _append_tree(
 		layered_tree_records.append(
 			{
 				"position": position,
+				"asset_dir": _layered_tree_asset_dir_for_variant(frame_index),
 			},
 		)
 		if TREE_COLLISION_ENABLED:
@@ -859,7 +867,7 @@ func _ensure_spiky_flora_batch_layer() -> WorldDecorBatchLayer:
 
 
 func _uses_layered_tree_runtime() -> bool:
-	return not _layered_tree_asset_dir.is_empty()
+	return not _layered_tree_asset_dirs.is_empty()
 
 
 func _sync_tree_batch(
@@ -893,7 +901,7 @@ func _sync_layered_tree_layer(layered_tree_records: Array[Dictionary]) -> void:
 		_clear_layered_tree_layer()
 		return
 	var layer: LayeredTreeObjectLayer = _ensure_layered_tree_layer()
-	layer.set_asset_dir(_layered_tree_asset_dir)
+	layer.set_asset_dirs(_layered_tree_asset_dirs)
 	layer.set_world_origin_y(_world_origin_y)
 	layer.set_instances(layered_tree_records)
 	layer.set_sun_lighting(
@@ -911,7 +919,7 @@ func _ensure_layered_tree_layer() -> LayeredTreeObjectLayer:
 	_layered_tree_layer.name = "LayeredTreeObjectLayer"
 	add_child(_layered_tree_layer)
 	_layered_tree_layer.set_world_origin_y(_world_origin_y)
-	_layered_tree_layer.set_asset_dir(_layered_tree_asset_dir)
+	_layered_tree_layer.set_asset_dirs(_layered_tree_asset_dirs)
 	return _layered_tree_layer
 
 
@@ -1250,6 +1258,24 @@ func _clear_batches() -> void:
 		_tree_shadow_layer.visible = false
 		_tree_shadow_layer.multimesh = null
 	_clear_layered_tree_layer()
+
+
+func _layered_tree_asset_dir_for_variant(frame_index: int) -> String:
+	if _layered_tree_asset_dirs.is_empty():
+		return ""
+	return _layered_tree_asset_dirs[abs(frame_index) % _layered_tree_asset_dirs.size()]
+
+
+func _normalize_layered_tree_asset_dirs(asset_dirs: Array) -> Array[String]:
+	var result: Array[String] = []
+	var seen: Dictionary = {}
+	for value: Variant in asset_dirs:
+		var asset_dir: String = str(value).strip_edges()
+		if asset_dir.is_empty() or seen.has(asset_dir):
+			continue
+		seen[asset_dir] = true
+		result.append(asset_dir)
+	return result
 
 
 static func _decode_local_px(value: int) -> float:
