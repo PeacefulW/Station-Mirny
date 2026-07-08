@@ -71,8 +71,9 @@ placement boundary, `WORLD_VERSION = 51` carries the rare rocky-patch rock
 pillar presentation boundary, `WORLD_VERSION = 52` carries the mountain-edge
 object clearance boundary, `WORLD_VERSION = 57` carries the rare grass-only big
 rock placement boundary, `WORLD_VERSION = 58` carries the initial grass-edge
-small rock placement boundary, and current `WORLD_VERSION = 59` carries the
-grass-edge small rock scree tuning boundary.
+small rock placement boundary, `WORLD_VERSION = 59` carries the grass-edge
+small rock scree tuning boundary, and current `WORLD_VERSION = 60` carries the
+plains tree placement profile boundary.
 L3 water presentation is landed:
 `ChunkView` now owns the derived
 `WaterSurfaceLayer`, populated from `lake_flags` and current resolved
@@ -178,6 +179,10 @@ The grass-edge small rock scree tuning boundary advances current new worlds to
 `WORLD_VERSION = 59` because native object packets keep `object_kind == 6` but
 rebalance deterministic placement toward sparser seam clusters; lake packet
 fields and lake algorithms remain unchanged.
+The plains tree placement profile boundary advances current new worlds to
+`WORLD_VERSION = 60` because native `object_kind == 4` placement now reads the
+frozen `worldgen_settings.plains_trees` profile; lake packet fields and lake
+algorithms remain unchanged.
 
 ## Gameplay Goal
 

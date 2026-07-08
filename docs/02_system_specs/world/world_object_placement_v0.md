@@ -267,6 +267,13 @@ state.
 Changing canonical placement output for the same seed and settings requires a
 `world_version` bump.
 
+Plains tree placement settings are authored in
+`data/world_objects/placement_groups/plains_trees.tres`
+(`PlainsTreePlacementSettings`) for new worlds, then frozen into
+`worldgen_settings.plains_trees` and packed into native settings indices
+`22..43`. Runtime object packets remain immutable generated output; changing the
+checked-in `.tres` affects newly created worlds, not already saved worlds.
+
 ### Packet Shape Direction
 
 V0 extends `ChunkPacketV0` additively with a compact visual object section.

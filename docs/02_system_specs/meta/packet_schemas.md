@@ -202,6 +202,34 @@ Current code note:
       "mountain_clearance": float,
       "connectivity": float,
     },
+    "plains_trees"?: {
+      "id": String,
+      "object_family": String,
+      "biome_id": String,
+      "placement_mask": String,
+      "density": float,
+      "scatter_grid_side": int,
+      "max_per_chunk": int,
+      "edge_padding_px": float,
+      "min_distance_px": float,
+      "grass_density_min": float,
+      "visual_size_min_px": float,
+      "visual_size_max_px": float,
+      "small_chance": float,
+      "small_visual_size_px": float,
+      "hero_chance": float,
+      "hero_visual_size_px": float,
+      "grass_field_scale_px": float,
+      "grass_coverage": float,
+      "rock_field_scale_px": float,
+      "rock_coverage": float,
+      "macro_mass_scale_px": float,
+      "macro_mass_strength": float,
+      "path_scale_px": float,
+      "path_width": float,
+      "path_warp_px": float,
+      "path_strength": float,
+    },
   },
   "worldgen_signature"?: String,
 }
@@ -213,8 +241,9 @@ Current code notes:
   current `WorldRuntimeConstants.WORLD_VERSION`; missing, older, or newer
   values are incompatible
 - current-version `WorldStreamer` loads require `world_seed`,
-  `worldgen_settings.mountains`, `worldgen_settings.world_bounds`, and
-  `worldgen_settings.foundation`, and `worldgen_settings.lakes`; missing
+  `worldgen_settings.mountains`, `worldgen_settings.world_bounds`,
+  `worldgen_settings.foundation`, `worldgen_settings.lakes`, and
+  `worldgen_settings.plains_trees`; missing
   fields fail the world apply step before chunk diffs or player/base state are
   applied
 - `world_version == 38` is the Lake Generation L2 historical boundary: base
@@ -299,15 +328,23 @@ Current code notes:
   selects one of twelve atlas frames, and `object_flags == 0`; the cheap
   contact-shadow underlay is presentation-only. `ChunkPacketV1` shape is
   unchanged because this uses the existing object arrays.
-- `world_version == 59` is the current grass-edge small rock scree tuning
+- `world_version == 59` is the historical grass-edge small rock scree tuning
   boundary: `object_kind == 6` keeps the same packet family and atlas contract,
   but native placement is rebalanced toward sparser clusters on the true
   open-ground to grass seam and the atlas is rebaked with self-shadow/AO
   without baked ground projection. `ChunkPacketV1` shape is unchanged.
+- `world_version == 60` is the current plains tree placement profile boundary:
+  native `object_kind == 4` placement reads the frozen
+  `worldgen_settings.plains_trees` profile through `settings_packed[22..43]`.
+  `ChunkPacketV1` shape is unchanged because this only changes how existing
+  immutable tree records are generated.
 - `worldgen_settings.mountains` is written once for new worlds and then loaded
   from `world.json`, not from the repository `.tres`
 - `worldgen_settings.lakes` is written once for new worlds and then loaded
   from `world.json`, not from the repository `.tres`
+- `worldgen_settings.plains_trees` is written once for new worlds from
+  `data/world_objects/placement_groups/plains_trees.tres` and then loaded from
+  `world.json`, not from the repository `.tres`
 - `worldgen_signature` is diagnostic only and is never authoritative on load
 - legacy/frozen-world payloads with only the older boolean fields are not
   load-compatible with the active `WorldStreamer` runtime
@@ -696,6 +733,10 @@ Current code notes:
   field params in `world_core.cpp` tree constants mirror the single authored
   source `data/terrain/material_sets/plains_ground_material_set.tres` and must
   be kept in sync with it.
+- For `world_version >= 60`, plains tree density, grid, spacing, size tiers,
+  grass threshold, and mirrored grass-field sampling params are read from the
+  saved `worldgen_settings.plains_trees` profile via native
+  `settings_packed[22..43]`.
 - For `world_version >= 57`, the native object packet may emit
   `object_kind == 5` for rare blocking grass-only big rocks. This changes
   deterministic visual object placement only; packet fields and save payload

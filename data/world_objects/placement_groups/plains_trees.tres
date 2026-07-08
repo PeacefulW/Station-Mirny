@@ -1,0 +1,32 @@
+[gd_resource type="Resource" script_class="PlainsTreePlacementSettings" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://core/resources/plains_tree_placement_settings.gd" id="1"]
+
+[resource]
+script = ExtResource("1")
+id = &"core:plains_trees"
+object_family = &"tree"
+biome_id = &"core:plains"
+placement_mask = &"grass_field"
+density = 0.62
+scatter_grid_side = 6
+max_per_chunk = 0
+edge_padding_px = 40.0
+min_distance_px = 88.0
+grass_density_min = 0.4
+visual_size_min_px = 150.0
+visual_size_max_px = 244.0
+small_chance = 0.2
+small_visual_size_px = 120.0
+hero_chance = 0.1
+hero_visual_size_px = 252.0
+grass_field_scale_px = 720.0
+grass_coverage = 0.8
+rock_field_scale_px = 1200.0
+rock_coverage = 0.22
+macro_mass_scale_px = 7000.0
+macro_mass_strength = 0.34
+path_scale_px = 2600.0
+path_width = 0.06
+path_warp_px = 700.0
+path_strength = 0.85

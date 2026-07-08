@@ -62,6 +62,29 @@ constexpr int64_t SETTINGS_PACKED_LAYOUT_LAKE_DEEP_THRESHOLD = 19;
 constexpr int64_t SETTINGS_PACKED_LAYOUT_LAKE_MOUNTAIN_CLEARANCE = 20;
 constexpr int64_t SETTINGS_PACKED_LAYOUT_LAKE_CONNECTIVITY = 21;
 constexpr int64_t SETTINGS_PACKED_LAYOUT_FIELD_COUNT = 22;
+constexpr int64_t SETTINGS_PACKED_LAYOUT_TREE_DENSITY = 22;
+constexpr int64_t SETTINGS_PACKED_LAYOUT_TREE_SCATTER_GRID_SIDE = 23;
+constexpr int64_t SETTINGS_PACKED_LAYOUT_TREE_EDGE_PADDING_PX = 24;
+constexpr int64_t SETTINGS_PACKED_LAYOUT_TREE_MIN_DISTANCE_PX = 25;
+constexpr int64_t SETTINGS_PACKED_LAYOUT_TREE_MAX_PER_CHUNK = 26;
+constexpr int64_t SETTINGS_PACKED_LAYOUT_TREE_MIN_SIZE_PX = 27;
+constexpr int64_t SETTINGS_PACKED_LAYOUT_TREE_MAX_SIZE_PX = 28;
+constexpr int64_t SETTINGS_PACKED_LAYOUT_TREE_SMALL_CHANCE = 29;
+constexpr int64_t SETTINGS_PACKED_LAYOUT_TREE_SMALL_SIZE_PX = 30;
+constexpr int64_t SETTINGS_PACKED_LAYOUT_TREE_HERO_CHANCE = 31;
+constexpr int64_t SETTINGS_PACKED_LAYOUT_TREE_HERO_SIZE_PX = 32;
+constexpr int64_t SETTINGS_PACKED_LAYOUT_TREE_GRASS_DENSITY_MIN = 33;
+constexpr int64_t SETTINGS_PACKED_LAYOUT_TREE_GRASS_FIELD_SCALE_PX = 34;
+constexpr int64_t SETTINGS_PACKED_LAYOUT_TREE_GRASS_COVERAGE = 35;
+constexpr int64_t SETTINGS_PACKED_LAYOUT_TREE_ROCK_FIELD_SCALE_PX = 36;
+constexpr int64_t SETTINGS_PACKED_LAYOUT_TREE_ROCK_COVERAGE = 37;
+constexpr int64_t SETTINGS_PACKED_LAYOUT_TREE_MACRO_MASS_SCALE_PX = 38;
+constexpr int64_t SETTINGS_PACKED_LAYOUT_TREE_MACRO_MASS_STRENGTH = 39;
+constexpr int64_t SETTINGS_PACKED_LAYOUT_TREE_PATH_SCALE_PX = 40;
+constexpr int64_t SETTINGS_PACKED_LAYOUT_TREE_PATH_WIDTH = 41;
+constexpr int64_t SETTINGS_PACKED_LAYOUT_TREE_PATH_WARP_PX = 42;
+constexpr int64_t SETTINGS_PACKED_LAYOUT_TREE_PATH_STRENGTH = 43;
+constexpr int64_t SETTINGS_PACKED_LAYOUT_TREE_FIELD_COUNT = 44;
 
 constexpr uint8_t MOUNTAIN_FLAG_WALL = 1U << 1U;
 constexpr uint8_t MOUNTAIN_FLAG_FOOT = 1U << 2U;
@@ -210,6 +233,31 @@ constexpr float TREE_PATH_SCALE_PX = 2600.0f;
 constexpr float TREE_PATH_WIDTH = 0.06f;
 constexpr float TREE_PATH_WARP_PX = 700.0f;
 constexpr float TREE_PATH_STRENGTH = 0.85f;
+
+struct TreePlacementSettings {
+	float density = TREE_PRIMARY_DENSITY;
+	int32_t scatter_grid_side = TREE_SCATTER_GRID_SIDE;
+	float edge_padding_px = TREE_EDGE_PADDING_PX;
+	float min_distance_px = TREE_MIN_DISTANCE_PX;
+	int32_t max_per_chunk = 0;
+	float min_size_px = TREE_MIN_SIZE_PX;
+	float max_size_px = TREE_MAX_SIZE_PX;
+	float small_chance = TREE_SMALL_CHANCE;
+	float small_size_px = TREE_SMALL_SIZE_PX;
+	float hero_chance = TREE_HERO_CHANCE;
+	float hero_size_px = TREE_HERO_SIZE_PX;
+	float grass_density_min = TREE_GRASS_DENSITY_MIN;
+	float grass_field_scale_px = TREE_GRASS_FIELD_SCALE_PX;
+	float grass_coverage = TREE_GRASS_COVERAGE;
+	float rock_field_scale_px = TREE_ROCK_FIELD_SCALE_PX;
+	float rock_coverage = TREE_ROCK_COVERAGE;
+	float macro_mass_scale_px = TREE_MACRO_MASS_SCALE_PX;
+	float macro_mass_strength = TREE_MACRO_MASS_STRENGTH;
+	float path_scale_px = TREE_PATH_SCALE_PX;
+	float path_width = TREE_PATH_WIDTH;
+	float path_warp_px = TREE_PATH_WARP_PX;
+	float path_strength = TREE_PATH_STRENGTH;
+};
 
 constexpr int32_t BIG_GRASS_ROCK_ATLAS_COUNT = 4;
 constexpr float BIG_GRASS_ROCK_PLACEMENT_CELL_PX = 2048.0f;
@@ -1194,25 +1242,36 @@ void append_native_tree_placements(
 	Vector2i p_coord,
 	int64_t p_world_version,
 	const PackedInt32Array &p_terrain_ids,
-	const PackedByteArray &p_lake_flags
+	const PackedByteArray &p_lake_flags,
+	const TreePlacementSettings &p_tree_settings
 ) {
+	if (p_tree_settings.density <= 0.0f || p_tree_settings.scatter_grid_side <= 0) {
+		return;
+	}
 	std::vector<std::pair<float, float>> placed_positions;
-	const float cell_size_px = static_cast<float>(CHUNK_SIZE_PX) / static_cast<float>(TREE_SCATTER_GRID_SIDE);
-	const float min_distance_sq = TREE_MIN_DISTANCE_PX * TREE_MIN_DISTANCE_PX;
-	for (int32_t grid_y = 0; grid_y < TREE_SCATTER_GRID_SIDE; ++grid_y) {
-		for (int32_t grid_x = 0; grid_x < TREE_SCATTER_GRID_SIDE; ++grid_x) {
-			const uint64_t cell_hash = object_hash4(p_coord.x, p_coord.y, grid_x + grid_y * TREE_SCATTER_GRID_SIDE, p_seed ^ (p_world_version * 89));
-			if (hash_unit_float(cell_hash, 0U) > TREE_PRIMARY_DENSITY) {
+	const float cell_size_px = static_cast<float>(CHUNK_SIZE_PX) / static_cast<float>(p_tree_settings.scatter_grid_side);
+	const float min_distance_sq = p_tree_settings.min_distance_px * p_tree_settings.min_distance_px;
+	for (int32_t grid_y = 0; grid_y < p_tree_settings.scatter_grid_side; ++grid_y) {
+		for (int32_t grid_x = 0; grid_x < p_tree_settings.scatter_grid_side; ++grid_x) {
+			if (p_tree_settings.max_per_chunk > 0 && static_cast<int32_t>(placed_positions.size()) >= p_tree_settings.max_per_chunk) {
+				return;
+			}
+			const uint64_t cell_hash = object_hash4(
+					p_coord.x,
+					p_coord.y,
+					grid_x + grid_y * p_tree_settings.scatter_grid_side,
+					p_seed ^ (p_world_version * 89));
+			if (hash_unit_float(cell_hash, 0U) > p_tree_settings.density) {
 				continue;
 			}
-			const float jitter_x = (object_unit(cell_hash, 0x41ULL) - 0.5f) * std::max(8.0f, cell_size_px - TREE_EDGE_PADDING_PX * 2.0f);
-			const float jitter_y = (object_unit(cell_hash, 0x53ULL) - 0.5f) * std::max(8.0f, cell_size_px - TREE_EDGE_PADDING_PX * 2.0f);
+			const float jitter_x = (object_unit(cell_hash, 0x41ULL) - 0.5f) * std::max(8.0f, cell_size_px - p_tree_settings.edge_padding_px * 2.0f);
+			const float jitter_y = (object_unit(cell_hash, 0x53ULL) - 0.5f) * std::max(8.0f, cell_size_px - p_tree_settings.edge_padding_px * 2.0f);
 			const float local_x = (static_cast<float>(grid_x) + 0.5f) * cell_size_px + jitter_x;
 			const float local_y = (static_cast<float>(grid_y) + 0.5f) * cell_size_px + jitter_y;
-			if (local_x < TREE_EDGE_PADDING_PX ||
-					local_y < TREE_EDGE_PADDING_PX ||
-					local_x > static_cast<float>(CHUNK_SIZE_PX) - TREE_EDGE_PADDING_PX ||
-					local_y > static_cast<float>(CHUNK_SIZE_PX) - TREE_EDGE_PADDING_PX ||
+			if (local_x < p_tree_settings.edge_padding_px ||
+					local_y < p_tree_settings.edge_padding_px ||
+					local_x > static_cast<float>(CHUNK_SIZE_PX) - p_tree_settings.edge_padding_px ||
+					local_y > static_cast<float>(CHUNK_SIZE_PX) - p_tree_settings.edge_padding_px ||
 					!object_position_is_plain(local_x, local_y, p_terrain_ids, p_lake_flags) ||
 					!object_position_has_mountain_clearance(local_x, local_y, p_terrain_ids, OBJECT_MOUNTAIN_CLEARANCE_PX)) {
 				continue;
@@ -1221,13 +1280,13 @@ void append_native_tree_placements(
 			const float tree_world_y = static_cast<float>(static_cast<int64_t>(p_coord.y) * CHUNK_SIZE_PX) + local_y;
 			if (grass_scatter::sample_grass_density(
 						tree_world_x, tree_world_y,
-						TREE_GRASS_FIELD_SCALE_PX, TREE_GRASS_COVERAGE,
-						TREE_ROCK_FIELD_SCALE_PX, TREE_ROCK_COVERAGE,
-						TREE_MACRO_MASS_SCALE_PX, TREE_MACRO_MASS_STRENGTH) *
+						p_tree_settings.grass_field_scale_px, p_tree_settings.grass_coverage,
+						p_tree_settings.rock_field_scale_px, p_tree_settings.rock_coverage,
+						p_tree_settings.macro_mass_scale_px, p_tree_settings.macro_mass_strength) *
 						grass_scatter::sample_path(
 								tree_world_x, tree_world_y,
-								TREE_PATH_SCALE_PX, TREE_PATH_WIDTH,
-								TREE_PATH_WARP_PX, TREE_PATH_STRENGTH) < TREE_GRASS_DENSITY_MIN) {
+								p_tree_settings.path_scale_px, p_tree_settings.path_width,
+								p_tree_settings.path_warp_px, p_tree_settings.path_strength) < p_tree_settings.grass_density_min) {
 				continue;
 			}
 			bool too_close = false;
@@ -1246,12 +1305,12 @@ void append_native_tree_placements(
 			const float tier_roll = object_unit(cell_hash, 0x6bULL);
 			const float size_roll = object_unit(cell_hash, 0x71ULL);
 			float size_px;
-			if (tier_roll < TREE_HERO_CHANCE) {
-				size_px = lerp_float(TREE_MAX_SIZE_PX, TREE_HERO_SIZE_PX, size_roll);
-			} else if (tier_roll < TREE_HERO_CHANCE + TREE_SMALL_CHANCE) {
-				size_px = lerp_float(TREE_SMALL_SIZE_PX * 0.9f, TREE_SMALL_SIZE_PX, size_roll);
+			if (tier_roll < p_tree_settings.hero_chance) {
+				size_px = lerp_float(p_tree_settings.max_size_px, p_tree_settings.hero_size_px, size_roll);
+			} else if (tier_roll < p_tree_settings.hero_chance + p_tree_settings.small_chance) {
+				size_px = lerp_float(p_tree_settings.small_size_px * 0.9f, p_tree_settings.small_size_px, size_roll);
 			} else {
-				size_px = lerp_float(TREE_MIN_SIZE_PX, TREE_MAX_SIZE_PX, size_roll);
+				size_px = lerp_float(p_tree_settings.min_size_px, p_tree_settings.max_size_px, size_roll);
 			}
 			const float tint = lerp_float(0.90f, 1.0f, object_unit(cell_hash, 0x67ULL));
 			const float phase = object_unit(cell_hash, 0x157ULL);
@@ -1384,7 +1443,8 @@ void append_native_object_placements(
 	Vector2i p_coord,
 	int64_t p_world_version,
 	const PackedInt32Array &p_terrain_ids,
-	const PackedByteArray &p_lake_flags
+	const PackedByteArray &p_lake_flags,
+	const TreePlacementSettings &p_tree_settings
 ) {
 	bool used_rock_variants[ROCK_ATLAS_COUNT][ROCK_FRAME_COUNT] = {};
 	const float rock_cell_size_px = static_cast<float>(CHUNK_SIZE_PX) / static_cast<float>(ROCK_SCATTER_GRID_SIDE);
@@ -1567,7 +1627,7 @@ void append_native_object_placements(
 		++biofield_seaweed_count;
 	}
 
-	append_native_tree_placements(r_buffers, p_seed, p_coord, p_world_version, p_terrain_ids, p_lake_flags);
+	append_native_tree_placements(r_buffers, p_seed, p_coord, p_world_version, p_terrain_ids, p_lake_flags, p_tree_settings);
 }
 
 int32_t make_satellite_outcrop_mountain_id(uint64_t p_hash) {
@@ -2063,6 +2123,96 @@ LakeSettings unpack_lake_settings(int64_t p_world_version, const PackedFloat32Ar
 	return settings;
 }
 
+TreePlacementSettings unpack_tree_settings(const PackedFloat32Array &p_settings_packed) {
+	TreePlacementSettings settings;
+	if (p_settings_packed.size() < SETTINGS_PACKED_LAYOUT_TREE_FIELD_COUNT) {
+		return settings;
+	}
+	settings.density = world_utils::clamp_value(
+		p_settings_packed[SETTINGS_PACKED_LAYOUT_TREE_DENSITY],
+		0.0f,
+		1.0f
+	);
+	settings.scatter_grid_side = world_utils::clamp_value<int32_t>(
+		static_cast<int32_t>(std::lround(p_settings_packed[SETTINGS_PACKED_LAYOUT_TREE_SCATTER_GRID_SIDE])),
+		1,
+		16
+	);
+	settings.edge_padding_px = std::max(0.0f, p_settings_packed[SETTINGS_PACKED_LAYOUT_TREE_EDGE_PADDING_PX]);
+	settings.min_distance_px = std::max(0.0f, p_settings_packed[SETTINGS_PACKED_LAYOUT_TREE_MIN_DISTANCE_PX]);
+	settings.max_per_chunk = world_utils::clamp_value<int32_t>(
+		static_cast<int32_t>(std::lround(p_settings_packed[SETTINGS_PACKED_LAYOUT_TREE_MAX_PER_CHUNK])),
+		0,
+		128
+	);
+	settings.min_size_px = world_utils::clamp_value(
+		p_settings_packed[SETTINGS_PACKED_LAYOUT_TREE_MIN_SIZE_PX],
+		1.0f,
+		254.0f
+	);
+	settings.max_size_px = world_utils::clamp_value(
+		p_settings_packed[SETTINGS_PACKED_LAYOUT_TREE_MAX_SIZE_PX],
+		settings.min_size_px,
+		254.0f
+	);
+	settings.small_chance = world_utils::clamp_value(
+		p_settings_packed[SETTINGS_PACKED_LAYOUT_TREE_SMALL_CHANCE],
+		0.0f,
+		1.0f
+	);
+	settings.small_size_px = world_utils::clamp_value(
+		p_settings_packed[SETTINGS_PACKED_LAYOUT_TREE_SMALL_SIZE_PX],
+		1.0f,
+		254.0f
+	);
+	settings.hero_chance = world_utils::clamp_value(
+		p_settings_packed[SETTINGS_PACKED_LAYOUT_TREE_HERO_CHANCE],
+		0.0f,
+		1.0f
+	);
+	settings.hero_size_px = world_utils::clamp_value(
+		p_settings_packed[SETTINGS_PACKED_LAYOUT_TREE_HERO_SIZE_PX],
+		1.0f,
+		254.0f
+	);
+	settings.grass_density_min = world_utils::clamp_value(
+		p_settings_packed[SETTINGS_PACKED_LAYOUT_TREE_GRASS_DENSITY_MIN],
+		0.0f,
+		1.0f
+	);
+	settings.grass_field_scale_px = std::max(1.0f, p_settings_packed[SETTINGS_PACKED_LAYOUT_TREE_GRASS_FIELD_SCALE_PX]);
+	settings.grass_coverage = world_utils::clamp_value(
+		p_settings_packed[SETTINGS_PACKED_LAYOUT_TREE_GRASS_COVERAGE],
+		0.0f,
+		1.0f
+	);
+	settings.rock_field_scale_px = std::max(1.0f, p_settings_packed[SETTINGS_PACKED_LAYOUT_TREE_ROCK_FIELD_SCALE_PX]);
+	settings.rock_coverage = world_utils::clamp_value(
+		p_settings_packed[SETTINGS_PACKED_LAYOUT_TREE_ROCK_COVERAGE],
+		0.0f,
+		1.0f
+	);
+	settings.macro_mass_scale_px = std::max(1.0f, p_settings_packed[SETTINGS_PACKED_LAYOUT_TREE_MACRO_MASS_SCALE_PX]);
+	settings.macro_mass_strength = world_utils::clamp_value(
+		p_settings_packed[SETTINGS_PACKED_LAYOUT_TREE_MACRO_MASS_STRENGTH],
+		0.0f,
+		1.0f
+	);
+	settings.path_scale_px = std::max(1.0f, p_settings_packed[SETTINGS_PACKED_LAYOUT_TREE_PATH_SCALE_PX]);
+	settings.path_width = world_utils::clamp_value(
+		p_settings_packed[SETTINGS_PACKED_LAYOUT_TREE_PATH_WIDTH],
+		0.0f,
+		1.0f
+	);
+	settings.path_warp_px = std::max(0.0f, p_settings_packed[SETTINGS_PACKED_LAYOUT_TREE_PATH_WARP_PX]);
+	settings.path_strength = world_utils::clamp_value(
+		p_settings_packed[SETTINGS_PACKED_LAYOUT_TREE_PATH_STRENGTH],
+		0.0f,
+		1.0f
+	);
+	return settings;
+}
+
 int64_t expected_settings_count_for_version(int64_t p_world_version) {
 	return p_world_version >= WORLD_FOUNDATION_VERSION ?
 			SETTINGS_PACKED_LAYOUT_FIELD_COUNT :
@@ -2358,7 +2508,8 @@ Dictionary WorldCore::_generate_chunk_packet(
 	const mountain_field::Evaluator &p_mountain_evaluator,
 	const mountain_field::Settings &p_effective_mountain_settings,
 	const FoundationSettings &p_foundation_settings,
-	const LakeSettings &p_lake_settings
+	const LakeSettings &p_lake_settings,
+	const PackedFloat32Array &p_settings_packed
 ) {
 	p_coord = canonicalize_chunk_coord(p_coord, p_foundation_settings);
 	PackedInt32Array terrain_ids;
@@ -3345,13 +3496,15 @@ Dictionary WorldCore::_generate_chunk_packet(
 	}
 
 	WorldObjectPacketBuffers object_buffers;
+	const TreePlacementSettings tree_settings = unpack_tree_settings(p_settings_packed);
 	append_native_object_placements(
 		object_buffers,
 		p_seed,
 		p_coord,
 		p_world_version,
 		terrain_ids,
-		lake_flags
+		lake_flags,
+		tree_settings
 	);
 
 	Dictionary packet;
@@ -3386,7 +3539,7 @@ Dictionary WorldCore::resolve_world_foundation_spawn_tile(
 		return make_failure_result("World foundation spawn resolution requires world foundation version.");
 	}
 	const int64_t expected_settings_count = expected_settings_count_for_version(p_world_version);
-	if (p_settings_packed.size() != expected_settings_count) {
+	if (p_settings_packed.size() < expected_settings_count) {
 		return make_failure_result("World foundation spawn resolution received an invalid settings payload size.");
 	}
 	if (!mountain_field::uses_hierarchical_labeling(p_world_version)) {
@@ -3472,7 +3625,7 @@ Array WorldCore::generate_chunk_packets_batch(
 
 	const int64_t expected_settings_count = expected_settings_count_for_version(p_world_version);
 	ERR_FAIL_COND_V_MSG(
-		p_settings_packed.size() != expected_settings_count,
+		p_settings_packed.size() < expected_settings_count,
 		Array{},
 		"WorldCore.generate_chunk_packets_batch received an invalid settings payload size."
 	);
@@ -3554,7 +3707,8 @@ Array WorldCore::generate_chunk_packets_batch(
 				mountain_evaluator,
 				effective_mountain_settings,
 				foundation_settings,
-				lake_settings
+				lake_settings,
+				p_settings_packed
 			);
 		}
 	}

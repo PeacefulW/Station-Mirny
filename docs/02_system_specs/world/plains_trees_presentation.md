@@ -219,8 +219,10 @@ material/profile, tunable without code.
 ## Data Model
 
 Tree content rides the existing object placement and terrain-presentation data
-models. Exact class names are finalized in implementation and documented in
-`packet_schemas.md` in the same task.
+models. Placement tuning is authored in
+`data/world_objects/placement_groups/plains_trees.tres`
+(`PlainsTreePlacementSettings`) and frozen into the per-save
+`worldgen_settings.plains_trees` copy when a new world is created.
 
 ### World object definition
 
@@ -232,10 +234,11 @@ e.g. `core:plains_tree`. `category = "flora"`, `biome_tags` includes `plains`,
 
 ### Placement set
 
-A `PlacementSetData` `core:plains_trees`: object ids, authored `density`,
-`min_spacing_tiles`, terrain allow/deny tags (plains ground only, mountain/lake/
-rock-patch denied), and `deterministic_salt`. Authored density targets a
-**walkable** forest (open ground between trees) by default.
+A `PlainsTreePlacementSettings` resource `core:plains_trees`: authored
+`density`, scatter grid, optional per-chunk cap, spacing, edge padding, size
+tiers, and the plains-grass placement mask threshold. The checked-in default is
+`data/world_objects/placement_groups/plains_trees.tres`. Authored density
+targets a **walkable** forest (open ground between trees) by default.
 
 ### Object packet extension
 
@@ -286,8 +289,10 @@ generator tool. Runtime preloads the PNG only; runtime atlas painting forbidden.
 `WorldCore` emits tree records in the per-chunk object packet (one packet per
 chunk, byte-packed). No per-tile or per-object boundary calls. Placement is a
 pure function of seed / version / chunk / settings / content set (LAW 3); it
-reads deterministic world fields and terrain tags only, never scene/player/save
-state.
+reads deterministic world fields and terrain tags only, never scene/player/
+runtime-diff state. For current worlds, the tree portion of `settings` is the
+saved `worldgen_settings.plains_trees` copy packed into native
+`settings_packed[22..43]`; load must not re-read the repository `.tres`.
 
 ### Presentation: per-stripe batch on the shared ladder
 
@@ -336,10 +341,13 @@ None in V0. The harvest iteration must update `event_contracts.md` if it adds
 
 ## Save / Persistence Contracts
 
-None in V0. Tree placements are immutable base output, recreated from seed +
-`world_version` (LAW 5). The harvest iteration persists only runtime diff
-entries (removed / changed generated instances) keyed by stable / deterministic
-instance identity, never display names or asset paths.
+Tree placements are immutable base output, recreated from seed +
+`world_version` + `worldgen_settings.plains_trees` (LAW 5). New worlds read the
+checked-in `.tres` once, then write the frozen tuning copy into `world.json`.
+Current-version load requires `worldgen_settings.plains_trees` and does not
+inject defaults from the repository resource. The harvest iteration persists
+only runtime diff entries (removed / changed generated instances) keyed by
+stable / deterministic instance identity, never display names or asset paths.
 
 ## Performance Class
 
@@ -363,7 +371,9 @@ instance identity, never display names or asset paths.
 - New tree / bush / flora type = a new `WorldObjectData` + atlas + placement set
   entry. It inherits depth, wind, and shadow from the shared systems with **no
   new depth code** — the explicit scalability goal of this spec.
-- Look / density / palette tuning is authored data, not code constants.
+- Look / density / palette tuning is authored data, not code constants. Plains
+  tree density and spacing are tuned in
+  `data/world_objects/placement_groups/plains_trees.tres`.
 - A future biome adds its own tree presentation profile + placement set; native
   placement takes field params from authored data, not hardcoded plains numbers.
 
@@ -451,6 +461,19 @@ This design is wrong if:
   `object_size_px` extension), `world_object_placement_v0.md` cross-reference,
   `world_version` bump note.
 
+### Iteration 2a — Placement profile resource
+
+- `core/resources/plains_tree_placement_settings.gd` owns the save shape and
+  native packed layout for plains tree placement settings.
+- `data/world_objects/placement_groups/plains_trees.tres` is the checked-in
+  authoring source for new worlds.
+- `WorldStreamer` freezes the profile into
+  `worldgen_settings.plains_trees`; native `WorldCore` reads packed indices
+  `22..43`.
+- `WorldRuntimeConstants.WORLD_VERSION` advances to `60` because same seed /
+  version / settings can now intentionally produce different tree placement
+  when the authored profile changes before new-world creation.
+
 ### Iteration 3 — Collision (optional) + tuning
 
 - Optional chunk-scoped static collision at the trunk base (large-rock proof
@@ -468,12 +491,14 @@ This design is wrong if:
 
 - `docs/README.md` and `docs/02_system_specs/README.md`: link this spec (done
   with spec landing).
-- `packet_schemas.md`: required when the native tree packet value lands
-  (Iteration 2), including any `object_size_px` change.
+- `packet_schemas.md`: updated for the tree packet family and
+  `worldgen_settings.plains_trees`.
 - `world_object_placement_v0.md`: cross-reference this spec for the tree family
   (Iteration 2).
-- `world_version` (`WorldRuntimeConstants.WORLD_VERSION`): bump when tree
-  placement enters canonical output (Iteration 2, LAW 4).
-- `system_api.md`: only if a public read surface is added (not in V0).
-- `event_contracts.md`, `commands.md`, `save_and_persistence.md`: required at
-  the harvest iteration (Iteration 4), not before — recheck at each iteration.
+- `world_version` (`WorldRuntimeConstants.WORLD_VERSION`): bumped to `60` for
+  the data-driven tree placement profile.
+- `system_api.md`: updated for the optional new-world tree profile argument and
+  settings resource.
+- `save_and_persistence.md`: updated for frozen per-save tree settings.
+- `event_contracts.md`, `commands.md`: required at the harvest iteration
+  (Iteration 4), not before; recheck at each iteration.

@@ -446,7 +446,7 @@ Confirmed readable entrypoints:
 |---|---|---|
 | `get_world_seed()` | `int` | Current deterministic world seed |
 | `get_world_version()` | `int` | Current canonical world version |
-| `save_world_state()` | `Dictionary` | World save payload for `world.json`, including embedded `worldgen_settings.world_bounds`, `worldgen_settings.foundation`, `worldgen_settings.mountains`, `worldgen_settings.lakes`, and optional `worldgen_signature` |
+| `save_world_state()` | `Dictionary` | World save payload for `world.json`, including embedded `worldgen_settings.world_bounds`, `worldgen_settings.foundation`, `worldgen_settings.mountains`, `worldgen_settings.lakes`, `worldgen_settings.plains_trees`, and optional `worldgen_signature` |
 | `collect_chunk_diffs()` | `Array[Dictionary]` | Serialized dirty chunk entries |
 | `get_chunk_packet(chunk_coord: Vector2i)` | `Dictionary` | Loaded chunk packet or `{}`; read-only world-domain lookup for `MountainResolver` |
 | `get_mountain_cover_sample(world_tile: Vector2i)` | `Dictionary` | Read-only cover sample for one tile: `mountain_id`, `mountain_flags`, `component_id`, `is_opening`, `walkable` |
@@ -459,9 +459,9 @@ Confirmed mutation entrypoints:
 
 | Surface | Notes |
 |---|---|
-| `initialize_new_world(seed_value: int, settings: MountainGenSettings, world_bounds: WorldBoundsSettings = null, foundation_settings: FoundationGenSettings = null, lake_settings: LakeGenSettings = null)` | New-game entrypoint; freezes mountain, finite-bounds, foundation, and lake settings into packed/native form and then delegates to `reset_for_new_game(...)` |
+| `initialize_new_world(seed_value: int, settings: MountainGenSettings, world_bounds: WorldBoundsSettings = null, foundation_settings: FoundationGenSettings = null, lake_settings: LakeGenSettings = null, plains_tree_settings: PlainsTreePlacementSettings = null)` | New-game entrypoint; freezes mountain, finite-bounds, foundation, lake, and plains tree placement settings into packed/native form and then delegates to `reset_for_new_game(...)` |
 | `reset_for_new_game(seed, version)` | Clears runtime state, queues native foundation spawn resolution for `world_version >= 9`, applies the resolved new-game spawn tile to the local player before streaming chunks, and emits `world_initialized` |
-| `load_world_state(data: Dictionary) -> bool` | Restores only current-version `world.json` payloads. Returns `false` before mutating runtime state when `world_version` is missing/non-current or the current `worldgen_settings` shape is incomplete; on success restores `world_seed` / `world_version`, rebuilds `worldgen_settings.world_bounds`, `worldgen_settings.foundation`, `worldgen_settings.mountains`, and `worldgen_settings.lakes` from `world.json`, and clears runtime state |
+| `load_world_state(data: Dictionary) -> bool` | Restores only current-version `world.json` payloads. Returns `false` before mutating runtime state when `world_version` is missing/non-current or the current `worldgen_settings` shape is incomplete; on success restores `world_seed` / `world_version`, rebuilds `worldgen_settings.world_bounds`, `worldgen_settings.foundation`, `worldgen_settings.mountains`, `worldgen_settings.lakes`, and `worldgen_settings.plains_trees` from `world.json`, and clears runtime state |
 | `load_chunk_diffs(entries: Array)` | Loads serialized chunk diffs into `WorldDiffStore` |
 | `try_harvest_at_world(world_pos: Vector2)` | Single-tile harvest path; converts one nearest qualifying diggable surface tile into its dug state and rejects diagonal-only sealed rock |
 | `set_active_mountain_component(mountain_id: int, component_id: int)` | World-domain cover selection surface used by `MountainResolver` to switch between outside state and one active cavity |
@@ -476,16 +476,17 @@ Not documented here as safe entrypoints:
 - direct mutation of native packet dictionaries outside the documented methods
 - mutation of dictionaries returned by `get_chunk_packet()`
 
-### World Bounds, Foundation, and Lake Settings
+### World Bounds, Foundation, Lake, and Plains Tree Settings
 
 Owner files:
 - `core/resources/world_bounds_settings.gd`
 - `core/resources/foundation_gen_settings.gd`
 - `core/resources/lake_gen_settings.gd`
+- `core/resources/plains_tree_placement_settings.gd`
 
 Role:
-- data resources for finite cylindrical bounds, V1 foundation settings, and
-  current lake-generation settings
+- data resources for finite cylindrical bounds, V1 foundation settings, current
+  lake-generation settings, and plains tree placement tuning
 
 Confirmed readable entrypoints:
 
@@ -501,6 +502,9 @@ Confirmed readable entrypoints:
 | `LakeGenSettings.to_save_dict()` | `Dictionary` | Writes lake settings into `world.json` |
 | `LakeGenSettings.from_save_dict(data: Dictionary)` | `LakeGenSettings` | Rebuilds lake settings from `world.json` |
 | `LakeGenSettings.write_to_settings_packed(settings_packed: PackedFloat32Array)` | `PackedFloat32Array` | Appends Lake Generation indices `15-21` to the native settings packet |
+| `PlainsTreePlacementSettings.to_save_dict()` | `Dictionary` | Writes plains tree placement settings into `world.json` |
+| `PlainsTreePlacementSettings.from_save_dict(data: Dictionary)` | `PlainsTreePlacementSettings` | Rebuilds plains tree placement settings from `world.json` |
+| `PlainsTreePlacementSettings.write_to_settings_packed(settings_packed: PackedFloat32Array)` | `PackedFloat32Array` | Appends plains tree placement indices `22-43` to the native settings packet |
 
 Not documented here as safe entrypoints:
 - direct mutation of settings resources after `WorldStreamer` has frozen them

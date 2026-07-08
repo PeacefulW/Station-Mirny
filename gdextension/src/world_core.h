@@ -55,7 +55,8 @@ private:
 		const mountain_field::Evaluator &p_mountain_evaluator,
 		const mountain_field::Settings &p_effective_mountain_settings,
 		const ::FoundationSettings &p_foundation_settings,
-		const ::LakeSettings &p_lake_settings
+		const ::LakeSettings &p_lake_settings,
+		const PackedFloat32Array &p_settings_packed
 	);
 	const mountain_field::HierarchicalMacroSolve &_get_or_build_hierarchical_macro_solve(
 		int64_t p_seed,
