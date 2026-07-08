@@ -44,6 +44,11 @@ uniform float alpha_cutoff = 0.02;
 uniform float macro_field_scale_px = 2600.0;
 uniform float macro_warm_strength = 0.10;
 uniform float macro_dry_strength = 0.22;
+// Dev/probe overlay mode: lets the grass atlas test scene draw generated
+// shadow/snow atlases with the exact same wind deformation as the albedo pass.
+uniform float overlay_exact = 0.0;
+uniform float overlay_alpha = 1.0;
+uniform vec3 overlay_rgb = vec3(1.0, 1.0, 1.0);
 // Диагностика проб: 1.0 — рисовать значение gust-поля яркостью вместо травы.
 uniform float debug_gust_view = 0.0;
 
@@ -162,6 +167,9 @@ void fragment() {
 	if (atlas_color.a <= alpha_cutoff) {
 		discard;
 	}
+	if (overlay_exact > 0.5) {
+		COLOR = vec4(atlas_color.rgb * overlay_rgb, atlas_color.a * instance_data.a * overlay_alpha);
+	} else {
 	float tint = clamp(instance_data.g, 0.0, 1.35);
 	vec3 col = atlas_color.rgb * tint;
 	// Макро-вариация: два независимых крупных поля. Одно гонит тёплый сдвиг
@@ -175,5 +183,6 @@ void fragment() {
 	float luma = dot(col, vec3(0.299, 0.587, 0.114));
 	col = mix(col, vec3(luma) * vec3(1.07, 1.0, 0.84), smoothstep(0.55, 0.92, dry) * macro_dry_strength);
 	COLOR = vec4(col, atlas_color.a * instance_data.a);
+	}
 	}
 }

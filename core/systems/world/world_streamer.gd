@@ -219,9 +219,11 @@ var _pending_object_packet_visual_upload_set: Dictionary = { }
 var _pending_grass_scatter_visual_upload_chunks: Array[Vector2i] = []
 var _pending_grass_scatter_visual_upload_set: Dictionary = { }
 var _grass_scatter_material: ShaderMaterial = null
+var _grass_shadow_atlas_material: ShaderMaterial = null
 var _grass_shadow_material: ShaderMaterial = null
 var _grass_spore_material: ShaderMaterial = null
 var _grass_scatter_atlas: Texture2D = null
+var _grass_shadow_atlas: Texture2D = null
 var _grass_scatter_params: PackedFloat32Array = PackedFloat32Array()
 var _grass_lod_full_zoom: float = 0.8
 var _grass_lod_min_zoom: float = 0.18
@@ -1199,6 +1201,8 @@ func _ensure_grass_scatter_sources() -> void:
 	assert(grass_set != null and ground_set != null, "grass scatter material sets missing")
 	_grass_scatter_atlas = grass_set.get_texture_slot(&"grass_tuft_atlas")
 	assert(_grass_scatter_atlas != null, "grass_tuft_atlas missing in plains:grass_scatter_material")
+	_grass_shadow_atlas = grass_set.get_texture_slot(&"grass_tuft_shadow_atlas")
+	assert(_grass_shadow_atlas != null, "grass_tuft_shadow_atlas missing in plains:grass_scatter_material")
 	var grass_params: Dictionary = grass_set.sampling_params
 	var ground_params: Dictionary = ground_set.sampling_params
 	var material := ShaderMaterial.new()
@@ -1219,6 +1223,19 @@ func _ensure_grass_scatter_sources() -> void:
 	material.set_shader_parameter("local_dir_gust_gain", float(grass_params.get("local_dir_gust_gain", 0.9)))
 	material.set_shader_parameter("intra_tuft_flutter", float(grass_params.get("intra_tuft_flutter", 0.05)))
 	_grass_scatter_material = material
+	_grass_shadow_atlas_material = ShaderMaterial.new()
+	_grass_shadow_atlas_material.shader = shader_family.shader
+	_grass_shadow_atlas_material.set_shader_parameter("atlas_columns", float(grass_params.get("atlas_columns", 4.0)))
+	_grass_shadow_atlas_material.set_shader_parameter("atlas_rows", float(grass_params.get("atlas_rows", 4.0)))
+	_grass_shadow_atlas_material.set_shader_parameter("atlas_frame_count", float(grass_params.get("atlas_frame_count", 16.0)))
+	_grass_shadow_atlas_material.set_shader_parameter("wind_sway_fraction", 0.0)
+	_grass_shadow_atlas_material.set_shader_parameter("storm_lean_fraction", 0.0)
+	_grass_shadow_atlas_material.set_shader_parameter("intra_tuft_flutter", 0.0)
+	_grass_shadow_atlas_material.set_shader_parameter("overlay_exact", 1.0)
+	_grass_shadow_atlas_material.set_shader_parameter(
+		"overlay_alpha",
+		float(grass_params.get("directional_shadow_alpha", 0.88)),
+	)
 	_grass_shadow_material = ShaderMaterial.new()
 	_grass_shadow_material.shader = GRASS_SHADOW_SHADER
 	_grass_spore_material = ShaderMaterial.new()
@@ -1359,6 +1376,8 @@ func _mountain_native_mask_visual_apply_tick() -> bool:
 			_grass_scatter_params,
 			_grass_scatter_atlas,
 			_grass_scatter_material,
+			_grass_shadow_atlas,
+			_grass_shadow_atlas_material,
 			_grass_shadow_material,
 			_grass_spore_material,
 			_get_cached_mountain_solid_halo(chunk_coord).get("halo", PackedByteArray()) as PackedByteArray,

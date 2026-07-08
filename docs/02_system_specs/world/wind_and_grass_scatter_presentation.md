@@ -4,8 +4,8 @@ doc_type: system_spec
 status: approved
 owner: engineering+design
 source_of_truth: true
-version: 1.0
-last_updated: 2026-06-29
+version: 1.1
+last_updated: 2026-07-08
 related_docs:
   - ../../00_governance/ENGINEERING_STANDARDS.md
   - ../../00_governance/WORKFLOW.md
@@ -60,8 +60,9 @@ orange biofield cores. Wind strength is one shared truth: when later systems
   applied on the main thread with a single `multimesh.buffer` assignment.
 - A thin `ChunkView` grass scatter layer: low grass only, below the player and
   all object decor; no depth buckets, no collision, no save state.
-- Grass tuft atlas exported as a PNG asset by the procedural tuft generator
-  (tool path), preloaded at runtime.
+- Grass tuft atlas (albedo + directional shadow) baked as PNG assets by the
+  Blender tool pipeline (`tools/grass_atlas`, since v1.1; previously the
+  GDScript tuft painter), preloaded at runtime.
 - Wind vertex animation in one shared grass shader: per-instance random phase
   plus a scrolling world-position gust field (gradient noise) driven by the
   wind globals.
@@ -257,20 +258,33 @@ Four presentation-only treatments make the grass read as part of the surface
 rather than stickered sprites. All are derived, never persisted, and tuned by
 authored data:
 
-- **Grounded tuft atlas.** The procedural blade painter draws a vertical
-  colour gradient: a dark, desaturated, grounded-tone root (ambient occlusion
-  + soft earth->grass transition) up to a lighter tip. Tufts are low and
-  splayed (steppe clumps, not vertical flames). Frame variety is authored by
-  in-bank frame type (bloom / sparse clump / dense / normal) so the field is
-  not stamped from one silhouette. Roots stay anchored at the frame bottom
-  (wind contract).
+- **Grounded tuft atlas.** Since v1.1 the atlas is baked in Blender with the
+  layered-tree camera family (ORTHO, ~28° elevation): blade roots scatter in
+  depth on uneven soil, so the silhouette base is ragged instead of a
+  ruler-flat cut, and far blades sink into darker shade tiers (the painted
+  understory of the old generator, now geometric). Blade colour still ramps
+  dark grounded root -> lighter tip. Frame variety is authored by in-bank
+  frame type (standard+blooms / sparse / dense / tall-lean) so the field is
+  not stamped from one silhouette. The root band sits in the lower quarter of
+  the frame near the quad bottom (wind contract: sway weight at the root band
+  stays negligible), leaving the band below it for the baked ground-shadow
+  zone in the paired shadow atlas.
 - **Grass-ladder ground backing.** The ground material's grass-texture
   thresholds are tuned so the density range where native places tufts is
   already a grass carpet — tufts grow out of grass, not bare soil. Same
   `grass_density` field feeds both, so they stay synchronized.
-- **Contact-shadow blobs.** Native emits one flat shadow blob under larger
-  tufts (`shadow_buffer`), rendered as a single layer below the whole grass
-  ladder (`Z_GRASS_SHADOW`), pressing clumps onto the ground.
+- **Directional baked shadows.** Each atlas frame has a paired frame in
+  `grass_tuft_shadow_atlas` (Cycles shadow-catcher pass, shared fixed sun:
+  azimuth 315°, elevation 42° — same screen north-east direction as the
+  layered tree shadows). `ChunkView` draws them as per-stripe
+  `MultiMeshInstance2D` layers that share the tuft multimesh buffers
+  (`Z_GRASS_SHADOW + 1`, `overlay_exact` material with wind zeroed), so
+  shadows stay glued to their tufts at zero extra buffer cost.
+- **Contact-shadow blobs (fallback).** Native still emits flat shadow blobs
+  under larger tufts (`shadow_buffer`); the blob layer at `Z_GRASS_SHADOW`
+  renders them only when the material set has no shadow atlas wired
+  (`shadow_alpha`/`shadow_size_scale` are zeroed while the baked directional
+  shadows are active).
 - **Biofield spores.** Native emits sparse motes above strong `orange_region`
   cores (`spore_buffer`), rendered above the grass (`Z_GRASS_SPORE`) with a
   cold bioluminescent additive glow that drifts on the same wind globals.
@@ -336,7 +350,7 @@ Grass presentation rides the existing terrain presentation data model
 `terrain_ids`, like `lake:water_surface_profile`):
 
 - `TerrainMaterialSet` `plains:grass_scatter_material`
-  - `extra_textures`: `grass_tuft_atlas`
+  - `extra_textures`: `grass_tuft_atlas`, `grass_tuft_shadow_atlas`
   - `sampling_params`: tuft size ranges, low/mid band split, per-band density,
     height scale (V0 target: low+mid only, height scale ~0.6-0.8), wind max
     amplitude px, gust field scale/anisotropy/speed multipliers, orange tint, instance cap
@@ -378,19 +392,39 @@ field sampling; `randf` is forbidden.
 
 ### Grass tuft atlas asset
 
-The procedural tuft painter from the dev scene moves into a tool/export path
-(generator-first authoring). Export target:
+Since v1.1 the atlas is authored by the Blender bake pipeline in
+`tools/grass_atlas` (generator-first authoring stays: sliders live in
+`grass_tuft_bake_profile.json`, no hand-painted sprites). It follows the
+layered tree bake contract family (`station_peaceful_layered_asset_bake_v1`):
+shared fixed sun, angled ORTHO camera, Cycles shadow-catcher pass. Export
+targets:
 
 ```text
 assets/textures/world/biomes/plains/flora/grass_tuft_atlas.png
+assets/textures/world/biomes/plains/flora/grass_tuft_shadow_atlas.png
 ```
 
-Fixed frame grid (4 columns x 8 rows, frame 72x104): rows 0-3 are the dry
+Regeneration (bake frames, pack atlases + derived wind/snow/season masks into
+`artifacts/blender_grass_tufts`, then copy the albedo/shadow atlases onto the
+export targets above — the bake never writes into `assets/` by itself):
+
+```text
+blender -b --factory-startup -P tools/grass_atlas/blender_grass_tuft_bake.py -- \
+  --out-dir artifacts/blender_grass_tufts/frames
+python tools/grass_atlas/postprocess_grass_tuft_atlas.py \
+  --frames-dir artifacts/blender_grass_tufts/frames \
+  --out-dir artifacts/blender_grass_tufts
+```
+
+Fixed frame grid (4 columns x 8 rows, frame 160x120): rows 0-3 are the dry
 steppe palette (frames 0-15), rows 4-7 are the orange biofield palette
 (frames 16-31). Native placement picks the biofield bank inside strong
-`orange_region`; the dry bank elsewhere. Alpha background, tuft roots
-anchored at the frame bottom. Runtime only preloads the PNG; runtime atlas
-painting is forbidden.
+`orange_region`; the dry bank elsewhere. Alpha background; the ragged tuft
+root band sits in the lower quarter of the frame, the remaining lower band
+belongs to the baked directional shadow (shadow atlas frames share the same
+grid and camera, so both textures map one quad). Runtime only preloads the
+PNGs; runtime atlas painting is forbidden. Contract checks:
+`tools/grass_atlas/test_grass_tuft_bake_contract.py`.
 
 ## Runtime Architecture
 
@@ -528,8 +562,9 @@ V0 is acceptable when:
   GDScript loop over tuft instances (static check);
 - grass publish goes through the bounded decorative path and never blocks
   chunk reveal;
-- the grass atlas is a checked-in PNG produced by the generator tool; no
-  runtime atlas painting;
+- the grass atlases (albedo + directional shadow) are checked-in PNGs
+  produced by the Blender bake pipeline (`tools/grass_atlas`); no runtime
+  atlas painting;
 - placement is identical for identical seed/version/chunk/params (re-run
   probe);
 - removing the grass layer entirely leaves gameplay, saves, and other systems

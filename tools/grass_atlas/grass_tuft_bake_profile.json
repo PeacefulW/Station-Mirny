@@ -1,0 +1,115 @@
+{
+	"profile_id": "station_peaceful_grass_tuft_bake_v1",
+	"inherits_profile_id": "station_peaceful_layered_asset_bake_v1",
+	"version": 1,
+	"atlas": {
+		"columns": 4,
+		"rows": 8,
+		"frame_count": 32,
+		"dry_frame_count": 16,
+		"biofield_frame_base": 16,
+		"frame_width": 160,
+		"frame_height": 120
+	},
+	"lighting": {
+		"sun_azimuth_degrees": 315.0,
+		"albedo_sun_elevation_degrees": 52.0,
+		"shadow_sun_elevation_degrees": 42.0,
+		"albedo_sun_energy": 2.0,
+		"shadow_sun_energy": 3.5,
+		"fill_energy": 28.0,
+		"fill_size": 4.0,
+		"fixed_shadow_direction": "screen_north_east"
+	},
+	"camera": {
+		"type": "ORTHO",
+		"elevation_degrees": 28.0,
+		"distance": 2.4,
+		"ortho_scale": 0.78,
+		"anchor_x_fraction": 0.42,
+		"anchor_y_fraction": 0.75
+	},
+	"tuft": {
+		"spread_x": 0.18,
+		"depth_y": 0.11,
+		"height_min": 0.18,
+		"height_max": 0.35,
+		"blade_width_min": 0.006,
+		"blade_width_max": 0.016,
+		"root_z_min": -0.02,
+		"root_z_max": 0.005,
+		"droop_min": 0.03,
+		"droop_max": 0.16,
+		"clump_count_min": 1,
+		"clump_count_max": 3,
+		"clump_sigma": 0.05,
+		"shade_tiers": [1.0, 0.85, 0.68, 0.54],
+		"blade_count_ranges": {
+			"standard": [18, 26],
+			"sparse": [8, 13],
+			"dense": [28, 38],
+			"tall": [14, 20]
+		},
+		"broadleaf_chance": 0.08,
+		"broadleaf_width_scale": 1.6,
+		"broadleaf_height_scale": 0.7,
+		"bloom_radius_min": 0.007,
+		"bloom_radius_max": 0.012,
+		"biofield_extra_blades": 3,
+		"biofield_extra_height": 0.02
+	},
+	"palette": {
+		"source_reference": "assets/textures/world/biomes/plains/flora/grass_tuft_atlas.png",
+		"dry_blade_ramps": [
+			{"root": [92, 54, 30], "mid": [170, 86, 30], "tip": [218, 130, 50]},
+			{"root": [116, 73, 38], "mid": [197, 109, 39], "tip": [231, 149, 62]},
+			{"root": [78, 45, 28], "mid": [142, 77, 34], "tip": [202, 117, 47]},
+			{"root": [132, 88, 48], "mid": [188, 116, 55], "tip": [224, 146, 70]}
+		],
+		"biofield_blade_ramps": [
+			{"root": [82, 39, 25], "mid": [178, 61, 24], "tip": [229, 88, 34]},
+			{"root": [108, 50, 28], "mid": [207, 74, 26], "tip": [246, 105, 42]},
+			{"root": [74, 35, 24], "mid": [151, 55, 28], "tip": [213, 83, 38]},
+			{"root": [125, 59, 31], "mid": [189, 71, 26], "tip": [235, 98, 39]}
+		],
+		"bloom_rgb": [[242, 148, 34], [255, 178, 43]]
+	},
+	"render": {
+		"engine": "BLENDER_EEVEE_NEXT",
+		"shadow_engine": "CYCLES",
+		"samples": 64,
+		"use_denoising": true,
+		"transparent_film": true,
+		"view_transform": "Standard",
+		"look": "None",
+		"exposure": 0.0,
+		"gamma": 1.0,
+		"color_mode": "RGBA"
+	},
+	"postprocess": {
+		"albedo_grade_rgb_multiply": [1.0, 0.68, 0.38],
+		"shadow_rgb": [15, 11, 7],
+		"fake_shadow_rgb": [18, 13, 8],
+		"processed_shadow_thresholds": [3, 5, 7, 9],
+		"shadow_edge_fade_px": 5,
+		"snow_rgb": [242, 237, 224],
+		"winter_leaf_rgb": [142, 132, 113]
+	},
+	"runtime": {
+		"target": "grass_scatter_multimesh",
+		"replace_live_runtime_asset": false,
+		"sun_shadow_mode": "blender_baked_fixed_north_east",
+		"dynamic_light_shadows": "not_for_individual_grass_tufts",
+		"normal_maps_generated": false
+	},
+	"outputs": [
+		"grass_tuft_albedo_atlas.png",
+		"grass_tuft_shadow_atlas.png",
+		"grass_tuft_wind_mask_atlas.png",
+		"grass_tuft_snow_mask_atlas.png",
+		"grass_tuft_snow_overlay_atlas.png",
+		"grass_tuft_season_mask_atlas.png",
+		"preview_panel.png",
+		"meta.json"
+	]
+}

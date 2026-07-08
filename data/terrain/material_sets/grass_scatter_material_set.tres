@@ -1,29 +1,32 @@
-[gd_resource type="Resource" script_class="TerrainMaterialSet" load_steps=3 format=3]
+[gd_resource type="Resource" script_class="TerrainMaterialSet" load_steps=4 format=3]
 
 [ext_resource type="Script" path="res://data/terrain/terrain_material_set.gd" id="1"]
 [ext_resource type="Texture2D" path="res://assets/textures/world/biomes/plains/flora/grass_tuft_atlas.png" id="2"]
+[ext_resource type="Texture2D" path="res://assets/textures/world/biomes/plains/flora/grass_tuft_shadow_atlas.png" id="3"]
 
 [resource]
 script = ExtResource("1")
 id = &"plains:grass_scatter_material"
 shader_family_id = &"terrain.grass_scatter"
 extra_textures = {
-&"grass_tuft_atlas": ExtResource("2")
+&"grass_tuft_atlas": ExtResource("2"),
+&"grass_tuft_shadow_atlas": ExtResource("3")
 }
 sampling_params = {
-"alpha_max": 0.97,
-"alpha_min": 0.82,
+"alpha_max": 0.95,
+"alpha_min": 1.0,
 "atlas_columns": 4.0,
 "atlas_frame_count": 32.0,
 "atlas_rows": 8.0,
-"base_tint_max": 1.16,
-"base_tint_min": 0.8,
+"base_tint_max": 1.28,
+"base_tint_min": 0.55,
 "candidate_grid_side": 80.0,
-"density_scale": 1.35,
+"density_scale": 5.0,
+"directional_shadow_alpha": 0.72,
 "dry_frame_count": 16.0,
-"height_scale": 0.58,
+"height_scale": 1.0,
 "instance_cap": 8192.0,
-"intra_tuft_flutter": 0.05,
+"intra_tuft_flutter": 0.09,
 "local_dir_field_scale_px": 1400.0,
 "local_dir_gust_gain": 0.9,
 "local_dir_max_deg": 26.0,
@@ -31,22 +34,23 @@ sampling_params = {
 "lod_full_zoom": 0.8,
 "lod_min_fraction": 1.0,
 "lod_min_zoom": 0.18,
-"orange_bank_high": 0.45,
-"orange_bank_low": 0.12,
-"orange_density_boost": 0.65,
+"orange_bank_high": 0.81,
+"orange_bank_low": 0.14,
+"orange_density_boost": 1.4,
 "orange_frame_base": 16.0,
 "orange_frame_count": 16.0,
-"orange_tint_boost": 0.18,
-"shadow_alpha": 0.28,
-"shadow_min_size_unit": 0.4,
-"shadow_size_scale": 0.95,
+"orange_tint_boost": 0.08,
+"shadow_alpha": 0.0,
+"shadow_min_size_unit": 0.25,
+"shadow_size_scale": 0.0,
 "spore_chance": 0.18,
 "spore_orange_threshold": 0.26,
 "spore_size_px": 12.0,
-"storm_lean_fraction": 0.35,
-"tuft_max_height_px": 52.0,
-"tuft_max_width_px": 58.0,
-"tuft_min_height_px": 30.0,
-"tuft_min_width_px": 34.0,
-"wind_sway_fraction": 0.085
+"storm_lean_fraction": 0.57,
+"tuft_max_height_px": 55.0,
+"tuft_max_width_px": 116.0,
+"tuft_min_height_px": 24.0,
+"tuft_min_width_px": 40.0,
+"wind_sway_fraction": 0.19
 }
+

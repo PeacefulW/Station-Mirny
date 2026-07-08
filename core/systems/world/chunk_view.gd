@@ -153,6 +153,7 @@ var _debug_object_collisions_visible: bool = false
 var _object_packet_visual_dirty: bool = false
 var _pending_object_packet_visual: Dictionary = { }
 var _grass_scatter_layers: Array[MultiMeshInstance2D] = []
+var _grass_shadow_atlas_layers: Array[MultiMeshInstance2D] = []
 var _grass_shadow_layer: MultiMeshInstance2D = null
 var _grass_spore_layer: MultiMeshInstance2D = null
 var _grass_scatter_visual_dirty: bool = false
@@ -243,6 +244,8 @@ func apply_pending_grass_scatter_visual(
 		grass_params: PackedFloat32Array,
 		grass_atlas: Texture2D,
 		grass_material: ShaderMaterial,
+		grass_shadow_atlas: Texture2D,
+		grass_shadow_atlas_material: ShaderMaterial,
 		shadow_material: ShaderMaterial,
 		spore_material: ShaderMaterial,
 		mountain_solid_halo: PackedByteArray,
@@ -269,12 +272,16 @@ func apply_pending_grass_scatter_visual(
 		not result.has("error"),
 		"build_grass_scatter_buffer failed: %s" % str(result.get("error", "")),
 	)
-	_apply_grass_blob_layer(
-		result.get("shadow_buffer", PackedFloat32Array()) as PackedFloat32Array,
-		shadow_material,
-		WorldRuntimeConstants.Z_GRASS_SHADOW,
-		true,
-	)
+	var has_shadow_atlas: bool = grass_shadow_atlas != null and grass_shadow_atlas_material != null
+	if not has_shadow_atlas:
+		_apply_grass_blob_layer(
+			result.get("shadow_buffer", PackedFloat32Array()) as PackedFloat32Array,
+			shadow_material,
+			WorldRuntimeConstants.Z_GRASS_SHADOW,
+			true,
+		)
+	else:
+		_apply_grass_blob_layer(PackedFloat32Array(), shadow_material, WorldRuntimeConstants.Z_GRASS_SHADOW, true)
 	_apply_grass_blob_layer(
 		result.get("spore_buffer", PackedFloat32Array()) as PackedFloat32Array,
 		spore_material,
@@ -286,6 +293,7 @@ func apply_pending_grass_scatter_visual(
 	_ensure_grass_scatter_layer_slots()
 	for stripe_index: int in range(_grass_scatter_layers.size()):
 		var layer: MultiMeshInstance2D = _grass_scatter_layers[stripe_index]
+		var shadow_atlas_layer: MultiMeshInstance2D = _grass_shadow_atlas_layers[stripe_index]
 		var buffer: PackedFloat32Array = PackedFloat32Array()
 		if instance_count > 0 and stripe_index < bucket_buffers.size():
 			buffer = bucket_buffers[stripe_index] as PackedFloat32Array
@@ -294,6 +302,9 @@ func apply_pending_grass_scatter_visual(
 			if layer != null and is_instance_valid(layer):
 				layer.visible = false
 				layer.multimesh = null
+			if shadow_atlas_layer != null and is_instance_valid(shadow_atlas_layer):
+				shadow_atlas_layer.visible = false
+				shadow_atlas_layer.multimesh = null
 			continue
 		if layer == null or not is_instance_valid(layer):
 			layer = _create_grass_scatter_layer(stripe_index, grass_atlas, grass_material)
@@ -311,6 +322,19 @@ func apply_pending_grass_scatter_visual(
 		# Bounded apply: native уже отдал готовые interleaved буферы полос.
 		multimesh.buffer = buffer
 		layer.visible = true
+		if has_shadow_atlas:
+			if shadow_atlas_layer == null or not is_instance_valid(shadow_atlas_layer):
+				shadow_atlas_layer = _create_grass_shadow_atlas_layer(
+					stripe_index,
+					grass_shadow_atlas,
+					grass_shadow_atlas_material,
+				)
+				_grass_shadow_atlas_layers[stripe_index] = shadow_atlas_layer
+			shadow_atlas_layer.multimesh = multimesh
+			shadow_atlas_layer.visible = true
+		elif shadow_atlas_layer != null and is_instance_valid(shadow_atlas_layer):
+			shadow_atlas_layer.visible = false
+			shadow_atlas_layer.multimesh = null
 	# Свежие полосы должны получить z лесенки даже при неизменном якоре.
 	var anchor_to_reapply: int = _applied_ladder_anchor_stripe
 	_applied_ladder_anchor_stripe = LADDER_ANCHOR_UNSET
@@ -435,6 +459,8 @@ static func _grass_blob_unit_texture() -> Texture2D:
 func _ensure_grass_scatter_layer_slots() -> void:
 	while _grass_scatter_layers.size() < WorldRuntimeConstants.DEPTH_STRIPES_PER_CHUNK:
 		_grass_scatter_layers.append(null)
+	while _grass_shadow_atlas_layers.size() < WorldRuntimeConstants.DEPTH_STRIPES_PER_CHUNK:
+		_grass_shadow_atlas_layers.append(null)
 
 
 func _create_grass_scatter_layer(
@@ -447,6 +473,22 @@ func _create_grass_scatter_layer(
 	layer.texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS
 	layer.texture = grass_atlas
 	layer.material = grass_material
+	add_child(layer)
+	return layer
+
+
+func _create_grass_shadow_atlas_layer(
+		stripe_index: int,
+		grass_shadow_atlas: Texture2D,
+		grass_shadow_atlas_material: ShaderMaterial,
+) -> MultiMeshInstance2D:
+	var layer := MultiMeshInstance2D.new()
+	layer.name = "GrassShadowAtlasBatchB%d" % stripe_index
+	layer.z_index = WorldRuntimeConstants.Z_GRASS_SHADOW + 1
+	layer.texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS
+	layer.texture = grass_shadow_atlas
+	layer.material = grass_shadow_atlas_material
+	layer.visible = false
 	add_child(layer)
 	return layer
 

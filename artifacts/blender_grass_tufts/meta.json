@@ -1,0 +1,26 @@
+{
+	"asset": "blender_grass_tuft_prototype",
+	"profile_id": "station_peaceful_grass_tuft_bake_v1",
+	"inherits_profile_id": "station_peaceful_layered_asset_bake_v1",
+	"atlas": {
+		"columns": 4,
+		"rows": 8,
+		"frame_count": 32,
+		"dry_frame_count": 16,
+		"biofield_frame_base": 16,
+		"frame_width": 160,
+		"frame_height": 120
+	},
+	"source_frames": "artifacts\\blender_grass_tufts\\frames",
+	"shadow_source": "blender_shadow_catcher",
+	"outputs": [
+		"grass_tuft_albedo_atlas.png",
+		"grass_tuft_shadow_atlas.png",
+		"grass_tuft_wind_mask_atlas.png",
+		"grass_tuft_snow_mask_atlas.png",
+		"grass_tuft_snow_overlay_atlas.png",
+		"grass_tuft_season_mask_atlas.png",
+		"preview_panel.png"
+	],
+	"runtime_note": "Prototype only; live grass_tuft_atlas.png is not replaced."
+}
