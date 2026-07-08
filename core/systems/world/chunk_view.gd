@@ -141,6 +141,7 @@ var _rock_scatter_atlases: Array[Texture2D] = []
 var _living_flora_atlas: Texture2D = null
 var _spiky_flora_atlases: Array[Texture2D] = []
 var _tree_atlas: Texture2D = null
+var _layered_tree_asset_dir: String = ""
 var _big_grass_rock_atlases: Array[Texture2D] = []
 var _grass_edge_small_rock_atlas: Texture2D = null
 var _grass_edge_small_rock_columns: int = 1
@@ -597,6 +598,12 @@ func set_tree_source(atlas: Texture2D) -> void:
 	_tree_atlas = atlas
 	if _object_packet_layer != null and is_instance_valid(_object_packet_layer):
 		_object_packet_layer.set_tree_atlas(_tree_atlas)
+
+
+func set_layered_tree_asset_dir(asset_dir: String) -> void:
+	_layered_tree_asset_dir = asset_dir
+	if _object_packet_layer != null and is_instance_valid(_object_packet_layer):
+		_object_packet_layer.set_layered_tree_asset_dir(_layered_tree_asset_dir)
 
 
 func set_big_grass_rock_sources(atlases: Array[Texture2D]) -> void:
@@ -2268,6 +2275,7 @@ func _sync_object_packet_visual(packet: Dictionary) -> void:
 			and _living_flora_atlas == null \
 			and _spiky_flora_atlases.is_empty() \
 			and _tree_atlas == null \
+			and _layered_tree_asset_dir.is_empty() \
 			and _big_grass_rock_atlases.is_empty() \
 			and _grass_edge_small_rock_atlas == null:
 		_clear_object_packet_visual()
@@ -2277,6 +2285,7 @@ func _sync_object_packet_visual(packet: Dictionary) -> void:
 	layer.set_living_flora_atlas(_living_flora_atlas)
 	layer.set_spiky_flora_atlases(_spiky_flora_atlases)
 	layer.set_tree_atlas(_tree_atlas)
+	layer.set_layered_tree_asset_dir(_layered_tree_asset_dir)
 	layer.set_big_grass_rock_atlases(_big_grass_rock_atlases)
 	layer.set_grass_edge_small_rock_source(
 		_grass_edge_small_rock_atlas,

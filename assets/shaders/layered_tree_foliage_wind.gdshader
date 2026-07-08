@@ -33,5 +33,5 @@ void fragment() {
 	float late_winter = smoothstep(0.52, 1.0, winter);
 	albedo.a *= 1.0 - drop * late_winter * leaf_drop_strength;
 	albedo.a *= 1.0 - smoothstep(0.16, 0.82, snow_cover) * smoothstep(0.42, 1.0, winter) * 0.38;
-	COLOR = albedo * COLOR;
+	COLOR = albedo;
 }

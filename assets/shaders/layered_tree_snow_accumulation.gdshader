@@ -12,5 +12,5 @@ void fragment() {
 	float coverage = smoothstep(threshold - 0.10, threshold + 0.08, mask);
 	float arrival = smoothstep(0.06, 0.28, winter);
 	snow.a *= coverage * arrival;
-	COLOR = snow * COLOR;
+	COLOR = snow;
 }

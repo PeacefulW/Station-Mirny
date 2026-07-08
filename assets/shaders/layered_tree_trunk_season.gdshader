@@ -24,5 +24,5 @@ void fragment() {
 	albedo.rgb = mix(albedo.rgb, cold_bark, bark_cool);
 	float frost_amount = smoothstep(0.12, 0.72, frost) * smoothstep(0.18, 1.0, winter) * 0.42;
 	albedo.rgb = mix(albedo.rgb, vec3(0.78, 0.77, 0.72), frost_amount);
-	COLOR = albedo * COLOR;
+	COLOR = albedo;
 }

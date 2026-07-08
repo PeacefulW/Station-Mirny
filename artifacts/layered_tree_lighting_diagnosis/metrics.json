@@ -1,0 +1,145 @@
+[
+	{
+		"avg_luma": 0.237,
+		"avg_rgb": [
+			0.352,
+			0.202,
+			0.117
+		],
+		"luma_vs_raw": 1.0,
+		"name": "00_raw_textures_no_light",
+		"note": "Texture layers only: no tree shader, no CanvasModulate, no DirectionalLight2D.",
+		"path": "C:/Users/peaceful/Station Peaceful/Station Peaceful/artifacts/layered_tree_lighting_diagnosis/00_raw_textures_no_light.png",
+		"sampled_pixels": 10630
+	},
+	{
+		"avg_luma": 0.0781,
+		"avg_rgb": [
+			0.159,
+			0.049,
+			0.015
+		],
+		"luma_vs_raw": 0.33,
+		"name": "00b_before_legacy_double_multiply_simulated",
+		"note": "Simulated old shader bug: sampled tree color multiplied by itself, matching the pre-fix darkening.",
+		"path": "C:/Users/peaceful/Station Peaceful/Station Peaceful/artifacts/layered_tree_lighting_diagnosis/00b_before_legacy_double_multiply_simulated.png",
+		"sampled_pixels": 10630
+	},
+	{
+		"avg_luma": 0.237,
+		"avg_rgb": [
+			0.352,
+			0.202,
+			0.117
+		],
+		"luma_vs_raw": 1.0,
+		"name": "01_runtime_shader_no_light",
+		"note": "Runtime layered shaders only, with wind frozen and season 0.",
+		"path": "C:/Users/peaceful/Station Peaceful/Station Peaceful/artifacts/layered_tree_lighting_diagnosis/01_runtime_shader_no_light.png",
+		"sampled_pixels": 10630
+	},
+	{
+		"avg_luma": 0.2012,
+		"avg_rgb": [
+			0.299,
+			0.172,
+			0.097
+		],
+		"luma_vs_raw": 0.849,
+		"name": "02_canvas_day_only",
+		"note": "Daylight CanvasModulate day ambient only.",
+		"path": "C:/Users/peaceful/Station Peaceful/Station Peaceful/artifacts/layered_tree_lighting_diagnosis/02_canvas_day_only.png",
+		"sampled_pixels": 10630
+	},
+	{
+		"avg_luma": 0.1216,
+		"avg_rgb": [
+			0.193,
+			0.097,
+			0.061
+		],
+		"luma_vs_raw": 0.513,
+		"name": "03_canvas_dawn_only",
+		"note": "Daylight CanvasModulate dawn ambient only.",
+		"path": "C:/Users/peaceful/Station Peaceful/Station Peaceful/artifacts/layered_tree_lighting_diagnosis/03_canvas_dawn_only.png",
+		"sampled_pixels": 10630
+	},
+	{
+		"avg_luma": 0.134,
+		"avg_rgb": [
+			0.232,
+			0.101,
+			0.047
+		],
+		"luma_vs_raw": 0.565,
+		"name": "04_canvas_dusk_only",
+		"note": "Daylight CanvasModulate dusk ambient only.",
+		"path": "C:/Users/peaceful/Station Peaceful/Station Peaceful/artifacts/layered_tree_lighting_diagnosis/04_canvas_dusk_only.png",
+		"sampled_pixels": 10630
+	},
+	{
+		"avg_luma": 0.0078,
+		"avg_rgb": [
+			0.01,
+			0.007,
+			0.006
+		],
+		"luma_vs_raw": 0.033,
+		"name": "05_canvas_night_only",
+		"note": "Daylight CanvasModulate night ambient only.",
+		"path": "C:/Users/peaceful/Station Peaceful/Station Peaceful/artifacts/layered_tree_lighting_diagnosis/05_canvas_night_only.png",
+		"sampled_pixels": 10630
+	},
+	{
+		"avg_luma": 0.1408,
+		"avg_rgb": [
+			0.197,
+			0.123,
+			0.081
+		],
+		"luma_vs_raw": 0.594,
+		"name": "06_canvas_overcast_day_only",
+		"note": "Day ambient multiplied by full overcast weather tint.",
+		"path": "C:/Users/peaceful/Station Peaceful/Station Peaceful/artifacts/layered_tree_lighting_diagnosis/06_canvas_overcast_day_only.png",
+		"sampled_pixels": 10630
+	},
+	{
+		"avg_luma": 0.302,
+		"avg_rgb": [
+			0.457,
+			0.255,
+			0.136
+		],
+		"luma_vs_raw": 1.274,
+		"name": "07_canvas_day_plus_sun",
+		"note": "Day ambient plus runtime DirectionalLight2D sun.",
+		"path": "C:/Users/peaceful/Station Peaceful/Station Peaceful/artifacts/layered_tree_lighting_diagnosis/07_canvas_day_plus_sun.png",
+		"sampled_pixels": 10630
+	},
+	{
+		"avg_luma": 0.1765,
+		"avg_rgb": [
+			0.292,
+			0.137,
+			0.076
+		],
+		"luma_vs_raw": 0.745,
+		"name": "08_canvas_dawn_plus_sun",
+		"note": "Dawn ambient plus low warm sun.",
+		"path": "C:/Users/peaceful/Station Peaceful/Station Peaceful/artifacts/layered_tree_lighting_diagnosis/08_canvas_dawn_plus_sun.png",
+		"sampled_pixels": 10630
+	},
+	{
+		"avg_luma": 0.302,
+		"avg_rgb": [
+			0.457,
+			0.255,
+			0.136
+		],
+		"luma_vs_raw": 1.274,
+		"name": "09_raw_canvas_day_plus_sun",
+		"note": "Raw texture layers under day ambient plus sun; isolates shader from Light2D.",
+		"path": "C:/Users/peaceful/Station Peaceful/Station Peaceful/artifacts/layered_tree_lighting_diagnosis/09_raw_canvas_day_plus_sun.png",
+		"sampled_pixels": 10630
+	}
+]
