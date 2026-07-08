@@ -9,12 +9,45 @@ from pathlib import Path
 
 from PIL import Image, ImageChops, ImageDraw, ImageFilter
 
+DEFAULT_PROFILE_PATH = Path(__file__).with_name("layered_asset_bake_profile.json")
+
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser()
     parser.add_argument("asset_dir", type=Path)
     parser.add_argument("--copy-to", type=Path, default=None)
+    parser.add_argument("--profile", type=Path, default=DEFAULT_PROFILE_PATH)
     return parser.parse_args()
+
+
+def load_profile(path: Path) -> dict:
+    with path.open("r", encoding="utf-8") as fh:
+        return json.load(fh)
+
+
+def bake_profile_summary(profile: dict, classification: dict, frame_size: int) -> dict:
+    return {
+        "profile_id": profile["profile_id"],
+        "version": profile["version"],
+        "frame_size": frame_size,
+        "sun_azimuth_degrees": float(
+            classification.get("sun_angle_degrees", profile["lighting"]["sun_azimuth_degrees"])
+        ),
+        "albedo_sun_elevation_degrees": profile["lighting"]["albedo_sun_elevation_degrees"],
+        "shadow_sun_elevation_degrees": profile["lighting"]["shadow_sun_elevation_degrees"],
+        "root_embed_fraction": float(
+            classification.get("root_embed_fraction", profile["planting"]["root_embed_fraction"])
+        ),
+    }
+
+
+def profile_or_default(profile: dict | None) -> dict:
+    return profile if profile is not None else load_profile(DEFAULT_PROFILE_PATH)
+
+
+def rgb_from_profile(profile: dict, key: str) -> tuple[int, int, int]:
+    values = profile["postprocess"][key]
+    return int(values[0]), int(values[1]), int(values[2])
 
 
 def load_rgba(path: Path) -> Image.Image:
@@ -34,7 +67,8 @@ def union_alpha(*images: Image.Image) -> Image.Image:
     return result
 
 
-def fake_shadow_from_alpha(alpha: Image.Image, anchor: tuple[int, int]) -> Image.Image:
+def fake_shadow_from_alpha(alpha: Image.Image, anchor: tuple[int, int], profile: dict | None = None) -> Image.Image:
+    profile = profile_or_default(profile)
     width, height = alpha.size
     anchor_x, anchor_y = anchor
     bbox = alpha.getbbox()
@@ -50,21 +84,28 @@ def fake_shadow_from_alpha(alpha: Image.Image, anchor: tuple[int, int]) -> Image
     paste_y = int(round(anchor_y - shadow_h * 0.56))
     canvas.paste(shadow, (paste_x, paste_y), shadow)
     canvas = canvas.point(lambda value: min(int(value * 0.62), 170), "L")
+    shadow_rgb = rgb_from_profile(profile, "fake_shadow_rgb")
     return Image.merge(
         "RGBA",
         (
-            Image.new("L", alpha.size, 18),
-            Image.new("L", alpha.size, 13),
-            Image.new("L", alpha.size, 8),
+            Image.new("L", alpha.size, shadow_rgb[0]),
+            Image.new("L", alpha.size, shadow_rgb[1]),
+            Image.new("L", alpha.size, shadow_rgb[2]),
             canvas,
         ),
     )
 
 
-def processed_shadow(raw_shadow: Image.Image, albedo_alpha: Image.Image, anchor: tuple[int, int]) -> Image.Image:
+def processed_shadow(
+    raw_shadow: Image.Image,
+    albedo_alpha: Image.Image,
+    anchor: tuple[int, int],
+    profile: dict | None = None,
+) -> Image.Image:
+    profile = profile_or_default(profile)
     raw_alpha = alpha_of(raw_shadow)
     cleaned: Image.Image | None = None
-    for threshold in (6, 8, 10, 12):
+    for threshold in profile["postprocess"]["processed_shadow_thresholds"]:
         thresholded = raw_alpha.point(lambda value, threshold=threshold: 255 if value > threshold else 0, "L")
         bbox = thresholded.getbbox()
         if bbox is None:
@@ -79,15 +120,16 @@ def processed_shadow(raw_shadow: Image.Image, albedo_alpha: Image.Image, anchor:
         )
         break
     if cleaned is None:
-        return fake_shadow_from_alpha(albedo_alpha, anchor)
+        return fake_shadow_from_alpha(albedo_alpha, anchor, profile)
     alpha = cleaned.filter(ImageFilter.GaussianBlur(1.8))
     alpha = alpha.point(lambda value: 0 if value < 2 else min(int(value * 1.08), 215), "L")
+    shadow_rgb = rgb_from_profile(profile, "shadow_rgb")
     return Image.merge(
         "RGBA",
         (
-            Image.new("L", raw_shadow.size, 15),
-            Image.new("L", raw_shadow.size, 11),
-            Image.new("L", raw_shadow.size, 7),
+            Image.new("L", raw_shadow.size, shadow_rgb[0]),
+            Image.new("L", raw_shadow.size, shadow_rgb[1]),
+            Image.new("L", raw_shadow.size, shadow_rgb[2]),
             alpha,
         ),
     )
@@ -241,15 +283,17 @@ def make_season_mask(foliage: Image.Image, trunk: Image.Image, snow_mask: Image.
     return Image.merge("RGBA", (snow, drop, cold, foliage_alpha))
 
 
-def make_snow_overlay(snow_mask: Image.Image) -> Image.Image:
+def make_snow_overlay(snow_mask: Image.Image, profile: dict | None = None) -> Image.Image:
+    profile = profile_or_default(profile)
     snow = snow_mask.getchannel("R")
     alpha = snow.point(lambda value: 0 if value < 14 else min(int((value - 8) * 1.34), 242), "L")
+    snow_rgb = rgb_from_profile(profile, "snow_rgb")
     return Image.merge(
         "RGBA",
         (
-            Image.new("L", snow.size, 242),
-            Image.new("L", snow.size, 237),
-            Image.new("L", snow.size, 224),
+            Image.new("L", snow.size, snow_rgb[0]),
+            Image.new("L", snow.size, snow_rgb[1]),
+            Image.new("L", snow.size, snow_rgb[2]),
             alpha,
         ),
     )
@@ -352,7 +396,8 @@ def make_preview(
     return canvas
 
 
-def save_outputs(asset_dir: Path, copy_to: Path | None = None) -> None:
+def save_outputs(asset_dir: Path, copy_to: Path | None = None, profile: dict | None = None) -> None:
+    profile = profile_or_default(profile)
     albedo = load_rgba(asset_dir / "albedo.png")
     trunk = load_rgba(asset_dir / "trunk.png")
     foliage = load_rgba(asset_dir / "foliage.png")
@@ -364,13 +409,13 @@ def save_outputs(asset_dir: Path, copy_to: Path | None = None) -> None:
     anchor = (int(anchor_values[0]), int(anchor_values[1]))
 
     alpha = alpha_of(albedo)
-    shadow = processed_shadow(raw_shadow, alpha, anchor)
+    shadow = processed_shadow(raw_shadow, alpha, anchor, profile)
     wind_mask = make_wind_mask(trunk, foliage)
     snow_mask = make_snow_mask(albedo, foliage, trunk)
-    snow_overlay = make_snow_overlay(snow_mask)
+    snow_overlay = make_snow_overlay(snow_mask, profile)
     season_mask = make_season_mask(foliage, trunk, snow_mask)
     height = make_height(albedo)
-    normal = make_normal_from_height(height)
+    normal = make_normal_from_height(height, float(profile["postprocess"]["normal_strength"]))
 
     outputs = {
         "shadow.png": shadow,
@@ -390,6 +435,7 @@ def save_outputs(asset_dir: Path, copy_to: Path | None = None) -> None:
         "frame_width": albedo.width,
         "frame_height": albedo.height,
         "anchor": list(anchor),
+        "bake_profile": bake_profile_summary(profile, classification, albedo.width),
         "sort_offset": anchor[1],
         "collision_radius": 18,
         "plant_depth_px": int(classification.get("runtime_plant_depth_px", 0)),
@@ -439,7 +485,7 @@ def main() -> None:
     args = parse_args()
     if not args.asset_dir.is_dir():
         raise SystemExit(f"Asset directory does not exist: {args.asset_dir}")
-    save_outputs(args.asset_dir, args.copy_to)
+    save_outputs(args.asset_dir, args.copy_to, load_profile(args.profile))
     print(f"Wrote layered tree helper textures to {args.asset_dir}")
 
 

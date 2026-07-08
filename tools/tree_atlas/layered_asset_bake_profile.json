@@ -1,0 +1,57 @@
+{
+	"profile_id": "station_peaceful_layered_asset_bake_v1",
+	"version": 1,
+	"frame_size": 768,
+	"orientation": {
+		"default_yaw_degrees": 90.0
+	},
+	"planting": {
+		"root_embed_fraction": 0.065,
+		"max_root_embed_fraction": 0.22
+	},
+	"camera": {
+		"type": "ORTHO",
+		"initial_ortho_scale": 1.25,
+		"fit_width_fraction": 0.66,
+		"fit_height_fraction": 0.70,
+		"padding_scale": 1.10,
+		"location_y": -3.0,
+		"height_offset": 1.6,
+		"target_z_fraction": 0.42
+	},
+	"lighting": {
+		"sun_azimuth_degrees": 315.0,
+		"albedo_sun_elevation_degrees": 52.0,
+		"shadow_sun_elevation_degrees": 42.0,
+		"albedo_sun_energy": 2.25,
+		"shadow_sun_energy": 3.5,
+		"fill_energy": 65.0,
+		"fill_size": 4.0,
+		"fixed_shadow_direction": "screen_north_east"
+	},
+	"render": {
+		"albedo_engine": "BLENDER_EEVEE",
+		"shadow_engine": "CYCLES",
+		"samples": 64,
+		"use_denoising": true,
+		"transparent_film": true,
+		"view_transform": "Filmic",
+		"look": "Medium High Contrast",
+		"exposure": 0.0,
+		"gamma": 1.0,
+		"color_mode": "RGBA"
+	},
+	"postprocess": {
+		"shadow_rgb": [15, 11, 7],
+		"fake_shadow_rgb": [18, 13, 8],
+		"processed_shadow_thresholds": [6, 8, 10, 12],
+		"snow_rgb": [242, 237, 224],
+		"normal_strength": 3.2
+	},
+	"runtime": {
+		"normal_maps_generated": true,
+		"normal_maps_enabled": false,
+		"sun_shadow_mode": "baked_fixed_north_east_stretch_only",
+		"dynamic_light_shadows": "runtime_fake"
+	}
+}

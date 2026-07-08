@@ -28,22 +28,41 @@ LEAF_VALUE_THRESHOLD = 0.34
 LEAF_SAT_THRESHOLD = 0.88
 LEAF_HUE_MIN = 15.0
 LEAF_HUE_MAX = 45.0
+DEFAULT_PROFILE_PATH = Path(__file__).with_name("layered_asset_bake_profile.json")
 
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser()
     parser.add_argument("--glb", required=True, type=Path)
     parser.add_argument("--out-dir", required=True, type=Path)
-    parser.add_argument("--frame-size", type=int, default=FRAME_SIZE)
-    parser.add_argument("--yaw-degrees", type=float, default=18.0)
-    parser.add_argument("--sun-angle-degrees", type=float, default=FIXED_SUN_AZIMUTH_DEGREES)
-    parser.add_argument("--root-embed-fraction", type=float, default=ROOT_EMBED_FRACTION)
+    parser.add_argument("--profile", type=Path, default=DEFAULT_PROFILE_PATH)
+    parser.add_argument("--frame-size", type=int, default=None)
+    parser.add_argument("--yaw-degrees", type=float, default=None)
+    parser.add_argument("--sun-angle-degrees", type=float, default=None)
+    parser.add_argument("--root-embed-fraction", type=float, default=None)
     argv = sys.argv
     if "--" in argv:
         argv = argv[argv.index("--") + 1 :]
     else:
         argv = []
     return parser.parse_args(argv)
+
+
+def load_profile(path: Path) -> dict:
+    with path.open("r", encoding="utf-8") as fh:
+        return json.load(fh)
+
+
+def bake_profile_summary(profile: dict, frame_size: int, sun_angle_degrees: float, root_embed_fraction: float) -> dict:
+    return {
+        "profile_id": profile["profile_id"],
+        "version": profile["version"],
+        "frame_size": frame_size,
+        "sun_azimuth_degrees": sun_angle_degrees,
+        "albedo_sun_elevation_degrees": profile["lighting"]["albedo_sun_elevation_degrees"],
+        "shadow_sun_elevation_degrees": profile["lighting"]["shadow_sun_elevation_degrees"],
+        "root_embed_fraction": root_embed_fraction,
+    }
 
 
 def clear_scene() -> None:
@@ -83,7 +102,12 @@ def all_world_corners(objects: list[bpy.types.Object]) -> list[Vector]:
     return corners
 
 
-def normalize_tree(objects: list[bpy.types.Object], yaw_degrees: float, root_embed_fraction: float) -> None:
+def normalize_tree(
+    objects: list[bpy.types.Object],
+    yaw_degrees: float,
+    root_embed_fraction: float,
+    max_root_embed_fraction: float,
+) -> None:
     corners = all_world_corners(objects)
     min_x = min(c.x for c in corners)
     max_x = max(c.x for c in corners)
@@ -91,7 +115,7 @@ def normalize_tree(objects: list[bpy.types.Object], yaw_degrees: float, root_emb
     max_y = max(c.y for c in corners)
     min_z = min(c.z for c in corners)
     max_z = max(c.z for c in corners)
-    root_z = min_z + (max_z - min_z) * max(0.0, min(root_embed_fraction, 0.22))
+    root_z = min_z + (max_z - min_z) * max(0.0, min(root_embed_fraction, max_root_embed_fraction))
     center = Vector(((min_x + max_x) * 0.5, (min_y + max_y) * 0.5, root_z))
     root = bpy.data.objects.new("TreeRoot", None)
     bpy.context.collection.objects.link(root)
@@ -191,47 +215,67 @@ def look_at(camera: bpy.types.Object, target: Vector) -> None:
     camera.rotation_euler = direction.to_track_quat("-Z", "Y").to_euler()
 
 
-def setup_render(frame_size: int, target_z: float, sun_angle_degrees: float) -> tuple[bpy.types.Object, bpy.types.Light]:
+def setup_render(
+    frame_size: int,
+    target_z: float,
+    sun_angle_degrees: float,
+    profile: dict,
+) -> tuple[bpy.types.Object, bpy.types.Light]:
     scene = bpy.context.scene
-    scene.render.engine = "BLENDER_EEVEE"
+    render_profile = profile["render"]
+    lighting_profile = profile["lighting"]
+    camera_profile = profile["camera"]
+
+    scene.render.engine = render_profile["albedo_engine"]
     if hasattr(scene, "eevee"):
-        scene.eevee.taa_render_samples = 64
+        scene.eevee.taa_render_samples = int(render_profile["samples"])
     scene.render.resolution_x = frame_size
     scene.render.resolution_y = frame_size
-    scene.render.film_transparent = True
-    scene.view_settings.view_transform = "Filmic"
-    scene.view_settings.look = "Medium High Contrast"
-    scene.view_settings.exposure = 0.0
-    scene.view_settings.gamma = 1.0
+    scene.render.film_transparent = bool(render_profile["transparent_film"])
+    scene.view_settings.view_transform = str(render_profile["view_transform"])
+    scene.view_settings.look = str(render_profile["look"])
+    scene.view_settings.exposure = float(render_profile["exposure"])
+    scene.view_settings.gamma = float(render_profile["gamma"])
     scene.render.image_settings.file_format = "PNG"
-    scene.render.image_settings.color_mode = "RGBA"
+    scene.render.image_settings.color_mode = str(render_profile["color_mode"])
 
     camera_data = bpy.data.cameras.new("LayeredTreeCamera")
     camera = bpy.data.objects.new("LayeredTreeCamera", camera_data)
     bpy.context.collection.objects.link(camera)
     scene.camera = camera
-    camera.data.type = "ORTHO"
-    camera.location = Vector((0.0, -3.0, target_z + 1.6))
+    camera.data.type = str(camera_profile["type"])
+    camera.location = Vector(
+        (
+            0.0,
+            float(camera_profile["location_y"]),
+            target_z + float(camera_profile["height_offset"]),
+        )
+    )
     look_at(camera, Vector((0.0, 0.0, target_z)))
 
     sun_data = bpy.data.lights.new("LayeredTreeSun", "SUN")
     sun = bpy.data.objects.new("LayeredTreeSun", sun_data)
     bpy.context.collection.objects.link(sun)
-    sun.data.energy = 2.25
-    sun.rotation_euler = (math.radians(ALBEDO_SUN_ELEVATION_DEGREES), 0.0, math.radians(sun_angle_degrees))
+    sun.data.energy = float(lighting_profile["albedo_sun_energy"])
+    sun.rotation_euler = (
+        math.radians(float(lighting_profile["albedo_sun_elevation_degrees"])),
+        0.0,
+        math.radians(sun_angle_degrees),
+    )
 
     fill_data = bpy.data.lights.new("LayeredTreeFill", "AREA")
     fill = bpy.data.objects.new("LayeredTreeFill", fill_data)
     bpy.context.collection.objects.link(fill)
     fill.location = Vector((0.0, -2.0, 1.0))
-    fill.data.energy = 65.0
-    fill.data.size = 4.0
+    fill.data.energy = float(lighting_profile["fill_energy"])
+    fill.data.size = float(lighting_profile["fill_size"])
     return camera, sun
 
 
-def fit_camera_to_objects(camera: bpy.types.Object, objects: list[bpy.types.Object]) -> tuple[int, int]:
+def fit_camera_to_objects(camera: bpy.types.Object, objects: list[bpy.types.Object], profile: dict) -> tuple[int, int]:
     scene = bpy.context.scene
-    camera.data.ortho_scale = 1.25
+    camera_profile = profile["camera"]
+    camera.data.ortho_scale = float(camera_profile["initial_ortho_scale"])
     corners = all_world_corners(objects)
     for _ in range(3):
         projected = [world_to_camera_view(scene, camera, corner) for corner in corners]
@@ -241,10 +285,14 @@ def fit_camera_to_objects(camera: bpy.types.Object, objects: list[bpy.types.Obje
         max_y = max(p.y for p in projected)
         width = max_x - min_x
         height = max_y - min_y
-        scale_factor = max(width / 0.66, height / 0.70, 0.2)
+        scale_factor = max(
+            width / float(camera_profile["fit_width_fraction"]),
+            height / float(camera_profile["fit_height_fraction"]),
+            0.2,
+        )
         camera.data.ortho_scale *= scale_factor
         bpy.context.view_layer.update()
-    camera.data.ortho_scale *= 1.10
+    camera.data.ortho_scale *= float(camera_profile["padding_scale"])
     bpy.context.view_layer.update()
     root_world = Vector((0.0, 0.0, 0.0))
     root_uv = world_to_camera_view(scene, camera, root_world)
@@ -268,12 +316,14 @@ def render_png(path: Path) -> None:
     bpy.ops.render.render(write_still=True)
 
 
-def setup_shadow_scene(objects: list[bpy.types.Object], sun_angle_degrees: float) -> bpy.types.Object:
+def setup_shadow_scene(objects: list[bpy.types.Object], sun_angle_degrees: float, profile: dict) -> bpy.types.Object:
     scene = bpy.context.scene
-    scene.render.engine = "CYCLES"
-    scene.cycles.samples = 64
-    scene.cycles.use_denoising = True
-    scene.render.film_transparent = True
+    render_profile = profile["render"]
+    lighting_profile = profile["lighting"]
+    scene.render.engine = str(render_profile["shadow_engine"])
+    scene.cycles.samples = int(render_profile["samples"])
+    scene.cycles.use_denoising = bool(render_profile["use_denoising"])
+    scene.render.film_transparent = bool(render_profile["transparent_film"])
 
     for obj in objects:
         obj.hide_render = False
@@ -292,23 +342,47 @@ def setup_shadow_scene(objects: list[bpy.types.Object], sun_angle_degrees: float
 
     for obj in scene.objects:
         if obj.type == "LIGHT" and obj.name.startswith("LayeredTreeSun"):
-            obj.rotation_euler = (math.radians(SHADOW_SUN_ELEVATION_DEGREES), 0.0, math.radians(sun_angle_degrees))
-            obj.data.energy = 3.5
+            obj.rotation_euler = (
+                math.radians(float(lighting_profile["shadow_sun_elevation_degrees"])),
+                0.0,
+                math.radians(sun_angle_degrees),
+            )
+            obj.data.energy = float(lighting_profile["shadow_sun_energy"])
     return plane
 
 
 def main() -> None:
     args = parse_args()
+    profile = load_profile(args.profile)
+    frame_size = int(args.frame_size if args.frame_size is not None else profile["frame_size"])
+    yaw_degrees = float(
+        args.yaw_degrees if args.yaw_degrees is not None else profile["orientation"]["default_yaw_degrees"]
+    )
+    sun_angle_degrees = float(
+        args.sun_angle_degrees
+        if args.sun_angle_degrees is not None
+        else profile["lighting"]["sun_azimuth_degrees"]
+    )
+    root_embed_fraction = float(
+        args.root_embed_fraction
+        if args.root_embed_fraction is not None
+        else profile["planting"]["root_embed_fraction"]
+    )
     clear_scene()
     objects = import_tree(args.glb)
-    normalize_tree(objects, args.yaw_degrees, args.root_embed_fraction)
+    normalize_tree(
+        objects,
+        yaw_degrees,
+        root_embed_fraction,
+        float(profile["planting"]["max_root_embed_fraction"]),
+    )
     classification = classify_objects(objects)
     corners = all_world_corners(objects)
     min_z = min(c.z for c in corners)
     max_z = max(c.z for c in corners)
-    camera_target_z = min_z + (max_z - min_z) * 0.42
-    camera, _sun = setup_render(args.frame_size, camera_target_z, args.sun_angle_degrees)
-    anchor = fit_camera_to_objects(camera, objects)
+    camera_target_z = min_z + (max_z - min_z) * float(profile["camera"]["target_z_fraction"])
+    camera, _sun = setup_render(frame_size, camera_target_z, sun_angle_degrees, profile)
+    anchor = fit_camera_to_objects(camera, objects, profile)
 
     out_dir = args.out_dir.resolve()
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -321,17 +395,18 @@ def main() -> None:
         render_png(out_dir / file_name)
 
     set_layer_visibility(objects, classification, "all")
-    setup_shadow_scene(objects, args.sun_angle_degrees)
+    setup_shadow_scene(objects, sun_angle_degrees, profile)
     render_png(out_dir / "shadow_raw.png")
 
     metadata = {
         "source_glb": str(args.glb),
-        "frame_width": args.frame_size,
-        "frame_height": args.frame_size,
+        "frame_width": frame_size,
+        "frame_height": frame_size,
         "anchor": list(anchor),
-        "yaw_degrees": args.yaw_degrees,
-        "sun_angle_degrees": args.sun_angle_degrees,
-        "root_embed_fraction": args.root_embed_fraction,
+        "yaw_degrees": yaw_degrees,
+        "sun_angle_degrees": sun_angle_degrees,
+        "root_embed_fraction": root_embed_fraction,
+        "bake_profile": bake_profile_summary(profile, frame_size, sun_angle_degrees, root_embed_fraction),
         "runtime_plant_depth_px": 0,
         "classification": classification,
         "layers": {
