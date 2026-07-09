@@ -32,16 +32,21 @@ const ROCK_ASSET_DIRS: Array[String] = [
 ]
 
 const DEFAULT_PARAMS: Dictionary = {
-	"count": 36.0,
-	"min_size_px": 42.0,
-	"max_size_px": 76.0,
-	"spacing_px": 128.0,
-	"jitter_px": 46.0,
-	"spread_x_px": 1500.0,
-	"spread_y_px": 760.0,
+	"count": 54.0,
+	"cluster_count": 9.0,
+	"min_size_px": 28.0,
+	"max_size_px": 70.0,
+	"spread_x_px": 1600.0,
+	"spread_y_px": 860.0,
+	"cluster_radius_px": 112.0,
+	"cluster_min_count": 3.0,
+	"cluster_max_count": 7.0,
+	"cluster_min_distance_px": 26.0,
+	"edge_bias": 0.76,
+	"rocky_patch_bias": 0.48,
 	"variant_count": 10.0,
 	"variant_offset": 0.0,
-	"tint_min": 0.88,
+	"tint_min": 0.86,
 	"tint_max": 1.0,
 	"shadow_length_px": 96.0,
 	"shadow_opacity": 0.72,
@@ -49,13 +54,18 @@ const DEFAULT_PARAMS: Dictionary = {
 }
 
 const TUNABLE_PARAMS: Array[Dictionary] = [
-	{ "key": "count", "step": 1.0, "min": 1.0, "max": 96.0, "rebuild": true },
+	{ "key": "count", "step": 1.0, "min": 1.0, "max": 140.0, "rebuild": true },
+	{ "key": "cluster_count", "step": 1.0, "min": 1.0, "max": 28.0, "rebuild": true },
 	{ "key": "min_size_px", "step": 1.0, "min": 8.0, "max": 180.0, "rebuild": true },
 	{ "key": "max_size_px", "step": 1.0, "min": 8.0, "max": 220.0, "rebuild": true },
-	{ "key": "spacing_px", "step": 4.0, "min": 32.0, "max": 320.0, "rebuild": true },
-	{ "key": "jitter_px", "step": 2.0, "min": 0.0, "max": 160.0, "rebuild": true },
 	{ "key": "spread_x_px", "step": 20.0, "min": 280.0, "max": 2200.0, "rebuild": true },
 	{ "key": "spread_y_px", "step": 20.0, "min": 220.0, "max": 1400.0, "rebuild": true },
+	{ "key": "cluster_radius_px", "step": 4.0, "min": 16.0, "max": 260.0, "rebuild": true },
+	{ "key": "cluster_min_count", "step": 1.0, "min": 1.0, "max": 16.0, "rebuild": true },
+	{ "key": "cluster_max_count", "step": 1.0, "min": 1.0, "max": 16.0, "rebuild": true },
+	{ "key": "cluster_min_distance_px", "step": 2.0, "min": 0.0, "max": 120.0, "rebuild": true },
+	{ "key": "edge_bias", "step": 0.03, "min": 0.0, "max": 1.0, "rebuild": true },
+	{ "key": "rocky_patch_bias", "step": 0.03, "min": 0.0, "max": 1.0, "rebuild": true },
 	{ "key": "variant_count", "step": 1.0, "min": 1.0, "max": 10.0, "rebuild": true },
 	{ "key": "variant_offset", "step": 1.0, "min": 0.0, "max": 9.0, "rebuild": true },
 	{ "key": "tint_min", "step": 0.01, "min": 0.55, "max": 1.35, "rebuild": true },
@@ -266,7 +276,14 @@ func _sanitize_params() -> void:
 	_params["tint_max"] = maxf(float(_params["tint_max"]), float(_params["tint_min"]))
 	_params["variant_count"] = clampf(roundf(float(_params["variant_count"])), 1.0, float(ROCK_ASSET_DIRS.size()))
 	_params["variant_offset"] = clampf(roundf(float(_params["variant_offset"])), 0.0, float(ROCK_ASSET_DIRS.size() - 1))
-	_params["count"] = clampf(roundf(float(_params["count"])), 1.0, 96.0)
+	_params["count"] = clampf(roundf(float(_params["count"])), 1.0, 140.0)
+	_params["cluster_count"] = clampf(roundf(float(_params["cluster_count"])), 1.0, 28.0)
+	_params["cluster_min_count"] = clampf(roundf(float(_params["cluster_min_count"])), 1.0, 16.0)
+	_params["cluster_max_count"] = clampf(
+		roundf(maxf(float(_params["cluster_max_count"]), float(_params["cluster_min_count"]))),
+		1.0,
+		16.0,
+	)
 
 
 func _set_shadow_preset(length_px: float, opacity: float) -> void:
@@ -280,47 +297,95 @@ func _rebuild_rocks() -> void:
 		return
 	_sanitize_params()
 	_rng.seed = BASE_SEED + _seed_offset * 1009
-	var count: int = int(_params["count"])
-	var spacing: float = float(_params["spacing_px"])
-	var jitter: float = float(_params["jitter_px"])
+	var max_count: int = int(_params["count"])
+	var cluster_count: int = int(_params["cluster_count"])
 	var spread := Vector2(float(_params["spread_x_px"]), float(_params["spread_y_px"]))
 	var min_size: float = float(_params["min_size_px"])
 	var max_size: float = float(_params["max_size_px"])
+	var cluster_radius: float = float(_params["cluster_radius_px"])
+	var cluster_min_count: int = int(_params["cluster_min_count"])
+	var cluster_max_count: int = int(_params["cluster_max_count"])
+	var cluster_min_distance: float = float(_params["cluster_min_distance_px"])
+	var edge_bias: float = float(_params["edge_bias"])
+	var rocky_patch_bias: float = float(_params["rocky_patch_bias"])
 	var tint_min: float = float(_params["tint_min"])
 	var tint_max: float = float(_params["tint_max"])
 	var variant_count: int = int(_params["variant_count"])
 	var variant_offset: int = int(_params["variant_offset"])
-	var columns: int = maxi(1, ceili(sqrt(float(count) * maxf(spread.x / maxf(spread.y, 1.0), 0.1))))
-	var rows: int = maxi(1, ceili(float(count) / float(columns)))
-	var cell_size := Vector2(
-		maxf(spacing, spread.x / float(columns)),
-		maxf(spacing, spread.y / float(rows)),
-	)
-	var origin := -Vector2(float(columns - 1), float(rows - 1)) * cell_size * 0.5
 	var instances: Array[Dictionary] = []
-	for index: int in range(count):
-		var column: int = index % columns
-		var row: int = index / columns
-		var position: Vector2 = origin + Vector2(float(column), float(row)) * cell_size
-		position += Vector2(
-			(_rng.randf() - 0.5) * jitter * 2.0,
-			(_rng.randf() - 0.5) * jitter * 2.0,
-		)
-		var variant_index: int = posmod(variant_offset + index, variant_count)
-		var asset_dir: String = ROCK_ASSET_DIRS[variant_index]
-		var size_px: float = lerpf(min_size, max_size, pow(_rng.randf(), 1.35))
-		var tint_value: float = lerpf(tint_min, tint_max, _rng.randf())
-		instances.append(
-			{
-				"position": position,
-				"asset_dir": asset_dir,
-				"size_px": size_px,
-				"tint": Color(tint_value, tint_value, tint_value, 1.0),
-			},
-		)
+	var placed_positions: Array[Vector2] = []
+	for cluster_index: int in range(cluster_count):
+		if instances.size() >= max_count:
+			break
+		var center: Vector2 = _cluster_center(cluster_index, spread, edge_bias, rocky_patch_bias)
+		var cluster_member_count: int = _rng.randi_range(cluster_min_count, cluster_max_count)
+		var rotation: float = _rng.randf() * TAU
+		var radius_x: float = cluster_radius * lerpf(0.78, 1.28, _rng.randf())
+		var radius_y: float = cluster_radius * lerpf(0.42, 0.82, _rng.randf())
+		for member_index: int in range(cluster_member_count):
+			if instances.size() >= max_count:
+				break
+			var position: Vector2 = center
+			var accepted: bool = false
+			var distance_t: float = 0.0
+			for attempt: int in range(6):
+				distance_t = sqrt(_rng.randf())
+				var angle: float = _rng.randf() * TAU
+				var local_offset := Vector2(cos(angle) * distance_t * radius_x, sin(angle) * distance_t * radius_y).rotated(rotation)
+				position = center + local_offset
+				if absf(position.x) > spread.x * 0.5 or absf(position.y) > spread.y * 0.5:
+					continue
+				if not _is_far_enough(position, placed_positions, cluster_min_distance):
+					continue
+				accepted = true
+				break
+			if not accepted:
+				continue
+			placed_positions.append(position)
+			var variant_index: int = posmod(variant_offset + instances.size(), variant_count)
+			var asset_dir: String = ROCK_ASSET_DIRS[variant_index]
+			var size_px: float = lerpf(min_size, max_size, pow(_rng.randf(), 1.35))
+			size_px *= lerpf(1.10, 0.76, distance_t)
+			size_px = clampf(size_px, min_size, max_size)
+			var tint_value: float = lerpf(tint_min, tint_max, _rng.randf())
+			instances.append(
+				{
+					"position": position,
+					"asset_dir": asset_dir,
+					"size_px": size_px,
+					"tint": Color(tint_value, tint_value, tint_value, 1.0),
+				},
+			)
 	_instance_count = instances.size()
 	_rock_layer.set_instances(instances)
 	_rock_layer.update_ladder_z(0)
+
+
+func _cluster_center(cluster_index: int, spread: Vector2, edge_bias: float, rocky_patch_bias: float) -> Vector2:
+	var x: float = lerpf(-spread.x * 0.5, spread.x * 0.5, _rng.randf())
+	var normalized_x: float = x / maxf(spread.x, 1.0)
+	var edge_y: float = sin(normalized_x * TAU * 1.7 + float(_seed_offset) * 0.61) * spread.y * 0.18
+	edge_y += sin(normalized_x * TAU * 3.1 + float(cluster_index) * 0.37) * spread.y * 0.08
+	var roll: float = _rng.randf()
+	if roll < edge_bias:
+		return Vector2(x, edge_y + (_rng.randf() - 0.5) * spread.y * 0.22)
+	if roll < edge_bias + rocky_patch_bias * 0.5:
+		return Vector2(
+			x * 0.92 + (_rng.randf() - 0.5) * spread.x * 0.14,
+			edge_y + (_rng.randf() - 0.5) * spread.y * 0.54,
+		)
+	return Vector2(
+		lerpf(-spread.x * 0.5, spread.x * 0.5, _rng.randf()),
+		lerpf(-spread.y * 0.5, spread.y * 0.5, _rng.randf()),
+	)
+
+
+func _is_far_enough(position: Vector2, existing_positions: Array[Vector2], min_distance: float) -> bool:
+	var min_distance_sq: float = min_distance * min_distance
+	for existing: Vector2 in existing_positions:
+		if position.distance_squared_to(existing) < min_distance_sq:
+			return false
+	return true
 
 
 func _apply_live_params() -> void:
@@ -359,10 +424,17 @@ func _copy_tres_hint_to_clipboard() -> void:
 	var lines: Array[String] = [
 		"# Paste into %s" % SETTINGS_PATH,
 		"max_per_chunk = %d" % int(_params["count"]),
-		"min_distance_px = %.1f" % float(_params["spacing_px"]),
+		"scatter_grid_side = %d" % int(_params["cluster_count"]),
+		"min_distance_px = %.1f" % maxf(float(_params["cluster_radius_px"]) * 1.6, 1.0),
 		"visual_size_min_px = %.1f" % float(_params["min_size_px"]),
 		"visual_size_max_px = %.1f" % float(_params["max_size_px"]),
 		"asset_variant_count = %d" % int(_params["variant_count"]),
+		"cluster_radius_px = %.1f" % float(_params["cluster_radius_px"]),
+		"cluster_min_count = %d" % int(_params["cluster_min_count"]),
+		"cluster_max_count = %d" % int(_params["cluster_max_count"]),
+		"cluster_min_distance_px = %.1f" % float(_params["cluster_min_distance_px"]),
+		"edge_bias = %.2f" % float(_params["edge_bias"]),
+		"rocky_patch_bias = %.2f" % float(_params["rocky_patch_bias"]),
 	]
 	DisplayServer.clipboard_set("\n".join(lines))
 	_copy_flash_left = COPY_FLASH_SECONDS

@@ -13,6 +13,8 @@ const SIZE_MIN: float = 1.0
 const SIZE_MAX: float = 254.0
 const ASSET_VARIANT_COUNT_MIN: int = 1
 const ASSET_VARIANT_COUNT_MAX: int = 64
+const CLUSTER_COUNT_MIN: int = 1
+const CLUSTER_COUNT_MAX: int = 16
 
 @export_group("Identity")
 @export var id: StringName = &"core:plains_small_rocks"
@@ -21,18 +23,27 @@ const ASSET_VARIANT_COUNT_MAX: int = 64
 @export var placement_mask: StringName = &"sparse_grass_edge"
 
 @export_group("Placement")
-@export_range(0.0, 1.0, 0.01) var density: float = 0.56
-@export_range(1, 16) var scatter_grid_side: int = 6
-@export_range(0, 64) var max_per_chunk: int = 5
-@export_range(0.0, 256.0) var edge_padding_px: float = 42.0
-@export_range(0.0, 512.0) var min_distance_px: float = 92.0
+@export_range(0.0, 1.0, 0.01) var density: float = 0.74
+@export_range(1, 16) var scatter_grid_side: int = 5
+@export_range(0, 64) var max_per_chunk: int = 18
+@export_range(0.0, 256.0) var edge_padding_px: float = 38.0
+@export_range(0.0, 512.0) var min_distance_px: float = 180.0
 @export_range(0.0, 1.0, 0.01) var grass_density_min: float = 0.05
-@export_range(0.0, 1.0, 0.01) var grass_density_max: float = 0.46
+@export_range(0.0, 1.0, 0.01) var grass_density_max: float = 0.58
 
 @export_group("Size")
-@export_range(1.0, 254.0) var visual_size_min_px: float = 42.0
-@export_range(1.0, 254.0) var visual_size_max_px: float = 76.0
+@export_range(1.0, 254.0) var visual_size_min_px: float = 28.0
+@export_range(1.0, 254.0) var visual_size_max_px: float = 70.0
 @export_range(1, 64) var asset_variant_count: int = 10
+
+@export_group("Clustering")
+@export_range(8.0, 256.0) var cluster_radius_px: float = 112.0
+@export_range(1, 16) var cluster_min_count: int = 3
+@export_range(1, 16) var cluster_max_count: int = 7
+@export_range(0.0, 128.0) var cluster_min_distance_px: float = 26.0
+@export_range(0.0, 1.0, 0.01) var edge_bias: float = 0.76
+@export_range(0.0, 1.0, 0.01) var rocky_patch_bias: float = 0.48
+@export_range(0.0, 1.0, 0.01) var path_edge_bias: float = 0.30
 
 @export_group("Ground Field")
 @export var grass_field_scale_px: float = 720.0
@@ -76,6 +87,13 @@ func to_save_dict() -> Dictionary:
 		"visual_size_min_px": visual_size_min_px,
 		"visual_size_max_px": visual_size_max_px,
 		"asset_variant_count": asset_variant_count,
+		"cluster_radius_px": cluster_radius_px,
+		"cluster_min_count": cluster_min_count,
+		"cluster_max_count": cluster_max_count,
+		"cluster_min_distance_px": cluster_min_distance_px,
+		"edge_bias": edge_bias,
+		"rocky_patch_bias": rocky_patch_bias,
+		"path_edge_bias": path_edge_bias,
 		"grass_field_scale_px": grass_field_scale_px,
 		"grass_coverage": grass_coverage,
 		"rock_field_scale_px": rock_field_scale_px,
@@ -113,6 +131,13 @@ func write_to_settings_packed(settings_packed: PackedFloat32Array) -> PackedFloa
 	packed[WorldRuntimeConstants.SETTINGS_PACKED_LAYOUT_SMALL_ROCK_PATH_WARP_PX] = settings.path_warp_px
 	packed[WorldRuntimeConstants.SETTINGS_PACKED_LAYOUT_SMALL_ROCK_PATH_STRENGTH] = settings.path_strength
 	packed[WorldRuntimeConstants.SETTINGS_PACKED_LAYOUT_SMALL_ROCK_ASSET_VARIANT_COUNT] = float(settings.asset_variant_count)
+	packed[WorldRuntimeConstants.SETTINGS_PACKED_LAYOUT_SMALL_ROCK_CLUSTER_RADIUS_PX] = settings.cluster_radius_px
+	packed[WorldRuntimeConstants.SETTINGS_PACKED_LAYOUT_SMALL_ROCK_CLUSTER_MIN_COUNT] = float(settings.cluster_min_count)
+	packed[WorldRuntimeConstants.SETTINGS_PACKED_LAYOUT_SMALL_ROCK_CLUSTER_MAX_COUNT] = float(settings.cluster_max_count)
+	packed[WorldRuntimeConstants.SETTINGS_PACKED_LAYOUT_SMALL_ROCK_CLUSTER_MIN_DISTANCE_PX] = settings.cluster_min_distance_px
+	packed[WorldRuntimeConstants.SETTINGS_PACKED_LAYOUT_SMALL_ROCK_EDGE_BIAS] = settings.edge_bias
+	packed[WorldRuntimeConstants.SETTINGS_PACKED_LAYOUT_SMALL_ROCK_ROCKY_PATCH_BIAS] = settings.rocky_patch_bias
+	packed[WorldRuntimeConstants.SETTINGS_PACKED_LAYOUT_SMALL_ROCK_PATH_EDGE_BIAS] = settings.path_edge_bias
 	return packed
 
 
@@ -160,6 +185,28 @@ static func from_save_dict(data: Dictionary) -> PlainsSmallRockPlacementSettings
 		ASSET_VARIANT_COUNT_MIN,
 		ASSET_VARIANT_COUNT_MAX,
 	)
+	settings.cluster_radius_px = maxf(1.0, _read_float(data, "cluster_radius_px", settings.cluster_radius_px))
+	settings.cluster_min_count = clampi(
+		_read_int(data, "cluster_min_count", settings.cluster_min_count),
+		CLUSTER_COUNT_MIN,
+		CLUSTER_COUNT_MAX,
+	)
+	settings.cluster_max_count = clampi(
+		_read_int(data, "cluster_max_count", settings.cluster_max_count),
+		settings.cluster_min_count,
+		CLUSTER_COUNT_MAX,
+	)
+	settings.cluster_min_distance_px = maxf(
+		0.0,
+		_read_float(data, "cluster_min_distance_px", settings.cluster_min_distance_px),
+	)
+	settings.edge_bias = clampf(_read_float(data, "edge_bias", settings.edge_bias), 0.0, 1.0)
+	settings.rocky_patch_bias = clampf(
+		_read_float(data, "rocky_patch_bias", settings.rocky_patch_bias),
+		0.0,
+		1.0,
+	)
+	settings.path_edge_bias = clampf(_read_float(data, "path_edge_bias", settings.path_edge_bias), 0.0, 1.0)
 	settings.grass_field_scale_px = maxf(1.0, _read_float(data, "grass_field_scale_px", settings.grass_field_scale_px))
 	settings.grass_coverage = clampf(_read_float(data, "grass_coverage", settings.grass_coverage), 0.0, 1.0)
 	settings.rock_field_scale_px = maxf(1.0, _read_float(data, "rock_field_scale_px", settings.rock_field_scale_px))

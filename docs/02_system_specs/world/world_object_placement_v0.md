@@ -28,12 +28,13 @@ related_docs:
 Define the first scalable contract for generated surface world objects:
 flora, trees, and inert decor.
 
-Current implementation note (2026-07-09): `world_version == 62` keeps the
+Current implementation note (2026-07-09): `world_version == 63` keeps the
 previous generated stone/rock object families removed (`object_kind` values
-`1`, `5`, and `6`) and adds the replacement tree-style small rock proof as
-visual-only `object_kind == 7`. The replacement uses Blender-baked layered
-assets, snow masks, and fixed sun-shadow stretch; it does not use wind masks,
-collision, harvest, ore, or stone resource node data.
+`1`, `5`, and `6`) and uses clustered replacement small rocks as visual-only
+`object_kind == 7`. The replacement uses Blender-baked layered assets, snow
+masks, fixed sun-shadow stretch, edge/rocky-patch placement bias, and close
+intra-cluster spacing; it does not use wind masks, collision, harvest, ore, or
+stone resource node data.
 
 This spec exists so adding plants and authored objects does not become a set of ad-hoc
 scene paths or generator branches. V0 is intentionally narrow: it proves the
@@ -281,7 +282,7 @@ Plains small rock placement settings are authored in
 `data/world_objects/placement_groups/plains_small_rocks.tres`
 (`PlainsSmallRockPlacementSettings`) for new worlds, then frozen into
 `worldgen_settings.plains_small_rocks` and packed into native settings indices
-`44..63`. The active assets live under
+`44..70`. The active assets live under
 `assets/sprites/decor/plains/layered_small_rocks/small_rock_01..10`.
 
 ### Packet Shape Direction
@@ -337,6 +338,9 @@ Rules:
   `object_kind == 7` small rocks from `worldgen_settings.plains_small_rocks`.
   Their layered runtime reuses the tree bake shadow direction/stretch rules,
   loads snow masks/overlays, and intentionally has no wind or collision path.
+- for `world_version >= 63`, small rock placement is clustered: candidate
+  centers are accepted by grass/soil edge score, rocky-patch score, and path-edge
+  score, then emit several close visual rocks within an elliptical local scatter.
 - living flora, spiky flora, and trees keep local clearance from canonical
   mountain wall/foot terrain so batched decor does not appear underneath the
   organic runtime mountain mask.

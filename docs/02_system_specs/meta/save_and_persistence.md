@@ -203,17 +203,21 @@ Current world generation extension:
   removes the previous generated stone/rock object families from native packet
   emission (`object_kind` values `1`, `5`, and `6`) while keeping the packet
   field shape unchanged for flora/tree records.
-- `world_version == 62` is the current replacement small-rock placement
+- `world_version == 62` is the historical replacement small-rock placement
   boundary. It adds visual-only `object_kind == 7` small rocks from
   `worldgen_settings.plains_small_rocks`; they have no collision, no harvest,
   no ore/stone resource node data, and no per-object save identity.
+- `world_version == 63` is the current clustered small-rock placement profile
+  boundary. It keeps the same `object_kind == 7` packet family but extends
+  `worldgen_settings.plains_small_rocks` with cluster radius/count, intra-cluster
+  distance, and edge/rocky/path bias fields.
 - Current native visual object packet fields for flora, trees, and small rocks
   are immutable generated presentation records plus loaded base-collision proofs
   where `object_flags` requests them.
   They are regenerated from `world_seed + chunk_coord + world_version` plus the
   frozen `worldgen_settings` profile data. Object records themselves are not
   stored in `world.json` or per-chunk diff files.
-- `WorldRuntimeConstants.WORLD_VERSION` is therefore `62` for current saves;
+- `WorldRuntimeConstants.WORLD_VERSION` is therefore `63` for current saves;
   `38` remains the historical L2 packet boundary and `42` remains the
   historical L7 shore-warp boundary.
 - `worldgen_settings.lakes` stores the embedded per-save lake input copy

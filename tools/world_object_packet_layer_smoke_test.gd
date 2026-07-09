@@ -44,6 +44,7 @@ func _init() -> void:
 	if not packet.is_empty():
 		_assert_packet_arrays(packet)
 		_assert_packet_layer_consumes_packet(packet)
+	_assert_small_rocks_form_natural_clusters()
 	_assert_native_objects_keep_mountain_clearance()
 
 	if _failed:
@@ -219,6 +220,48 @@ func _assert_native_objects_keep_mountain_clearance() -> void:
 	_assert(checked_object_count > 0, "Mountain-clearance scan must include native object records.")
 
 
+func _assert_small_rocks_form_natural_clusters() -> void:
+	var world_core: Object = ClassDB.instantiate("WorldCore")
+	_assert(world_core != null, "WorldCore must be available for natural small-rock cluster checks.")
+	if world_core == null:
+		return
+
+	var coords := PackedVector2Array()
+	var center_chunk := Vector2i(128, 64)
+	for y_offset: int in range(72):
+		for x_offset: int in range(72):
+			coords.append(Vector2(center_chunk.x + x_offset, center_chunk.y + y_offset))
+
+	var packets_variant: Variant = world_core.call(
+		"generate_chunk_packets_batch",
+		WorldRuntimeConstants.DEFAULT_WORLD_SEED,
+		coords,
+		WorldRuntimeConstants.WORLD_VERSION,
+		_build_settings_packed(),
+	)
+	_assert(packets_variant is Array, "WorldCore must return an Array for natural small-rock cluster checks.")
+	if not (packets_variant is Array):
+		return
+
+	var best_count: int = 0
+	var best_close_pair_count: int = 0
+	var total_clustered_chunks: int = 0
+	for packet_variant: Variant in packets_variant as Array:
+		var positions: Array[Vector2] = _small_rock_positions(packet_variant as Dictionary)
+		if positions.size() >= 8:
+			total_clustered_chunks += 1
+		best_count = maxi(best_count, positions.size())
+		best_close_pair_count = maxi(best_close_pair_count, _count_close_pairs(positions, 82.0))
+
+	_assert(best_count >= 8, "Default small rocks should produce chunks with rich clustered groups, not sparse singletons.")
+	_assert(best_close_pair_count >= 3, "Default small rocks should include close pairs inside clusters.")
+	_assert(total_clustered_chunks >= 3, "Default small rocks should produce clustered chunks across the scanned plains.")
+	print(
+		"WORLD_OBJECT_PACKET_SMALL_ROCK_CLUSTERS best_count=%d close_pairs=%d clustered_chunks=%d" %
+		[best_count, best_close_pair_count, total_clustered_chunks],
+	)
+
+
 func _packet_has_mountain_surface(packet: Dictionary) -> bool:
 	var mountain_ids: PackedInt32Array = packet.get("mountain_id_per_tile", PackedInt32Array()) as PackedInt32Array
 	var mountain_flags: PackedByteArray = packet.get("mountain_flags", PackedByteArray()) as PackedByteArray
@@ -268,6 +311,29 @@ func _sample_allows_object(packet: Dictionary, local_x: float, local_y: float) -
 		return false
 	return index >= lake_flags.size() \
 			or (int(lake_flags[index]) & WorldRuntimeConstants.LAKE_FLAG_WATER_PRESENT) == 0
+
+
+func _small_rock_positions(packet: Dictionary) -> Array[Vector2]:
+	var result: Array[Vector2] = []
+	var object_kind: PackedByteArray = packet.get("object_kind", PackedByteArray()) as PackedByteArray
+	var object_x: PackedByteArray = packet.get("object_local_x_px_q4", PackedByteArray()) as PackedByteArray
+	var object_y: PackedByteArray = packet.get("object_local_y_px_q4", PackedByteArray()) as PackedByteArray
+	var object_count: int = mini(object_kind.size(), mini(object_x.size(), object_y.size()))
+	for index: int in range(object_count):
+		if int(object_kind[index]) != OBJECT_KIND_SMALL_ROCK:
+			continue
+		result.append(Vector2(float(int(object_x[index]) * 4), float(int(object_y[index]) * 4)))
+	return result
+
+
+func _count_close_pairs(positions: Array[Vector2], max_distance_px: float) -> int:
+	var max_distance_sq: float = max_distance_px * max_distance_px
+	var count: int = 0
+	for i: int in range(positions.size()):
+		for j: int in range(i + 1, positions.size()):
+			if positions[i].distance_squared_to(positions[j]) <= max_distance_sq:
+				count += 1
+	return count
 
 
 func _build_settings_packed() -> PackedFloat32Array:

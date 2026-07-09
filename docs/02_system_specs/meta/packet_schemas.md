@@ -374,6 +374,11 @@ Current code notes:
   the frozen `worldgen_settings.plains_small_rocks` profile through
   `settings_packed[44..63]`. `ChunkPacketV1` shape is unchanged because the
   existing `object_*` arrays carry the new visual family.
+- `world_version == 63` is the clustered small-rock placement boundary:
+  `object_kind == 7` remains visual-only, but native placement uses edge,
+  rocky-patch, and path-edge scores to accept cluster centers and emits several
+  close rocks per accepted cluster. The profile is packed through
+  `settings_packed[44..70]`. `ChunkPacketV1` shape is unchanged.
 - `worldgen_settings.mountains` is written once for new worlds and then loaded
   from `world.json`, not from the repository `.tres`
 - `worldgen_settings.lakes` is written once for new worlds and then loaded
@@ -766,6 +771,8 @@ Current code notes:
   directory from `assets/sprites/decor/plains/layered_small_rocks`, and
   `object_size_px` is interpreted as visible rock width. The runtime creates no
   collision, no wind mask, and no save identity for these records.
+- For `world_version >= 63`, those small rocks are generated as clustered
+  edge/patch groups rather than independent scatter-grid singletons.
 - For `world_version >= 61`, native object packet emission keeps local
   mountain-edge clearance for living flora, spiky flora, trees, and small rocks
   so batched decor does not spawn under the organic runtime mountain mask.

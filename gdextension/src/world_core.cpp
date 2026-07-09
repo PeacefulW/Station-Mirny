@@ -105,7 +105,14 @@ constexpr int64_t SETTINGS_PACKED_LAYOUT_SMALL_ROCK_PATH_WIDTH = 60;
 constexpr int64_t SETTINGS_PACKED_LAYOUT_SMALL_ROCK_PATH_WARP_PX = 61;
 constexpr int64_t SETTINGS_PACKED_LAYOUT_SMALL_ROCK_PATH_STRENGTH = 62;
 constexpr int64_t SETTINGS_PACKED_LAYOUT_SMALL_ROCK_ASSET_VARIANT_COUNT = 63;
-constexpr int64_t SETTINGS_PACKED_LAYOUT_SMALL_ROCK_FIELD_COUNT = 64;
+constexpr int64_t SETTINGS_PACKED_LAYOUT_SMALL_ROCK_CLUSTER_RADIUS_PX = 64;
+constexpr int64_t SETTINGS_PACKED_LAYOUT_SMALL_ROCK_CLUSTER_MIN_COUNT = 65;
+constexpr int64_t SETTINGS_PACKED_LAYOUT_SMALL_ROCK_CLUSTER_MAX_COUNT = 66;
+constexpr int64_t SETTINGS_PACKED_LAYOUT_SMALL_ROCK_CLUSTER_MIN_DISTANCE_PX = 67;
+constexpr int64_t SETTINGS_PACKED_LAYOUT_SMALL_ROCK_EDGE_BIAS = 68;
+constexpr int64_t SETTINGS_PACKED_LAYOUT_SMALL_ROCK_ROCKY_PATCH_BIAS = 69;
+constexpr int64_t SETTINGS_PACKED_LAYOUT_SMALL_ROCK_PATH_EDGE_BIAS = 70;
+constexpr int64_t SETTINGS_PACKED_LAYOUT_SMALL_ROCK_FIELD_COUNT = 71;
 
 constexpr uint8_t MOUNTAIN_FLAG_WALL = 1U << 1U;
 constexpr uint8_t MOUNTAIN_FLAG_FOOT = 1U << 2U;
@@ -230,17 +237,26 @@ constexpr float TREE_PATH_WIDTH = 0.06f;
 constexpr float TREE_PATH_WARP_PX = 700.0f;
 constexpr float TREE_PATH_STRENGTH = 0.85f;
 
-constexpr int32_t SMALL_ROCK_SCATTER_GRID_SIDE = 6;
-constexpr float SMALL_ROCK_PRIMARY_DENSITY = 0.56f;
-constexpr float SMALL_ROCK_EDGE_PADDING_PX = 42.0f;
-constexpr float SMALL_ROCK_MIN_DISTANCE_PX = 92.0f;
-constexpr int32_t SMALL_ROCK_MAX_PER_CHUNK = 5;
-constexpr float SMALL_ROCK_MIN_SIZE_PX = 42.0f;
-constexpr float SMALL_ROCK_MAX_SIZE_PX = 76.0f;
+constexpr int32_t SMALL_ROCK_SCATTER_GRID_SIDE = 5;
+constexpr float SMALL_ROCK_PRIMARY_DENSITY = 0.74f;
+constexpr float SMALL_ROCK_EDGE_PADDING_PX = 38.0f;
+constexpr float SMALL_ROCK_MIN_DISTANCE_PX = 180.0f;
+constexpr int32_t SMALL_ROCK_MAX_PER_CHUNK = 18;
+constexpr float SMALL_ROCK_MIN_SIZE_PX = 28.0f;
+constexpr float SMALL_ROCK_MAX_SIZE_PX = 70.0f;
 constexpr float SMALL_ROCK_GRASS_DENSITY_MIN = 0.05f;
-constexpr float SMALL_ROCK_GRASS_DENSITY_MAX = 0.46f;
+constexpr float SMALL_ROCK_GRASS_DENSITY_MAX = 0.58f;
 constexpr int32_t SMALL_ROCK_ASSET_VARIANT_COUNT = 10;
 constexpr float SMALL_ROCK_SIZE_EXPONENT = 1.35f;
+constexpr float SMALL_ROCK_CLUSTER_RADIUS_PX = 112.0f;
+constexpr int32_t SMALL_ROCK_CLUSTER_MIN_COUNT = 3;
+constexpr int32_t SMALL_ROCK_CLUSTER_MAX_COUNT = 7;
+constexpr float SMALL_ROCK_CLUSTER_MIN_DISTANCE_PX = 26.0f;
+constexpr float SMALL_ROCK_EDGE_BIAS = 0.76f;
+constexpr float SMALL_ROCK_ROCKY_PATCH_BIAS = 0.48f;
+constexpr float SMALL_ROCK_PATH_EDGE_BIAS = 0.30f;
+constexpr int32_t SMALL_ROCK_CLUSTER_MEMBER_ATTEMPTS_PER_ROCK = 5;
+constexpr float SMALL_ROCK_TAU = 6.2831853071795864769f;
 
 struct TreePlacementSettings {
 	float density = TREE_PRIMARY_DENSITY;
@@ -288,6 +304,13 @@ struct SmallRockPlacementSettings {
 	float path_warp_px = TREE_PATH_WARP_PX;
 	float path_strength = TREE_PATH_STRENGTH;
 	int32_t asset_variant_count = SMALL_ROCK_ASSET_VARIANT_COUNT;
+	float cluster_radius_px = SMALL_ROCK_CLUSTER_RADIUS_PX;
+	int32_t cluster_min_count = SMALL_ROCK_CLUSTER_MIN_COUNT;
+	int32_t cluster_max_count = SMALL_ROCK_CLUSTER_MAX_COUNT;
+	float cluster_min_distance_px = SMALL_ROCK_CLUSTER_MIN_DISTANCE_PX;
+	float edge_bias = SMALL_ROCK_EDGE_BIAS;
+	float rocky_patch_bias = SMALL_ROCK_ROCKY_PATCH_BIAS;
+	float path_edge_bias = SMALL_ROCK_PATH_EDGE_BIAS;
 };
 
 enum class PreviewPatchMode {
@@ -935,6 +958,61 @@ void append_native_tree_placements(
 	}
 }
 
+struct SmallRockFieldSample {
+	float grass_density = 0.0f;
+	float path_open = 0.0f;
+	float placement_mask = 0.0f;
+	float edge_score = 0.0f;
+	float rocky_patch_score = 0.0f;
+	float path_edge_score = 0.0f;
+	float score = 0.0f;
+};
+
+SmallRockFieldSample sample_small_rock_field(
+	float p_world_x,
+	float p_world_y,
+	const SmallRockPlacementSettings &p_settings
+) {
+	SmallRockFieldSample sample;
+	sample.grass_density = grass_scatter::sample_grass_density(
+			p_world_x,
+			p_world_y,
+			p_settings.grass_field_scale_px,
+			p_settings.grass_coverage,
+			p_settings.rock_field_scale_px,
+			p_settings.rock_coverage,
+			p_settings.macro_mass_scale_px,
+			p_settings.macro_mass_strength);
+	sample.path_open = grass_scatter::sample_path(
+			p_world_x,
+			p_world_y,
+			p_settings.path_scale_px,
+			p_settings.path_width,
+			p_settings.path_warp_px,
+			p_settings.path_strength);
+	sample.placement_mask = sample.grass_density * sample.path_open;
+
+	const float edge_mid = (p_settings.grass_density_min + p_settings.grass_density_max) * 0.5f;
+	const float edge_half_width = std::max((p_settings.grass_density_max - p_settings.grass_density_min) * 0.5f, 0.001f);
+	const float edge_distance = std::abs(sample.placement_mask - edge_mid) / edge_half_width;
+	sample.edge_score = smoothstep01(0.0f, 1.0f, 1.0f - world_utils::clamp_value(edge_distance, 0.0f, 1.0f));
+
+	const float bare_ground = 1.0f - sample.grass_density;
+	sample.rocky_patch_score = smoothstep01(0.12f, 0.62f, bare_ground) * smoothstep01(0.22f, 0.85f, sample.path_open);
+	const float path_edge_distance = std::abs(sample.path_open - 0.58f) / 0.38f;
+	sample.path_edge_score = smoothstep01(
+			0.0f,
+			1.0f,
+			1.0f - world_utils::clamp_value(path_edge_distance, 0.0f, 1.0f));
+	sample.score = world_utils::clamp_value(
+			sample.edge_score * p_settings.edge_bias +
+					sample.rocky_patch_score * p_settings.rocky_patch_bias +
+					sample.path_edge_score * p_settings.path_edge_bias,
+			0.0f,
+			1.0f);
+	return sample;
+}
+
 void append_native_small_rock_placements(
 	WorldObjectPacketBuffers &r_buffers,
 	int64_t p_seed,
@@ -951,11 +1029,15 @@ void append_native_small_rock_placements(
 		return;
 	}
 	std::vector<std::pair<float, float>> placed_positions;
+	std::vector<std::pair<float, float>> cluster_centers;
 	const float cell_size_px = static_cast<float>(CHUNK_SIZE_PX) / static_cast<float>(p_small_rock_settings.scatter_grid_side);
-	const float min_distance_sq = p_small_rock_settings.min_distance_px * p_small_rock_settings.min_distance_px;
+	const float center_min_distance_sq = p_small_rock_settings.min_distance_px * p_small_rock_settings.min_distance_px;
+	const float member_min_distance_sq = p_small_rock_settings.cluster_min_distance_px * p_small_rock_settings.cluster_min_distance_px;
+	const bool has_max_per_chunk = p_small_rock_settings.max_per_chunk > 0;
+	const int32_t variant_count = world_utils::clamp_value<int32_t>(p_small_rock_settings.asset_variant_count, 1, 64);
 	for (int32_t grid_y = 0; grid_y < p_small_rock_settings.scatter_grid_side; ++grid_y) {
 		for (int32_t grid_x = 0; grid_x < p_small_rock_settings.scatter_grid_side; ++grid_x) {
-			if (p_small_rock_settings.max_per_chunk > 0 &&
+			if (has_max_per_chunk &&
 					static_cast<int32_t>(placed_positions.size()) >= p_small_rock_settings.max_per_chunk) {
 				return;
 			}
@@ -964,65 +1046,110 @@ void append_native_small_rock_placements(
 					p_coord.y,
 					grid_x + grid_y * p_small_rock_settings.scatter_grid_side,
 					p_seed ^ (p_world_version * 83));
-			if (hash_unit_float(cell_hash, 0U) > p_small_rock_settings.density) {
-				continue;
-			}
 			const float jitter_x = (object_unit(cell_hash, 0x41ULL) - 0.5f) * std::max(8.0f, cell_size_px - p_small_rock_settings.edge_padding_px * 2.0f);
 			const float jitter_y = (object_unit(cell_hash, 0x53ULL) - 0.5f) * std::max(8.0f, cell_size_px - p_small_rock_settings.edge_padding_px * 2.0f);
-			const float local_x = (static_cast<float>(grid_x) + 0.5f) * cell_size_px + jitter_x;
-			const float local_y = (static_cast<float>(grid_y) + 0.5f) * cell_size_px + jitter_y;
-			if (local_x < p_small_rock_settings.edge_padding_px ||
-					local_y < p_small_rock_settings.edge_padding_px ||
-					local_x > static_cast<float>(CHUNK_SIZE_PX) - p_small_rock_settings.edge_padding_px ||
-					local_y > static_cast<float>(CHUNK_SIZE_PX) - p_small_rock_settings.edge_padding_px ||
-					!object_position_is_plain(local_x, local_y, p_terrain_ids, p_lake_flags) ||
-					!object_position_has_mountain_clearance(local_x, local_y, p_terrain_ids, OBJECT_MOUNTAIN_CLEARANCE_PX)) {
+			const float center_local_x = (static_cast<float>(grid_x) + 0.5f) * cell_size_px + jitter_x;
+			const float center_local_y = (static_cast<float>(grid_y) + 0.5f) * cell_size_px + jitter_y;
+			if (center_local_x < p_small_rock_settings.edge_padding_px ||
+					center_local_y < p_small_rock_settings.edge_padding_px ||
+					center_local_x > static_cast<float>(CHUNK_SIZE_PX) - p_small_rock_settings.edge_padding_px ||
+					center_local_y > static_cast<float>(CHUNK_SIZE_PX) - p_small_rock_settings.edge_padding_px ||
+					!object_position_is_plain(center_local_x, center_local_y, p_terrain_ids, p_lake_flags) ||
+					!object_position_has_mountain_clearance(center_local_x, center_local_y, p_terrain_ids, OBJECT_MOUNTAIN_CLEARANCE_PX)) {
 				continue;
 			}
-			const float rock_world_x = static_cast<float>(static_cast<int64_t>(p_coord.x) * CHUNK_SIZE_PX) + local_x;
-			const float rock_world_y = static_cast<float>(static_cast<int64_t>(p_coord.y) * CHUNK_SIZE_PX) + local_y;
-			const float grass_density = grass_scatter::sample_grass_density(
-					rock_world_x,
-					rock_world_y,
-					p_small_rock_settings.grass_field_scale_px,
-					p_small_rock_settings.grass_coverage,
-					p_small_rock_settings.rock_field_scale_px,
-					p_small_rock_settings.rock_coverage,
-					p_small_rock_settings.macro_mass_scale_px,
-					p_small_rock_settings.macro_mass_strength);
-			const float path_open = grass_scatter::sample_path(
-					rock_world_x,
-					rock_world_y,
-					p_small_rock_settings.path_scale_px,
-					p_small_rock_settings.path_width,
-					p_small_rock_settings.path_warp_px,
-					p_small_rock_settings.path_strength);
-			const float placement_mask = grass_density * path_open;
-			if (placement_mask < p_small_rock_settings.grass_density_min ||
-					placement_mask > p_small_rock_settings.grass_density_max) {
+			const float center_world_x = static_cast<float>(static_cast<int64_t>(p_coord.x) * CHUNK_SIZE_PX) + center_local_x;
+			const float center_world_y = static_cast<float>(static_cast<int64_t>(p_coord.y) * CHUNK_SIZE_PX) + center_local_y;
+			const SmallRockFieldSample center_field = sample_small_rock_field(center_world_x, center_world_y, p_small_rock_settings);
+			const float center_chance = p_small_rock_settings.density * center_field.score;
+			if (object_unit(cell_hash, 0x11ULL) > center_chance) {
 				continue;
 			}
-			bool too_close = false;
-			for (const std::pair<float, float> &existing : placed_positions) {
-				const float dx = local_x - existing.first;
-				const float dy = local_y - existing.second;
-				if (dx * dx + dy * dy < min_distance_sq) {
-					too_close = true;
+			bool center_too_close = false;
+			for (const std::pair<float, float> &existing : cluster_centers) {
+				const float dx = center_local_x - existing.first;
+				const float dy = center_local_y - existing.second;
+				if (dx * dx + dy * dy < center_min_distance_sq) {
+					center_too_close = true;
 					break;
 				}
 			}
-			if (too_close) {
+			if (center_too_close) {
 				continue;
 			}
-			const int32_t variant_count = world_utils::clamp_value<int32_t>(p_small_rock_settings.asset_variant_count, 1, 64);
-			const uint8_t variant = static_cast<uint8_t>(
-					static_cast<int32_t>(std::floor(object_unit(cell_hash, 0x97ULL) * static_cast<float>(variant_count))) % variant_count);
-			const float size_roll = std::pow(object_unit(cell_hash, 0x71ULL), SMALL_ROCK_SIZE_EXPONENT);
-			const float size_px = lerp_float(p_small_rock_settings.min_size_px, p_small_rock_settings.max_size_px, size_roll);
-			const float tint = lerp_float(0.88f, 1.0f, object_unit(cell_hash, 0x67ULL));
-			const float phase = object_unit(cell_hash, 0x157ULL);
-			append_object_record(r_buffers, OBJECT_KIND_SMALL_ROCK, local_x, local_y, size_px, 0U, variant, 0U, tint, phase);
-			placed_positions.push_back({ local_x, local_y });
+			cluster_centers.push_back({ center_local_x, center_local_y });
+
+			const int32_t count_span = std::max(1, p_small_rock_settings.cluster_max_count - p_small_rock_settings.cluster_min_count + 1);
+			int32_t cluster_count = p_small_rock_settings.cluster_min_count +
+					static_cast<int32_t>(std::floor(object_unit(cell_hash, 0x21ULL) * static_cast<float>(count_span)));
+			if (center_field.score > 0.62f) {
+				cluster_count = std::min(cluster_count + 1, p_small_rock_settings.cluster_max_count);
+			}
+			const float cluster_angle = object_unit(cell_hash, 0x31ULL) * SMALL_ROCK_TAU;
+			const float cos_angle = std::cos(cluster_angle);
+			const float sin_angle = std::sin(cluster_angle);
+			const float radius_x = p_small_rock_settings.cluster_radius_px * lerp_float(0.78f, 1.28f, object_unit(cell_hash, 0x33ULL));
+			const float radius_y = p_small_rock_settings.cluster_radius_px * lerp_float(0.42f, 0.82f, object_unit(cell_hash, 0x35ULL));
+
+			for (int32_t member_index = 0; member_index < cluster_count; ++member_index) {
+				if (has_max_per_chunk &&
+						static_cast<int32_t>(placed_positions.size()) >= p_small_rock_settings.max_per_chunk) {
+					return;
+				}
+				bool placed_member = false;
+				for (int32_t attempt = 0; attempt < SMALL_ROCK_CLUSTER_MEMBER_ATTEMPTS_PER_ROCK && !placed_member; ++attempt) {
+					const uint64_t member_hash = splitmix64(
+							cell_hash ^
+							(static_cast<uint64_t>(member_index + 1) * 0x9e3779b185ebca87ULL) ^
+							(static_cast<uint64_t>(attempt + 1) * 0xc2b2ae3d27d4eb4fULL));
+					const float radial = std::sqrt(hash_unit_float(member_hash, 0U));
+					const float angle = hash_unit_float(member_hash, 16U) * SMALL_ROCK_TAU;
+					const float local_ellipse_x = std::cos(angle) * radial * radius_x;
+					const float local_ellipse_y = std::sin(angle) * radial * radius_y;
+					const float local_x = center_local_x + local_ellipse_x * cos_angle - local_ellipse_y * sin_angle;
+					const float local_y = center_local_y + local_ellipse_x * sin_angle + local_ellipse_y * cos_angle;
+					if (local_x < p_small_rock_settings.edge_padding_px ||
+							local_y < p_small_rock_settings.edge_padding_px ||
+							local_x > static_cast<float>(CHUNK_SIZE_PX) - p_small_rock_settings.edge_padding_px ||
+							local_y > static_cast<float>(CHUNK_SIZE_PX) - p_small_rock_settings.edge_padding_px ||
+							!object_position_is_plain(local_x, local_y, p_terrain_ids, p_lake_flags) ||
+							!object_position_has_mountain_clearance(local_x, local_y, p_terrain_ids, OBJECT_MOUNTAIN_CLEARANCE_PX)) {
+						continue;
+					}
+					const float world_x = static_cast<float>(static_cast<int64_t>(p_coord.x) * CHUNK_SIZE_PX) + local_x;
+					const float world_y = static_cast<float>(static_cast<int64_t>(p_coord.y) * CHUNK_SIZE_PX) + local_y;
+					const SmallRockFieldSample member_field = sample_small_rock_field(world_x, world_y, p_small_rock_settings);
+					if (member_field.score < 0.05f && object_unit(member_hash, 0x91ULL) > center_field.score * 0.55f) {
+						continue;
+					}
+
+					bool member_too_close = false;
+					for (const std::pair<float, float> &existing : placed_positions) {
+						const float dx = local_x - existing.first;
+						const float dy = local_y - existing.second;
+						if (dx * dx + dy * dy < member_min_distance_sq) {
+							member_too_close = true;
+							break;
+						}
+					}
+					if (member_too_close) {
+						continue;
+					}
+
+					const uint8_t variant = static_cast<uint8_t>(
+							static_cast<int32_t>(std::floor(hash_unit_float(member_hash, 32U) * static_cast<float>(variant_count))) % variant_count);
+					const float distance_t = world_utils::clamp_value(radial, 0.0f, 1.0f);
+					const float size_roll = std::pow(hash_unit_float(member_hash, 48U), SMALL_ROCK_SIZE_EXPONENT);
+					float size_px = lerp_float(p_small_rock_settings.min_size_px, p_small_rock_settings.max_size_px, size_roll);
+					size_px *= lerp_float(1.10f, 0.76f, distance_t);
+					size_px = world_utils::clamp_value(size_px, p_small_rock_settings.min_size_px, p_small_rock_settings.max_size_px);
+					const float tint = lerp_float(0.86f, 1.0f, object_unit(member_hash, 0x67ULL));
+					const float phase = object_unit(member_hash, 0x157ULL);
+					append_object_record(r_buffers, OBJECT_KIND_SMALL_ROCK, local_x, local_y, size_px, 0U, variant, 0U, tint, phase);
+					placed_positions.push_back({ local_x, local_y });
+					placed_member = true;
+				}
+			}
 		}
 	}
 }
@@ -1844,6 +1971,33 @@ SmallRockPlacementSettings unpack_small_rock_settings(const PackedFloat32Array &
 		static_cast<int32_t>(std::lround(p_settings_packed[SETTINGS_PACKED_LAYOUT_SMALL_ROCK_ASSET_VARIANT_COUNT])),
 		1,
 		64
+	);
+	settings.cluster_radius_px = std::max(1.0f, p_settings_packed[SETTINGS_PACKED_LAYOUT_SMALL_ROCK_CLUSTER_RADIUS_PX]);
+	settings.cluster_min_count = world_utils::clamp_value<int32_t>(
+		static_cast<int32_t>(std::lround(p_settings_packed[SETTINGS_PACKED_LAYOUT_SMALL_ROCK_CLUSTER_MIN_COUNT])),
+		1,
+		16
+	);
+	settings.cluster_max_count = world_utils::clamp_value<int32_t>(
+		static_cast<int32_t>(std::lround(p_settings_packed[SETTINGS_PACKED_LAYOUT_SMALL_ROCK_CLUSTER_MAX_COUNT])),
+		settings.cluster_min_count,
+		16
+	);
+	settings.cluster_min_distance_px = std::max(0.0f, p_settings_packed[SETTINGS_PACKED_LAYOUT_SMALL_ROCK_CLUSTER_MIN_DISTANCE_PX]);
+	settings.edge_bias = world_utils::clamp_value(
+		p_settings_packed[SETTINGS_PACKED_LAYOUT_SMALL_ROCK_EDGE_BIAS],
+		0.0f,
+		1.0f
+	);
+	settings.rocky_patch_bias = world_utils::clamp_value(
+		p_settings_packed[SETTINGS_PACKED_LAYOUT_SMALL_ROCK_ROCKY_PATCH_BIAS],
+		0.0f,
+		1.0f
+	);
+	settings.path_edge_bias = world_utils::clamp_value(
+		p_settings_packed[SETTINGS_PACKED_LAYOUT_SMALL_ROCK_PATH_EDGE_BIAS],
+		0.0f,
+		1.0f
 	);
 	return settings;
 }
