@@ -28,11 +28,12 @@ related_docs:
 Define the first scalable contract for generated surface world objects:
 flora, trees, and inert decor.
 
-Current implementation note (2026-07-09): `world_version == 61` removes the
-previous generated stone/rock object families and ore/stone resource node data
-from checked-in runtime content. Historical notes below about rock packet
-families are retained only as migration context until the replacement
-tree-style authoring pass is specified.
+Current implementation note (2026-07-09): `world_version == 62` keeps the
+previous generated stone/rock object families removed (`object_kind` values
+`1`, `5`, and `6`) and adds the replacement tree-style small rock proof as
+visual-only `object_kind == 7`. The replacement uses Blender-baked layered
+assets, snow masks, and fixed sun-shadow stretch; it does not use wind masks,
+collision, harvest, ore, or stone resource node data.
 
 This spec exists so adding plants and authored objects does not become a set of ad-hoc
 scene paths or generator branches. V0 is intentionally narrow: it proves the
@@ -73,7 +74,11 @@ V0 includes only:
 - a tree proof using `object_kind == 4`, authored plains-tree placement
   settings, batched/layered presentation, sun silhouette shadows, and
   chunk-scoped trunk collision shape owners;
-- no active generated stone/rock/ore object families in `world_version >= 61`;
+- a small rock proof using `object_kind == 7`, authored plains-small-rock
+  placement settings, Blender-baked layered presentation, snow masks, and
+  fixed sun-shadow stretch with no collision or wind mask;
+- no active historical generated stone/rock/ore object families `1`, `5`, or
+  `6` in `world_version >= 61`;
 - asset folder rules for sprites, atlases, and related presentation assets;
 - mod-compatible additive content registration direction for `plains`.
 
@@ -87,9 +92,8 @@ V0 explicitly does not include:
 - seasonal, weather, wind, or environment-runtime object changes;
 - harvest, mining, chopping, pickup, or resource yield gameplay;
 - object destruction runtime diff;
-- generated stone/rock/ore presentation, collision, harvesting, resource
-  nodes, and item yields until the replacement tree-style authoring pass is
-  specified;
+- generated stone/rock/ore collision, harvesting, resource nodes, and item
+  yields; the active small rock proof is visual-only decor;
 - harvesting, save identity, or gameplay commands for visual-only flora proofs;
 - rotation variation for the visual-only animated flora proof;
 - dedicated harvest commands or events;
@@ -273,6 +277,13 @@ Plains tree placement settings are authored in
 `22..43`. Runtime object packets remain immutable generated output; changing the
 checked-in `.tres` affects newly created worlds, not already saved worlds.
 
+Plains small rock placement settings are authored in
+`data/world_objects/placement_groups/plains_small_rocks.tres`
+(`PlainsSmallRockPlacementSettings`) for new worlds, then frozen into
+`worldgen_settings.plains_small_rocks` and packed into native settings indices
+`44..63`. The active assets live under
+`assets/sprites/decor/plains/layered_small_rocks/small_rock_01..10`.
+
 ### Packet Shape Direction
 
 V0 extends `ChunkPacketV0` additively with a compact visual object section.
@@ -280,13 +291,13 @@ The accepted first packet shape is presentation-oriented and intentionally
 byte-packed:
 
 ```text
-object_kind: PackedByteArray          # current family id: 2 living flora, 3 spiky flora, 4 tree
+object_kind: PackedByteArray          # current family id: 2 living flora, 3 spiky flora, 4 tree, 7 small rock
 object_local_x_px_q4: PackedByteArray # chunk-local pixel X quantized to 4 px
 object_local_y_px_q4: PackedByteArray # chunk-local pixel Y quantized to 4 px
 object_size_px: PackedByteArray       # rendered sprite size in pixels
-object_atlas_index: PackedByteArray   # prepared atlas bank index; spiky flora index 1 is small static brown seaweed, tree uses index 0
-object_variant: PackedByteArray       # atlas frame / animation view variant
-object_flags: PackedByteArray         # bit flags reserved for object collision/proof data; active tree collision is derived from object_kind 4
+object_atlas_index: PackedByteArray   # prepared atlas bank index; spiky flora index 1 is small static brown seaweed; tree and small rock use index 0
+object_variant: PackedByteArray       # atlas frame / animation view variant; small rock selects layered asset dir
+object_flags: PackedByteArray         # bit flags reserved for object collision/proof data; active tree collision is derived from object_kind 4; small rock has none
 object_tint: PackedByteArray          # 0..255 presentation tint scalar
 object_phase: PackedByteArray         # 0..255 deterministic animation phase
 ```
@@ -322,12 +333,18 @@ Rules:
   orange biofield mask before emission.
 - for `world_version >= 61`, native object packets do not emit historical
   stone/rock families (`object_kind` values `1`, `5`, and `6`).
+- for `world_version >= 62`, native object packets may emit visual-only
+  `object_kind == 7` small rocks from `worldgen_settings.plains_small_rocks`.
+  Their layered runtime reuses the tree bake shadow direction/stretch rules,
+  loads snow masks/overlays, and intentionally has no wind or collision path.
 - living flora, spiky flora, and trees keep local clearance from canonical
   mountain wall/foot terrain so batched decor does not appear underneath the
   organic runtime mountain mask.
 - trees use `object_kind == 4`; presentation may use the classic atlas batch or
   the layered-tree runtime, and trunk collision is chunk-scoped on one
   `StaticBody2D` per object packet layer.
+- small rocks use `object_kind == 7`; presentation uses the layered-rock
+  runtime only, remains sparse, and must not create collision shapes.
 
 ### Batch Presentation Contract
 
@@ -554,8 +571,11 @@ V0 is acceptable when:
   scene nodes;
 - trees are emitted through `object_kind == 4`, use deterministic variants, and
   use chunk-scoped trunk collision shape owners only;
-- accepted flora and trees are emitted from the native object packet, not from
-  a runtime GDScript scatter generator;
+- small rocks are emitted through `object_kind == 7`, use deterministic
+  layered variants, have snow masks/overlays, stretch baked shadows at low sun,
+  and create no collision;
+- accepted flora, trees, and small rocks are emitted from the native object
+  packet, not from a runtime GDScript scatter generator;
 - active generated stone/rock object families `1`, `5`, and `6` are not emitted
   for `world_version >= 61`;
 - canonical generated placements are not saved as full chunk content;

@@ -5,6 +5,7 @@ const MountainGenSettings = preload("res://core/resources/mountain_gen_settings.
 const FoundationGenSettings = preload("res://core/resources/foundation_gen_settings.gd")
 const LakeGenSettings = preload("res://core/resources/lake_gen_settings.gd")
 const PlainsTreePlacementSettings = preload("res://core/resources/plains_tree_placement_settings.gd")
+const PlainsSmallRockPlacementSettings = preload("res://core/resources/plains_small_rock_placement_settings.gd")
 const WorldChunkPacketBackend = preload("res://core/systems/world/world_chunk_packet_backend.gd")
 const WorldFoundationPalette = preload("res://core/systems/world/world_foundation_palette.gd")
 const WorldOverviewCanvas = preload("res://scenes/ui/world_overview_canvas.gd")
@@ -18,6 +19,7 @@ const WorldSpawnResolver = preload("res://core/systems/world/world_spawn_resolve
 const DefaultLakeGenSettings = preload("res://data/balance/lake_gen_settings.tres")
 const DefaultPlainsGroundMaterialSet = preload("res://data/terrain/material_sets/plains_ground_material_set.tres")
 const DefaultPlainsTreePlacementSettings = preload("res://data/world_objects/placement_groups/plains_trees.tres")
+const DefaultPlainsSmallRockPlacementSettings = preload("res://data/world_objects/placement_groups/plains_small_rocks.tres")
 
 const STAGE_RADII_CHUNKS := [2, 6, 10, 16]
 const REBUILD_DEBOUNCE_SECONDS: float = 0.12
@@ -617,12 +619,21 @@ func _build_settings_packed(
 	var packed: PackedFloat32Array = settings.flatten_to_packed()
 	packed = foundation_settings.write_to_settings_packed(packed, world_bounds)
 	packed = lake_settings.write_to_settings_packed(packed)
-	return _make_preview_plains_tree_settings().write_to_settings_packed(packed)
+	packed = _make_preview_plains_tree_settings().write_to_settings_packed(packed)
+	return _make_preview_plains_small_rock_settings().write_to_settings_packed(packed)
 
 
 func _make_preview_plains_tree_settings() -> PlainsTreePlacementSettings:
 	var settings: PlainsTreePlacementSettings = PlainsTreePlacementSettings.from_save_dict(
 		DefaultPlainsTreePlacementSettings.to_save_dict(),
+	)
+	settings.apply_ground_sampling_params(DefaultPlainsGroundMaterialSet.sampling_params)
+	return settings
+
+
+func _make_preview_plains_small_rock_settings() -> PlainsSmallRockPlacementSettings:
+	var settings: PlainsSmallRockPlacementSettings = PlainsSmallRockPlacementSettings.from_save_dict(
+		DefaultPlainsSmallRockPlacementSettings.to_save_dict(),
 	)
 	settings.apply_ground_sampling_params(DefaultPlainsGroundMaterialSet.sampling_params)
 	return settings
@@ -644,6 +655,7 @@ func _compute_worldgen_signature(
 		"foundation": foundation_settings.to_save_dict(),
 		"lakes": lake_settings.to_save_dict(),
 		"plains_trees": _make_preview_plains_tree_settings().to_save_dict(),
+		"plains_small_rocks": _make_preview_plains_small_rock_settings().to_save_dict(),
 	}).to_utf8_buffer())
 	return hashing_context.finish().hex_encode()
 

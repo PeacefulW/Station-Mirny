@@ -11,8 +11,10 @@ ROOT = Path(__file__).resolve().parents[2]
 PROFILE_PATH = ROOT / "tools" / "tree_atlas" / "layered_asset_bake_profile.json"
 DOC_PATH = ROOT / "docs" / "art" / "layered_asset_bake_contract.md"
 TREE_DIR = ROOT / "assets" / "sprites" / "flora" / "layered_trees"
+ROCK_DIR = ROOT / "assets" / "sprites" / "decor" / "plains" / "layered_small_rocks"
 WORLD_STREAMER_PATH = ROOT / "core" / "systems" / "world" / "world_streamer.gd"
 TREE_IDS = ("tree_01", "tree_02", "tree_03", "tree_04", "tree_05")
+ROCK_IDS = tuple(f"small_rock_{index:02d}" for index in range(1, 11))
 
 
 class LayeredAssetBakeContractTest(unittest.TestCase):
@@ -63,6 +65,39 @@ class LayeredAssetBakeContractTest(unittest.TestCase):
                 meta = json.loads(meta_path.read_text(encoding="utf-8"))
                 self.assertEqual(meta.get("bake_profile"), expected)
 
+    def test_existing_small_rock_assets_record_the_shared_profile(self) -> None:
+        profile = json.loads(PROFILE_PATH.read_text(encoding="utf-8"))
+        expected = {
+            "profile_id": profile["profile_id"],
+            "version": profile["version"],
+            "frame_size": profile["frame_size"],
+            "sun_azimuth_degrees": profile["lighting"]["sun_azimuth_degrees"],
+            "albedo_sun_elevation_degrees": profile["lighting"]["albedo_sun_elevation_degrees"],
+            "shadow_sun_elevation_degrees": profile["lighting"]["shadow_sun_elevation_degrees"],
+            "root_embed_fraction": profile["planting"]["root_embed_fraction"],
+        }
+
+        for rock_id in ROCK_IDS:
+            with self.subTest(rock_id=rock_id):
+                asset_dir = ROCK_DIR / rock_id
+                meta_path = asset_dir / "meta.json"
+                self.assertTrue(meta_path.is_file())
+                meta = json.loads(meta_path.read_text(encoding="utf-8"))
+                self.assertEqual(meta.get("bake_profile"), expected)
+                self.assertFalse(meta.get("blocks_movement"))
+                self.assertEqual(meta.get("collision_radius"), 0)
+                self.assertEqual(meta.get("wind_strength"), 0.0)
+                for required_file in (
+                    "albedo.png",
+                    "shadow.png",
+                    "snow_mask.png",
+                    "snow_overlay.png",
+                    "height.png",
+                    "normal.png",
+                ):
+                    self.assertTrue((asset_dir / required_file).is_file(), f"{rock_id} missing {required_file}")
+                self.assertFalse((asset_dir / "wind_mask.png").exists(), f"{rock_id} must not include wind_mask.png")
+
     def test_runtime_streamer_registers_all_layered_tree_assets(self) -> None:
         self.assertTrue(WORLD_STREAMER_PATH.is_file(), "World streamer must declare layered tree assets.")
         world_streamer = WORLD_STREAMER_PATH.read_text(encoding="utf-8")
@@ -70,6 +105,14 @@ class LayeredAssetBakeContractTest(unittest.TestCase):
         for tree_id in TREE_IDS:
             with self.subTest(tree_id=tree_id):
                 self.assertIn(f'"res://assets/sprites/flora/layered_trees/{tree_id}"', world_streamer)
+
+    def test_runtime_streamer_registers_all_layered_small_rock_assets(self) -> None:
+        self.assertTrue(WORLD_STREAMER_PATH.is_file(), "World streamer must declare layered small rock assets.")
+        world_streamer = WORLD_STREAMER_PATH.read_text(encoding="utf-8")
+
+        for rock_id in ROCK_IDS:
+            with self.subTest(rock_id=rock_id):
+                self.assertIn(f'"res://assets/sprites/decor/plains/layered_small_rocks/{rock_id}"', world_streamer)
 
 
 if __name__ == "__main__":

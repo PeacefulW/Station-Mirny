@@ -3,6 +3,7 @@ extends Node2D
 
 const WorldDecorBatchLayer = preload("res://core/systems/world/world_decor_batch_layer.gd")
 const LayeredTreeObjectLayer = preload("res://core/systems/world/layered_tree_object_layer.gd")
+const LayeredRockObjectLayer = preload("res://core/systems/world/layered_rock_object_layer.gd")
 const WorldVisualLightingProfile = preload("res://core/systems/world/world_visual_lighting_profile.gd")
 const TREE_BATCH_SHADER = preload("res://assets/shaders/tree_decor_atlas_batch.gdshader")
 const TREE_SHADOW_SHADER = preload("res://assets/shaders/tree_silhouette_shadow.gdshader")
@@ -11,6 +12,7 @@ const ObjectCollisionDebugLayer = preload("res://core/systems/world/object_colli
 const OBJECT_KIND_LIVING_FLORA: int = 2
 const OBJECT_KIND_SPIKY_FLORA: int = 3
 const OBJECT_KIND_TREE: int = 4
+const OBJECT_KIND_SMALL_ROCK: int = 7
 const OBJECT_LOCAL_PX_QUANTUM: float = 4.0
 const OBJECT_COLLISION_LAYER: int = 2
 
@@ -64,10 +66,13 @@ var _spiky_flora_atlases: Array[Texture2D] = []
 var _tree_atlas: Texture2D = null
 var _layered_tree_asset_dir: String = ""
 var _layered_tree_asset_dirs: Array[String] = []
+var _layered_small_rock_asset_dir: String = ""
+var _layered_small_rock_asset_dirs: Array[String] = []
 var _living_flora_batch_layer: WorldDecorBatchLayer = null
 var _spiky_flora_batch_layer: WorldDecorBatchLayer = null
 var _tree_batch_layer: WorldDecorBatchLayer = null
 var _layered_tree_layer: LayeredTreeObjectLayer = null
+var _layered_small_rock_layer: LayeredRockObjectLayer = null
 var _tree_collision_body: StaticBody2D = null
 var _tree_collision_shape_owner_ids: Array[int] = []
 var _tree_collider_count: int = 0
@@ -83,6 +88,7 @@ var _sun_shadow_opacity: float = 0.0
 var _living_flora_count: int = 0
 var _spiky_flora_count: int = 0
 var _tree_count: int = 0
+var _small_rock_count: int = 0
 var _world_origin_y: float = 0.0
 
 
@@ -125,6 +131,20 @@ func set_layered_tree_asset_dirs(asset_dirs: Array) -> void:
 			_layered_tree_layer.set_asset_dirs(_layered_tree_asset_dirs)
 
 
+func set_layered_small_rock_asset_dir(asset_dir: String) -> void:
+	set_layered_small_rock_asset_dirs([asset_dir] if not asset_dir.is_empty() else [])
+
+
+func set_layered_small_rock_asset_dirs(asset_dirs: Array) -> void:
+	_layered_small_rock_asset_dirs = _normalize_layered_small_rock_asset_dirs(asset_dirs)
+	_layered_small_rock_asset_dir = _layered_small_rock_asset_dirs[0] if not _layered_small_rock_asset_dirs.is_empty() else ""
+	if _layered_small_rock_layer != null and is_instance_valid(_layered_small_rock_layer):
+		if _layered_small_rock_asset_dirs.is_empty():
+			_layered_small_rock_layer.clear_instances()
+		else:
+			_layered_small_rock_layer.set_asset_dirs(_layered_small_rock_asset_dirs)
+
+
 func set_sun_lighting(
 		light_angle_deg: float,
 		shadow_length_px: float,
@@ -156,6 +176,13 @@ func set_sun_lighting(
 			shadow_opacity,
 			shadow_softness_px,
 		)
+	if _layered_small_rock_layer != null and is_instance_valid(_layered_small_rock_layer):
+		_layered_small_rock_layer.set_sun_lighting(
+			light_angle_deg,
+			shadow_length_px,
+			shadow_opacity,
+			shadow_softness_px,
+		)
 
 
 ## Мировой Y чанка для глобальных полос depth-лесенки.
@@ -166,6 +193,8 @@ func set_world_origin_y(world_origin_y: float) -> void:
 	_apply_world_origin_to_batch_layer(_tree_batch_layer)
 	if _layered_tree_layer != null and is_instance_valid(_layered_tree_layer):
 		_layered_tree_layer.set_world_origin_y(_world_origin_y)
+	if _layered_small_rock_layer != null and is_instance_valid(_layered_small_rock_layer):
+		_layered_small_rock_layer.set_world_origin_y(_world_origin_y)
 
 
 ## Перестановка полос объектного декора на player-relative лесенке.
@@ -178,12 +207,15 @@ func update_ladder_z(anchor_stripe: int) -> void:
 		_tree_batch_layer.update_ladder_z(anchor_stripe)
 	if _layered_tree_layer != null and is_instance_valid(_layered_tree_layer):
 		_layered_tree_layer.update_ladder_z(anchor_stripe)
+	if _layered_small_rock_layer != null and is_instance_valid(_layered_small_rock_layer):
+		_layered_small_rock_layer.update_ladder_z(anchor_stripe)
 
 
 func configure_packet(packet: Dictionary) -> void:
 	_living_flora_count = 0
 	_spiky_flora_count = 0
 	_tree_count = 0
+	_small_rock_count = 0
 	var object_kind: PackedByteArray = packet.get("object_kind", PackedByteArray()) as PackedByteArray
 	var object_x: PackedByteArray = packet.get("object_local_x_px_q4", PackedByteArray()) as PackedByteArray
 	var object_y: PackedByteArray = packet.get("object_local_y_px_q4", PackedByteArray()) as PackedByteArray
@@ -220,6 +252,7 @@ func configure_packet(packet: Dictionary) -> void:
 	var tree_buffer := PackedFloat32Array()
 	var tree_shadow_buffer := PackedFloat32Array()
 	var layered_tree_records: Array[Dictionary] = []
+	var layered_small_rock_records: Array[Dictionary] = []
 	var tree_collision_records: Array[Dictionary] = []
 	for index: int in range(object_count):
 		var kind: int = int(object_kind[index])
@@ -246,14 +279,24 @@ func configure_packet(packet: Dictionary) -> void:
 					layered_tree_records,
 					tree_collision_records,
 				)
+			OBJECT_KIND_SMALL_ROCK:
+				_append_small_rock(
+					position,
+					size_px,
+					frame_index,
+					tint_factor,
+					layered_small_rock_records,
+				)
 
 	_sync_living_flora_batch(living_buffer, living_shadow_buffer)
 	_sync_spiky_flora_batch(spiky_buffers, empty_shadow_buffer)
 	_sync_tree_batch(tree_buffer, tree_shadow_buffer, layered_tree_records)
+	_sync_layered_small_rock_layer(layered_small_rock_records)
 	_sync_tree_collision(tree_collision_records)
 	visible = _living_flora_count > 0 \
 			or _spiky_flora_count > 0 \
-			or _tree_count > 0
+			or _tree_count > 0 \
+			or _small_rock_count > 0
 
 
 func get_debug_state() -> Dictionary:
@@ -261,12 +304,18 @@ func get_debug_state() -> Dictionary:
 		"living_flora_count": _living_flora_count,
 		"spiky_flora_count": _spiky_flora_count,
 		"tree_count": _tree_count,
+		"small_rock_count": _small_rock_count,
 		"tree_collider_count": _tree_collider_count,
+		"small_rock_uses_collision": false,
 		"tree_contact_shadow_enabled": TREE_CONTACT_SHADOW_ENABLED,
 		"uses_layered_tree_runtime": _uses_layered_tree_runtime(),
 		"layered_tree_asset_count": _layered_tree_asset_dirs.size(),
 		"layered_tree_count": _layered_tree_instance_count(),
 		"layered_tree_shadow_count": _layered_tree_shadow_instance_count(),
+		"uses_layered_small_rock_runtime": _uses_layered_small_rock_runtime(),
+		"layered_small_rock_asset_count": _layered_small_rock_asset_dirs.size(),
+		"layered_small_rock_count": _layered_small_rock_instance_count(),
+		"layered_small_rock_shadow_count": _layered_small_rock_shadow_instance_count(),
 	}
 
 
@@ -468,6 +517,26 @@ func _append_tree(
 	_tree_count += 1
 
 
+func _append_small_rock(
+		position: Vector2,
+		size_px: float,
+		frame_index: int,
+		tint_factor: float,
+		layered_small_rock_records: Array[Dictionary],
+) -> void:
+	if not _uses_layered_small_rock_runtime():
+		return
+	layered_small_rock_records.append(
+		{
+			"position": position,
+			"asset_dir": _layered_small_rock_asset_dir_for_variant(frame_index),
+			"size_px": size_px,
+			"tint": Color(tint_factor, tint_factor, tint_factor, 1.0),
+		},
+	)
+	_small_rock_count += 1
+
+
 func _sync_living_flora_batch(living_buffer: PackedFloat32Array, living_shadow_buffer: PackedFloat32Array) -> void:
 	if _living_flora_atlas == null or _living_flora_count <= 0:
 		if _living_flora_batch_layer != null and is_instance_valid(_living_flora_batch_layer):
@@ -512,6 +581,10 @@ func _ensure_spiky_flora_batch_layer() -> WorldDecorBatchLayer:
 
 func _uses_layered_tree_runtime() -> bool:
 	return not _layered_tree_asset_dirs.is_empty()
+
+
+func _uses_layered_small_rock_runtime() -> bool:
+	return not _layered_small_rock_asset_dirs.is_empty()
 
 
 func _sync_tree_batch(
@@ -572,6 +645,38 @@ func _clear_layered_tree_layer() -> void:
 		_layered_tree_layer.clear_instances()
 
 
+func _sync_layered_small_rock_layer(layered_small_rock_records: Array[Dictionary]) -> void:
+	if layered_small_rock_records.is_empty():
+		_clear_layered_small_rock_layer()
+		return
+	var layer: LayeredRockObjectLayer = _ensure_layered_small_rock_layer()
+	layer.set_asset_dirs(_layered_small_rock_asset_dirs)
+	layer.set_world_origin_y(_world_origin_y)
+	layer.set_instances(layered_small_rock_records)
+	layer.set_sun_lighting(
+		_sun_light_angle_deg,
+		_sun_shadow_length_px,
+		_sun_shadow_opacity,
+		WorldVisualLightingProfile.DEFAULT_SHADOW_SOFTNESS_PX,
+	)
+
+
+func _ensure_layered_small_rock_layer() -> LayeredRockObjectLayer:
+	if _layered_small_rock_layer != null and is_instance_valid(_layered_small_rock_layer):
+		return _layered_small_rock_layer
+	_layered_small_rock_layer = LayeredRockObjectLayer.new()
+	_layered_small_rock_layer.name = "LayeredSmallRockObjectLayer"
+	add_child(_layered_small_rock_layer)
+	_layered_small_rock_layer.set_world_origin_y(_world_origin_y)
+	_layered_small_rock_layer.set_asset_dirs(_layered_small_rock_asset_dirs)
+	return _layered_small_rock_layer
+
+
+func _clear_layered_small_rock_layer() -> void:
+	if _layered_small_rock_layer != null and is_instance_valid(_layered_small_rock_layer):
+		_layered_small_rock_layer.clear_instances()
+
+
 func _layered_tree_instance_count() -> int:
 	if _layered_tree_layer == null or not is_instance_valid(_layered_tree_layer):
 		return 0
@@ -583,6 +688,20 @@ func _layered_tree_shadow_instance_count() -> int:
 	if _layered_tree_layer == null or not is_instance_valid(_layered_tree_layer):
 		return 0
 	var state: Dictionary = _layered_tree_layer.get_debug_state()
+	return int(state.get("shadow_instance_count", 0))
+
+
+func _layered_small_rock_instance_count() -> int:
+	if _layered_small_rock_layer == null or not is_instance_valid(_layered_small_rock_layer):
+		return 0
+	var state: Dictionary = _layered_small_rock_layer.get_debug_state()
+	return int(state.get("instance_count", 0))
+
+
+func _layered_small_rock_shadow_instance_count() -> int:
+	if _layered_small_rock_layer == null or not is_instance_valid(_layered_small_rock_layer):
+		return 0
+	var state: Dictionary = _layered_small_rock_layer.get_debug_state()
 	return int(state.get("shadow_instance_count", 0))
 
 
@@ -744,6 +863,7 @@ func _clear_batches() -> void:
 	_living_flora_count = 0
 	_spiky_flora_count = 0
 	_tree_count = 0
+	_small_rock_count = 0
 	_clear_tree_collision_shapes()
 	_tree_debug_rects = []
 	_sync_collision_debug_layer()
@@ -758,6 +878,7 @@ func _clear_batches() -> void:
 		_tree_shadow_layer.visible = false
 		_tree_shadow_layer.multimesh = null
 	_clear_layered_tree_layer()
+	_clear_layered_small_rock_layer()
 
 
 func _layered_tree_asset_dir_for_variant(frame_index: int) -> String:
@@ -766,7 +887,25 @@ func _layered_tree_asset_dir_for_variant(frame_index: int) -> String:
 	return _layered_tree_asset_dirs[abs(frame_index) % _layered_tree_asset_dirs.size()]
 
 
+func _layered_small_rock_asset_dir_for_variant(frame_index: int) -> String:
+	if _layered_small_rock_asset_dirs.is_empty():
+		return ""
+	return _layered_small_rock_asset_dirs[abs(frame_index) % _layered_small_rock_asset_dirs.size()]
+
+
 func _normalize_layered_tree_asset_dirs(asset_dirs: Array) -> Array[String]:
+	var result: Array[String] = []
+	var seen: Dictionary = { }
+	for value: Variant in asset_dirs:
+		var asset_dir: String = str(value).strip_edges()
+		if asset_dir.is_empty() or seen.has(asset_dir):
+			continue
+		seen[asset_dir] = true
+		result.append(asset_dir)
+	return result
+
+
+func _normalize_layered_small_rock_asset_dirs(asset_dirs: Array) -> Array[String]:
 	var result: Array[String] = []
 	var seen: Dictionary = { }
 	for value: Variant in asset_dirs:

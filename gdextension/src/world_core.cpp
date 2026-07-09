@@ -85,6 +85,27 @@ constexpr int64_t SETTINGS_PACKED_LAYOUT_TREE_PATH_WIDTH = 41;
 constexpr int64_t SETTINGS_PACKED_LAYOUT_TREE_PATH_WARP_PX = 42;
 constexpr int64_t SETTINGS_PACKED_LAYOUT_TREE_PATH_STRENGTH = 43;
 constexpr int64_t SETTINGS_PACKED_LAYOUT_TREE_FIELD_COUNT = 44;
+constexpr int64_t SETTINGS_PACKED_LAYOUT_SMALL_ROCK_DENSITY = 44;
+constexpr int64_t SETTINGS_PACKED_LAYOUT_SMALL_ROCK_SCATTER_GRID_SIDE = 45;
+constexpr int64_t SETTINGS_PACKED_LAYOUT_SMALL_ROCK_EDGE_PADDING_PX = 46;
+constexpr int64_t SETTINGS_PACKED_LAYOUT_SMALL_ROCK_MIN_DISTANCE_PX = 47;
+constexpr int64_t SETTINGS_PACKED_LAYOUT_SMALL_ROCK_MAX_PER_CHUNK = 48;
+constexpr int64_t SETTINGS_PACKED_LAYOUT_SMALL_ROCK_MIN_SIZE_PX = 49;
+constexpr int64_t SETTINGS_PACKED_LAYOUT_SMALL_ROCK_MAX_SIZE_PX = 50;
+constexpr int64_t SETTINGS_PACKED_LAYOUT_SMALL_ROCK_GRASS_DENSITY_MIN = 51;
+constexpr int64_t SETTINGS_PACKED_LAYOUT_SMALL_ROCK_GRASS_DENSITY_MAX = 52;
+constexpr int64_t SETTINGS_PACKED_LAYOUT_SMALL_ROCK_GRASS_FIELD_SCALE_PX = 53;
+constexpr int64_t SETTINGS_PACKED_LAYOUT_SMALL_ROCK_GRASS_COVERAGE = 54;
+constexpr int64_t SETTINGS_PACKED_LAYOUT_SMALL_ROCK_ROCK_FIELD_SCALE_PX = 55;
+constexpr int64_t SETTINGS_PACKED_LAYOUT_SMALL_ROCK_ROCK_COVERAGE = 56;
+constexpr int64_t SETTINGS_PACKED_LAYOUT_SMALL_ROCK_MACRO_MASS_SCALE_PX = 57;
+constexpr int64_t SETTINGS_PACKED_LAYOUT_SMALL_ROCK_MACRO_MASS_STRENGTH = 58;
+constexpr int64_t SETTINGS_PACKED_LAYOUT_SMALL_ROCK_PATH_SCALE_PX = 59;
+constexpr int64_t SETTINGS_PACKED_LAYOUT_SMALL_ROCK_PATH_WIDTH = 60;
+constexpr int64_t SETTINGS_PACKED_LAYOUT_SMALL_ROCK_PATH_WARP_PX = 61;
+constexpr int64_t SETTINGS_PACKED_LAYOUT_SMALL_ROCK_PATH_STRENGTH = 62;
+constexpr int64_t SETTINGS_PACKED_LAYOUT_SMALL_ROCK_ASSET_VARIANT_COUNT = 63;
+constexpr int64_t SETTINGS_PACKED_LAYOUT_SMALL_ROCK_FIELD_COUNT = 64;
 
 constexpr uint8_t MOUNTAIN_FLAG_WALL = 1U << 1U;
 constexpr uint8_t MOUNTAIN_FLAG_FOOT = 1U << 2U;
@@ -96,6 +117,7 @@ constexpr int64_t WORLD_FOUNDATION_VERSION = 9;
 constexpr int64_t LAKE_PACKET_VERSION = 38;
 constexpr int64_t MOUNTAIN_SATELLITE_OUTCROP_CLUSTER_VERSION = 47;
 constexpr int64_t MOUNTAIN_PASSAGE_OUTCROP_REFINEMENT_VERSION = 48;
+constexpr int64_t SMALL_ROCK_PLACEMENT_VERSION = 62;
 constexpr int64_t MOUNTAIN_FINITE_WIDTH_VERSION = world_utils::MOUNTAIN_FINITE_WIDTH_VERSION;
 constexpr int64_t FOUNDATION_CHUNK_SIZE = CHUNK_SIZE;
 constexpr int64_t SPAWN_SAFE_PATCH_MIN_TILE = 12;
@@ -135,6 +157,7 @@ constexpr int32_t CHUNK_SIZE_PX = static_cast<int32_t>(CHUNK_SIZE) * TILE_SIZE_P
 constexpr uint8_t OBJECT_KIND_LIVING_FLORA = 2U;
 constexpr uint8_t OBJECT_KIND_SPIKY_FLORA = 3U;
 constexpr uint8_t OBJECT_KIND_TREE = 4U;
+constexpr uint8_t OBJECT_KIND_SMALL_ROCK = 7U;
 constexpr int32_t OBJECT_LOCAL_PX_QUANTUM = 4;
 constexpr float OBJECT_MOUNTAIN_CLEARANCE_PX = 64.0f;
 
@@ -207,6 +230,18 @@ constexpr float TREE_PATH_WIDTH = 0.06f;
 constexpr float TREE_PATH_WARP_PX = 700.0f;
 constexpr float TREE_PATH_STRENGTH = 0.85f;
 
+constexpr int32_t SMALL_ROCK_SCATTER_GRID_SIDE = 6;
+constexpr float SMALL_ROCK_PRIMARY_DENSITY = 0.56f;
+constexpr float SMALL_ROCK_EDGE_PADDING_PX = 42.0f;
+constexpr float SMALL_ROCK_MIN_DISTANCE_PX = 92.0f;
+constexpr int32_t SMALL_ROCK_MAX_PER_CHUNK = 5;
+constexpr float SMALL_ROCK_MIN_SIZE_PX = 42.0f;
+constexpr float SMALL_ROCK_MAX_SIZE_PX = 76.0f;
+constexpr float SMALL_ROCK_GRASS_DENSITY_MIN = 0.05f;
+constexpr float SMALL_ROCK_GRASS_DENSITY_MAX = 0.46f;
+constexpr int32_t SMALL_ROCK_ASSET_VARIANT_COUNT = 10;
+constexpr float SMALL_ROCK_SIZE_EXPONENT = 1.35f;
+
 struct TreePlacementSettings {
 	float density = TREE_PRIMARY_DENSITY;
 	int32_t scatter_grid_side = TREE_SCATTER_GRID_SIDE;
@@ -230,6 +265,29 @@ struct TreePlacementSettings {
 	float path_width = TREE_PATH_WIDTH;
 	float path_warp_px = TREE_PATH_WARP_PX;
 	float path_strength = TREE_PATH_STRENGTH;
+};
+
+struct SmallRockPlacementSettings {
+	float density = SMALL_ROCK_PRIMARY_DENSITY;
+	int32_t scatter_grid_side = SMALL_ROCK_SCATTER_GRID_SIDE;
+	float edge_padding_px = SMALL_ROCK_EDGE_PADDING_PX;
+	float min_distance_px = SMALL_ROCK_MIN_DISTANCE_PX;
+	int32_t max_per_chunk = SMALL_ROCK_MAX_PER_CHUNK;
+	float min_size_px = SMALL_ROCK_MIN_SIZE_PX;
+	float max_size_px = SMALL_ROCK_MAX_SIZE_PX;
+	float grass_density_min = SMALL_ROCK_GRASS_DENSITY_MIN;
+	float grass_density_max = SMALL_ROCK_GRASS_DENSITY_MAX;
+	float grass_field_scale_px = TREE_GRASS_FIELD_SCALE_PX;
+	float grass_coverage = TREE_GRASS_COVERAGE;
+	float rock_field_scale_px = TREE_ROCK_FIELD_SCALE_PX;
+	float rock_coverage = TREE_ROCK_COVERAGE;
+	float macro_mass_scale_px = TREE_MACRO_MASS_SCALE_PX;
+	float macro_mass_strength = TREE_MACRO_MASS_STRENGTH;
+	float path_scale_px = TREE_PATH_SCALE_PX;
+	float path_width = TREE_PATH_WIDTH;
+	float path_warp_px = TREE_PATH_WARP_PX;
+	float path_strength = TREE_PATH_STRENGTH;
+	int32_t asset_variant_count = SMALL_ROCK_ASSET_VARIANT_COUNT;
 };
 
 enum class PreviewPatchMode {
@@ -877,6 +935,98 @@ void append_native_tree_placements(
 	}
 }
 
+void append_native_small_rock_placements(
+	WorldObjectPacketBuffers &r_buffers,
+	int64_t p_seed,
+	Vector2i p_coord,
+	int64_t p_world_version,
+	const PackedInt32Array &p_terrain_ids,
+	const PackedByteArray &p_lake_flags,
+	const SmallRockPlacementSettings &p_small_rock_settings
+) {
+	if (p_world_version < SMALL_ROCK_PLACEMENT_VERSION ||
+			p_small_rock_settings.density <= 0.0f ||
+			p_small_rock_settings.scatter_grid_side <= 0 ||
+			p_small_rock_settings.asset_variant_count <= 0) {
+		return;
+	}
+	std::vector<std::pair<float, float>> placed_positions;
+	const float cell_size_px = static_cast<float>(CHUNK_SIZE_PX) / static_cast<float>(p_small_rock_settings.scatter_grid_side);
+	const float min_distance_sq = p_small_rock_settings.min_distance_px * p_small_rock_settings.min_distance_px;
+	for (int32_t grid_y = 0; grid_y < p_small_rock_settings.scatter_grid_side; ++grid_y) {
+		for (int32_t grid_x = 0; grid_x < p_small_rock_settings.scatter_grid_side; ++grid_x) {
+			if (p_small_rock_settings.max_per_chunk > 0 &&
+					static_cast<int32_t>(placed_positions.size()) >= p_small_rock_settings.max_per_chunk) {
+				return;
+			}
+			const uint64_t cell_hash = object_hash4(
+					p_coord.x,
+					p_coord.y,
+					grid_x + grid_y * p_small_rock_settings.scatter_grid_side,
+					p_seed ^ (p_world_version * 83));
+			if (hash_unit_float(cell_hash, 0U) > p_small_rock_settings.density) {
+				continue;
+			}
+			const float jitter_x = (object_unit(cell_hash, 0x41ULL) - 0.5f) * std::max(8.0f, cell_size_px - p_small_rock_settings.edge_padding_px * 2.0f);
+			const float jitter_y = (object_unit(cell_hash, 0x53ULL) - 0.5f) * std::max(8.0f, cell_size_px - p_small_rock_settings.edge_padding_px * 2.0f);
+			const float local_x = (static_cast<float>(grid_x) + 0.5f) * cell_size_px + jitter_x;
+			const float local_y = (static_cast<float>(grid_y) + 0.5f) * cell_size_px + jitter_y;
+			if (local_x < p_small_rock_settings.edge_padding_px ||
+					local_y < p_small_rock_settings.edge_padding_px ||
+					local_x > static_cast<float>(CHUNK_SIZE_PX) - p_small_rock_settings.edge_padding_px ||
+					local_y > static_cast<float>(CHUNK_SIZE_PX) - p_small_rock_settings.edge_padding_px ||
+					!object_position_is_plain(local_x, local_y, p_terrain_ids, p_lake_flags) ||
+					!object_position_has_mountain_clearance(local_x, local_y, p_terrain_ids, OBJECT_MOUNTAIN_CLEARANCE_PX)) {
+				continue;
+			}
+			const float rock_world_x = static_cast<float>(static_cast<int64_t>(p_coord.x) * CHUNK_SIZE_PX) + local_x;
+			const float rock_world_y = static_cast<float>(static_cast<int64_t>(p_coord.y) * CHUNK_SIZE_PX) + local_y;
+			const float grass_density = grass_scatter::sample_grass_density(
+					rock_world_x,
+					rock_world_y,
+					p_small_rock_settings.grass_field_scale_px,
+					p_small_rock_settings.grass_coverage,
+					p_small_rock_settings.rock_field_scale_px,
+					p_small_rock_settings.rock_coverage,
+					p_small_rock_settings.macro_mass_scale_px,
+					p_small_rock_settings.macro_mass_strength);
+			const float path_open = grass_scatter::sample_path(
+					rock_world_x,
+					rock_world_y,
+					p_small_rock_settings.path_scale_px,
+					p_small_rock_settings.path_width,
+					p_small_rock_settings.path_warp_px,
+					p_small_rock_settings.path_strength);
+			const float placement_mask = grass_density * path_open;
+			if (placement_mask < p_small_rock_settings.grass_density_min ||
+					placement_mask > p_small_rock_settings.grass_density_max) {
+				continue;
+			}
+			bool too_close = false;
+			for (const std::pair<float, float> &existing : placed_positions) {
+				const float dx = local_x - existing.first;
+				const float dy = local_y - existing.second;
+				if (dx * dx + dy * dy < min_distance_sq) {
+					too_close = true;
+					break;
+				}
+			}
+			if (too_close) {
+				continue;
+			}
+			const int32_t variant_count = world_utils::clamp_value<int32_t>(p_small_rock_settings.asset_variant_count, 1, 64);
+			const uint8_t variant = static_cast<uint8_t>(
+					static_cast<int32_t>(std::floor(object_unit(cell_hash, 0x97ULL) * static_cast<float>(variant_count))) % variant_count);
+			const float size_roll = std::pow(object_unit(cell_hash, 0x71ULL), SMALL_ROCK_SIZE_EXPONENT);
+			const float size_px = lerp_float(p_small_rock_settings.min_size_px, p_small_rock_settings.max_size_px, size_roll);
+			const float tint = lerp_float(0.88f, 1.0f, object_unit(cell_hash, 0x67ULL));
+			const float phase = object_unit(cell_hash, 0x157ULL);
+			append_object_record(r_buffers, OBJECT_KIND_SMALL_ROCK, local_x, local_y, size_px, 0U, variant, 0U, tint, phase);
+			placed_positions.push_back({ local_x, local_y });
+		}
+	}
+}
+
 void append_native_object_placements(
 	WorldObjectPacketBuffers &r_buffers,
 	int64_t p_seed,
@@ -884,7 +1034,8 @@ void append_native_object_placements(
 	int64_t p_world_version,
 	const PackedInt32Array &p_terrain_ids,
 	const PackedByteArray &p_lake_flags,
-	const TreePlacementSettings &p_tree_settings
+	const TreePlacementSettings &p_tree_settings,
+	const SmallRockPlacementSettings &p_small_rock_settings
 ) {
 	int32_t living_count = 0;
 	const float living_cell_size_px = static_cast<float>(CHUNK_SIZE_PX) / static_cast<float>(LIVING_FLORA_SCATTER_GRID_SIDE);
@@ -1031,6 +1182,7 @@ void append_native_object_placements(
 	}
 
 	append_native_tree_placements(r_buffers, p_seed, p_coord, p_world_version, p_terrain_ids, p_lake_flags, p_tree_settings);
+	append_native_small_rock_placements(r_buffers, p_seed, p_coord, p_world_version, p_terrain_ids, p_lake_flags, p_small_rock_settings);
 }
 
 int32_t make_satellite_outcrop_mountain_id(uint64_t p_hash) {
@@ -1612,6 +1764,86 @@ TreePlacementSettings unpack_tree_settings(const PackedFloat32Array &p_settings_
 		p_settings_packed[SETTINGS_PACKED_LAYOUT_TREE_PATH_STRENGTH],
 		0.0f,
 		1.0f
+	);
+	return settings;
+}
+
+SmallRockPlacementSettings unpack_small_rock_settings(const PackedFloat32Array &p_settings_packed) {
+	SmallRockPlacementSettings settings;
+	if (p_settings_packed.size() < SETTINGS_PACKED_LAYOUT_SMALL_ROCK_FIELD_COUNT) {
+		return settings;
+	}
+	settings.density = world_utils::clamp_value(
+		p_settings_packed[SETTINGS_PACKED_LAYOUT_SMALL_ROCK_DENSITY],
+		0.0f,
+		1.0f
+	);
+	settings.scatter_grid_side = world_utils::clamp_value<int32_t>(
+		static_cast<int32_t>(std::lround(p_settings_packed[SETTINGS_PACKED_LAYOUT_SMALL_ROCK_SCATTER_GRID_SIDE])),
+		1,
+		16
+	);
+	settings.edge_padding_px = std::max(0.0f, p_settings_packed[SETTINGS_PACKED_LAYOUT_SMALL_ROCK_EDGE_PADDING_PX]);
+	settings.min_distance_px = std::max(0.0f, p_settings_packed[SETTINGS_PACKED_LAYOUT_SMALL_ROCK_MIN_DISTANCE_PX]);
+	settings.max_per_chunk = world_utils::clamp_value<int32_t>(
+		static_cast<int32_t>(std::lround(p_settings_packed[SETTINGS_PACKED_LAYOUT_SMALL_ROCK_MAX_PER_CHUNK])),
+		0,
+		64
+	);
+	settings.min_size_px = world_utils::clamp_value(
+		p_settings_packed[SETTINGS_PACKED_LAYOUT_SMALL_ROCK_MIN_SIZE_PX],
+		1.0f,
+		254.0f
+	);
+	settings.max_size_px = world_utils::clamp_value(
+		p_settings_packed[SETTINGS_PACKED_LAYOUT_SMALL_ROCK_MAX_SIZE_PX],
+		settings.min_size_px,
+		254.0f
+	);
+	settings.grass_density_min = world_utils::clamp_value(
+		p_settings_packed[SETTINGS_PACKED_LAYOUT_SMALL_ROCK_GRASS_DENSITY_MIN],
+		0.0f,
+		1.0f
+	);
+	settings.grass_density_max = world_utils::clamp_value(
+		p_settings_packed[SETTINGS_PACKED_LAYOUT_SMALL_ROCK_GRASS_DENSITY_MAX],
+		settings.grass_density_min,
+		1.0f
+	);
+	settings.grass_field_scale_px = std::max(1.0f, p_settings_packed[SETTINGS_PACKED_LAYOUT_SMALL_ROCK_GRASS_FIELD_SCALE_PX]);
+	settings.grass_coverage = world_utils::clamp_value(
+		p_settings_packed[SETTINGS_PACKED_LAYOUT_SMALL_ROCK_GRASS_COVERAGE],
+		0.0f,
+		1.0f
+	);
+	settings.rock_field_scale_px = std::max(1.0f, p_settings_packed[SETTINGS_PACKED_LAYOUT_SMALL_ROCK_ROCK_FIELD_SCALE_PX]);
+	settings.rock_coverage = world_utils::clamp_value(
+		p_settings_packed[SETTINGS_PACKED_LAYOUT_SMALL_ROCK_ROCK_COVERAGE],
+		0.0f,
+		1.0f
+	);
+	settings.macro_mass_scale_px = std::max(1.0f, p_settings_packed[SETTINGS_PACKED_LAYOUT_SMALL_ROCK_MACRO_MASS_SCALE_PX]);
+	settings.macro_mass_strength = world_utils::clamp_value(
+		p_settings_packed[SETTINGS_PACKED_LAYOUT_SMALL_ROCK_MACRO_MASS_STRENGTH],
+		0.0f,
+		1.0f
+	);
+	settings.path_scale_px = std::max(1.0f, p_settings_packed[SETTINGS_PACKED_LAYOUT_SMALL_ROCK_PATH_SCALE_PX]);
+	settings.path_width = world_utils::clamp_value(
+		p_settings_packed[SETTINGS_PACKED_LAYOUT_SMALL_ROCK_PATH_WIDTH],
+		0.0f,
+		1.0f
+	);
+	settings.path_warp_px = std::max(0.0f, p_settings_packed[SETTINGS_PACKED_LAYOUT_SMALL_ROCK_PATH_WARP_PX]);
+	settings.path_strength = world_utils::clamp_value(
+		p_settings_packed[SETTINGS_PACKED_LAYOUT_SMALL_ROCK_PATH_STRENGTH],
+		0.0f,
+		1.0f
+	);
+	settings.asset_variant_count = world_utils::clamp_value<int32_t>(
+		static_cast<int32_t>(std::lround(p_settings_packed[SETTINGS_PACKED_LAYOUT_SMALL_ROCK_ASSET_VARIANT_COUNT])),
+		1,
+		64
 	);
 	return settings;
 }
@@ -2900,6 +3132,7 @@ Dictionary WorldCore::_generate_chunk_packet(
 
 	WorldObjectPacketBuffers object_buffers;
 	const TreePlacementSettings tree_settings = unpack_tree_settings(p_settings_packed);
+	const SmallRockPlacementSettings small_rock_settings = unpack_small_rock_settings(p_settings_packed);
 	append_native_object_placements(
 		object_buffers,
 		p_seed,
@@ -2907,7 +3140,8 @@ Dictionary WorldCore::_generate_chunk_packet(
 		p_world_version,
 		terrain_ids,
 		lake_flags,
-		tree_settings
+		tree_settings,
+		small_rock_settings
 	);
 
 	Dictionary packet;

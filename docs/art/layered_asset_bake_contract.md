@@ -27,17 +27,17 @@ Current profile: `station_peaceful_layered_asset_bake_v1`.
 Each layered asset directory must contain:
 
 - `albedo.png`
-- `trunk.png` or the closest object-body layer for non-tree objects
-- `foliage.png` or the closest top/detail layer for non-tree objects
 - `shadow.png`
-- `wind_mask.png` when the object can move
 - `snow_mask.png`
 - `snow_overlay.png`
-- `season_mask.png`
 - `height.png`
 - `normal.png`
 - `meta.json`
 - `preview_panel.png`
+
+Tree assets additionally contain `trunk.png`, `foliage.png`, `wind_mask.png`,
+and `season_mask.png`. Static small rock assets intentionally do not contain a
+wind mask or season mask; their body layer is `albedo.png`.
 
 `meta.json` must include a `bake_profile` block with the profile id, version,
 frame size, sun angles, and root embed fraction used for the bake.

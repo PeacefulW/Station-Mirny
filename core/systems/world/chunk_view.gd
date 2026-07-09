@@ -155,6 +155,8 @@ var _spiky_flora_atlases: Array[Texture2D] = []
 var _tree_atlas: Texture2D = null
 var _layered_tree_asset_dir: String = ""
 var _layered_tree_asset_dirs: Array[String] = []
+var _layered_small_rock_asset_dir: String = ""
+var _layered_small_rock_asset_dirs: Array[String] = []
 var _object_packet_layer: WorldObjectPacketLayer = null
 var _debug_object_collisions_visible: bool = false
 var _object_packet_visual_dirty: bool = false
@@ -654,6 +656,17 @@ func set_layered_tree_asset_dirs(asset_dirs: Array) -> void:
 	_layered_tree_asset_dir = _layered_tree_asset_dirs[0] if not _layered_tree_asset_dirs.is_empty() else ""
 	if _object_packet_layer != null and is_instance_valid(_object_packet_layer):
 		_object_packet_layer.set_layered_tree_asset_dirs(_layered_tree_asset_dirs)
+
+
+func set_layered_small_rock_asset_dir(asset_dir: String) -> void:
+	set_layered_small_rock_asset_dirs([asset_dir] if not asset_dir.is_empty() else [])
+
+
+func set_layered_small_rock_asset_dirs(asset_dirs: Array) -> void:
+	_layered_small_rock_asset_dirs = _normalize_layered_tree_asset_dirs(asset_dirs)
+	_layered_small_rock_asset_dir = _layered_small_rock_asset_dirs[0] if not _layered_small_rock_asset_dirs.is_empty() else ""
+	if _object_packet_layer != null and is_instance_valid(_object_packet_layer):
+		_object_packet_layer.set_layered_small_rock_asset_dirs(_layered_small_rock_asset_dirs)
 
 
 func apply_contour_debug_data(
@@ -2415,7 +2428,8 @@ func _sync_object_packet_visual(packet: Dictionary) -> void:
 	if _living_flora_atlas == null \
 			and _spiky_flora_atlases.is_empty() \
 			and _tree_atlas == null \
-			and _layered_tree_asset_dirs.is_empty():
+			and _layered_tree_asset_dirs.is_empty() \
+			and _layered_small_rock_asset_dirs.is_empty():
 		_clear_object_packet_visual()
 		return
 	var layer: WorldObjectPacketLayer = _ensure_object_packet_layer()
@@ -2423,6 +2437,7 @@ func _sync_object_packet_visual(packet: Dictionary) -> void:
 	layer.set_spiky_flora_atlases(_spiky_flora_atlases)
 	layer.set_tree_atlas(_tree_atlas)
 	layer.set_layered_tree_asset_dirs(_layered_tree_asset_dirs)
+	layer.set_layered_small_rock_asset_dirs(_layered_small_rock_asset_dirs)
 	_object_packet_layer.set_world_origin_y(position.y)
 	layer.configure_packet(packet)
 	_apply_sun_lighting_to_object_packet_layer()

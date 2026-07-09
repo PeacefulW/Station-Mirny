@@ -7,6 +7,7 @@ const FoundationGenSettings = preload("res://core/resources/foundation_gen_setti
 const LakeGenSettings = preload("res://core/resources/lake_gen_settings.gd")
 const MountainGenSettings = preload("res://core/resources/mountain_gen_settings.gd")
 const PlainsTreePlacementSettings = preload("res://core/resources/plains_tree_placement_settings.gd")
+const PlainsSmallRockPlacementSettings = preload("res://core/resources/plains_small_rock_placement_settings.gd")
 const MountainCavityCache = preload("res://core/systems/world/mountain_cavity_cache.gd")
 const Autotile47 = preload("res://core/systems/tiles/autotile_47.gd")
 const MountainPlateau2DRasterLayer = preload("res://core/systems/world/mountain_plateau_2d_raster_layer.gd")
@@ -25,6 +26,7 @@ const WorldBoundsSettings = preload("res://core/resources/world_bounds_settings.
 const DefaultLakeGenSettings = preload("res://data/balance/lake_gen_settings.tres")
 const DefaultPlainsGroundMaterialSet = preload("res://data/terrain/material_sets/plains_ground_material_set.tres")
 const DefaultPlainsTreePlacementSettings = preload("res://data/world_objects/placement_groups/plains_trees.tres")
+const DefaultPlainsSmallRockPlacementSettings = preload("res://data/world_objects/placement_groups/plains_small_rocks.tres")
 
 const INVALID_CHUNK_COORD: Vector2i = Vector2i(2147483647, 2147483647)
 const LADDER_ANCHOR_UNSET: int = 1 << 30
@@ -85,6 +87,19 @@ const PLAINS_LAYERED_TREE_ASSET_DIRS: Array[String] = [
 	"res://assets/sprites/flora/layered_trees/tree_04",
 	"res://assets/sprites/flora/layered_trees/tree_05",
 ]
+const PLAINS_SMALL_ROCK_ENABLED: bool = true
+const PLAINS_LAYERED_SMALL_ROCK_ASSET_DIRS: Array[String] = [
+	"res://assets/sprites/decor/plains/layered_small_rocks/small_rock_01",
+	"res://assets/sprites/decor/plains/layered_small_rocks/small_rock_02",
+	"res://assets/sprites/decor/plains/layered_small_rocks/small_rock_03",
+	"res://assets/sprites/decor/plains/layered_small_rocks/small_rock_04",
+	"res://assets/sprites/decor/plains/layered_small_rocks/small_rock_05",
+	"res://assets/sprites/decor/plains/layered_small_rocks/small_rock_06",
+	"res://assets/sprites/decor/plains/layered_small_rocks/small_rock_07",
+	"res://assets/sprites/decor/plains/layered_small_rocks/small_rock_08",
+	"res://assets/sprites/decor/plains/layered_small_rocks/small_rock_09",
+	"res://assets/sprites/decor/plains/layered_small_rocks/small_rock_10",
+]
 const PLAINS_LIVING_FLORA_ENABLED: bool = false
 const PLAINS_LIVING_FLORA_ATLAS_PATH: String = "res://assets/sprites/flora/atlases/brown_seaweed_living_4views_16frames_256.png"
 # Спайки-колючки отключены по визуальному решению: идентичность биополя
@@ -126,12 +141,14 @@ var _world_bounds_settings: WorldBoundsSettings = WorldBoundsSettings.hard_coded
 var _foundation_settings: FoundationGenSettings = FoundationGenSettings.hard_coded_defaults()
 var _lake_settings: LakeGenSettings = LakeGenSettings.hard_coded_defaults()
 var _plains_tree_settings: PlainsTreePlacementSettings = PlainsTreePlacementSettings.hard_coded_defaults()
+var _plains_small_rock_settings: PlainsSmallRockPlacementSettings = PlainsSmallRockPlacementSettings.hard_coded_defaults()
 var _worldgen_settings_packed: PackedFloat32Array = PackedFloat32Array()
 var _pending_new_world_settings: MountainGenSettings = null
 var _pending_new_world_bounds: WorldBoundsSettings = null
 var _pending_new_foundation_settings: FoundationGenSettings = null
 var _pending_new_lake_settings: LakeGenSettings = null
 var _pending_new_plains_tree_settings: PlainsTreePlacementSettings = null
+var _pending_new_plains_small_rock_settings: PlainsSmallRockPlacementSettings = null
 var _packet_backend: WorldChunkPacketBackend = WorldChunkPacketBackend.new()
 var _mountain_mask_backend: WorldChunkPacketBackend = WorldChunkPacketBackend.new()
 var _awaiting_new_game_spawn_result: bool = false
@@ -246,6 +263,7 @@ func _ready() -> void:
 		FoundationGenSettings.hard_coded_defaults(),
 		LakeGenSettings.from_save_dict(DefaultLakeGenSettings.to_save_dict()),
 		_make_new_world_plains_tree_settings(),
+		_make_new_world_plains_small_rock_settings(),
 	)
 	WorldTileSetFactory.bootstrap()
 	_ensure_mountain_mask_sources()
@@ -299,6 +317,7 @@ func initialize_new_world(
 		foundation_settings: FoundationGenSettings = null,
 		lake_settings: LakeGenSettings = null,
 		plains_tree_settings: PlainsTreePlacementSettings = null,
+		plains_small_rock_settings: PlainsSmallRockPlacementSettings = null,
 ) -> void:
 	_pending_new_world_settings = _clone_worldgen_settings(settings)
 	_pending_new_world_bounds = _clone_world_bounds(world_bounds)
@@ -308,6 +327,7 @@ func initialize_new_world(
 	)
 	_pending_new_lake_settings = _clone_lake_settings(lake_settings)
 	_pending_new_plains_tree_settings = _make_new_world_plains_tree_settings(plains_tree_settings)
+	_pending_new_plains_small_rock_settings = _make_new_world_plains_small_rock_settings(plains_small_rock_settings)
 	reset_for_new_game(seed_value, WorldRuntimeConstants.WORLD_VERSION)
 
 
@@ -324,6 +344,7 @@ func reset_for_new_game(
 			_pending_new_foundation_settings,
 			_pending_new_lake_settings,
 			_pending_new_plains_tree_settings,
+			_pending_new_plains_small_rock_settings,
 		)
 	else:
 		var default_bounds: WorldBoundsSettings = WorldBoundsSettings.hard_coded_defaults()
@@ -333,12 +354,14 @@ func reset_for_new_game(
 			FoundationGenSettings.for_bounds(default_bounds),
 			LakeGenSettings.from_save_dict(DefaultLakeGenSettings.to_save_dict()),
 			_make_new_world_plains_tree_settings(),
+			_make_new_world_plains_small_rock_settings(),
 		)
 	_pending_new_world_settings = null
 	_pending_new_world_bounds = null
 	_pending_new_foundation_settings = null
 	_pending_new_lake_settings = null
 	_pending_new_plains_tree_settings = null
+	_pending_new_plains_small_rock_settings = null
 	_diff_store.clear()
 	_reset_runtime_state()
 	_queue_new_game_spawn_resolution()
@@ -364,6 +387,7 @@ func load_world_state(data: Dictionary) -> bool:
 	_pending_new_foundation_settings = null
 	_pending_new_lake_settings = null
 	_pending_new_plains_tree_settings = null
+	_pending_new_plains_small_rock_settings = null
 	var loaded_bounds: WorldBoundsSettings = _load_world_bounds_from_save(data)
 	_apply_worldgen_settings(
 		_load_worldgen_settings_from_save(data),
@@ -371,6 +395,7 @@ func load_world_state(data: Dictionary) -> bool:
 		_load_foundation_settings_from_save(data, loaded_bounds),
 		_load_lake_settings_from_save(data),
 		_load_plains_tree_settings_from_save(data),
+		_load_plains_small_rock_settings_from_save(data),
 	)
 	_diff_store.clear()
 	_reset_runtime_state()
@@ -390,6 +415,7 @@ func save_world_state() -> Dictionary:
 		worldgen_settings["foundation"] = _foundation_settings.to_save_dict()
 		worldgen_settings["lakes"] = _lake_settings.to_save_dict()
 		worldgen_settings["plains_trees"] = _plains_tree_settings.to_save_dict()
+		worldgen_settings["plains_small_rocks"] = _plains_small_rock_settings.to_save_dict()
 	return {
 		"world_rebuild_frozen": false,
 		"world_scene_present": true,
@@ -2166,6 +2192,7 @@ func _ensure_chunk_view(chunk_coord: Vector2i) -> ChunkView:
 	chunk_view.set_spiky_flora_sources(_plains_spiky_flora_atlases)
 	chunk_view.set_tree_source(PLAINS_TREE_ATLAS if PLAINS_TREE_ENABLED else null)
 	chunk_view.set_layered_tree_asset_dirs(PLAINS_LAYERED_TREE_ASSET_DIRS if PLAINS_TREE_ENABLED else [])
+	chunk_view.set_layered_small_rock_asset_dirs(PLAINS_LAYERED_SMALL_ROCK_ASSET_DIRS if PLAINS_SMALL_ROCK_ENABLED else [])
 	chunk_view.apply_sun_lighting(
 		_sun_light_angle_deg,
 		_sun_shadow_length_px,
@@ -3878,12 +3905,14 @@ func _apply_worldgen_settings(
 		foundation_settings: FoundationGenSettings,
 		lake_settings: LakeGenSettings = null,
 		plains_tree_settings: PlainsTreePlacementSettings = null,
+		plains_small_rock_settings: PlainsSmallRockPlacementSettings = null,
 ) -> void:
 	_worldgen_settings = _clone_worldgen_settings(settings)
 	_world_bounds_settings = _clone_world_bounds(world_bounds)
 	_foundation_settings = _clone_foundation_settings(foundation_settings, _world_bounds_settings)
 	_lake_settings = _clone_lake_settings(lake_settings)
 	_plains_tree_settings = _clone_plains_tree_settings(plains_tree_settings)
+	_plains_small_rock_settings = _clone_plains_small_rock_settings(plains_small_rock_settings)
 	_worldgen_settings_packed = _build_worldgen_settings_packed()
 
 
@@ -3920,8 +3949,20 @@ func _clone_plains_tree_settings(settings: PlainsTreePlacementSettings) -> Plain
 	return PlainsTreePlacementSettings.from_save_dict(settings.to_save_dict())
 
 
+func _clone_plains_small_rock_settings(settings: PlainsSmallRockPlacementSettings) -> PlainsSmallRockPlacementSettings:
+	if settings == null:
+		return PlainsSmallRockPlacementSettings.from_save_dict(DefaultPlainsSmallRockPlacementSettings.to_save_dict())
+	return PlainsSmallRockPlacementSettings.from_save_dict(settings.to_save_dict())
+
+
 func _make_new_world_plains_tree_settings(settings: PlainsTreePlacementSettings = null) -> PlainsTreePlacementSettings:
 	var cloned: PlainsTreePlacementSettings = _clone_plains_tree_settings(settings)
+	cloned.apply_ground_sampling_params(DefaultPlainsGroundMaterialSet.sampling_params)
+	return cloned
+
+
+func _make_new_world_plains_small_rock_settings(settings: PlainsSmallRockPlacementSettings = null) -> PlainsSmallRockPlacementSettings:
+	var cloned: PlainsSmallRockPlacementSettings = _clone_plains_small_rock_settings(settings)
 	cloned.apply_ground_sampling_params(DefaultPlainsGroundMaterialSet.sampling_params)
 	return cloned
 
@@ -3931,7 +3972,8 @@ func _build_worldgen_settings_packed() -> PackedFloat32Array:
 	if WorldRuntimeConstants.uses_world_foundation(world_version):
 		packed = _foundation_settings.write_to_settings_packed(packed, _world_bounds_settings)
 		packed = _lake_settings.write_to_settings_packed(packed)
-		return _plains_tree_settings.write_to_settings_packed(packed)
+		packed = _plains_tree_settings.write_to_settings_packed(packed)
+		return _plains_small_rock_settings.write_to_settings_packed(packed)
 	return packed
 
 
@@ -3976,6 +4018,10 @@ func _validate_current_world_save_shape(data: Dictionary) -> bool:
 		if WorldRuntimeConstants.WORLD_VERSION >= 60 \
 				and (not settings_dict.has("plains_trees") or settings_dict.get("plains_trees") is not Dictionary):
 			_reject_world_save("worldgen_settings.plains_trees must be a Dictionary for world_version >= 60")
+			return false
+		if WorldRuntimeConstants.WORLD_VERSION >= 62 \
+				and (not settings_dict.has("plains_small_rocks") or settings_dict.get("plains_small_rocks") is not Dictionary):
+			_reject_world_save("worldgen_settings.plains_small_rocks must be a Dictionary for world_version >= 62")
 			return false
 	return true
 
@@ -4049,3 +4095,15 @@ func _load_plains_tree_settings_from_save(data: Dictionary) -> PlainsTreePlaceme
 	if plains_tree_settings is not Dictionary:
 		return _make_new_world_plains_tree_settings()
 	return PlainsTreePlacementSettings.from_save_dict(plains_tree_settings as Dictionary)
+
+
+func _load_plains_small_rock_settings_from_save(data: Dictionary) -> PlainsSmallRockPlacementSettings:
+	var worldgen_settings: Variant = data.get("worldgen_settings", { })
+	if not WorldRuntimeConstants.uses_world_foundation(world_version):
+		return _make_new_world_plains_small_rock_settings()
+	if worldgen_settings is not Dictionary:
+		return _make_new_world_plains_small_rock_settings()
+	var plains_small_rock_settings: Variant = (worldgen_settings as Dictionary).get("plains_small_rocks", { })
+	if plains_small_rock_settings is not Dictionary:
+		return _make_new_world_plains_small_rock_settings()
+	return PlainsSmallRockPlacementSettings.from_save_dict(plains_small_rock_settings as Dictionary)

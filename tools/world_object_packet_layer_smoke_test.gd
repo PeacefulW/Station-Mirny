@@ -3,6 +3,8 @@ extends SceneTree
 const FoundationGenSettings = preload("res://core/resources/foundation_gen_settings.gd")
 const LakeGenSettings = preload("res://core/resources/lake_gen_settings.gd")
 const MountainGenSettings = preload("res://core/resources/mountain_gen_settings.gd")
+const PlainsTreePlacementSettings = preload("res://core/resources/plains_tree_placement_settings.gd")
+const PlainsSmallRockPlacementSettings = preload("res://core/resources/plains_small_rock_placement_settings.gd")
 const WorldBoundsSettings = preload("res://core/resources/world_bounds_settings.gd")
 const WorldObjectPacketLayer = preload("res://core/systems/world/world_object_packet_layer.gd")
 const WorldRuntimeConstants = preload("res://core/systems/world/world_runtime_constants.gd")
@@ -10,9 +12,13 @@ const WorldRuntimeConstants = preload("res://core/systems/world/world_runtime_co
 const DefaultFoundationGenSettings = preload("res://data/balance/foundation_gen_settings.tres")
 const DefaultLakeGenSettings = preload("res://data/balance/lake_gen_settings.tres")
 const DefaultMountainGenSettings = preload("res://data/balance/mountain_gen_settings.tres")
+const DefaultPlainsGroundMaterialSet = preload("res://data/terrain/material_sets/plains_ground_material_set.tres")
+const DefaultPlainsTreePlacementSettings = preload("res://data/world_objects/placement_groups/plains_trees.tres")
+const DefaultPlainsSmallRockPlacementSettings = preload("res://data/world_objects/placement_groups/plains_small_rocks.tres")
 
 const OBJECT_KIND_LIVING_FLORA: int = 2
 const OBJECT_KIND_SPIKY_FLORA: int = 3
+const OBJECT_KIND_SMALL_ROCK: int = 7
 const REMOVED_OBJECT_KIND_1: int = 1
 const REMOVED_OBJECT_KIND_5: int = 5
 const REMOVED_OBJECT_KIND_6: int = 6
@@ -76,6 +82,9 @@ func _find_native_packet_with_objects() -> Dictionary:
 	var best_spiky_count: int = 0
 	var best_living_count: int = 0
 	var best_brown_seaweed_count: int = 0
+	var best_small_rock_count: int = 0
+	var best_score: int = -1
+	var small_rock_total: int = 0
 	var removed_object_count: int = 0
 	for packet_variant: Variant in packets:
 		var packet: Dictionary = packet_variant as Dictionary
@@ -84,28 +93,39 @@ func _find_native_packet_with_objects() -> Dictionary:
 		var spiky_count: int = _count_kind(object_kind, OBJECT_KIND_SPIKY_FLORA)
 		var living_count: int = _count_kind(object_kind, OBJECT_KIND_LIVING_FLORA)
 		var brown_seaweed_count: int = _count_kind_atlas(object_kind, object_atlas, OBJECT_KIND_SPIKY_FLORA, SPIKY_FLORA_ATLAS_BROWN_SEAWEED)
+		var small_rock_count: int = _count_kind(object_kind, OBJECT_KIND_SMALL_ROCK)
+		small_rock_total += small_rock_count
 		removed_object_count += _count_removed_object_kinds(object_kind)
-		if object_kind.size() > best_object_count:
+		var packet_score: int = object_kind.size() \
+				+ (1000 if spiky_count > 0 else 0) \
+				+ (1000 if brown_seaweed_count > 0 else 0) \
+				+ (1000 if small_rock_count > 0 else 0)
+		if packet_score > best_score:
+			best_packet = packet
+			best_score = packet_score
+			best_object_count = object_kind.size()
+			best_spiky_count = spiky_count
+			best_living_count = living_count
+			best_brown_seaweed_count = brown_seaweed_count
+			best_small_rock_count = small_rock_count
+		if spiky_count > 0 and brown_seaweed_count > 0 and small_rock_count > 0:
 			best_packet = packet
 			best_object_count = object_kind.size()
 			best_spiky_count = spiky_count
 			best_living_count = living_count
 			best_brown_seaweed_count = brown_seaweed_count
-		if spiky_count > 0 and brown_seaweed_count > 0:
-			best_packet = packet
-			best_object_count = object_kind.size()
-			best_spiky_count = spiky_count
-			best_living_count = living_count
-			best_brown_seaweed_count = brown_seaweed_count
+			best_small_rock_count = small_rock_count
 			break
 
 	_assert(best_object_count > 0, "Native object packet scan produced no objects.")
 	_assert(best_spiky_count > 0, "Native object packet scan produced no spiky flora objects.")
 	_assert(best_brown_seaweed_count > 0, "Native object packet scan produced no brown seaweed biofield flora objects.")
+	_assert(best_small_rock_count > 0, "Native object packet scan best packet produced no small rock objects.")
+	_assert(small_rock_total > 0, "Native object packet scan produced no small rock objects.")
 	_assert(removed_object_count == 0, "Native object packet scan must not emit removed stone object kinds 1/5/6.")
 	print(
-		"WORLD_OBJECT_PACKET_NATIVE objects=%d living=%d spiky=%d brown_seaweed=%d removed_object_kinds=%d" %
-		[best_object_count, best_living_count, best_spiky_count, best_brown_seaweed_count, removed_object_count],
+		"WORLD_OBJECT_PACKET_NATIVE objects=%d living=%d spiky=%d brown_seaweed=%d small_rocks=%d removed_object_kinds=%d" %
+		[best_object_count, best_living_count, best_spiky_count, best_brown_seaweed_count, best_small_rock_count, removed_object_count],
 	)
 	return best_packet
 
@@ -132,11 +152,18 @@ func _assert_packet_layer_consumes_packet(packet: Dictionary) -> void:
 	root.add_child(layer)
 	layer.set_living_flora_atlas(_make_texture(4096, 1024))
 	layer.set_spiky_flora_atlases([_make_texture(2048, 512), _make_texture(2048, 512)])
+	layer.set_layered_small_rock_asset_dirs([
+		"res://assets/sprites/decor/plains/layered_small_rocks/small_rock_01",
+	])
 	layer.configure_packet(packet)
 	layer.set_sun_lighting(234.0, 96.0, 0.55, 18.0)
 
 	var state: Dictionary = layer.get_debug_state()
 	_assert(int(state.get("spiky_flora_count", 0)) > 0, "WorldObjectPacketLayer must render spiky flora packet records.")
+	_assert(int(state.get("small_rock_count", 0)) > 0, "WorldObjectPacketLayer must render small rock packet records.")
+	_assert(int(state.get("layered_small_rock_count", 0)) > 0, "WorldObjectPacketLayer must create layered small rock nodes.")
+	_assert(int(state.get("layered_small_rock_shadow_count", 0)) > 0, "WorldObjectPacketLayer must create layered small rock shadows.")
+	_assert(not bool(state.get("small_rock_uses_collision", true)), "Small rocks must remain visual-only and collision-free.")
 	print("WORLD_OBJECT_PACKET_LAYER_STATE ", state)
 	layer.free()
 
@@ -255,7 +282,8 @@ func _build_settings_packed() -> PackedFloat32Array:
 	lake_settings.density = 0.0
 	var packed: PackedFloat32Array = mountain_settings.flatten_to_packed()
 	packed = foundation_settings.write_to_settings_packed(packed, world_bounds)
-	return lake_settings.write_to_settings_packed(packed)
+	packed = lake_settings.write_to_settings_packed(packed)
+	return _append_object_settings(packed)
 
 
 func _build_mountain_settings_packed() -> PackedFloat32Array:
@@ -272,7 +300,21 @@ func _build_mountain_settings_packed() -> PackedFloat32Array:
 	lake_settings.density = 0.0
 	var packed: PackedFloat32Array = mountain_settings.flatten_to_packed()
 	packed = foundation_settings.write_to_settings_packed(packed, world_bounds)
-	return lake_settings.write_to_settings_packed(packed)
+	packed = lake_settings.write_to_settings_packed(packed)
+	return _append_object_settings(packed)
+
+
+func _append_object_settings(packed: PackedFloat32Array) -> PackedFloat32Array:
+	var tree_settings: PlainsTreePlacementSettings = PlainsTreePlacementSettings.from_save_dict(
+		DefaultPlainsTreePlacementSettings.to_save_dict(),
+	)
+	tree_settings.apply_ground_sampling_params(DefaultPlainsGroundMaterialSet.sampling_params)
+	var small_rock_settings: PlainsSmallRockPlacementSettings = PlainsSmallRockPlacementSettings.from_save_dict(
+		DefaultPlainsSmallRockPlacementSettings.to_save_dict(),
+	)
+	small_rock_settings.apply_ground_sampling_params(DefaultPlainsGroundMaterialSet.sampling_params)
+	packed = tree_settings.write_to_settings_packed(packed)
+	return small_rock_settings.write_to_settings_packed(packed)
 
 
 func _make_texture(width: int, height: int) -> Texture2D:
