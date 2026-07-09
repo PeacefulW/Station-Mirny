@@ -12,7 +12,7 @@ PROFILE_PATH = ROOT / "tools" / "tree_atlas" / "layered_asset_bake_profile.json"
 DOC_PATH = ROOT / "docs" / "art" / "layered_asset_bake_contract.md"
 TREE_DIR = ROOT / "assets" / "sprites" / "flora" / "layered_trees"
 WORLD_STREAMER_PATH = ROOT / "core" / "systems" / "world" / "world_streamer.gd"
-TREE_IDS = ("tree_01", "tree_02", "tree_03", "tree_04")
+TREE_IDS = ("tree_01", "tree_02", "tree_03", "tree_04", "tree_05")
 
 
 class LayeredAssetBakeContractTest(unittest.TestCase):
