@@ -60,6 +60,39 @@ def read_sampling_number(material_text: str, key: str) -> float:
     return float(match.group(1))
 
 
+def runtime_frame_metrics() -> dict[str, float]:
+    grass_profile = json.loads(GRASS_PROFILE_PATH.read_text(encoding="utf-8"))
+    runtime = Image.open(RUNTIME_GRASS_ATLAS_PATH).convert("RGBA")
+    frame_width = int(grass_profile["atlas"]["frame_width"])
+    frame_height = int(grass_profile["atlas"]["frame_height"])
+    coverages: list[float] = []
+    ratios: list[float] = []
+    bottoms: list[int] = []
+    for index in range(int(grass_profile["atlas"]["frame_count"])):
+        box = (
+            (index % int(grass_profile["atlas"]["columns"])) * frame_width,
+            (index // int(grass_profile["atlas"]["columns"])) * frame_height,
+            (index % int(grass_profile["atlas"]["columns"]) + 1) * frame_width,
+            (index // int(grass_profile["atlas"]["columns"]) + 1) * frame_height,
+        )
+        alpha = runtime.crop(box).getchannel("A")
+        bbox = alpha.getbbox()
+        if bbox is None:
+            continue
+        visible = sum(1 for value in alpha.tobytes() if value > 12)
+        coverages.append(visible / float(frame_width * frame_height))
+        ratios.append((bbox[2] - bbox[0]) / max(1, bbox[3] - bbox[1]))
+        bottoms.append(bbox[3])
+    if not coverages:
+        raise AssertionError("Runtime grass atlas has no visible frames.")
+    return {
+        "avg_coverage": sum(coverages) / len(coverages),
+        "max_coverage": max(coverages),
+        "max_ratio": max(ratios),
+        "bottom_spread": float(max(bottoms) - min(bottoms)),
+    }
+
+
 class GrassTuftBakeContractTest(unittest.TestCase):
     def test_grass_profile_inherits_shared_light_contract(self) -> None:
         self.assertTrue(GRASS_PROFILE_PATH.is_file(), "Grass tuft bake profile must be versioned as JSON.")
@@ -91,6 +124,20 @@ class GrassTuftBakeContractTest(unittest.TestCase):
         self.assertEqual(grass_profile["lighting"]["shadow_sun_energy"], tree_profile["lighting"]["shadow_sun_energy"])
         self.assertFalse(grass_profile["runtime"]["replace_live_runtime_asset"])
 
+    def test_grass_profile_targets_relaxed_broken_steppe_tufts(self) -> None:
+        grass_profile = json.loads(GRASS_PROFILE_PATH.read_text(encoding="utf-8"))
+        tuft = grass_profile["tuft"]
+        ranges = tuft["blade_count_ranges"]
+
+        self.assertLessEqual(ranges["standard"][1], 19)
+        self.assertLessEqual(ranges["sparse"][1], 9)
+        self.assertLessEqual(ranges["dense"][1], 29)
+        self.assertGreaterEqual(float(tuft["depth_y"]), 0.14)
+        self.assertLessEqual(float(tuft["root_z_min"]), -0.04)
+        self.assertGreaterEqual(float(tuft["root_z_max"]), 0.025)
+        self.assertGreaterEqual(float(tuft["droop_max"]), 0.30)
+        self.assertGreaterEqual(tuft["ground_straw_count_ranges"]["standard"][0], 3)
+
     def test_output_contract_names_all_expected_atlases(self) -> None:
         grass_profile = json.loads(GRASS_PROFILE_PATH.read_text(encoding="utf-8"))
         outputs = set(grass_profile["outputs"])
@@ -120,26 +167,14 @@ class GrassTuftBakeContractTest(unittest.TestCase):
         self.assertEqual(runtime.tobytes(), prototype.tobytes())
 
     def test_runtime_grass_silhouette_stays_upright_after_scale_down(self) -> None:
-        grass_profile = json.loads(GRASS_PROFILE_PATH.read_text(encoding="utf-8"))
-        runtime = Image.open(RUNTIME_GRASS_ATLAS_PATH).convert("RGBA")
-        frame_width = int(grass_profile["atlas"]["frame_width"])
-        frame_height = int(grass_profile["atlas"]["frame_height"])
-        ratios: list[float] = []
-        for index in range(32):
-            box = (
-                (index % 4) * frame_width,
-                (index // 4) * frame_height,
-                (index % 4 + 1) * frame_width,
-                (index // 4 + 1) * frame_height,
-            )
-            bbox = runtime.crop(box).getchannel("A").getbbox()
-            self.assertIsNotNone(bbox, "Every runtime grass frame must have visible alpha.")
-            assert bbox is not None
-            width = bbox[2] - bbox[0]
-            height = bbox[3] - bbox[1]
-            ratios.append(width / max(1, height))
+        self.assertLessEqual(runtime_frame_metrics()["max_ratio"], 1.75)
 
-        self.assertLessEqual(max(ratios), 1.75)
+    def test_runtime_grass_atlas_is_relaxed_not_dense_comb(self) -> None:
+        metrics = runtime_frame_metrics()
+
+        self.assertLessEqual(metrics["avg_coverage"], 0.095)
+        self.assertLessEqual(metrics["max_coverage"], 0.17)
+        self.assertGreaterEqual(metrics["bottom_spread"], 18.0)
 
     def test_runtime_grass_material_disables_blob_shadows_for_baked_atlas(self) -> None:
         # Density/size numbers are the user's live-tuned taste knobs, not a

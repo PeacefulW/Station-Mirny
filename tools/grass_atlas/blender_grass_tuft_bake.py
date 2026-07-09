@@ -345,6 +345,7 @@ def frame_type_params(frame_type: int, rng: random.Random, tuft: dict) -> dict:
     3 tall wind-combed lean."""
     ranges = tuft["blade_count_ranges"]
     params = {
+        "family": "standard",
         "blade_count": rng.randint(*ranges["standard"]),
         "height_scale": 1.0,
         "spread_scale": 1.0,
@@ -355,24 +356,27 @@ def frame_type_params(frame_type: int, rng: random.Random, tuft: dict) -> dict:
     }
     if frame_type == 1:
         params.update(
+            family="sparse",
             blade_count=rng.randint(*ranges["sparse"]),
-            height_scale=0.78,
-            spread_scale=0.78,
+            height_scale=0.80,
+            spread_scale=0.86,
             bloom_count=1 if rng.random() < 0.15 else 0,
             allow_broadleaf=False,
         )
     elif frame_type == 2:
         params.update(
+            family="dense",
             blade_count=rng.randint(*ranges["dense"]),
-            spread_scale=1.15,
-            width_scale=1.15,
+            spread_scale=1.12,
+            width_scale=1.08,
             bloom_count=rng.randint(0, 2),
         )
     elif frame_type == 3:
         params.update(
+            family="tall",
             blade_count=rng.randint(*ranges["tall"]),
-            height_scale=1.1,
-            lean_bias=rng.uniform(0.03, 0.06),
+            height_scale=1.08,
+            lean_bias=rng.uniform(0.025, 0.055),
             bloom_count=rng.randint(0, 1),
             allow_broadleaf=False,
         )
@@ -408,6 +412,8 @@ def create_tuft(frame_index: int, profile: dict, seed: int) -> list[bpy.types.Ob
         for _ in range(clump_count)
     ]
     sigma = float(tuft["clump_sigma"]) * params["spread_scale"]
+    frame_y_bias = rng.uniform(-depth_y * 0.20, depth_y * 0.20)
+    frame_z_bias = rng.uniform(float(tuft["root_z_min"]) * 0.45, float(tuft["root_z_max"]) * 0.45)
 
     blade_tips: list[tuple[float, Vector]] = []
     for i in range(blade_count):
@@ -415,8 +421,8 @@ def create_tuft(frame_index: int, profile: dict, seed: int) -> list[bpy.types.Ob
         root = Vector(
             (
                 max(-spread_x, min(spread_x, clump.x + rng.gauss(0.0, sigma))),
-                max(-depth_y, min(depth_y, clump.y + rng.gauss(0.0, sigma * 0.85))),
-                rng.uniform(float(tuft["root_z_min"]), float(tuft["root_z_max"])),
+                max(-depth_y, min(depth_y, clump.y + frame_y_bias + rng.gauss(0.0, sigma * 0.95))),
+                rng.uniform(float(tuft["root_z_min"]), float(tuft["root_z_max"])) + frame_z_bias,
             )
         )
         height = rng.uniform(height_min, height_max)
@@ -471,6 +477,48 @@ def create_tuft(frame_index: int, profile: dict, seed: int) -> list[bpy.types.Ob
                 )
             )
             blade_tips.append((height, tip))
+
+    ground_ranges = tuft.get("ground_straw_count_ranges", {})
+    straw_range = ground_ranges.get(str(params["family"]), ground_ranges.get("standard", [2, 4]))
+    straw_count = rng.randint(int(straw_range[0]), int(straw_range[1]))
+    for straw_index in range(straw_count):
+        root = Vector(
+            (
+                rng.uniform(-spread_x * 0.92, spread_x * 0.92),
+                rng.uniform(-depth_y * 1.10, depth_y * 1.10) + frame_y_bias * 0.65,
+                rng.uniform(float(tuft["root_z_min"]) * 1.15, float(tuft["root_z_max"]) * 0.35) + frame_z_bias,
+            )
+        )
+        height = rng.uniform(height_min * 0.35, height_max * 0.58)
+        lean_x = rng.uniform(-0.11, 0.11)
+        lean_y = rng.uniform(-0.13, 0.16)
+        width = rng.uniform(float(tuft["blade_width_min"]) * 1.1, float(tuft["blade_width_max"]) * 1.45)
+        droop = rng.uniform(0.58, 0.88)
+        bow = rng.uniform(-0.04, 0.04)
+        yaw = math.radians(rng.uniform(-55.0, 55.0))
+        mesh = blade_mesh(
+            f"tuft_{frame_index:02d}_ground_straw_{straw_index:02d}",
+            root,
+            height,
+            lean_x,
+            lean_y,
+            width,
+            bow,
+            droop,
+            yaw,
+            segments,
+        )
+        obj = bpy.data.objects.new(mesh.name, mesh)
+        bpy.context.collection.objects.link(obj)
+        ramp_index = rng.randrange(ramp_count)
+        tier_index = rng.randrange(max(1, tier_count - 2), tier_count)
+        for segment in range(segments):
+            obj.data.materials.append(
+                shaded_segment_material(profile, palette_key, ramp_index, tier_index, segment, segments)
+            )
+        for polygon_index, polygon in enumerate(obj.data.polygons):
+            polygon.material_index = min(polygon_index, segments - 1)
+        objects.append(obj)
 
     blade_tips.sort(key=lambda item: -item[0])
     bloom_count = min(int(params["bloom_count"]), len(blade_tips))
