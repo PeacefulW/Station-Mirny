@@ -1035,6 +1035,12 @@ msgstr "Overcast"
 msgid "UI_HUD_WEATHER"
 msgstr "Weather: {weather} {cloud}%"
 
+msgid "UI_POSTPROCESS_ON"
+msgstr "Post FX: On"
+
+msgid "UI_POSTPROCESS_OFF"
+msgstr "Post FX: Off"
+
 msgid "UI_INVENTORY_SLOT_TOOLTIP"
 msgstr "{name}\n{amount} / {max_stack}"
 

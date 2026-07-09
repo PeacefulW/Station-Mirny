@@ -1,4 +1,4 @@
-[gd_scene load_steps=9 format=3]
+[gd_scene load_steps=11 format=3]
 
 [ext_resource type="Script" path="res://scenes/world/world_runtime_v0_scene.gd" id="1"]
 [ext_resource type="Script" path="res://core/systems/world/world_streamer.gd" id="2"]
@@ -8,6 +8,8 @@
 [ext_resource type="Script" path="res://core/systems/world/dust_wind_overlay.gd" id="6"]
 [ext_resource type="Script" path="res://core/systems/world/cloud_occluder_field.gd" id="7"]
 [ext_resource type="Script" path="res://core/systems/world/mountain_torch_shadow_field.gd" id="8"]
+[ext_resource type="Script" path="res://core/systems/world/world_postprocess_overlay.gd" id="9"]
+[ext_resource type="Script" path="res://scenes/ui/hud/hud_postprocess_toggle.gd" id="10"]
 
 [node name="WorldRuntimeV0" type="Node2D"]
 script = ExtResource("1")
@@ -32,7 +34,34 @@ visible = false
 process_mode = 4
 script = ExtResource("6")
 
+[node name="PostProcessLayer" type="CanvasLayer" parent="."]
+layer = 5
+
+[node name="PostProcessOverlay" type="ColorRect" parent="PostProcessLayer"]
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+script = ExtResource("9")
+
 [node name="HudLayer" type="CanvasLayer" parent="."]
+layer = 10
 
 [node name="HudManager" type="Control" parent="HudLayer"]
 script = ExtResource("4")
+
+[node name="PostProcessToggle" type="Button" parent="HudLayer"]
+anchor_left = 1.0
+anchor_top = 1.0
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = -188.0
+offset_top = -48.0
+offset_right = -12.0
+offset_bottom = -14.0
+focus_mode = 0
+toggle_mode = true
+button_pressed = true
+script = ExtResource("10")

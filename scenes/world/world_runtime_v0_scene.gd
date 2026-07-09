@@ -7,6 +7,7 @@ var _booted_chunk_coords: Dictionary = {}
 var _world_initialized: bool = false
 
 @onready var _world_streamer: WorldStreamer = $WorldStreamer as WorldStreamer
+@onready var _postprocess_overlay: Node = $PostProcessLayer/PostProcessOverlay
 
 func _ready() -> void:
 	if TimeManager and TimeManager.has_method("set_paused"):
@@ -53,6 +54,9 @@ func _unhandled_input(event: InputEvent) -> void:
 		var debug_collisions_visible: bool = _world_streamer.toggle_debug_object_collisions()
 		_set_player_debug_collision_visible(debug_collisions_visible)
 		get_viewport().set_input_as_handled()
+	elif key_event.keycode == KEY_F12:
+		_toggle_postprocess()
+		get_viewport().set_input_as_handled()
 	elif key_event.keycode == KEY_ESCAPE:
 		PlayerAuthority.clear_cache()
 		get_tree().change_scene_to_file("res://scenes/ui/main_menu.tscn")
@@ -75,6 +79,11 @@ func _set_player_debug_collision_visible(enabled: bool) -> void:
 	if player == null:
 		return
 	player.set_debug_collision_visible(enabled)
+
+func _toggle_postprocess() -> void:
+	if _postprocess_overlay == null or not _postprocess_overlay.has_method("toggle_postprocess"):
+		return
+	_postprocess_overlay.call("toggle_postprocess")
 
 func _on_world_initialized(_seed_value: int) -> void:
 	_world_initialized = true

@@ -1035,6 +1035,12 @@ msgstr "Пасмурно"
 msgid "UI_HUD_WEATHER"
 msgstr "Погода: {weather} {cloud}%"
 
+msgid "UI_POSTPROCESS_ON"
+msgstr "Постэффект: вкл"
+
+msgid "UI_POSTPROCESS_OFF"
+msgstr "Постэффект: выкл"
+
 msgid "UI_INVENTORY_SLOT_TOOLTIP"
 msgstr "{name}\n{amount} / {max_stack}"
 
