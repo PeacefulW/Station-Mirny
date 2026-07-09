@@ -53,6 +53,11 @@ This supports the world's lore identity:
 
 These resources anchor the player in understandable survival logic.
 
+Implementation note (2026-07-09): checked-in runtime item/resource-node
+definitions for iron ore, copper ore, and stone were temporarily removed for a
+tree-style reauthoring pass. The design roles below remain content targets, not
+currently registered gameplay data.
+
 #### Iron ore
 
 Visual identity:

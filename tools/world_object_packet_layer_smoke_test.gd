@@ -11,12 +11,11 @@ const DefaultFoundationGenSettings = preload("res://data/balance/foundation_gen_
 const DefaultLakeGenSettings = preload("res://data/balance/lake_gen_settings.tres")
 const DefaultMountainGenSettings = preload("res://data/balance/mountain_gen_settings.tres")
 
-const OBJECT_KIND_ROCK: int = 1
 const OBJECT_KIND_LIVING_FLORA: int = 2
 const OBJECT_KIND_SPIKY_FLORA: int = 3
-const OBJECT_KIND_BIG_GRASS_ROCK: int = 5
-const OBJECT_KIND_GRASS_EDGE_SMALL_ROCK: int = 6
-const ROCK_ATLAS_RARE_FORMATION: int = 3
+const REMOVED_OBJECT_KIND_1: int = 1
+const REMOVED_OBJECT_KIND_5: int = 5
+const REMOVED_OBJECT_KIND_6: int = 6
 const SPIKY_FLORA_ATLAS_BROWN_SEAWEED: int = 1
 const OBJECT_MOUNTAIN_CLEARANCE_PX: float = 48.0
 const OBJECT_FIELD_NAMES: Array[String] = [
@@ -33,6 +32,7 @@ const OBJECT_FIELD_NAMES: Array[String] = [
 
 var _failed: bool = false
 
+
 func _init() -> void:
 	var packet: Dictionary = _find_native_packet_with_objects()
 	if not packet.is_empty():
@@ -46,11 +46,12 @@ func _init() -> void:
 	print("WORLD_OBJECT_PACKET_LAYER_SMOKE OK")
 	quit(0)
 
+
 func _find_native_packet_with_objects() -> Dictionary:
 	var world_core: Object = ClassDB.instantiate("WorldCore")
 	_assert(world_core != null, "WorldCore must be available for native object packet checks.")
 	if world_core == null:
-		return {}
+		return { }
 
 	var coords := PackedVector2Array()
 	var center_chunk := Vector2i(128, 64)
@@ -63,67 +64,51 @@ func _find_native_packet_with_objects() -> Dictionary:
 		WorldRuntimeConstants.DEFAULT_WORLD_SEED,
 		coords,
 		WorldRuntimeConstants.WORLD_VERSION,
-		_build_settings_packed()
+		_build_settings_packed(),
 	)
 	_assert(packets_variant is Array, "WorldCore must return an Array for object packet smoke.")
 	if not (packets_variant is Array):
-		return {}
+		return { }
 
 	var packets: Array = packets_variant as Array
-	var best_packet: Dictionary = {}
+	var best_packet: Dictionary = { }
 	var best_object_count: int = 0
-	var best_rock_count: int = 0
 	var best_spiky_count: int = 0
 	var best_living_count: int = 0
 	var best_brown_seaweed_count: int = 0
-	var best_rare_rock_formation_count: int = 0
-	var best_big_grass_rock_count: int = 0
-	var best_grass_edge_small_rock_count: int = 0
+	var removed_object_count: int = 0
 	for packet_variant: Variant in packets:
 		var packet: Dictionary = packet_variant as Dictionary
 		var object_kind: PackedByteArray = packet.get("object_kind", PackedByteArray()) as PackedByteArray
 		var object_atlas: PackedByteArray = packet.get("object_atlas_index", PackedByteArray()) as PackedByteArray
-		var rock_count: int = _count_kind(object_kind, OBJECT_KIND_ROCK)
 		var spiky_count: int = _count_kind(object_kind, OBJECT_KIND_SPIKY_FLORA)
 		var living_count: int = _count_kind(object_kind, OBJECT_KIND_LIVING_FLORA)
-		var big_grass_rock_count: int = _count_kind(object_kind, OBJECT_KIND_BIG_GRASS_ROCK)
-		var grass_edge_small_rock_count: int = _count_kind(object_kind, OBJECT_KIND_GRASS_EDGE_SMALL_ROCK)
 		var brown_seaweed_count: int = _count_kind_atlas(object_kind, object_atlas, OBJECT_KIND_SPIKY_FLORA, SPIKY_FLORA_ATLAS_BROWN_SEAWEED)
-		var rare_rock_formation_count: int = _count_kind_atlas(object_kind, object_atlas, OBJECT_KIND_ROCK, ROCK_ATLAS_RARE_FORMATION)
+		removed_object_count += _count_removed_object_kinds(object_kind)
 		if object_kind.size() > best_object_count:
 			best_packet = packet
 			best_object_count = object_kind.size()
-			best_rock_count = rock_count
 			best_spiky_count = spiky_count
 			best_living_count = living_count
 			best_brown_seaweed_count = brown_seaweed_count
-			best_rare_rock_formation_count = rare_rock_formation_count
-			best_big_grass_rock_count = big_grass_rock_count
-			best_grass_edge_small_rock_count = grass_edge_small_rock_count
-		if rock_count > 0 and spiky_count > 0 and brown_seaweed_count > 0 and rare_rock_formation_count > 0 and big_grass_rock_count > 0 and grass_edge_small_rock_count > 0:
+		if spiky_count > 0 and brown_seaweed_count > 0:
 			best_packet = packet
 			best_object_count = object_kind.size()
-			best_rock_count = rock_count
 			best_spiky_count = spiky_count
 			best_living_count = living_count
 			best_brown_seaweed_count = brown_seaweed_count
-			best_rare_rock_formation_count = rare_rock_formation_count
-			best_big_grass_rock_count = big_grass_rock_count
-			best_grass_edge_small_rock_count = grass_edge_small_rock_count
 			break
 
 	_assert(best_object_count > 0, "Native object packet scan produced no objects.")
-	_assert(best_rock_count > 0, "Native object packet scan produced no rock objects.")
 	_assert(best_spiky_count > 0, "Native object packet scan produced no spiky flora objects.")
 	_assert(best_brown_seaweed_count > 0, "Native object packet scan produced no brown seaweed biofield flora objects.")
-	_assert(best_rare_rock_formation_count > 0, "Native object packet scan produced no rare rock formation objects.")
-	_assert(best_big_grass_rock_count > 0, "Native object packet scan produced no plains grass big rock objects.")
-	_assert(best_grass_edge_small_rock_count > 0, "Native object packet scan produced no plains grass-edge small rock objects.")
+	_assert(removed_object_count == 0, "Native object packet scan must not emit removed stone object kinds 1/5/6.")
 	print(
-		"WORLD_OBJECT_PACKET_NATIVE objects=%d rocks=%d living=%d spiky=%d brown_seaweed=%d rare_rock_formation=%d big_grass_rock=%d grass_edge_small_rock=%d" %
-		[best_object_count, best_rock_count, best_living_count, best_spiky_count, best_brown_seaweed_count, best_rare_rock_formation_count, best_big_grass_rock_count, best_grass_edge_small_rock_count]
+		"WORLD_OBJECT_PACKET_NATIVE objects=%d living=%d spiky=%d brown_seaweed=%d removed_object_kinds=%d" %
+		[best_object_count, best_living_count, best_spiky_count, best_brown_seaweed_count, removed_object_count],
 	)
 	return best_packet
+
 
 func _assert_packet_arrays(packet: Dictionary) -> void:
 	var expected_count: int = -1
@@ -134,33 +119,27 @@ func _assert_packet_arrays(packet: Dictionary) -> void:
 			expected_count = field.size()
 		_assert(
 			field.size() == expected_count,
-			"%s must match the object packet record count." % field_name
+			"%s must match the object packet record count." % field_name,
 		)
 
 	var object_size: PackedByteArray = packet.get("object_size_px", PackedByteArray()) as PackedByteArray
 	for size_byte: int in object_size:
 		_assert(size_byte > 0, "object_size_px entries must be positive.")
 
+
 func _assert_packet_layer_consumes_packet(packet: Dictionary) -> void:
 	var layer := WorldObjectPacketLayer.new()
 	root.add_child(layer)
-	layer.set_rock_atlases([_make_texture(2048, 512), _make_texture(2048, 512), _make_texture(2048, 512), _make_texture(2048, 512)])
 	layer.set_living_flora_atlas(_make_texture(4096, 1024))
 	layer.set_spiky_flora_atlases([_make_texture(2048, 512), _make_texture(2048, 512)])
-	layer.set_big_grass_rock_atlases([_make_texture(512, 512), _make_texture(512, 512), _make_texture(512, 512), _make_texture(512, 512)])
-	layer.set_grass_edge_small_rock_source(_make_texture(1024, 768), 4, 3, 12)
 	layer.configure_packet(packet)
 	layer.set_sun_lighting(234.0, 96.0, 0.55, 18.0)
 
 	var state: Dictionary = layer.get_debug_state()
-	_assert(int(state.get("rock_count", 0)) > 0, "WorldObjectPacketLayer must render rock packet records.")
 	_assert(int(state.get("spiky_flora_count", 0)) > 0, "WorldObjectPacketLayer must render spiky flora packet records.")
-	_assert(int(state.get("big_grass_rock_count", 0)) > 0, "WorldObjectPacketLayer must render plains grass big rock packet records.")
-	_assert(int(state.get("grass_edge_small_rock_count", 0)) > 0, "WorldObjectPacketLayer must render plains grass-edge small rock packet records.")
-	_assert(int(state.get("collider_count", 0)) >= 0, "WorldObjectPacketLayer collider debug count must be readable.")
-	_assert(int(state.get("big_grass_rock_collider_count", 0)) > 0, "WorldObjectPacketLayer must build blocking colliders for plains grass big rocks.")
 	print("WORLD_OBJECT_PACKET_LAYER_STATE ", state)
 	layer.free()
+
 
 func _assert_native_objects_keep_mountain_clearance() -> void:
 	var world_core: Object = ClassDB.instantiate("WorldCore")
@@ -179,7 +158,7 @@ func _assert_native_objects_keep_mountain_clearance() -> void:
 		WorldRuntimeConstants.DEFAULT_WORLD_SEED,
 		coords,
 		WorldRuntimeConstants.WORLD_VERSION,
-		_build_mountain_settings_packed()
+		_build_mountain_settings_packed(),
 	)
 	_assert(packets_variant is Array, "WorldCore must return an Array for object mountain-clearance checks.")
 	if not (packets_variant is Array):
@@ -206,11 +185,12 @@ func _assert_native_objects_keep_mountain_clearance() -> void:
 					str(packet.get("chunk_coord", Vector2i.ZERO)),
 					local_x,
 					local_y,
-				]
+				],
 			)
 
 	_assert(mountain_packet_count > 0, "Mountain-clearance scan must include mountain surface packets.")
 	_assert(checked_object_count > 0, "Mountain-clearance scan must include native object records.")
+
 
 func _packet_has_mountain_surface(packet: Dictionary) -> bool:
 	var mountain_ids: PackedInt32Array = packet.get("mountain_id_per_tile", PackedInt32Array()) as PackedInt32Array
@@ -222,6 +202,7 @@ func _packet_has_mountain_surface(packet: Dictionary) -> bool:
 		if (flags & (WorldRuntimeConstants.MOUNTAIN_FLAG_WALL | WorldRuntimeConstants.MOUNTAIN_FLAG_FOOT)) != 0:
 			return true
 	return false
+
 
 func _object_has_mountain_clearance(packet: Dictionary, local_x: float, local_y: float, clearance_px: float) -> bool:
 	var diagonal_clearance: float = clearance_px * 0.72
@@ -239,6 +220,7 @@ func _object_has_mountain_clearance(packet: Dictionary, local_x: float, local_y:
 		if not _sample_allows_object(packet, local_x + offset.x, local_y + offset.y):
 			return false
 	return true
+
 
 func _sample_allows_object(packet: Dictionary, local_x: float, local_y: float) -> bool:
 	if local_x < 0.0 \
@@ -260,19 +242,21 @@ func _sample_allows_object(packet: Dictionary, local_x: float, local_y: float) -
 	return index >= lake_flags.size() \
 			or (int(lake_flags[index]) & WorldRuntimeConstants.LAKE_FLAG_WATER_PRESENT) == 0
 
+
 func _build_settings_packed() -> PackedFloat32Array:
 	var world_bounds: WorldBoundsSettings = WorldBoundsSettings.hard_coded_defaults()
 	var mountain_settings: MountainGenSettings = MountainGenSettings.from_save_dict(DefaultMountainGenSettings.to_save_dict())
 	mountain_settings.density = 0.0
 	var foundation_settings: FoundationGenSettings = FoundationGenSettings.from_save_dict(
 		DefaultFoundationGenSettings.to_save_dict(),
-		world_bounds
+		world_bounds,
 	)
 	var lake_settings: LakeGenSettings = LakeGenSettings.from_save_dict(DefaultLakeGenSettings.to_save_dict())
 	lake_settings.density = 0.0
 	var packed: PackedFloat32Array = mountain_settings.flatten_to_packed()
 	packed = foundation_settings.write_to_settings_packed(packed, world_bounds)
 	return lake_settings.write_to_settings_packed(packed)
+
 
 func _build_mountain_settings_packed() -> PackedFloat32Array:
 	var world_bounds: WorldBoundsSettings = WorldBoundsSettings.hard_coded_defaults()
@@ -282,7 +266,7 @@ func _build_mountain_settings_packed() -> PackedFloat32Array:
 	mountain_settings.foot_band = 0.30
 	var foundation_settings: FoundationGenSettings = FoundationGenSettings.from_save_dict(
 		DefaultFoundationGenSettings.to_save_dict(),
-		world_bounds
+		world_bounds,
 	)
 	var lake_settings: LakeGenSettings = LakeGenSettings.from_save_dict(DefaultLakeGenSettings.to_save_dict())
 	lake_settings.density = 0.0
@@ -290,10 +274,12 @@ func _build_mountain_settings_packed() -> PackedFloat32Array:
 	packed = foundation_settings.write_to_settings_packed(packed, world_bounds)
 	return lake_settings.write_to_settings_packed(packed)
 
+
 func _make_texture(width: int, height: int) -> Texture2D:
 	var image := Image.create(width, height, false, Image.FORMAT_RGBA8)
 	image.fill(Color(1.0, 1.0, 1.0, 1.0))
 	return ImageTexture.create_from_image(image)
+
 
 func _count_kind(object_kind: PackedByteArray, kind: int) -> int:
 	var count: int = 0
@@ -302,6 +288,7 @@ func _count_kind(object_kind: PackedByteArray, kind: int) -> int:
 			count += 1
 	return count
 
+
 func _count_kind_atlas(object_kind: PackedByteArray, object_atlas: PackedByteArray, kind: int, atlas_index: int) -> int:
 	var count: int = 0
 	var object_count: int = mini(object_kind.size(), object_atlas.size())
@@ -309,6 +296,17 @@ func _count_kind_atlas(object_kind: PackedByteArray, object_atlas: PackedByteArr
 		if int(object_kind[index]) == kind and int(object_atlas[index]) == atlas_index:
 			count += 1
 	return count
+
+
+func _count_removed_object_kinds(object_kind: PackedByteArray) -> int:
+	var count: int = 0
+	for value: int in object_kind:
+		if value == REMOVED_OBJECT_KIND_1 \
+				or value == REMOVED_OBJECT_KIND_5 \
+				or value == REMOVED_OBJECT_KIND_6:
+			count += 1
+	return count
+
 
 func _assert(condition: bool, message: String) -> void:
 	if condition:

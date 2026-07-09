@@ -339,29 +339,11 @@ msgstr "Биомасса"
 msgid "ITEM_WOOD_DESC"
 msgstr "Топливо ранней игры. Используется для заправки термосжигателя."
 
-msgid "ITEM_IRON_ORE_NAME"
-msgstr "Железная руда"
-
-msgid "ITEM_IRON_ORE_DESC"
-msgstr "Сырьё для ручного крафта. Переплавляется в железные слитки."
-
 msgid "ITEM_IRON_INGOT_NAME"
 msgstr "Железный слиток"
 
 msgid "ITEM_IRON_INGOT_DESC"
 msgstr "Результат ручной переплавки железной руды. Не используется в строительстве."
-
-msgid "ITEM_COPPER_ORE_NAME"
-msgstr "Медная руда"
-
-msgid "ITEM_COPPER_ORE_DESC"
-msgstr "Базовая руда для проводки, электроники и энергосистемы."
-
-msgid "ITEM_STONE_NAME"
-msgstr "Камень"
-
-msgid "ITEM_STONE_DESC"
-msgstr "Минеральное сырьё для ранних конструкций и грубых инструментов."
 
 msgid "ITEM_WATER_DIRTY_NAME"
 msgstr "Грязная вода"
@@ -386,12 +368,6 @@ msgstr "Термосжигатель"
 
 msgid "BUILD_THERMO_BURNER_DESC"
 msgstr "Жжёт биомассу и питает базу. Шумит и привлекает Очистителей."
-
-msgid "RECIPE_IRON_ORE_TO_INGOT_NAME"
-msgstr "Переплавка железа"
-
-msgid "RECIPE_IRON_ORE_TO_INGOT_DESC"
-msgstr "Руда идёт в крафт, а не в строительство: переплавь железную руду в слиток."
 
 msgid "SYSTEM_PLAYER_NOT_FOUND"
 msgstr "Игрок не найден"
@@ -495,17 +471,8 @@ msgstr "{value}%"
 msgid "UI_WORLD_CREATE_NUMBER"
 msgstr "{value}"
 
-msgid "RESOURCE_COPPER_ORE_NODE_NAME"
-msgstr "Медная жила"
-
 msgid "RESOURCE_DEAD_TREE_NODE_NAME"
 msgstr "Спороствол"
-
-msgid "RESOURCE_IRON_ORE_NODE_NAME"
-msgstr "Железная жила"
-
-msgid "RESOURCE_STONE_NODE_NAME"
-msgstr "Каменная залежь"
 
 msgid "RESOURCE_WATER_SOURCE_NODE_NAME"
 msgstr "Источник воды"

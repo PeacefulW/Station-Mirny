@@ -1,6 +1,5 @@
 class_name InventoryUI
 extends Control
-
 ## UI инвентаря и ручного крафта.
 ## Tab — открыть/закрыть. Слева инвентарь, справа рецепты.
 
@@ -21,6 +20,7 @@ var _dimmer: ColorRect = null
 var _crafting_system: CraftingSystem = null
 var _crafting_panel: CraftingPanel = null
 
+
 func _ready() -> void:
 	mouse_filter = MOUSE_FILTER_IGNORE
 	visible = false
@@ -28,10 +28,12 @@ func _ready() -> void:
 	EventBus.inventory_updated.connect(_on_inventory_updated)
 	EventBus.language_changed.connect(_on_language_changed)
 
+
 func _unhandled_input(event: InputEvent) -> void:
 	if event.is_action_pressed("toggle_inventory"):
 		toggle()
 		get_viewport().set_input_as_handled()
+
 
 func toggle() -> void:
 	_is_open = not _is_open
@@ -43,9 +45,11 @@ func toggle() -> void:
 			_crafting_panel.setup(_inventory, _crafting_system)
 		_refresh()
 
+
 func close() -> void:
 	_is_open = false
 	visible = false
+
 
 func _build_ui() -> void:
 	_dimmer = ColorRect.new()
@@ -97,6 +101,7 @@ func _build_ui() -> void:
 	_apply_localization()
 	call_deferred("_center_if_needed")
 
+
 func _build_header() -> HBoxContainer:
 	var header := HBoxContainer.new()
 	header.custom_minimum_size.y = 24
@@ -119,6 +124,7 @@ func _build_header() -> HBoxContainer:
 	header.add_child(_weight_label)
 	return header
 
+
 func _build_inventory_pane() -> VBoxContainer:
 	var inventory_pane := VBoxContainer.new()
 	inventory_pane.size_flags_horizontal = SIZE_EXPAND_FILL
@@ -133,14 +139,17 @@ func _build_inventory_pane() -> VBoxContainer:
 	inventory_pane.add_child(_grid)
 	return inventory_pane
 
+
 func _center_if_needed() -> void:
 	if _panel.position == Vector2.ZERO or _panel.position.x < 1:
 		var vp: Vector2 = get_viewport_rect().size
 		_panel.position = (vp - _panel.size) * 0.5
 
+
 func _on_dimmer_click(event: InputEvent) -> void:
 	if event is InputEventMouseButton and event.pressed:
 		close()
+
 
 func _create_slot_nodes(count: int) -> void:
 	for child: Node in _grid.get_children():
@@ -150,6 +159,7 @@ func _create_slot_nodes(count: int) -> void:
 		var slot_node := _create_single_slot()
 		_grid.add_child(slot_node)
 		_slot_nodes.append(slot_node)
+
 
 func _create_single_slot() -> PanelContainer:
 	var container := PanelContainer.new()
@@ -197,6 +207,7 @@ func _create_single_slot() -> PanelContainer:
 
 	return container
 
+
 func _find_inventory() -> void:
 	if _inventory:
 		return
@@ -208,6 +219,7 @@ func _find_inventory() -> void:
 		if _inventory and _slot_nodes.size() != _inventory.capacity:
 			_create_slot_nodes(_inventory.capacity)
 
+
 func _find_crafting_system() -> void:
 	if _crafting_system:
 		return
@@ -216,9 +228,11 @@ func _find_crafting_system() -> void:
 		return
 	_crafting_system = systems[0] as CraftingSystem
 
+
 func _on_inventory_updated(_inv_node: Node) -> void:
 	if _is_open:
 		_refresh()
+
 
 func _refresh() -> void:
 	if not _inventory:
@@ -247,12 +261,13 @@ func _refresh() -> void:
 				color_bg.visible = true
 				color_bg.color = _get_item_color(slot.item.id)
 			amt.text = str(slot.amount) if slot.amount > 1 else ""
-			sn.tooltip_text = Localization.t("UI_INVENTORY_SLOT_TOOLTIP", {"name": slot.item.get_display_name(), "amount": slot.amount, "max_stack": slot.item.max_stack})
+			sn.tooltip_text = Localization.t("UI_INVENTORY_SLOT_TOOLTIP", { "name": slot.item.get_display_name(), "amount": slot.amount, "max_stack": slot.item.max_stack })
 			_set_style(sn, Color(0.18, 0.19, 0.15), Color(0.35, 0.33, 0.25))
 			total_weight += slot.item.weight * slot.amount
-	_weight_label.text = Localization.t("UI_INVENTORY_WEIGHT", {"weight": "%.1f" % total_weight})
+	_weight_label.text = Localization.t("UI_INVENTORY_WEIGHT", { "weight": "%.1f" % total_weight })
 	if _crafting_panel:
 		_crafting_panel.refresh()
+
 
 func _clear_slot(icon_r: TextureRect, color_bg: ColorRect, amt: Label, sn: PanelContainer) -> void:
 	icon_r.texture = null
@@ -261,22 +276,18 @@ func _clear_slot(icon_r: TextureRect, color_bg: ColorRect, amt: Label, sn: Panel
 	sn.tooltip_text = Localization.t("UI_INVENTORY_EMPTY_SLOT")
 	_set_style(sn, Color(0.15, 0.16, 0.13), Color(0.25, 0.24, 0.20))
 
+
 func _set_style(sn: PanelContainer, bg: Color, border: Color) -> void:
 	var s: StyleBoxFlat = sn.get_theme_stylebox("panel") as StyleBoxFlat
 	if s:
 		s.bg_color = bg
 		s.border_color = border
 
+
 func _get_item_color(item_id: String) -> Color:
 	match item_id:
 		"base:scrap":
 			return Color(0.76, 0.66, 0.42)
-		"base:iron_ore":
-			return Color(0.55, 0.35, 0.25)
-		"base:copper_ore":
-			return Color(0.65, 0.45, 0.20)
-		"base:stone":
-			return Color(0.45, 0.43, 0.40)
 		"base:wood":
 			return Color(0.30, 0.22, 0.15)
 		"base:water_dirty":
@@ -284,6 +295,7 @@ func _get_item_color(item_id: String) -> Color:
 		"base:iron_ingot":
 			return Color(0.7, 0.7, 0.75)
 	return Color(0.5, 0.5, 0.5)
+
 
 func _apply_localization() -> void:
 	if _title_label:
@@ -293,7 +305,8 @@ func _apply_localization() -> void:
 	if _hint_label:
 		_hint_label.text = Localization.t("UI_INVENTORY_HINT")
 	if _weight_label:
-		_weight_label.text = Localization.t("UI_INVENTORY_WEIGHT", {"weight": "0.0"})
+		_weight_label.text = Localization.t("UI_INVENTORY_WEIGHT", { "weight": "0.0" })
+
 
 func _on_language_changed(_locale_code: String) -> void:
 	_apply_localization()

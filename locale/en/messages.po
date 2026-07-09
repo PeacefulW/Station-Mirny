@@ -339,29 +339,11 @@ msgstr "Biomass"
 msgid "ITEM_WOOD_DESC"
 msgstr "Early-game fuel. Used to refuel the thermo burner."
 
-msgid "ITEM_IRON_ORE_NAME"
-msgstr "Iron Ore"
-
-msgid "ITEM_IRON_ORE_DESC"
-msgstr "Manual crafting resource. Smelt it into iron ingots."
-
 msgid "ITEM_IRON_INGOT_NAME"
 msgstr "Iron Ingot"
 
 msgid "ITEM_IRON_INGOT_DESC"
 msgstr "Result of manual iron smelting. Not used for building."
-
-msgid "ITEM_COPPER_ORE_NAME"
-msgstr "Copper Ore"
-
-msgid "ITEM_COPPER_ORE_DESC"
-msgstr "Basic ore for wiring, electronics, and power systems."
-
-msgid "ITEM_STONE_NAME"
-msgstr "Stone"
-
-msgid "ITEM_STONE_DESC"
-msgstr "Mineral raw material for early structures and crude tools."
 
 msgid "ITEM_WATER_DIRTY_NAME"
 msgstr "Dirty Water"
@@ -386,12 +368,6 @@ msgstr "Thermo Burner"
 
 msgid "BUILD_THERMO_BURNER_DESC"
 msgstr "Burns biomass to power the base. Noisy and attracts Cleaners."
-
-msgid "RECIPE_IRON_ORE_TO_INGOT_NAME"
-msgstr "Iron Smelting"
-
-msgid "RECIPE_IRON_ORE_TO_INGOT_DESC"
-msgstr "Ore is for crafting, not building: smelt iron ore into an ingot."
 
 msgid "SYSTEM_PLAYER_NOT_FOUND"
 msgstr "Player not found"
@@ -495,17 +471,8 @@ msgstr "{value}%"
 msgid "UI_WORLD_CREATE_NUMBER"
 msgstr "{value}"
 
-msgid "RESOURCE_COPPER_ORE_NODE_NAME"
-msgstr "Copper Vein"
-
 msgid "RESOURCE_DEAD_TREE_NODE_NAME"
 msgstr "Spore Trunk"
-
-msgid "RESOURCE_IRON_ORE_NODE_NAME"
-msgstr "Iron Vein"
-
-msgid "RESOURCE_STONE_NODE_NAME"
-msgstr "Stone Deposit"
 
 msgid "RESOURCE_WATER_SOURCE_NODE_NAME"
 msgstr "Water Source"

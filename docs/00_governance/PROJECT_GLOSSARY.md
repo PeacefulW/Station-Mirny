@@ -62,7 +62,7 @@ Temporary structures that exist only during a play session and have no meaning a
 Modifications made to the deterministic world base during gameplay. The world is generated from a seed (immutable base); player actions (mining, building) create diffs stored per-chunk. Save files contain only diffs, not the full world. On load: base is regenerated from seed, diffs are applied on top.
 
 ### Canonical identity
-A stable, unique identifier for a game entity that survives save/load, multiplayer replication, and mod extension. Examples: `"base:iron_ore"` (item ID), `"wall"` (building ID), biome StringName. Canonical IDs live in registries (`ItemRegistry`), not in code branches.
+A stable, unique identifier for a game entity that survives save/load, multiplayer replication, and mod extension. Examples: `"base:wood"` (item ID), `"wall"` (building ID), biome StringName. Canonical IDs live in registries (`ItemRegistry`), not in code branches.
 
 ---
 

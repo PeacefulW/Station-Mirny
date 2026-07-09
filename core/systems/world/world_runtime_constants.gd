@@ -12,7 +12,7 @@ const STREAM_RADIUS_CHUNKS: int = 1
 const PUBLISH_BATCH_SIZE: int = 64
 
 const DEFAULT_WORLD_SEED: int = 131071
-const WORLD_VERSION: int = 60
+const WORLD_VERSION: int = 61
 const WORLD_FOUNDATION_VERSION: int = 9
 const FOUNDATION_COARSE_CELL_SIZE_TILES: int = 64
 const LEGACY_WORLD_WRAP_WIDTH_TILES: int = 65536
@@ -111,7 +111,7 @@ const Z_GRASS_SPORE: int = 290
 ## Гора — НИЖЕ всей объектной лесенки: деревья/камни/игрок рисуются ПОВЕРХ горы.
 ## Это геометрически корректно: объекты не размещаются на горных тайлах, а их
 ## спрайты тянутся вверх от якоря, поэтому перекрытие пикселей горы объектом
-## всегда означает «объект спереди» (mountain_object_occlusion.md, 2026-07-04;
+## всегда означает «объект спереди» (mountain_object_occlusion.md, 2026-07-04
 ## заменило отвергнутый пользователем canopy-carve). Выше подошвы (4) и
 ## контактных теней травы (18), ниже лесенки (20+). Крыша интерьера
 ## (RoofLayer, Z_DEBUG_OVERLAY) остаётся высоко и по-прежнему прячет полости.

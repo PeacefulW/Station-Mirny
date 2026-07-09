@@ -1,6 +1,5 @@
 class_name RecipeData
 extends Resource
-
 ## Ресурс рецепта крафта. Поддерживает массивы входов/выходов
 ## и обратную совместимость с форматом 1→1.
 
@@ -11,7 +10,7 @@ extends Resource
 @export_multiline var description: String = ""
 
 @export_group("Ингредиенты (расширенный формат)")
-## Массив входов: [{item_id: "base:iron_ore", amount: 2}, ...].
+## Массив входов: [{item_id: "base:wood", amount: 2}, ...].
 @export var inputs: Array[Dictionary] = []
 ## Массив выходов: [{item_id: "base:iron_ingot", amount: 1}, ...].
 @export var outputs: Array[Dictionary] = []
@@ -34,24 +33,28 @@ extends Resource
 ## Требуемая технология ("" = доступно сразу).
 @export var required_tech: StringName = &""
 
+
 func get_display_name() -> String:
 	return Localization.td(display_name_key, display_name)
 
+
 func get_description() -> String:
 	return Localization.td(description_key, description)
+
 
 ## Получить входы (с обратной совместимостью).
 func get_inputs() -> Array[Dictionary]:
 	if not inputs.is_empty():
 		return inputs
 	if not input_item_id.is_empty():
-		return [{"item_id": input_item_id, "amount": input_amount}]
+		return [{ "item_id": input_item_id, "amount": input_amount }]
 	return []
+
 
 ## Получить выходы (с обратной совместимостью).
 func get_outputs() -> Array[Dictionary]:
 	if not outputs.is_empty():
 		return outputs
 	if not output_item_id.is_empty():
-		return [{"item_id": output_item_id, "amount": output_amount}]
+		return [{ "item_id": output_item_id, "amount": output_amount }]
 	return []

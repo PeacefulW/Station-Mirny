@@ -150,17 +150,11 @@ var _grass_blob_overlay_canvas_texture: ImageTexture = null
 var _rock_patch_overlay_sprite: Sprite2D = null
 var _rock_patch_overlay_material: ShaderMaterial = null
 var _rock_patch_overlay_canvas_texture: ImageTexture = null
-var _rock_scatter_atlases: Array[Texture2D] = []
 var _living_flora_atlas: Texture2D = null
 var _spiky_flora_atlases: Array[Texture2D] = []
 var _tree_atlas: Texture2D = null
 var _layered_tree_asset_dir: String = ""
 var _layered_tree_asset_dirs: Array[String] = []
-var _big_grass_rock_atlases: Array[Texture2D] = []
-var _grass_edge_small_rock_atlas: Texture2D = null
-var _grass_edge_small_rock_columns: int = 1
-var _grass_edge_small_rock_rows: int = 1
-var _grass_edge_small_rock_frame_count: int = 1
 var _object_packet_layer: WorldObjectPacketLayer = null
 var _debug_object_collisions_visible: bool = false
 var _object_packet_visual_dirty: bool = false
@@ -626,12 +620,6 @@ func apply_sun_lighting(
 	)
 
 
-func set_plains_rock_scatter_sources(atlases: Array[Texture2D]) -> void:
-	_rock_scatter_atlases = atlases.duplicate()
-	if _object_packet_layer != null and is_instance_valid(_object_packet_layer):
-		_object_packet_layer.set_rock_atlases(_rock_scatter_atlases)
-
-
 func set_living_flora_source(atlas: Texture2D) -> void:
 	_living_flora_atlas = atlas
 	if _object_packet_layer != null and is_instance_valid(_object_packet_layer):
@@ -666,26 +654,6 @@ func set_layered_tree_asset_dirs(asset_dirs: Array) -> void:
 	_layered_tree_asset_dir = _layered_tree_asset_dirs[0] if not _layered_tree_asset_dirs.is_empty() else ""
 	if _object_packet_layer != null and is_instance_valid(_object_packet_layer):
 		_object_packet_layer.set_layered_tree_asset_dirs(_layered_tree_asset_dirs)
-
-
-func set_big_grass_rock_sources(atlases: Array[Texture2D]) -> void:
-	_big_grass_rock_atlases = atlases.duplicate()
-	if _object_packet_layer != null and is_instance_valid(_object_packet_layer):
-		_object_packet_layer.set_big_grass_rock_atlases(_big_grass_rock_atlases)
-
-
-func set_grass_edge_small_rock_source(atlas: Texture2D, columns: int, rows: int, frame_count: int) -> void:
-	_grass_edge_small_rock_atlas = atlas
-	_grass_edge_small_rock_columns = maxi(1, columns)
-	_grass_edge_small_rock_rows = maxi(1, rows)
-	_grass_edge_small_rock_frame_count = maxi(1, frame_count)
-	if _object_packet_layer != null and is_instance_valid(_object_packet_layer):
-		_object_packet_layer.set_grass_edge_small_rock_source(
-			_grass_edge_small_rock_atlas,
-			_grass_edge_small_rock_columns,
-			_grass_edge_small_rock_rows,
-			_grass_edge_small_rock_frame_count,
-		)
 
 
 func apply_contour_debug_data(
@@ -2444,28 +2412,17 @@ func _ensure_grass_blob_overlay_canvas_texture() -> ImageTexture:
 
 
 func _sync_object_packet_visual(packet: Dictionary) -> void:
-	if _rock_scatter_atlases.is_empty() \
-			and _living_flora_atlas == null \
+	if _living_flora_atlas == null \
 			and _spiky_flora_atlases.is_empty() \
 			and _tree_atlas == null \
-			and _layered_tree_asset_dirs.is_empty() \
-			and _big_grass_rock_atlases.is_empty() \
-			and _grass_edge_small_rock_atlas == null:
+			and _layered_tree_asset_dirs.is_empty():
 		_clear_object_packet_visual()
 		return
 	var layer: WorldObjectPacketLayer = _ensure_object_packet_layer()
-	layer.set_rock_atlases(_rock_scatter_atlases)
 	layer.set_living_flora_atlas(_living_flora_atlas)
 	layer.set_spiky_flora_atlases(_spiky_flora_atlases)
 	layer.set_tree_atlas(_tree_atlas)
 	layer.set_layered_tree_asset_dirs(_layered_tree_asset_dirs)
-	layer.set_big_grass_rock_atlases(_big_grass_rock_atlases)
-	layer.set_grass_edge_small_rock_source(
-		_grass_edge_small_rock_atlas,
-		_grass_edge_small_rock_columns,
-		_grass_edge_small_rock_rows,
-		_grass_edge_small_rock_frame_count,
-	)
 	_object_packet_layer.set_world_origin_y(position.y)
 	layer.configure_packet(packet)
 	_apply_sun_lighting_to_object_packet_layer()
@@ -3024,7 +2981,7 @@ func get_cover_render_debug(local_coord: Vector2i, mountain_id: int = 0, expecte
 
 func _normalize_layered_tree_asset_dirs(asset_dirs: Array) -> Array[String]:
 	var result: Array[String] = []
-	var seen: Dictionary = {}
+	var seen: Dictionary = { }
 	for value: Variant in asset_dirs:
 		var asset_dir: String = str(value).strip_edges()
 		if asset_dir.is_empty() or seen.has(asset_dir):

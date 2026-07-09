@@ -1,6 +1,5 @@
 class_name ItemRegistrySingleton
 extends Node
-
 ## Глобальный реестр игровых data-ресурсов.
 ## Загружает предметы, рецепты и world-resource данные из .tres
 ## и предоставляет доступ по ID.
@@ -9,12 +8,13 @@ extends Node
 # --- Приватные переменные ---
 const RECIPE_DATA_SCRIPT_PATH: String = "res://core/entities/recipes/recipe_data.gd"
 
-var _items: Dictionary = {}
-var _recipes: Dictionary = {}
-var _buildings: Dictionary = {}
-var _resource_nodes: Dictionary = {}
-var _resource_nodes_by_deposit: Dictionary = {}
+var _items: Dictionary = { }
+var _recipes: Dictionary = { }
+var _buildings: Dictionary = { }
+var _resource_nodes: Dictionary = { }
+var _resource_nodes_by_deposit: Dictionary = { }
 var _are_recipes_loaded: bool = false
+
 
 func _ready() -> void:
 	# На Фазе 0 мы загружаем базовые ресурсы вручную.
@@ -29,20 +29,23 @@ func _ready() -> void:
 
 # --- Публичные методы ---
 
-## Возвращает данные предмета по его строковому ID (например "base:iron_ore").
+
+## Возвращает данные предмета по его строковому ID (например "base:wood").
 func get_item(id: String) -> ItemData:
 	if _items.has(id):
 		return _items[id]
-	push_warning(Localization.t("SYSTEM_REGISTRY_ITEM_NOT_FOUND", {"id": id}))
+	push_warning(Localization.t("SYSTEM_REGISTRY_ITEM_NOT_FOUND", { "id": id }))
 	return null
+
 
 ## Возвращает данные рецепта по строковому ID.
 func get_recipe(id: String) -> RecipeData:
 	_ensure_recipes_loaded()
 	if _recipes.has(id):
 		return _recipes[id]
-	push_warning(Localization.t("SYSTEM_REGISTRY_RECIPE_NOT_FOUND", {"id": id}))
+	push_warning(Localization.t("SYSTEM_REGISTRY_RECIPE_NOT_FOUND", { "id": id }))
 	return null
+
 
 ## Возвращает все зарегистрированные рецепты.
 func get_all_recipes() -> Array[RecipeData]:
@@ -52,12 +55,14 @@ func get_all_recipes() -> Array[RecipeData]:
 		result.append(recipe)
 	return result
 
+
 ## Возвращает описание ресурсной ноды по её ID.
 func get_building(id: StringName) -> BuildingData:
 	if _buildings.has(id):
 		return _buildings[id]
-	push_warning(Localization.t("SYSTEM_REGISTRY_BUILDING_NOT_FOUND", {"id": id}))
+	push_warning(Localization.t("SYSTEM_REGISTRY_BUILDING_NOT_FOUND", { "id": id }))
 	return null
+
 
 ## Возвращает все зарегистрированные BuildingData.
 func get_all_buildings() -> Array[BuildingData]:
@@ -66,19 +71,22 @@ func get_all_buildings() -> Array[BuildingData]:
 		result.append(building_data)
 	return result
 
+
 ## Возвращает описание ресурсной ноды по её ID.
 func get_resource_node(id: StringName) -> ResourceNodeData:
 	if _resource_nodes.has(id):
 		return _resource_nodes[id]
-	push_warning(Localization.t("SYSTEM_REGISTRY_RESOURCE_NODE_NOT_FOUND", {"id": id}))
+	push_warning(Localization.t("SYSTEM_REGISTRY_RESOURCE_NODE_NOT_FOUND", { "id": id }))
 	return null
+
 
 ## Возвращает описание ресурсной ноды по deposit_type генератора мира.
 func get_resource_node_by_deposit(deposit_type: int) -> ResourceNodeData:
 	if _resource_nodes_by_deposit.has(deposit_type):
 		return _resource_nodes_by_deposit[deposit_type]
-	push_warning(Localization.t("SYSTEM_REGISTRY_DEPOSIT_NOT_FOUND", {"deposit_type": deposit_type}))
+	push_warning(Localization.t("SYSTEM_REGISTRY_DEPOSIT_NOT_FOUND", { "deposit_type": deposit_type }))
 	return null
+
 
 ## Возвращает все зарегистрированные world-resource типы.
 func get_all_resource_nodes() -> Array[ResourceNodeData]:
@@ -87,12 +95,14 @@ func get_all_resource_nodes() -> Array[ResourceNodeData]:
 		result.append(resource_node)
 	return result
 
+
 ## Регистрирует новый предмет в базе (используется ядром и модами).
 func register_item(item: ItemData) -> void:
 	if not item or item.id.is_empty():
 		push_error(Localization.t("SYSTEM_REGISTRY_INVALID_ITEM"))
 		return
 	_items[item.id] = item
+
 
 ## Регистрирует новый рецепт в базе (используется ядром и модами).
 func register_recipe(recipe: RecipeData) -> void:
@@ -101,12 +111,14 @@ func register_recipe(recipe: RecipeData) -> void:
 		return
 	_recipes[recipe.id] = recipe
 
+
 ## Регистрирует новый тип постройки.
 func register_building(building_data: BuildingData) -> void:
 	if not building_data or building_data.id.is_empty():
 		push_error(Localization.t("SYSTEM_REGISTRY_INVALID_BUILDING"))
 		return
 	_buildings[building_data.id] = building_data
+
 
 ## Регистрирует описание ресурсной ноды мира.
 func register_resource_node(resource_node: ResourceNodeData) -> void:
@@ -118,11 +130,12 @@ func register_resource_node(resource_node: ResourceNodeData) -> void:
 
 # --- Приватные методы ---
 
+
 func _load_base_items() -> void:
 	var items_path: String = "res://data/items/"
 	var dir := DirAccess.open(items_path)
 	if not dir:
-		push_warning(Localization.t("SYSTEM_REGISTRY_DIR_OPEN_FAILED", {"path": items_path}))
+		push_warning(Localization.t("SYSTEM_REGISTRY_DIR_OPEN_FAILED", { "path": items_path }))
 		return
 
 	dir.list_dir_begin()
@@ -134,11 +147,12 @@ func _load_base_items() -> void:
 				register_item(resource as ItemData)
 		file_name = dir.get_next()
 
+
 func _load_resource_nodes() -> void:
 	var resources_path: String = "res://data/resources/"
 	var dir := DirAccess.open(resources_path)
 	if not dir:
-		push_warning(Localization.t("SYSTEM_REGISTRY_DIR_OPEN_FAILED", {"path": resources_path}))
+		push_warning(Localization.t("SYSTEM_REGISTRY_DIR_OPEN_FAILED", { "path": resources_path }))
 		return
 
 	dir.list_dir_begin()
@@ -150,11 +164,12 @@ func _load_resource_nodes() -> void:
 				register_resource_node(resource as ResourceNodeData)
 		file_name = dir.get_next()
 
+
 func _load_buildings() -> void:
 	var buildings_path: String = "res://data/buildings/"
 	var dir := DirAccess.open(buildings_path)
 	if not dir:
-		push_warning(Localization.t("SYSTEM_REGISTRY_DIR_OPEN_FAILED", {"path": buildings_path}))
+		push_warning(Localization.t("SYSTEM_REGISTRY_DIR_OPEN_FAILED", { "path": buildings_path }))
 		return
 
 	dir.list_dir_begin()
@@ -166,11 +181,13 @@ func _load_buildings() -> void:
 				register_building(resource as BuildingData)
 		file_name = dir.get_next()
 
+
 func _ensure_recipes_loaded() -> void:
 	if _are_recipes_loaded:
 		return
 	_load_recipes_in_directory("res://data/recipes/")
 	_are_recipes_loaded = true
+
 
 func _load_recipes_in_directory(path: String) -> void:
 	var dir := DirAccess.open(path)
@@ -189,6 +206,7 @@ func _load_recipes_in_directory(path: String) -> void:
 			if _is_recipe_resource(resource):
 				register_recipe(resource as RecipeData)
 		entry_name = dir.get_next()
+
 
 func _is_recipe_resource(resource: Resource) -> bool:
 	if resource is RecipeData:

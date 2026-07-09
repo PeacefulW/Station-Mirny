@@ -4,8 +4,8 @@ doc_type: system_spec
 status: draft
 owner: engineering
 source_of_truth: true
-version: 1.4
-last_updated: 2026-06-29
+version: 1.5
+last_updated: 2026-07-09
 related_docs:
   - ../README.md
   - system_api.md
@@ -333,11 +333,15 @@ Current code notes:
   but native placement is rebalanced toward sparser clusters on the true
   open-ground to grass seam and the atlas is rebaked with self-shadow/AO
   without baked ground projection. `ChunkPacketV1` shape is unchanged.
-- `world_version == 60` is the current plains tree placement profile boundary:
+- `world_version == 60` is the historical plains tree placement profile boundary:
   native `object_kind == 4` placement reads the frozen
   `worldgen_settings.plains_trees` profile through `settings_packed[22..43]`.
   `ChunkPacketV1` shape is unchanged because this only changes how existing
   immutable tree records are generated.
+- `world_version == 61` is the current object-placement cleanup boundary:
+  native object packets no longer emit the previous generated stone/rock object
+  families (`object_kind` values `1`, `5`, and `6`). `ChunkPacketV1` shape is
+  unchanged; flora/tree records keep using the same `object_*` arrays.
 - `worldgen_settings.mountains` is written once for new worlds and then loaded
   from `world.json`, not from the repository `.tres`
 - `worldgen_settings.lakes` is written once for new worlds and then loaded
@@ -617,7 +621,7 @@ Returned one-per-input-coord by native
 |---|---|---|---|
 | `chunk_coord` | `Vector2i` | — | Canonical chunk coordinate |
 | `world_seed` | `int` | — | Copied into the packet for validation/debug |
-| `world_version` | `int` | — | Current foundation runtime value is `59` |
+| `world_version` | `int` | — | Current foundation runtime value is `61` |
 | `terrain_ids` | `PackedInt32Array` | 256 | Base terrain ids for the gameplay layer |
 | `terrain_atlas_indices` | `PackedInt32Array` | 256 | Base-layer atlas indices; mountain tiles reuse the native mountain atlas solve, and plains ground opens `autotile_47` bank edges only against shallow/deep lake-bed neighbours |
 | `walkable_flags` | `PackedByteArray` | 256 | `1 = walkable`, `0 = blocked` |
@@ -625,7 +629,7 @@ Returned one-per-input-coord by native
 | `mountain_id_per_tile` | `PackedInt32Array` | 256 | `0 = no named mountain`; non-zero = deterministic `mountain_id` |
 | `mountain_flags` | `PackedByteArray` | 256 | Per-tile mountain bit layout documented below |
 | `mountain_atlas_indices` | `PackedInt32Array` | 256 | Roof-ready atlas indices derived from `mountain_id` adjacency via `autotile_47` |
-| `object_kind` | `PackedByteArray` | N | Visual object family id: `1` rock, `2` living flora, `3` spiky flora, `4` tree, `5` big grass rock, `6` grass-edge small rock |
+| `object_kind` | `PackedByteArray` | N | Visual object family id: `2` living flora, `3` spiky flora, `4` tree; historical ids `1`, `5`, and `6` are not emitted in `world_version >= 61` |
 | `object_local_x_px_q4` | `PackedByteArray` | N | Chunk-local pixel X quantized to `4 px` |
 | `object_local_y_px_q4` | `PackedByteArray` | N | Chunk-local pixel Y quantized to `4 px` |
 | `object_size_px` | `PackedByteArray` | N | Rendered sprite size in pixels |
@@ -665,8 +669,8 @@ Current code notes:
   `burning_band_tiles`, `pole_orientation`, and `foundation_slope_bias`;
   Lake Generation L1 extends the same payload additively with
   `LakeGenSettings` indices `15-20`; V2 / L5 adds
-  `SETTINGS_PACKED_LAYOUT_LAKE_CONNECTIVITY = 21`, so the current field count
-  is `22`
+  `SETTINGS_PACKED_LAYOUT_LAKE_CONNECTIVITY = 21`; plains tree placement adds
+  indices `22-43`, so the current field count is `44`
 - the current native boundary requires `world_version >= 6`
 - `world_version >= 6` uses implicit-domain hierarchical labeling: aligned `1024 x 1024` macro solves recurse only through mixed cells, stop at versioned `min_label_cell_size = 8`, reuse a deterministic `1`-macro halo in native code, and hash `mountain_id` from the component representative leaf
 - `mountain_id_per_tile`, `mountain_flags`, and `mountain_atlas_indices` are base packet fields only; they are not persisted in `ChunkDiffFile`
@@ -691,10 +695,6 @@ Current code notes:
 - `lake_flags` is base packet output only; it is not persisted in
   `ChunkDiffFile` and must not be written into chunk diff JSON.
 - active packet output never uses a standalone plains-rock terrain class; elevated mountain terrain either resolves into named mountain output or stays on the ground path at the hierarchical scale cutoff
-- `object_kind == 1` uses rock atlas bank indices `0..2` for ordinary loose
-  plains rocks and index `3` for the rare large rocky-patch rock pillar.
-  Index `3` is still an immutable generated presentation record plus the
-  existing large-rock collision proof, not saved gameplay object state.
 - `object_kind == 3` uses static biofield flora atlas bank index `0` for the
   orange spiky plant and index `1` for the small brown seaweed object. Both are
   immutable generated presentation records, not saved gameplay object state.
@@ -707,22 +707,6 @@ Current code notes:
   on the shared mid-layer depth ladder, not saved gameplay object state. From
   Iteration 3 tree trunks expose chunk-scoped static collision on the obstacle
   layer (shape owners on one body per chunk, not one body per tree).
-- `object_kind == 5` is the plains grass big rock family: four authored
-  self-shadowed/AO single-frame PNG variants without baked ground projection,
-  `object_atlas_index` selects the variant bank `0..3`, `object_variant` is
-  `0`, and `object_flags & 1` means a blocking base-circle collider must be
-  created by presentation. Placement is restricted to the same visual grass
-  field used by grass scatter / plains trees and explicitly rejected on the
-  orange biofield mask. Records are immutable generated presentation/collision
-  records, not saved gameplay object state.
-- `object_kind == 6` is the plains grass-edge small rock scree family: one atlas
-  bank (`object_atlas_index == 0`) contains twelve authored single-frame tiny
-  pebbles, `object_variant` selects the frame, and `object_flags == 0` because
-  these pebbles are visual-only. Placement is restricted to dense clustered
-  records on the native-mirrored open-ground to grass transition derived from
-  the shared plains grass field. `WorldObjectPacketLayer` adds a cheap runtime
-  contact-shadow underlay; the atlas itself is shadowless and remains immutable
-  generated presentation state, not saved gameplay object state.
 - For `world_version >= 53`, the native object packet adds `object_kind == 4`
   (plains trees) with the same plains-ground placement and mountain-edge
   clearance as the other object families.
@@ -737,20 +721,12 @@ Current code notes:
   grass threshold, and mirrored grass-field sampling params are read from the
   saved `worldgen_settings.plains_trees` profile via native
   `settings_packed[22..43]`.
-- For `world_version >= 57`, the native object packet may emit
-  `object_kind == 5` for rare blocking grass-only big rocks. This changes
+- For `world_version >= 61`, the native object packet no longer emits the
+  historical stone/rock object families `1`, `5`, and `6`. This changes
   deterministic visual object placement only; packet fields and save payload
   shape stay unchanged.
-- For `world_version >= 58`, the native object packet may emit
-  `object_kind == 6` for visual-only grass-edge small rock scree. This changes
-  deterministic visual object placement only; packet fields and save payload
-  shape stay unchanged.
-- For `world_version >= 59`, the same `object_kind == 6` family uses the tuned
-  sparse clustered scree placement and self-shadowed/AO sprite atlas. This
-  changes deterministic visual object placement and presentation only; packet
-  fields and save payload shape stay unchanged.
-- For `world_version >= 52`, native object packet emission keeps a local
-  mountain-edge clearance for rocks, living flora, and spiky flora so batched
+- For `world_version >= 61`, native object packet emission keeps local
+  mountain-edge clearance for living flora, spiky flora, and trees so batched
   decor does not spawn under the organic runtime mountain mask.
 - `mountain_atlas_indices` is reserved for later roof presentation, but is already confirmed at the packet boundary in M1
 

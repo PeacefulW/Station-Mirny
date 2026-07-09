@@ -92,6 +92,10 @@ Typical examples:
 - stone
 - crash scrap
 
+Implementation note (2026-07-09): iron ore, copper ore, and stone are
+temporarily absent from checked-in runtime item/resource-node data while the
+resource set is reauthored. Their progression roles remain canonical targets.
+
 Design role:
 - reachable from or near the safer early area
 - familiar enough that the player immediately understands their purpose

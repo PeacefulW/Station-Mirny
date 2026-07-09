@@ -4,8 +4,8 @@ doc_type: system_spec
 status: approved
 owner: engineering+design
 source_of_truth: true
-version: 1.9
-last_updated: 2026-06-24
+version: 1.10
+last_updated: 2026-07-09
 related_docs:
   - multiplayer_and_modding.md
   - ../../05_adrs/0003-immutable-base-plus-runtime-diff.md
@@ -79,7 +79,7 @@ saved). See `WeatherSaveData` in `packet_schemas.md`.
   chunk-diff shape, so old saves stay load-compatible.
 
 Current world generation extension:
-- `world.json` now records `world_version: 59` for the current finite-world
+- `world.json` now records `world_version: 61` for the current finite-world
   foundation baseline with `64`-tile substrate cells, native high-resolution
   overview, Lake Generation L2 packet output (`TERRAIN_LAKE_BED_SHALLOW`,
   `TERRAIN_LAKE_BED_DEEP`, and `lake_flags`), and the 2026-05-03
@@ -94,9 +94,9 @@ Current world generation extension:
   clustered satellite-outcrop refinement boundary, plus the strengthened
   satellite-outcrop refinement boundary, plus the mountain passage/outcrop
   refinement boundary, plus the native visual object placement boundaries for
-  static biofield flora, rare rocky-patch rock formations, rare rocky-patch rock
-  pillar presentation, mountain-edge object clearance, rare grass-only big
-  rocks, grass-edge small rocks, and the plains tree placement profile boundary
+  static biofield flora, the historical stone/rock object boundaries, the
+  plains tree placement profile boundary, and the current object-placement
+  cleanup boundary that stops emitting generated stone/rock object families
 - `world_version` remains a plain integer algorithm boundary; it is not a hash
   of `worldgen_settings` and does not incorporate `worldgen_signature`
 - pre-alpha save compatibility policy: the active load path accepts only
@@ -192,18 +192,22 @@ Current world generation extension:
   deterministic placement toward sparser clustered seam groups and uses the
   self-shadowed/AO atlas rebake without baked ground projection. It does not
   change save payload or chunk-diff shape.
-- `world_version == 60` is the current plains tree placement profile boundary.
+- `world_version == 60` is the historical plains tree placement profile boundary.
   It keeps the same `object_kind == 4` packet family but moves density, scatter
   grid, spacing, size tiers, grass threshold, and mirrored grass-field sampling
   params into `worldgen_settings.plains_trees`. It changes the current
   `world.json` shape, not per-chunk diff shape.
-- Current native visual object packet fields for rocks, flora, trees, big
-  grass rocks, and grass-edge small rocks are immutable generated presentation
-  records plus loaded base-collision proofs where `object_flags` requests them.
+- `world_version == 61` is the current object-placement cleanup boundary. It
+  removes the previous generated stone/rock object families from native packet
+  emission (`object_kind` values `1`, `5`, and `6`) while keeping the packet
+  field shape unchanged for flora/tree records.
+- Current native visual object packet fields for flora and trees are immutable
+  generated presentation records plus loaded base-collision proofs where
+  `object_flags` requests them.
   They are regenerated from `world_seed + chunk_coord + world_version` plus the
   frozen `worldgen_settings` profile data. Object records themselves are not
   stored in `world.json` or per-chunk diff files.
-- `WorldRuntimeConstants.WORLD_VERSION` is therefore `60` for current saves;
+- `WorldRuntimeConstants.WORLD_VERSION` is therefore `61` for current saves;
   `38` remains the historical L2 packet boundary and `42` remains the
   historical L7 shore-warp boundary.
 - `worldgen_settings.lakes` stores the embedded per-save lake input copy
@@ -274,7 +278,7 @@ Confirmed `world.json` shape in the current worldgen code path:
   "world_rebuild_frozen": false,
   "world_scene_present": true,
   "world_seed": 131071,
-  "world_version": 60,
+  "world_version": 61,
   "worldgen_settings": {
     "world_bounds": {
       "width_tiles": 4096,

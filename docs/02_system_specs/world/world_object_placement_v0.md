@@ -4,8 +4,8 @@ doc_type: system_spec
 status: draft
 owner: engineering+design
 source_of_truth: true
-version: 0.4
-last_updated: 2026-06-24
+version: 0.6
+last_updated: 2026-07-09
 related_docs:
   - ../../00_governance/ENGINEERING_STANDARDS.md
   - ../../00_governance/PROJECT_GLOSSARY.md
@@ -26,9 +26,15 @@ related_docs:
 ## Purpose
 
 Define the first scalable contract for generated surface world objects:
-flora, loose stones, small resource nodes, and inert decor.
+flora, trees, and inert decor.
 
-This spec exists so adding plants and rocks does not become a set of ad-hoc
+Current implementation note (2026-07-09): `world_version == 61` removes the
+previous generated stone/rock object families and ore/stone resource node data
+from checked-in runtime content. Historical notes below about rock packet
+families are retained only as migration context until the replacement
+tree-style authoring pass is specified.
+
+This spec exists so adding plants and authored objects does not become a set of ad-hoc
 scene paths or generator branches. V0 is intentionally narrow: it proves the
 data, asset, registry, packet, and presentation boundaries for one biome before
 expanding to broader worldgen content.
@@ -39,7 +45,8 @@ The player should see the `plains` biome gain readable local identity through
 small generated objects:
 
 - alien flora that supports the content bible's non-Earth baseline;
-- loose stones or small rock/resource forms that make the terrain feel tactile;
+- flora and trees that make the terrain feel tactile without adding
+  gameplay-authored resource nodes yet;
 - deterministic placement that is stable for the same seed and chunk;
 - content that can later be extended by mods without rewriting core worldgen.
 
@@ -57,24 +64,16 @@ V0 includes only:
 - a compact per-chunk object placement packet shape;
 - batched or pooled presentation for visible objects;
 - deterministic visual variation derived from seed, chunk, tile, and object ID;
-- a narrow loaded-chunk collision proof for large `plains` rocks only;
 - a narrow visual-only animated flora proof gated by chunk-local grass patches,
   using one fixed south/front-facing atlas row for presentation;
 - a narrow visual-only static spiky flora proof restricted to chunk-local
   orange biofield patches, using a fixed front/top baked-shadow atlas frame;
 - a narrow small static biofield flora proof restricted to chunk-local orange
   biofield patches, using spiky flora atlas index `1` and no collision;
-- a narrow rare large rock-family proof restricted to chunk-local rocky ground
-  patch coverage, using rock atlas index `3`, eight deterministic `45 degree`
-  atlas variants, and the existing loaded large-rock collision proof;
-- a narrow rare big-rock proof restricted to the visual grass field, using
-  `object_kind == 5`, four authored self-shadowed/AO single-frame PNG variants,
-  no baked ground projection, runtime contact shadow, and a blocking
-  base-circle collision proof;
-- a narrow visual-only grass-edge small-rock scree proof restricted to the
-  procedural open-ground to grass transition, using `object_kind == 6`, one
-  twelve-frame atlas-backed placement group, dense clustered native placement,
-  no baked ground shadow, runtime contact shadow, and no collision;
+- a tree proof using `object_kind == 4`, authored plains-tree placement
+  settings, batched/layered presentation, sun silhouette shadows, and
+  chunk-scoped trunk collision shape owners;
+- no active generated stone/rock/ore object families in `world_version >= 61`;
 - asset folder rules for sprites, atlases, and related presentation assets;
 - mod-compatible additive content registration direction for `plains`.
 
@@ -88,10 +87,10 @@ V0 explicitly does not include:
 - seasonal, weather, wind, or environment-runtime object changes;
 - harvest, mining, chopping, pickup, or resource yield gameplay;
 - object destruction runtime diff;
-- broad generated object collision beyond the explicit large `plains` rock
-  loaded-chunk proof in Iteration 1;
-- harvesting, collision, save identity, or gameplay commands for visual-only
-  flora proofs;
+- generated stone/rock/ore presentation, collision, harvesting, resource
+  nodes, and item yields until the replacement tree-style authoring pass is
+  specified;
+- harvesting, save identity, or gameplay commands for visual-only flora proofs;
 - rotation variation for the visual-only animated flora proof;
 - dedicated harvest commands or events;
 - save migration for older `world_version` values;
@@ -217,8 +216,8 @@ assets/sprites/decor/atlases/
 Rules:
 
 - flora sprites for the `plains` biome go under `assets/sprites/flora/plains/`;
-- rock/resource-node sprites for `plains` go under
-  `assets/sprites/resources/plains/`;
+- future resource-node sprites for `plains` go under
+  `assets/sprites/resources/plains/` when that content is restored;
 - inert visual decor goes under `assets/sprites/decor/plains/`;
 - atlases are grouped by domain under the matching `atlases/` folder;
 - normal maps, masks, or modulation maps stay next to the atlas they support
@@ -236,7 +235,7 @@ Example:
 assets/sprites/flora/plains/sporestalk_small_01.png
 assets/sprites/flora/atlases/plains_flora_atlas.png
 assets/sprites/flora/atlases/plains_flora_atlas_normal.png
-assets/sprites/resources/plains/loose_stone_01.png
+assets/sprites/resources/plains/future_resource_node_01.png
 assets/sprites/resources/atlases/plains_resource_nodes_atlas.png
 ```
 
@@ -281,13 +280,13 @@ The accepted first packet shape is presentation-oriented and intentionally
 byte-packed:
 
 ```text
-object_kind: PackedByteArray          # V0 family id: 1 rock, 2 living flora, 3 spiky flora, 4 tree, 5 big grass rock, 6 grass-edge small rock
+object_kind: PackedByteArray          # current family id: 2 living flora, 3 spiky flora, 4 tree
 object_local_x_px_q4: PackedByteArray # chunk-local pixel X quantized to 4 px
 object_local_y_px_q4: PackedByteArray # chunk-local pixel Y quantized to 4 px
 object_size_px: PackedByteArray       # rendered sprite size in pixels
-object_atlas_index: PackedByteArray   # prepared atlas bank index; spiky flora index 1 is small static brown seaweed, rock index 3 is rare rocky-patch rock pillar, big grass rock indices 0..3 are single-frame authored variants, grass-edge small rocks use index 0
+object_atlas_index: PackedByteArray   # prepared atlas bank index; spiky flora index 1 is small static brown seaweed, tree uses index 0
 object_variant: PackedByteArray       # atlas frame / animation view variant
-object_flags: PackedByteArray         # bit flags; bit 0 = blocking base-collision proof
+object_flags: PackedByteArray         # bit flags reserved for object collision/proof data; active tree collision is derived from object_kind 4
 object_tint: PackedByteArray          # 0..255 presentation tint scalar
 object_phase: PackedByteArray         # 0..255 deterministic animation phase
 ```
@@ -309,39 +308,26 @@ not own gameplay truth.
 
 Rules:
 
-- mass flora, stones, decor, and debris use batched rendering or pooled
+- mass flora, trees, decor, and future debris use batched rendering or pooled
   lightweight presentation;
 - V0 must not instantiate one node per generated object;
 - assets must be preloaded or prepared outside interactive paths;
 - presentation may choose deterministic atlas variants;
 - presentation state is derived and not persisted.
-- accepted V0 rocks and flora consume native object packet arrays; local
+- accepted V0 flora and trees consume native object packet arrays; local
   GDScript scatter helpers are legacy/reference only and not the production
   placement source.
 - static biofield flora atlas bank index `0` is the orange spiky plant; index
   `1` is the small brown seaweed object and must pass the same deterministic
   orange biofield mask before emission.
-- rock atlas bank indices `0..2` are ordinary loose plains rocks; rock atlas
-  index `3` is reserved for the rare large rocky-patch rock pillar, may use
-  eight deterministic `45 degree` variants, and must pass the deterministic
-  rocky ground patch mask before emission.
-- for `world_version >= 52`, generated rocks, living flora, and spiky flora
-  must keep a local clearance from canonical mountain wall/foot terrain so
-  batched decor does not appear underneath the organic runtime mountain mask.
-- for `world_version >= 57`, `object_kind == 5` is reserved for rare blocking
-  plains grass big rocks: four authored self-shadowed/AO single-frame PNG
-  variants, placement only on the visual grass field, rejection on the orange
-  biofield mask, no baked ground projection, runtime contact shadow, and a
-  narrow base-circle collider.
-- for `world_version >= 58`, `object_kind == 6` is reserved for visual-only
-  plains grass-edge small rock scree: one atlas-backed placement group with
-  twelve authored single-frame variants, dense clustered placement only on the
-  native-mirrored open-ground to grass transition, runtime contact shadow, and
-  no collision.
-- for `world_version >= 59`, the same `object_kind == 6` family uses the tuned
-  scree presentation contract: self-shadowed/AO sprites without baked ground
-  projection, `10..28 px` visual scale biased toward small pebbles, and sparser
-  cluster placement on the true seam rather than a continuous ring.
+- for `world_version >= 61`, native object packets do not emit historical
+  stone/rock families (`object_kind` values `1`, `5`, and `6`).
+- living flora, spiky flora, and trees keep local clearance from canonical
+  mountain wall/foot terrain so batched decor does not appear underneath the
+  organic runtime mountain mask.
+- trees use `object_kind == 4`; presentation may use the classic atlas batch or
+  the layered-tree runtime, and trunk collision is chunk-scoped on one
+  `StaticBody2D` per object packet layer.
 
 ### Batch Presentation Contract
 
@@ -370,7 +356,7 @@ Required direction:
   placement truth.
 - `WorldObjectPacketLayer` consumes native packet records and builds bounded
   chunk-local `MultiMeshInstance2D` sprite/shadow batches plus the explicit
-  loaded-rock collision proof.
+  tree trunk collision proof.
 - temporary local scatter adapters are allowed only as disabled reference tools;
   accepted dense placement must stay in the native packet path before content
   is enabled at scale.
@@ -383,22 +369,22 @@ Forbidden in the production path:
 - synchronous `load()` when a chunk enters view;
 - rebuilding object placement just because lighting changed.
 
-### Loaded Large Rock Collision Proof
+### Tree Collision Proof
 
-Iteration 1 allows one explicit collision exception: large visual rocks in
-`plains` may expose static obstacle collision while the final packet-backed
-object placement path is still being proven.
+Current `world_version >= 61` allows one explicit collision proof: generated
+plains trees may expose static obstacle collision for their trunks while crowns
+remain passable presentation.
 
 Rules:
 
-- collision is allowed only for large rocks derived from the same deterministic
-  native object packet record as the visual rock batch;
+- collision is allowed only for trees derived from the same deterministic native
+  object packet record as the visual or layered tree presentation;
 - collision must be chunk-scoped: one `StaticBody2D` per loaded chunk layer with
-  shape owners, not one physics node per rock;
+  shape owners, not one physics node per tree;
 - collision uses the obstacle-compatible layer expected by the player movement
   mask;
-- shape size is derived from the same visual `size_px` as the rendered rock and
-  must stay smaller than the sprite footprint;
+- shape size is derived from the same visual `size_px` as the rendered tree and
+  must stay smaller than the crown footprint;
 - collision records are derived presentation/physics proof data, not saved
   authoritative world state;
 - this proof does not add harvesting, resource yield, object commands, object
@@ -439,7 +425,7 @@ Runtime work class:
 
 - placement generation: native `boot` or `background` packet generation;
 - chunk publish / presentation apply: bounded main-thread apply;
-- interactive gameplay path: static physics broadphase for large loaded rocks
+- interactive gameplay path: static physics broadphase for loaded tree trunks
   only; no scatter rebuild, asset load, or shape regeneration in an interactive
   input path.
 
@@ -458,20 +444,16 @@ Target scale:
 Escalation path:
 
 - native placement solve for dense object generation;
-- additive native object packet records for rocks, visual-only living flora,
-  and visual-only spiky flora;
+- additive native object packet records for visual-only living flora,
+  visual-only spiky flora, and trees;
 - additive native placement for small static biofield flora objects that reuse
   the spiky flora packet family and atlas index `1`;
-- sparse native placement for rare large rock-family objects that reuse the rock
-  packet family and atlas index `3`;
 - registry-prepared numeric indices for hot packets;
 - `MultiMeshInstance2D` batched rendering for mass presentation;
 - shader-uniform updates for dynamic wind and fake shadows;
-- centered contact shadows for small static rocks when directional cast shadows
-  make the sprite read as floating;
 - GPU atlas-frame animation for visual-only living flora;
 - fixed front/top baked-shadow static atlas frames for visual-only spiky flora;
-- chunk-scoped static collision shape owners for large loaded rocks only;
+- chunk-scoped static collision shape owners for loaded tree trunks only;
 - pooled interactive proxies only near the player in later iterations.
 
 ## Modding / Extension Points
@@ -521,17 +503,15 @@ Goal:
 - add a minimal native-packet-backed `plains`-only placement path for
   non-interactive generated objects.
 - `ChunkView` presentation must consume native object packet records and must
-  remain presentation-only except for the explicit large-rock loaded collision
-  proof above.
+  remain presentation-only except for the explicit tree-trunk collision proof
+  above.
 
 Allowed content:
 
-- non-interactive `plains` rock atlases under
-  `assets/sprites/resources/atlases/`;
 - visual-only animated flora atlases under `assets/sprites/flora/atlases/`;
 - visual-only static spiky flora atlases under `assets/sprites/flora/atlases/`;
-- later flora object, such as `core:sporestalk_small`;
-- later loose stone/resource-like definition, such as `core:loose_stone`.
+- plains tree atlases or layered-tree assets under `assets/sprites/flora/`;
+- later flora object, such as `core:sporestalk_small`.
 
 Non-goals:
 
@@ -572,13 +552,12 @@ V0 is acceptable when:
 - small static brown seaweed biofield objects are batched through spiky flora
   atlas index `1`, restricted to orange biofield patches, and not emitted as
   scene nodes;
-- rare large rock-family objects are batched through rock atlas index `3`, use
-  eight deterministic `45 degree` variants, are restricted to rocky ground patch
-  coverage, and use chunk-scoped collision shape owners only;
-- accepted rocks and flora are emitted from the native object packet, not from
+- trees are emitted through `object_kind == 4`, use deterministic variants, and
+  use chunk-scoped trunk collision shape owners only;
+- accepted flora and trees are emitted from the native object packet, not from
   a runtime GDScript scatter generator;
-- large loaded rocks with collision use chunk-scoped shape owners, not one
-  physics node per rock;
+- active generated stone/rock object families `1`, `5`, and `6` are not emitted
+  for `world_version >= 61`;
 - canonical generated placements are not saved as full chunk content;
 - mods have an additive content path that does not require core generator
   surgery.
@@ -593,7 +572,8 @@ This design is wrong if:
 - visible objects are instantiated as one node each across loaded chunks;
 - accepted object placement remains in a local GDScript scatter path instead of
   the native packet;
-- collision is added as one node per rock or rebuilt during interactive input;
+- collision is added as one node per generated object or rebuilt during
+  interactive input;
 - animated flora updates rebuild instance buffers every frame;
 - V0 quietly expands beyond `plains`;
 - object harvesting is added before command/save/event contracts are defined.
