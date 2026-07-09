@@ -14,6 +14,8 @@ uniform float outer_width_variation_px = 0.0;
 uniform float inner_width_px = 36.0;
 uniform float foothill_alpha = 0.62;
 uniform float footprint_fill_strength = 0.0;
+uniform float footprint_fill_alpha = 0.78;
+uniform float max_alpha = 0.78;
 // Scree debris: sparse large rock-rubble patches on the OUTER fringe of the
 // apron, crumbling into individual stones via the rock texture's own luma
 // (same dissolve trick as the ground material's rock patches).
@@ -163,9 +165,9 @@ void fragment() {
 
 	float broad = fbm2(world_px / 520.0 + vec2(23.0, -11.0));
 	float gravel_break = fbm2(world_px / 150.0 + vec2(-7.0, 39.0));
-	float feather = max(smoothstep(0.06, 0.82, edge_band), footprint_fill * 0.78);
+	float feather = max(smoothstep(0.06, 0.82, edge_band), footprint_fill * footprint_fill_alpha);
 	float organic_alpha = 0.76 + (broad - 0.5) * 0.30 + (gravel_break - 0.5) * 0.18;
-	float alpha = clamp(feather * foothill_alpha * organic_alpha, 0.0, 0.78);
+	float alpha = clamp(feather * foothill_alpha * organic_alpha, 0.0, max_alpha);
 	alpha *= clip_alpha;
 	// Scree fringe: the outer tail of the apron ring, where the apron itself
 	// is already fading out.

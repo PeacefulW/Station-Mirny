@@ -185,6 +185,12 @@ resources, the active runtime uses a transitional native-mask presentation:
   packet fields, or a separate topology owner. The captured footprint may keep
   a narrow trace along the former mountain edge so mined-out cuts still read as
   worked rock.
+- A live mountain rock underlay may reuse the foothill material below the
+  native mountain mask and before the captured apron layer. It is sourced only
+  from the current live mask and may fill under the current mountain silhouette
+  to prevent plains/grass ground from showing through antialias/soft-edge
+  transparency. It clears with the live mask and must not use captured
+  footprint data to fill mined-out interiors.
   The apron may use world-space shader noise to locally widen the outer band,
   and may scatter sparse rock-scree debris patches on its outer fringe (gated
   by aperiodic world-space fields and dissolved by the rock texture's own

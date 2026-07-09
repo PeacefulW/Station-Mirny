@@ -20,6 +20,16 @@ const MOUNTAIN_NATIVE_MASK_SOLID_THRESHOLD: int = 107
 # Mountain mask presentation textures and dressing are authored data: the
 # registry-resolved material set below owns them (sampling_params = слайдеры).
 const MOUNTAIN_MASK_UNDERLAY_MATERIAL_SET_ID: StringName = &"mountain:mask_underlay_material"
+const MOUNTAIN_ROCK_UNDERLAY_ENABLED: bool = true
+const MOUNTAIN_ROCK_UNDERLAY_Z_INDEX: int = 3
+const MOUNTAIN_ROCK_UNDERLAY_TEXTURE_SCALE: float = 0.60
+const MOUNTAIN_ROCK_UNDERLAY_OUTER_WIDTH_PX: float = 18.0
+const MOUNTAIN_ROCK_UNDERLAY_OUTER_WIDTH_VARIATION_PX: float = 8.0
+const MOUNTAIN_ROCK_UNDERLAY_INNER_WIDTH_PX: float = 12.0
+const MOUNTAIN_ROCK_UNDERLAY_ALPHA: float = 1.0
+const MOUNTAIN_ROCK_UNDERLAY_FILL_STRENGTH: float = 1.0
+const MOUNTAIN_ROCK_UNDERLAY_FILL_ALPHA: float = 3.0
+const MOUNTAIN_ROCK_UNDERLAY_MAX_ALPHA: float = 1.0
 const MOUNTAIN_FOOTHILL_OVERLAY_ENABLED: bool = true
 const MOUNTAIN_FOOTHILL_TEXTURE_SCALE: float = 0.60
 const MOUNTAIN_FOOTHILL_OUTER_WIDTH_PX: float = 154.0
@@ -108,6 +118,9 @@ var _mountain_top_mask_origin_world: Vector2 = Vector2.ZERO
 var _mountain_top_mask_step_px: float = 0.0
 var _mountain_top_mask_texture_scale: float = 0.70
 var _mountain_top_mask_visual_dirty: bool = false
+var _mountain_rock_underlay_sprite: Sprite2D = null
+var _mountain_rock_underlay_material: ShaderMaterial = null
+var _mountain_rock_underlay_canvas_texture: ImageTexture = null
 var _mountain_foothill_overlay_sprite: Sprite2D = null
 var _mountain_foothill_overlay_material: ShaderMaterial = null
 var _mountain_foothill_overlay_canvas_texture: ImageTexture = null
@@ -602,6 +615,7 @@ func apply_sun_lighting(
 	_sun_shadow_opacity = shadow_opacity
 	_sun_shadow_softness_px = shadow_softness_px
 	_apply_sun_lighting_to_mask_material(_mountain_top_mask_material, 1.0)
+	_apply_sun_lighting_to_foothill_material(_mountain_rock_underlay_material)
 	_apply_sun_lighting_to_foothill_material(_mountain_foothill_overlay_material)
 	_apply_sun_lighting_to_rock_patch_material(_rock_patch_overlay_material)
 	_apply_sun_lighting_to_grass_blob_material(_grass_blob_overlay_material)
@@ -1229,6 +1243,7 @@ func _upload_mountain_mask_texture(
 	sprite.scale = Vector2.ONE * mask_step_px
 	sprite.texture = _mountain_top_mask_texture
 	sprite.visible = true
+	_sync_mountain_rock_underlay_visual(foothill_texture, foothill_normal_texture)
 	_sync_mountain_foothill_overlay_visual(foothill_texture, foothill_normal_texture)
 
 
@@ -1344,6 +1359,7 @@ func _clear_mountain_top_mask(preserve_foothill: bool = false) -> void:
 		_mountain_top_mask_sprite.visible = false
 		_mountain_top_mask_sprite.scale = Vector2.ONE
 		_mountain_top_mask_sprite.material = null
+	_clear_mountain_rock_underlay()
 	if not preserve_foothill:
 		_clear_mountain_foothill_mask()
 		_clear_mountain_foothill_overlay()
@@ -1619,6 +1635,9 @@ func get_mountain_native_mask_debug_state() -> Dictionary:
 	debug["foothill_overlay_visible"] = _mountain_foothill_overlay_sprite != null \
 			and is_instance_valid(_mountain_foothill_overlay_sprite) \
 			and _mountain_foothill_overlay_sprite.visible
+	debug["rock_underlay_visible"] = _mountain_rock_underlay_sprite != null \
+			and is_instance_valid(_mountain_rock_underlay_sprite) \
+			and _mountain_rock_underlay_sprite.visible
 	debug["chunk_coord"] = chunk_coord
 	return debug
 
@@ -1926,6 +1945,109 @@ func _ensure_mountain_top_mask_material() -> ShaderMaterial:
 	return _mountain_top_mask_material
 
 
+func _sync_mountain_rock_underlay_visual(
+		foothill_texture: Texture2D,
+		foothill_normal_texture: Texture2D,
+) -> void:
+	if not MOUNTAIN_ROCK_UNDERLAY_ENABLED \
+			or foothill_texture == null \
+			or _mountain_top_mask_texture == null \
+			or _mountain_top_mask_width <= 0 \
+			or _mountain_top_mask_height <= 0 \
+			or _mountain_top_mask_step_px <= 0.0:
+		_clear_mountain_rock_underlay()
+		return
+	var sprite: Sprite2D = _ensure_mountain_rock_underlay_sprite()
+	var material: ShaderMaterial = _ensure_mountain_rock_underlay_material()
+	material.set_shader_parameter("foothill_texture", foothill_texture)
+	material.set_shader_parameter("mask_texture", _mountain_top_mask_texture)
+	material.set_shader_parameter(
+		"foothill_texture_size",
+		Vector2(
+			maxf(1.0, float(foothill_texture.get_width())),
+			maxf(1.0, float(foothill_texture.get_height())),
+		),
+	)
+	material.set_shader_parameter(
+		"mask_texture_size",
+		Vector2(
+			maxf(1.0, float(_mountain_top_mask_width)),
+			maxf(1.0, float(_mountain_top_mask_height)),
+		),
+	)
+	if foothill_normal_texture != null:
+		material.set_shader_parameter("foothill_normal_texture", foothill_normal_texture)
+		material.set_shader_parameter("normal_mix", 1.0)
+	else:
+		material.set_shader_parameter("normal_mix", 0.0)
+	material.set_shader_parameter("world_origin_px", _mountain_top_mask_origin_world)
+	material.set_shader_parameter("sample_step_px", _mountain_top_mask_step_px)
+	material.set_shader_parameter("texture_scale", MOUNTAIN_ROCK_UNDERLAY_TEXTURE_SCALE)
+	material.set_shader_parameter("outer_width_px", MOUNTAIN_ROCK_UNDERLAY_OUTER_WIDTH_PX)
+	material.set_shader_parameter("outer_width_variation_px", MOUNTAIN_ROCK_UNDERLAY_OUTER_WIDTH_VARIATION_PX)
+	material.set_shader_parameter("inner_width_px", MOUNTAIN_ROCK_UNDERLAY_INNER_WIDTH_PX)
+	material.set_shader_parameter("foothill_alpha", MOUNTAIN_ROCK_UNDERLAY_ALPHA)
+	material.set_shader_parameter("footprint_fill_strength", MOUNTAIN_ROCK_UNDERLAY_FILL_STRENGTH)
+	material.set_shader_parameter("footprint_fill_alpha", MOUNTAIN_ROCK_UNDERLAY_FILL_ALPHA)
+	material.set_shader_parameter("max_alpha", MOUNTAIN_ROCK_UNDERLAY_MAX_ALPHA)
+	material.set_shader_parameter("scree_strength", 0.0)
+	_set_mask_shader_chunk_clip(
+		material,
+		_mountain_top_mask_origin_world,
+		_mountain_top_mask_width,
+		_mountain_top_mask_height,
+		_mountain_top_mask_step_px,
+		MASK_UNDERLAY_CHUNK_OVERLAP_PX,
+	)
+	_apply_sun_lighting_to_foothill_material(material)
+	sprite.material = material
+	sprite.position = _mountain_top_mask_origin_world - WorldRuntimeConstants.chunk_origin_px(chunk_coord)
+	sprite.scale = Vector2(
+		float(_mountain_top_mask_width) * _mountain_top_mask_step_px,
+		float(_mountain_top_mask_height) * _mountain_top_mask_step_px,
+	)
+	sprite.texture = _ensure_mountain_rock_underlay_canvas_texture()
+	sprite.visible = true
+
+
+func _clear_mountain_rock_underlay() -> void:
+	if _mountain_rock_underlay_sprite != null and is_instance_valid(_mountain_rock_underlay_sprite):
+		_mountain_rock_underlay_sprite.texture = null
+		_mountain_rock_underlay_sprite.visible = false
+		_mountain_rock_underlay_sprite.scale = Vector2.ONE
+		_mountain_rock_underlay_sprite.material = null
+
+
+func _ensure_mountain_rock_underlay_sprite() -> Sprite2D:
+	if _mountain_rock_underlay_sprite != null and is_instance_valid(_mountain_rock_underlay_sprite):
+		return _mountain_rock_underlay_sprite
+	_mountain_rock_underlay_sprite = Sprite2D.new()
+	_mountain_rock_underlay_sprite.name = "MountainRockUnderlay"
+	_mountain_rock_underlay_sprite.centered = false
+	_mountain_rock_underlay_sprite.texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS
+	_mountain_rock_underlay_sprite.z_as_relative = false
+	_mountain_rock_underlay_sprite.z_index = MOUNTAIN_ROCK_UNDERLAY_Z_INDEX
+	add_child(_mountain_rock_underlay_sprite)
+	return _mountain_rock_underlay_sprite
+
+
+func _ensure_mountain_rock_underlay_material() -> ShaderMaterial:
+	if _mountain_rock_underlay_material != null:
+		return _mountain_rock_underlay_material
+	_mountain_rock_underlay_material = ShaderMaterial.new()
+	_mountain_rock_underlay_material.shader = MOUNTAIN_FOOTHILL_OVERLAY_SHADER
+	return _mountain_rock_underlay_material
+
+
+func _ensure_mountain_rock_underlay_canvas_texture() -> ImageTexture:
+	if _mountain_rock_underlay_canvas_texture != null:
+		return _mountain_rock_underlay_canvas_texture
+	var image: Image = Image.create(1, 1, false, Image.FORMAT_RGBA8)
+	image.fill(Color(1.0, 1.0, 1.0, 0.0))
+	_mountain_rock_underlay_canvas_texture = ImageTexture.create_from_image(image)
+	return _mountain_rock_underlay_canvas_texture
+
+
 func _capture_mountain_foothill_mask_if_needed(
 		mask_image: Image,
 		mask_origin_world: Vector2,
@@ -2004,6 +2126,9 @@ func _sync_mountain_foothill_overlay_visual(
 	material.set_shader_parameter("outer_width_variation_px", MOUNTAIN_FOOTHILL_OUTER_WIDTH_VARIATION_PX)
 	material.set_shader_parameter("inner_width_px", MOUNTAIN_FOOTHILL_INNER_WIDTH_PX)
 	material.set_shader_parameter("foothill_alpha", MOUNTAIN_FOOTHILL_ALPHA)
+	material.set_shader_parameter("footprint_fill_strength", 0.0)
+	material.set_shader_parameter("footprint_fill_alpha", 0.78)
+	material.set_shader_parameter("max_alpha", 0.78)
 	var scree_texture: Texture2D = _resolve_mountain_material_set().get_texture_slot(&"scree_albedo")
 	assert(scree_texture != null, "Mountain material set requires extra texture scree_albedo.")
 	material.set_shader_parameter("scree_texture", scree_texture)
