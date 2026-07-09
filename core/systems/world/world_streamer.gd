@@ -87,6 +87,7 @@ const PLAINS_LAYERED_TREE_ASSET_DIRS: Array[String] = [
 	"res://assets/sprites/flora/layered_trees/tree_01",
 	"res://assets/sprites/flora/layered_trees/tree_02",
 	"res://assets/sprites/flora/layered_trees/tree_03",
+	"res://assets/sprites/flora/layered_trees/tree_04",
 ]
 const PLAINS_GRASS_BIG_ROCKS_ENABLED: bool = true
 const PLAINS_GRASS_BIG_ROCK_VARIANT_1: WorldObjectVariantData = preload("res://data/world_objects/variants/plains_grass_big_rock_01.tres")

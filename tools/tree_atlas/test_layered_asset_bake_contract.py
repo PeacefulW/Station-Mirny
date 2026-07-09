@@ -11,7 +11,8 @@ ROOT = Path(__file__).resolve().parents[2]
 PROFILE_PATH = ROOT / "tools" / "tree_atlas" / "layered_asset_bake_profile.json"
 DOC_PATH = ROOT / "docs" / "art" / "layered_asset_bake_contract.md"
 TREE_DIR = ROOT / "assets" / "sprites" / "flora" / "layered_trees"
-TREE_IDS = ("tree_01", "tree_02", "tree_03")
+WORLD_STREAMER_PATH = ROOT / "core" / "systems" / "world" / "world_streamer.gd"
+TREE_IDS = ("tree_01", "tree_02", "tree_03", "tree_04")
 
 
 class LayeredAssetBakeContractTest(unittest.TestCase):
@@ -61,6 +62,14 @@ class LayeredAssetBakeContractTest(unittest.TestCase):
                 self.assertTrue(meta_path.is_file())
                 meta = json.loads(meta_path.read_text(encoding="utf-8"))
                 self.assertEqual(meta.get("bake_profile"), expected)
+
+    def test_runtime_streamer_registers_all_layered_tree_assets(self) -> None:
+        self.assertTrue(WORLD_STREAMER_PATH.is_file(), "World streamer must declare layered tree assets.")
+        world_streamer = WORLD_STREAMER_PATH.read_text(encoding="utf-8")
+
+        for tree_id in TREE_IDS:
+            with self.subTest(tree_id=tree_id):
+                self.assertIn(f'"res://assets/sprites/flora/layered_trees/{tree_id}"', world_streamer)
 
 
 if __name__ == "__main__":
