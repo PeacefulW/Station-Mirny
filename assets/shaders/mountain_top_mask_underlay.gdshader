@@ -88,6 +88,20 @@ uniform vec3 eave_shadow_color = vec3(0.13, 0.052, 0.022);
 uniform vec3 biofield_rim_color = vec3(0.88, 0.42, 0.12);
 uniform float biofield_rim_strength = 0.0;
 uniform float biofield_rim_scale_px = 1450.0;
+// Wall verticality package: makes the facade read as a vertical cliff instead
+// of blending into the roof gravel. All defaults are neutral (= old look) —
+// the shared shoreline material must stay untouched; mountains opt in through
+// sampling_params. Smooth ramps only: quantized wall-depth bands are forbidden
+// (terrain_hybrid_presentation.md — они риббят под тёплым факелом).
+uniform float wall_shade_top = 1.0;         // brightness at the roof junction
+uniform float wall_shade_bottom = 1.0;      // brightness at the open base edge
+uniform vec3 wall_shade_tint = vec3(1.0);   // shade tint creeping toward the base
+uniform float wall_desaturate = 0.0;        // shade desaturation toward the base
+uniform float wall_streak_strength = 0.0;   // vertical wash/streak tone drift
+uniform float wall_crack_strength = 0.0;    // sparse thin vertical crack lines
+uniform float wall_texture_v_stretch = 1.0; // >1 stretches face texture features vertically
+uniform float crest_light_strength = 0.0;   // albedo-derived sun-lit shoulder at the wall top
+uniform float crest_height_frac = 0.16;     // crest band height as a fraction of wall height
 uniform vec2 chunk_uv_min = vec2(0.1, 0.1);
 uniform vec2 chunk_uv_max = vec2(0.9, 0.9);
 uniform vec2 shadow_uv_min = vec2(0.1, 0.1);
@@ -419,10 +433,13 @@ void fragment() {
 			- max(-side_signed, 0.0) * side_shade_strength * rim_breakup;
 	}
 
-	// Wall -- controlled relief and sparse base chips.
-	vec2 face_uv = world_px * face_texture_scale / tz / max(face_texture_size, vec2(1.0));
-	vec2 face_uv_dx = (world_px + vec2(grad_px, 0.0)) * face_texture_scale / tz / max(face_texture_size, vec2(1.0));
-	vec2 face_uv_dy = (world_px + vec2(0.0, grad_px)) * face_texture_scale / tz / max(face_texture_size, vec2(1.0));
+	// Wall -- controlled relief and sparse base chips. The face texture samples
+	// vertically stretched world space (v_stretch > 1): ledge features elongate
+	// downward, so the wall stops mirroring the isotropic roof gravel.
+	vec2 face_world_px = vec2(world_px.x, world_px.y / max(wall_texture_v_stretch, 0.001));
+	vec2 face_uv = face_world_px * face_texture_scale / tz / max(face_texture_size, vec2(1.0));
+	vec2 face_uv_dx = (face_world_px + vec2(grad_px, 0.0)) * face_texture_scale / tz / max(face_texture_size, vec2(1.0));
+	vec2 face_uv_dy = (face_world_px + vec2(0.0, grad_px)) * face_texture_scale / tz / max(face_texture_size, vec2(1.0));
 	vec4 face_col = texture(face_texture, face_uv);
 	face_col.rgb *= 0.86 + (macro - 0.5) * 0.10;
 	vec3 face_n = vec3(0.0, 0.0, 1.0);
@@ -473,6 +490,42 @@ void fragment() {
 		float broad_layer = fbm2(vec2(world_px.x / 520.0, world_px.y / 128.0) + vec2(41.0, -13.0));
 		float face_breakup = 0.96 + (broad_layer - 0.5) * 0.10 + (small_mottle - 0.5) * 0.05;
 		vec3 wall_color = facade_color * face_breakup;
+		// Vertical read: 0 at the crest (roof junction), 1 at the open base.
+		float wall_h = clamp(edge_below / max(wall_texels, 1.0), 0.0, 1.0);
+		float shade_depth = 1.0 - wall_h;
+		if (wall_streak_strength > 0.001) {
+			// Rain-wash streaks: fine across, long down -> vertical tone drift.
+			float streak = fbm2(vec2(world_px.x / 42.0, world_px.y / 330.0) + vec2(11.0, -7.0));
+			wall_color *= 1.0 + (streak - 0.5) * 2.0 * wall_streak_strength;
+		}
+		if (wall_crack_strength > 0.001) {
+			// Sparse vertical cracks: thin iso-band of x-heavy gradient fbm,
+			// gated by a second field so lines break up (same recipe as roof veins).
+			float crack_base = fbm2(vec2(world_px.x / 92.0, world_px.y / 470.0) + vec2(-53.0, 29.0));
+			float crack_line = smoothstep(0.465, 0.5, crack_base) * (1.0 - smoothstep(0.5, 0.535, crack_base));
+			float crack_gate = smoothstep(0.42, 0.60, fbm2(vec2(world_px.x / 300.0, world_px.y / 900.0) + vec2(71.0, -11.0)));
+			wall_color *= 1.0 - crack_line * crack_gate * wall_crack_strength;
+		}
+		// Smooth crest->base value ramp (a single continuous gradient, NOT
+		// quantized depth bands), with cooler/desaturated shade pooling at the
+		// base: the sun hits the roof, the wall falls into ambient shade.
+		wall_color *= mix(wall_shade_top, wall_shade_bottom, smoothstep(0.05, 0.95, shade_depth));
+		if (wall_desaturate > 0.001) {
+			wall_color = mix(wall_color, vec3(luma(wall_color)), wall_desaturate * shade_depth);
+		}
+		wall_color *= mix(vec3(1.0), wall_shade_tint, shade_depth);
+		if (crest_light_strength > 0.001) {
+			// Sun-lit shoulder where the roof breaks into the wall. Derived from
+			// the wall albedo and gated by the documented daylight shadow
+			// visibility (same gate as rim lips) -> dims to neutral at night.
+			float crest_daylight = smoothstep(0.05, 0.45, projected_shadow_opacity);
+			float crest_low_sun = clamp((projected_shadow_length_px - 80.0) / 280.0, 0.0, 1.0);
+			vec3 crest_warm = mix(vec3(1.0), vec3(1.16, 0.95, 0.78), (0.35 + crest_low_sun * 0.65) * crest_daylight);
+			float crest_band = smoothstep(1.0 - crest_height_frac * 1.8, 1.0 - crest_height_frac * 0.35, wall_h);
+			float crest_breakup = 0.62 + small_mottle * 0.76;
+			vec3 crest_color = wall_color * mix(1.05, 1.38, crest_daylight) * crest_warm;
+			wall_color = mix(wall_color, crest_color, crest_band * crest_light_strength * crest_breakup);
+		}
 		float base_outline = 1.0 - smoothstep(0.0, 1.0 / max(sample_step_px, 1.0), edge_below);
 		wall_color = mix(wall_color, vec3(0.0, 0.0, 0.0), clamp(base_outline, 0.0, 1.0) * base_outline_strength);
 		color = mix(color, wall_color, wall_mask);

@@ -116,7 +116,10 @@ resources, the active runtime uses a transitional native-mask presentation:
   `terrain.mountain_mask_underlay`) owns the roof/wall albedo+normal maps, the
   foothill and scree extra maps, and every dressing knob through
   `sampling_params` (warp, flank shading, drift, veins, terraces, palette,
-  biofield rims). `ChunkView` applies `sampling_params` generically; only
+  biofield rims, and the wall verticality package: smooth crest-to-base wall
+  shade gradient with cool/desaturated base tint, vertical wash streaks,
+  sparse vertical cracks, vertical face-texture stretch, and the
+  albedo-derived crest shoulder light). `ChunkView` applies `sampling_params` generically; only
   per-mask dynamic parameters (origin, step, clip, sun) stay code-set. The
   raster preset JSON and the hardcoded texture paths in the raster layer are
   dev-raster-probe inputs only, not runtime presentation sources. The native
@@ -138,7 +141,13 @@ resources, the active runtime uses a transitional native-mask presentation:
   to its mask UVs (craggy silhouette instead of a melted blur contour, within
   the same cosmetic margin as the roof eave), sun-relative flank shading probed
   from the mask along the light direction, aperiodic roof tone drift with
-  sparse vein cracks. Live torch-lit mountain presentation must not enable
+  sparse vein cracks. The wall may additionally derive a SMOOTH crest-to-base
+  shade gradient (single continuous ramp over the facade height), vertical
+  wash streaks and sparse vertical crack lines from world-space gradient
+  noise, a vertical stretch of the face-texture sampling, and an
+  albedo-derived sun-lit crest shoulder at the roof junction gated by the
+  documented daylight shadow visibility (dims to neutral at night, like the
+  rim lips). Live torch-lit mountain presentation must not enable
   layered facade strata, quantized wall-depth bands, or concentric height
   terraces derived from mask distance-to-edge; the warm point light makes those
   contour-derived cues read as ribbed facade artifacts.

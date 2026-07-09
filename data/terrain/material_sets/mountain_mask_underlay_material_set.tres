@@ -48,5 +48,14 @@ sampling_params = {
 "biofield_rim_strength": 1.0,
 "biofield_rim_scale_px": 1450.0,
 "overhang_px": 0.0,
-"base_outline_strength": 0.0
+"base_outline_strength": 0.0,
+"wall_shade_top": 1.02,
+"wall_shade_bottom": 0.52,
+"wall_shade_tint": Color(0.93, 0.96, 1.06, 1),
+"wall_desaturate": 0.22,
+"wall_streak_strength": 0.30,
+"wall_crack_strength": 0.36,
+"wall_texture_v_stretch": 2.4,
+"crest_light_strength": 0.6,
+"crest_height_frac": 0.16
 }
