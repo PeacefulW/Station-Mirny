@@ -4,8 +4,8 @@ doc_type: system_spec
 status: approved
 owner: engineering
 source_of_truth: true
-version: 1.6
-last_updated: 2026-05-05
+version: 1.7
+last_updated: 2026-07-10
 related_docs:
   - ../../README.md
   - ../../00_governance/WORKFLOW.md
@@ -58,8 +58,8 @@ The player must be able to:
   extra step or reveal delay
 - from outside, see only real mouth / opening holes; the rest of the
   interior stays hidden behind the mountain's crown texture
-- when inside, reveal only the current connected orthogonal cavity and its
-  canonical shell; foreign cavity interiors remain sealed, but real surface
+- when inside, reveal only the real excavated tiles of the current connected
+  orthogonal cavity; foreign cavity interiors remain sealed, but real surface
   mouths stay visible
 - tune mountain density, scale, continuity, and ruggedness at world
   creation; the settings travel with the save and cannot be retroactively
@@ -124,7 +124,7 @@ V1 does not include:
 | Must work on unloaded chunks? | Yes. All per-tile canonical data is recomputable from base + diff on demand. |
 | C++ compute or main-thread apply? | Field sample, hierarchical domain solve / legacy anchor fallback, and atlas indices are C++ compute. Roof cell placement, chunk mask upload, and cavity/opening cache refresh are main-thread apply. |
 | Dirty unit | `16 x 16` chunk for generation; one tile for excavation mutation; one loaded chunk plus direct seam-neighbor diff participants for publish / unload; one current cavity component for inside reveal. |
-| Single owner | `WorldCore` for base field. `WorldDiffStore` for diff. `ChunkView` for static roof presentation and per-chunk mask material. `MountainCavityCache` for runtime-derived cavity/opening state. `WorldStreamer` for active cover selection. `world.json` for `worldgen_settings`. |
+| Single owner | `WorldCore` for base field and derived native open/roof mask composition. `WorldDiffStore` for diff. `ChunkView` for per-chunk native mask presentation. `MountainCavityCache` for runtime-derived cavity/opening state. `WorldStreamer` for active cover selection. `world.json` for `worldgen_settings`. |
 | 10x / 100x scale path | Version `6` keeps identity on aligned macro solves with reusable native cache, recursive subdivision only for mixed cells, and versioned `min_label_cell_size = 8`. Publish inherits V0 slicing. No whole-world scan is introduced. |
 | Main-thread blocking? | No. Generation stays in the existing worker path. Apply remains sliced through `FrameBudgetDispatcher.CATEGORY_STREAMING`. |
 | Hidden GDScript fallback? | Forbidden. Native `WorldCore` is required; absence fails loudly per LAW 9. |
@@ -148,7 +148,7 @@ V1 adds two surface terrain ids:
 | Id constant | Walkable | Used for |
 |---|---|---|
 | `TERRAIN_MOUNTAIN_WALL` | 0 | Every tile with `mountain_id > 0` and `is_wall` bit set. Rendered on `_base_layer` with rock-face atlas. |
-| `TERRAIN_MOUNTAIN_FOOT` | 0 | Foot-band tiles visible from outside. `mountain_id > 0`, `is_foot` bit set, no `is_interior` bit. They still participate in the static roof overlay so dug foot-band tunnels stay hidden until cover visibility opens them. |
+| `TERRAIN_MOUNTAIN_FOOT` | 0 | Foot-band tiles visible from outside. `mountain_id > 0`, `is_foot` bit set, no `is_interior` bit. They retain native closed-roof ownership so dug foot-band tunnels stay hidden until cover visibility opens them. |
 
 Legacy terrain slot `1` remains reserved for backward numeric compatibility,
 but new mountain worlds do not generate a standalone plains-rock terrain
@@ -290,7 +290,7 @@ For every tile with `mountain_id == 0`:
 - canonical terrain stays on the ground / non-mountain path
 
 Tiles with `mountain_id > 0` and either `is_wall == 1` or `is_foot == 1`
-participate in the roof layer.
+retain closed-roof ownership for native mask composition.
 
 ### Worldgen Settings
 
@@ -349,33 +349,31 @@ Rules:
 | Base field, identity, flags, atlas | `WorldCore` (native) | Emit V1 packet. |
 | Diff | `WorldDiffStore` | Unchanged from V0. |
 | Chunk orchestration | `WorldStreamer` | Forward new packet fields; flatten settings; persist settings in `world.json`. |
-| Presentation | `ChunkView` | Own base/overlay/roof layers and per-chunk cover mask textures. |
-| Runtime cover cache | `MountainCavityCache` | Derive cavity component membership, opening flags, opening shell, and current-cavity shell from canonical packet + diff geometry. |
+| Presentation | `ChunkView` | Own base/overlay layers and per-chunk open, closed-roof, and composed native mask textures. |
+| Runtime cover cache | `MountainCavityCache` | Derive cavity component membership and real opening flags from canonical packet + diff geometry. |
 | Point-in-cavity lookup | `MountainResolver` | Per-frame derive current cavity component under the player tile; update active cover selection. |
 
 ### Roof Presentation
 
-- `ChunkView` holds `Dictionary[int, Dictionary[int, TileMapLayer]]
-  roof_layers_by_mountain`: `mountain_id -> presentation terrain_id -> layer`
-- roof layers are created lazily on first tile assignment for a given
-  `(mountain_id, presentation terrain_id)` pair
-- roof layer `tile_set` is provided by
-  `WorldTileSetFactory.get_roof_tile_set(terrain_id)`; `TERRAIN_MOUNTAIN_WALL`
-  and `TERRAIN_MOUNTAIN_FOOT` keep separate 47-tile presentation resources
-  while sharing the same per-`mountain_id` cover mask texture
-- roof cells are placed for every tile with
-  `mountain_id > 0 and (is_wall == 1 or is_foot == 1)`
-- after publish, roof cells remain static; runtime cover changes are
-  mask-only via shader/material state
-- runtime cover state must never mutate canonical terrain geometry or roof
-  tile placement
-- aggregated alpha per chunk is **forbidden**
-- on chunk unload, `ChunkView.queue_free` destroys all roof layers
-
-Guardrail (mandatory from M2 onward):
-- `WorldStreamer` exposes debug metric `roof_layers_per_chunk_max`
-- when value exceeds `6`, emit one warning per session:
-  `"roof layer explosion: chunk %s has %d mountains"`
+- native `MountainHaloMaskResult` keeps two variants of one organic contour:
+  `mask` with effective excavation cutouts and `roof_mask` before cutouts
+- `ChunkView` does not create runtime TileMap roof cells; square mountain tile
+  visuals remain disabled while immutable `mountain_id` / `mountain_flags`
+  continue to identify roof-owned dug cells
+- `WorldStreamer` builds a visibility halo from real openings plus the active
+  connected component and expands updates by one loaded chunk for mask-halo
+  seam ownership
+- `WorldCore.compose_mountain_cover_mask` applies that visibility to the
+  difference between `roof_mask` and `mask`, so hidden cavities use the closed
+  roof and visible cavities use the effective excavation contour
+- composition and texture upload run through the existing per-chunk budgeted
+  mountain visual-upload queue; no per-tile node, tween, or topology rebuild
+  is introduced
+- runtime cover state never mutates canonical terrain, walkability, packet,
+  diff, collision semantics, or save data
+- on chunk unload, `ChunkView.queue_free` destroys all derived mask textures
+- legacy `roof_layers_per_chunk_max` remains a compatibility debug metric and
+  is expected to stay `0` on the M7 runtime path
 
 ### Cover Cache and Visibility
 
@@ -385,20 +383,18 @@ Guardrail (mandatory from M2 onward):
   - tile -> `mountain_id`
   - tile -> `component_id`
   - tile -> `is_opening`
-  - component -> member tiles + canonical shell + opening shell
+  - component -> real excavated member tiles + real opening tiles
 - outside state:
-  - visible tiles are only `opening + opening_shell`
-  - `opening_shell` is only the orthogonal canonical shell that touches a
-    real mouth; it must not extend one tile deeper into the cavity
+  - visible tiles are only real `opening` tiles
   - interior floor tiles outside the mouth stay hidden
 - inside state:
   - visible tiles are only `current_component.tiles +
-    current_component.shell + outside_visible(openings + opening_shell)`
+    outside_visible(openings)`
   - foreign cavity interiors stay hidden, but foreign real surface mouths
     remain visible
-- shell data is derived from canonical `mountain_id + (is_wall|is_foot)`
-  geometry around the revealed cavity; it is not derived from a generic
-  walkable-only heuristic
+- cover visibility must not synthesize an arch, door, facade cut, shell, or
+  any other geometry around an opening; opening width is exactly the width of
+  the real face-connected excavation that touches exterior walkable space
 - diagonal-only contact never connects cavity components
 - adjacent mountains must remain independent because component membership is
   constrained by stable canonical `mountain_id`
@@ -632,9 +628,11 @@ contract.
 
 - [ ] outside mountain: only real mouth / opening holes are visible
 - [ ] outside mountain: no interior tunnel / cavity leaks through the cover
+- [ ] outside mountain: no synthetic door, arch, opening shell, or facade cut
 - [ ] standing on an entrance tile counts as inside immediately
 - [ ] entering a cavity reveals the full connected orthogonal cavity
       immediately
+- [ ] entering a cavity does not reveal unmined shell tiles around it
 - [ ] separate cavities remain isolated while inside one of them
 - [ ] foreign real surface mouths remain visible while inside a current cavity
 - [ ] foreign cavity interiors remain hidden while inside a current cavity
@@ -915,6 +913,63 @@ Acceptance tests for M6:
 - [ ] no save payload shape changes are introduced;
 - [ ] native packet generation remains worker-side and introduces no
       main-thread generation loop.
+
+### M7 — Physical Mouth Roof Toggle
+
+Goal: replace the synthetic shell/portal presentation with a roof-only toggle
+driven exclusively by existing excavation truth.
+
+Changes:
+- keep `base + diff` terrain, walkability, and collision as the only physical
+  source of truth;
+- preserve immutable packet `mountain_id` / `mountain_flags` in `ChunkView`
+  only as native closed-roof ownership after the effective terrain becomes dug;
+- preserve both closed-roof and excavated variants of the same native organic
+  mountain mask;
+- outside, compose the excavated variant only over real opening tiles;
+- inside, compose the excavated variant only over the current connected
+  component, while other components and mountains keep the closed-roof mask;
+- route each affected chunk through the existing budgeted native-mask visual
+  upload queue; no TileMap roof, per-tile tween, synthetic shell, darkness
+  mask, or lighting changes.
+
+Files allowed:
+- `core/systems/world/mountain_cavity_cache.gd`
+- `core/systems/world/mountain_resolver.gd` only if the O(1) lookup contract
+  needs correction
+- `core/systems/world/world_streamer.gd`
+- `core/systems/world/chunk_view.gd`
+- `core/systems/world/world_chunk_packet_backend.gd`
+- `gdextension/src/mountain_contour.h`
+- `gdextension/src/mountain_contour.cpp`
+- `gdextension/src/world_core.h`
+- `gdextension/src/world_core.cpp`
+- `tools/mountain_cover_cache_smoke_test.gd`
+- `tools/mountain_runtime_dig_dev_scene_render_probe.gd`
+- this spec and directly affected canonical meta-docs
+
+Files forbidden:
+- mountain generation, world version, packet schema, save, terrain mutation,
+  and gameplay collision semantics;
+- daylight, torch, darkness, shadow, weather, and underground systems;
+- building, room, power, UI, combat, and progression systems.
+
+Acceptance tests for M7:
+- [ ] a one-tile and a multi-tile real mouth remain visible outside without a
+      generated doorway around them;
+- [ ] stepping onto any real opening tile reveals only its connected excavated
+      component;
+- [ ] stepping back outside restores the roof over that component while the
+      real mouth remains visible;
+- [ ] separate cavities in one mountain and all cavities in other mountains
+      remain covered;
+- [ ] roof state changes do not mutate terrain, walkability, collision, packet,
+      diff, or save state;
+- [ ] native contour smoothing cannot refill the center of a real excavated
+      mountain-owned tile;
+- [ ] each state change queues at most one composed native-mask upload per
+      affected chunk and does not perform per-tile tweening or a loaded-world
+      topology rebuild.
 
 ## Status Rationale
 
