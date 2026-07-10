@@ -4,8 +4,8 @@ doc_type: system_spec
 status: draft
 owner: engineering
 source_of_truth: true
-version: 1.6
-last_updated: 2026-07-10
+version: 1.5
+last_updated: 2026-07-09
 related_docs:
   - ../README.md
   - system_api.md
@@ -923,17 +923,15 @@ Current code notes:
 ### `MountainHaloMaskResult`
 
 Returned by native
-`WorldCore.build_mountain_halo_mask(solid_halo, chunk_size, tile_size_px, pixels_per_tile, origin_world_x, origin_world_y, cutout_halo = PackedByteArray())`.
+`WorldCore.build_mountain_halo_mask(solid_halo, chunk_size, tile_size_px, pixels_per_tile, origin_world_x, origin_world_y)`.
 
 ```text
 {
-  "mask": PackedByteArray,             # effective excavated/open mask
-  "roof_mask": PackedByteArray,        # same organic contour before cutouts
+  "mask": PackedByteArray,
   "width": int,
   "height": int,
   "step_px": float,
   "solid_sample_count": int,
-  "cutout_sample_count": int,
   "halo_side": int,
   "halo_radius_tiles"?: int,
   "pixels_per_tile"?: int,
@@ -953,7 +951,6 @@ results:
   "mask_purpose": StringName,      # "mountain" or "terrain_edge"
   "target_chunk": Vector2i,
   "mask_origin_world": Vector2,
-  "cutout_halo"?: PackedByteArray, # mountain purpose only
   "queued_msec": int,
   "worker_started_msec": int,
   "worker_elapsed_ms": int,
@@ -963,21 +960,13 @@ results:
 ```
 
 Current code notes:
-- `mask.size()` must equal `width * height` for `success = true`; valid
-  mountain results also keep `roof_mask.size() == mask.size()`
+- `mask.size()` must equal `width * height` for `success = true`
 - `step_px = tile_size_px / pixels_per_tile`
 - invalid input returns an empty mask with zero dimensions
-- `cutout_halo` is derived only from effective walkable `TERRAIN_PLAINS_DUG`
-  cells that retain immutable mountain ownership; smoothing cannot refill the
-  center of those cells in `mask`, while `roof_mask` preserves the original
-  organic surface
-- `WorldCore.compose_mountain_cover_mask(...)` returns a presentation-only
-  mask by applying an organic high-resolution gate from `visibility_halo` to
-  the difference between `roof_mask` and `mask`
 - the mask is derived runtime presentation/cache data; it is not packet truth,
   terrain, walkability, navigation, or save data
 - `mask_purpose = "terrain_edge"` reuses the same shape for dry-terrain edge
-  presentation masks and omits the unused `roof_mask` payload
+  presentation masks
 
 ### `MountainPlateauRasterImageResult`
 

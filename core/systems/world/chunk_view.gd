@@ -111,19 +111,13 @@ var _mountain_page_lit_texture: CanvasTexture = null
 var _mountain_top_mask_texture: ImageTexture = null
 var _mountain_top_mask_image: Image = null
 var _mountain_top_mask_bytes: PackedByteArray = PackedByteArray()
-var _mountain_roof_mask_bytes: PackedByteArray = PackedByteArray()
-var _mountain_top_visual_mask_bytes: PackedByteArray = PackedByteArray()
 var _mountain_top_mask_width: int = 0
 var _mountain_top_mask_height: int = 0
-var _mountain_top_mask_pixels_per_tile: int = 0
 var _mountain_top_mask_material: ShaderMaterial = null
 var _mountain_top_mask_origin_world: Vector2 = Vector2.ZERO
 var _mountain_top_mask_step_px: float = 0.0
 var _mountain_top_mask_texture_scale: float = 0.70
 var _mountain_top_mask_visual_dirty: bool = false
-var _mountain_cover_visibility_mask: PackedByteArray = PackedByteArray()
-var _mountain_cover_visibility_halo: PackedByteArray = PackedByteArray()
-var _mountain_cutout_halo: PackedByteArray = PackedByteArray()
 var _mountain_rock_underlay_sprite: Sprite2D = null
 var _mountain_rock_underlay_material: ShaderMaterial = null
 var _mountain_rock_underlay_canvas_texture: ImageTexture = null
@@ -561,9 +555,13 @@ func apply_runtime_cell(
 		if _pending_walkable_flags.size() < WorldRuntimeConstants.CHUNK_CELL_COUNT:
 			_pending_walkable_flags.resize(WorldRuntimeConstants.CHUNK_CELL_COUNT)
 		_pending_walkable_flags[index] = 1 if walkable else 0
-		# Effective terrain becomes dug, but immutable mountain ownership stays for
-		# native roof composition. It never participates in collision or terrain.
-		if mountain_id > 0 and _pending_mountain_ids.size() == WorldRuntimeConstants.CHUNK_CELL_COUNT:
+		if terrain_id != WorldRuntimeConstants.TERRAIN_MOUNTAIN_WALL \
+				and terrain_id != WorldRuntimeConstants.TERRAIN_MOUNTAIN_FOOT:
+			if _pending_mountain_ids.size() == WorldRuntimeConstants.CHUNK_CELL_COUNT:
+				_pending_mountain_ids[index] = 0
+			if _pending_mountain_flags.size() == WorldRuntimeConstants.CHUNK_CELL_COUNT:
+				_pending_mountain_flags[index] = 0
+		elif mountain_id > 0 and _pending_mountain_ids.size() == WorldRuntimeConstants.CHUNK_CELL_COUNT:
 			_pending_mountain_ids[index] = mountain_id
 			if _pending_mountain_flags.size() == WorldRuntimeConstants.CHUNK_CELL_COUNT:
 				_pending_mountain_flags[index] = mountain_flags
@@ -924,24 +922,15 @@ func apply_mountain_native_mask_data(
 	var mask_width: int = int(mask_result.get("width", 0))
 	var mask_height: int = int(mask_result.get("height", 0))
 	var mask_step_px: float = float(mask_result.get("step_px", 0.0))
-	var roof_mask_bytes: PackedByteArray = mask_result.get("roof_mask", mask_bytes) as PackedByteArray
 	if mask_width <= 0 \
 			or mask_height <= 0 \
 			or mask_step_px <= 0.0 \
 			or mask_bytes.size() != mask_width * mask_height:
 		return false
-	if roof_mask_bytes.size() != mask_bytes.size():
-		roof_mask_bytes = mask_bytes
 	_mountain_top_mask_image = null
 	_mountain_top_mask_bytes = mask_bytes.duplicate()
-	_mountain_roof_mask_bytes = roof_mask_bytes.duplicate()
-	_mountain_top_visual_mask_bytes = PackedByteArray()
 	_mountain_top_mask_width = mask_width
 	_mountain_top_mask_height = mask_height
-	_mountain_top_mask_pixels_per_tile = int(mask_result.get("pixels_per_tile", 0))
-	_mountain_cutout_halo = (
-		mask_result.get("cutout_halo", PackedByteArray()) as PackedByteArray
-	).duplicate()
 	_mountain_top_mask_origin_world = mask_origin_world
 	_mountain_top_mask_step_px = mask_step_px
 	_mountain_top_mask_texture_scale = top_texture_scale
@@ -977,7 +966,6 @@ func apply_pending_mountain_native_mask_visual(
 		face_normal_texture: Texture2D = null,
 		foothill_texture: Texture2D = null,
 		foothill_normal_texture: Texture2D = null,
-		mask_composer: Object = null,
 ) -> bool:
 	if not _mountain_top_mask_visual_dirty:
 		return false
@@ -987,16 +975,13 @@ func apply_pending_mountain_native_mask_visual(
 			or _mountain_top_mask_step_px <= 0.0 \
 			or _mountain_top_mask_bytes.size() != _mountain_top_mask_width * _mountain_top_mask_height:
 		return false
-	var visual_mask_bytes: PackedByteArray = _compose_mountain_visual_mask(mask_composer)
-	if visual_mask_bytes.size() != _mountain_top_mask_bytes.size():
-		visual_mask_bytes = _mountain_top_mask_bytes
 	var create_image_started: int = WorldPerfProbe.begin()
 	var mask_image: Image = Image.create_from_data(
 		_mountain_top_mask_width,
 		_mountain_top_mask_height,
 		false,
 		Image.FORMAT_L8,
-		visual_mask_bytes,
+		_mountain_top_mask_bytes,
 	)
 	WorldPerfProbe.end("ChunkView.mountain_visual.create_image", create_image_started)
 	var upload_started: int = WorldPerfProbe.begin()
@@ -1014,32 +999,10 @@ func apply_pending_mountain_native_mask_visual(
 	)
 	WorldPerfProbe.end("ChunkView.mountain_visual.upload_texture", upload_started)
 	_mountain_top_mask_image = mask_image
-	_mountain_top_visual_mask_bytes = visual_mask_bytes.duplicate()
 	_mountain_top_mask_visual_dirty = false
 	_mountain_page_debug["native_mask_visual_pending"] = false
 	_mountain_page_debug["native_mask_visual_ready"] = true
 	return true
-
-
-func _compose_mountain_visual_mask(mask_composer: Object) -> PackedByteArray:
-	if mask_composer == null \
-			or not mask_composer.has_method("compose_mountain_cover_mask") \
-			or _mountain_roof_mask_bytes.size() != _mountain_top_mask_bytes.size() \
-			or _mountain_cover_visibility_halo.is_empty() \
-			or _mountain_top_mask_pixels_per_tile <= 0:
-		return _mountain_top_mask_bytes
-	var result: Variant = mask_composer.call(
-		"compose_mountain_cover_mask",
-		_mountain_top_mask_bytes,
-		_mountain_roof_mask_bytes,
-		_mountain_cover_visibility_halo,
-		_mountain_top_mask_pixels_per_tile,
-	)
-	if result is PackedByteArray:
-		var composed: PackedByteArray = result as PackedByteArray
-		if composed.size() == _mountain_top_mask_bytes.size():
-			return composed
-	return _mountain_top_mask_bytes
 
 
 func apply_terrain_edge_mask_data(mask_result: Dictionary, mask_origin_world: Vector2) -> bool:
@@ -1384,18 +1347,12 @@ func _clear_mountain_top_mask(preserve_foothill: bool = false) -> void:
 	_mountain_top_mask_texture = null
 	_mountain_top_mask_image = null
 	_mountain_top_mask_bytes = PackedByteArray()
-	_mountain_roof_mask_bytes = PackedByteArray()
-	_mountain_top_visual_mask_bytes = PackedByteArray()
 	_mountain_top_mask_width = 0
 	_mountain_top_mask_height = 0
-	_mountain_top_mask_pixels_per_tile = 0
 	_mountain_top_mask_origin_world = Vector2.ZERO
 	_mountain_top_mask_step_px = 0.0
 	_mountain_top_mask_texture_scale = 0.70
 	_mountain_top_mask_visual_dirty = false
-	_mountain_cover_visibility_mask = PackedByteArray()
-	_mountain_cover_visibility_halo = PackedByteArray()
-	_mountain_cutout_halo = PackedByteArray()
 
 
 func clear_terrain_edge_mask() -> void:
@@ -1649,10 +1606,6 @@ func get_mountain_native_mask_debug_state() -> Dictionary:
 	debug["mask_height"] = _mountain_top_mask_height
 	debug["mask_step_px"] = _mountain_top_mask_step_px
 	debug["mask_byte_count"] = _mountain_top_mask_bytes.size()
-	debug["roof_mask_byte_count"] = _mountain_roof_mask_bytes.size()
-	debug["visual_mask_byte_count"] = _mountain_top_visual_mask_bytes.size()
-	debug["cover_visibility_halo_byte_count"] = _mountain_cover_visibility_halo.size()
-	debug["cutout_halo_byte_count"] = _mountain_cutout_halo.size()
 	debug["has_visual_texture"] = _mountain_top_mask_texture != null
 	debug["native_mask_visual_pending"] = _mountain_top_mask_visual_dirty
 	debug["native_mask_visual_ready"] = _mountain_top_mask_texture != null and not _mountain_top_mask_visual_dirty
@@ -1691,27 +1644,12 @@ func get_terrain_edge_mask_debug_state() -> Dictionary:
 	}
 
 
-func apply_cover_visibility(
-		visible_mask: PackedByteArray,
-		visibility_halo: PackedByteArray = PackedByteArray(),
-) -> bool:
+func apply_cover_visibility(visible_mask: PackedByteArray) -> void:
 	_ensure_layers()
 	var resolved_mask: PackedByteArray = visible_mask
 	if resolved_mask.size() != WorldRuntimeConstants.CHUNK_CELL_COUNT:
 		resolved_mask = PackedByteArray()
 		resolved_mask.resize(WorldRuntimeConstants.CHUNK_CELL_COUNT)
-	var visibility_changed: bool = resolved_mask != _mountain_cover_visibility_mask \
-			or _cover_visibility_changes_cutout(visibility_halo)
-	_mountain_cover_visibility_mask = resolved_mask.duplicate()
-	_mountain_cover_visibility_halo = visibility_halo.duplicate()
-	if not _mountain_tile_visuals_enabled:
-		var can_recompose: bool = visibility_changed \
-				and not _mountain_top_mask_bytes.is_empty() \
-				and _mountain_roof_mask_bytes.size() == _mountain_top_mask_bytes.size()
-		if can_recompose:
-			_mountain_top_mask_visual_dirty = true
-			_mountain_page_debug["native_mask_visual_pending"] = true
-		return can_recompose
 	var updated_mountains: Dictionary = { }
 	for mountain_id_variant: Variant in roof_layers_by_mountain.keys():
 		var mountain_id: int = int(mountain_id_variant)
@@ -1733,21 +1671,6 @@ func apply_cover_visibility(
 		var image: Image = _roof_mask_images_by_mountain.get(mountain_id, null) as Image
 		if texture != null and image != null:
 			texture.update(image)
-	return false
-
-
-func _cover_visibility_changes_cutout(next_visibility_halo: PackedByteArray) -> bool:
-	if next_visibility_halo == _mountain_cover_visibility_halo:
-		return false
-	if _mountain_cutout_halo.size() != next_visibility_halo.size() \
-			or _mountain_cover_visibility_halo.size() != next_visibility_halo.size():
-		return true
-	for index: int in range(next_visibility_halo.size()):
-		if _mountain_cutout_halo[index] == 0:
-			continue
-		if next_visibility_halo[index] != _mountain_cover_visibility_halo[index]:
-			return true
-	return false
 
 
 func _ensure_layers() -> void:
@@ -3033,10 +2956,6 @@ func get_cover_render_debug(local_coord: Vector2i, mountain_id: int = 0, expecte
 		"roof_cell_atlas_coords": Vector2i(-1, -1),
 		"roof_tile_material_present": false,
 		"mask_value": -1.0,
-		"native_cover_ready": false,
-		"native_open_mask_value": -1.0,
-		"native_roof_mask_value": -1.0,
-		"native_visual_mask_value": -1.0,
 	}
 	if not WorldRuntimeConstants.is_local_coord_valid(local_coord):
 		return result
@@ -3071,36 +2990,8 @@ func get_cover_render_debug(local_coord: Vector2i, mountain_id: int = 0, expecte
 	var image: Image = _roof_mask_images_by_mountain.get(resolved_mountain_id, null) as Image
 	if image != null:
 		result["mask_value"] = image.get_pixel(local_coord.x, local_coord.y).r
-	if not _mountain_tile_visuals_enabled:
-		if index >= 0 and index < _mountain_cover_visibility_mask.size():
-			result["mask_value"] = 0.0 if _mountain_cover_visibility_mask[index] != 0 else 1.0
-		var world_pos: Vector2 = WorldRuntimeConstants.chunk_origin_px(chunk_coord) \
-				+ (Vector2(local_coord) + Vector2(0.5, 0.5)) * float(WorldRuntimeConstants.TILE_SIZE_PX)
-		result["native_cover_ready"] = _mountain_roof_mask_bytes.size() == _mountain_top_mask_bytes.size() \
-				and not _mountain_top_visual_mask_bytes.is_empty()
-		result["native_open_mask_value"] = float(
-			_sample_mountain_mask_bytes_at_world(_mountain_top_mask_bytes, world_pos),
-		) / 255.0
-		result["native_roof_mask_value"] = float(
-			_sample_mountain_mask_bytes_at_world(_mountain_roof_mask_bytes, world_pos),
-		) / 255.0
-		result["native_visual_mask_value"] = float(
-			_sample_mountain_mask_bytes_at_world(_mountain_top_visual_mask_bytes, world_pos),
-		) / 255.0
 	result["ready"] = true
 	return result
-
-
-func _sample_mountain_mask_bytes_at_world(mask_bytes: PackedByteArray, world_pos: Vector2) -> int:
-	if mask_bytes.size() != _mountain_top_mask_width * _mountain_top_mask_height \
-			or _mountain_top_mask_step_px <= 0.0:
-		return 0
-	var mask_position: Vector2 = (world_pos - _mountain_top_mask_origin_world) / _mountain_top_mask_step_px
-	var x: int = floori(mask_position.x)
-	var y: int = floori(mask_position.y)
-	if x < 0 or y < 0 or x >= _mountain_top_mask_width or y >= _mountain_top_mask_height:
-		return 0
-	return int(mask_bytes[y * _mountain_top_mask_width + x])
 
 
 func _normalize_layered_tree_asset_dirs(asset_dirs: Array) -> Array[String]:

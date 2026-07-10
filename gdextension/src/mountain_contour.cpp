@@ -62,49 +62,6 @@ float sample_grid_bilinear(const std::vector<float> &p_values, int32_t p_width, 
 	return lerp_float(lerp_float(a, b, tx), lerp_float(c, d, tx), ty);
 }
 
-std::vector<float> box_blur_once(
-	const std::vector<float> &p_source,
-	int32_t p_width,
-	int32_t p_height,
-	int32_t p_radius
-) {
-	if (p_radius <= 0 || p_width <= 0 || p_height <= 0) {
-		return p_source;
-	}
-	std::vector<float> temp(static_cast<size_t>(p_width * p_height), 0.0f);
-	std::vector<float> result(static_cast<size_t>(p_width * p_height), 0.0f);
-	const float divisor = static_cast<float>(p_radius * 2 + 1);
-	for (int32_t y = 0; y < p_height; ++y) {
-		float sum = 0.0f;
-		for (int32_t x = -p_radius; x <= p_radius; ++x) {
-			const int32_t sample_x = std::max(0, std::min(p_width - 1, x));
-			sum += p_source[static_cast<size_t>(y * p_width + sample_x)];
-		}
-		for (int32_t x = 0; x < p_width; ++x) {
-			temp[static_cast<size_t>(y * p_width + x)] = sum / divisor;
-			const int32_t remove_x = std::max(0, std::min(p_width - 1, x - p_radius));
-			const int32_t add_x = std::max(0, std::min(p_width - 1, x + p_radius + 1));
-			sum += p_source[static_cast<size_t>(y * p_width + add_x)];
-			sum -= p_source[static_cast<size_t>(y * p_width + remove_x)];
-		}
-	}
-	for (int32_t x = 0; x < p_width; ++x) {
-		float sum = 0.0f;
-		for (int32_t y = -p_radius; y <= p_radius; ++y) {
-			const int32_t sample_y = std::max(0, std::min(p_height - 1, y));
-			sum += temp[static_cast<size_t>(sample_y * p_width + x)];
-		}
-		for (int32_t y = 0; y < p_height; ++y) {
-			result[static_cast<size_t>(y * p_width + x)] = sum / divisor;
-			const int32_t remove_y = std::max(0, std::min(p_height - 1, y - p_radius));
-			const int32_t add_y = std::max(0, std::min(p_height - 1, y + p_radius + 1));
-			sum += temp[static_cast<size_t>(add_y * p_width + x)];
-			sum -= temp[static_cast<size_t>(remove_y * p_width + x)];
-		}
-	}
-	return result;
-}
-
 float hash_float(int32_t p_x, int32_t p_y) {
 	uint32_t value = static_cast<uint32_t>(p_x) * 0x8da6b343U;
 	value ^= static_cast<uint32_t>(p_y) * 0xd8163841U;
@@ -330,8 +287,7 @@ godot::Dictionary build_halo_mask(
 	int32_t p_tile_size_px,
 	int32_t p_pixels_per_tile,
 	double p_origin_world_x,
-	double p_origin_world_y,
-	const godot::PackedByteArray &p_cutout_halo
+	double p_origin_world_y
 ) {
 	godot::Dictionary result;
 	result["mask"] = godot::PackedByteArray();
@@ -339,7 +295,6 @@ godot::Dictionary build_halo_mask(
 	result["height"] = 0;
 	result["step_px"] = 0.0;
 	result["solid_sample_count"] = 0;
-	result["cutout_sample_count"] = 0;
 	result["halo_side"] = 0;
 
 	if (p_chunk_size <= 0 || p_tile_size_px <= 0) {
@@ -359,16 +314,9 @@ godot::Dictionary build_halo_mask(
 	const int32_t height = halo_side * pixels_per_tile;
 	const float step_px = static_cast<float>(p_tile_size_px) / static_cast<float>(pixels_per_tile);
 	const int32_t pixel_count = width * height;
-	const bool cutout_shape_valid = p_cutout_halo.size() == p_solid_halo.size();
 	godot::PackedByteArray bytes;
 	bytes.resize(pixel_count);
 	uint8_t *bytes_write = bytes.ptrw();
-	godot::PackedByteArray roof_bytes;
-	uint8_t *roof_bytes_write = nullptr;
-	if (cutout_shape_valid) {
-		roof_bytes.resize(pixel_count);
-		roof_bytes_write = roof_bytes.ptrw();
-	}
 
 	int32_t solid_sample_count = 0;
 	for (int32_t y = halo_radius_tiles; y < halo_radius_tiles + p_chunk_size; ++y) {
@@ -386,9 +334,7 @@ godot::Dictionary build_halo_mask(
 		const int32_t tile_y = std::max(0, std::min(halo_side - 1, py / pixels_per_tile));
 		for (int32_t px = 0; px < width; ++px) {
 			const int32_t tile_x = std::max(0, std::min(halo_side - 1, px / pixels_per_tile));
-			const bool roof_owned = read_solid(p_solid_halo, halo_side, tile_x, tile_y)
-				|| (cutout_shape_valid && read_solid(p_cutout_halo, halo_side, tile_x, tile_y));
-			field[static_cast<size_t>(py * width + px)] = roof_owned ? 1.0f : 0.0f;
+			field[static_cast<size_t>(py * width + px)] = read_solid(p_solid_halo, halo_side, tile_x, tile_y) ? 1.0f : 0.0f;
 		}
 	}
 
@@ -425,33 +371,6 @@ godot::Dictionary build_halo_mask(
 		}
 	}
 
-	int32_t cutout_sample_count = 0;
-	if (cutout_shape_valid) {
-		for (int32_t index = 0; index < p_cutout_halo.size(); ++index) {
-			if (p_cutout_halo[index] != 0) {
-				++cutout_sample_count;
-			}
-		}
-	}
-	std::vector<float> cutout_blurred;
-	if (cutout_sample_count > 0) {
-		std::vector<float> cutout_field(static_cast<size_t>(pixel_count), 0.0f);
-		for (int32_t py = 0; py < height; ++py) {
-			const int32_t tile_y = std::max(0, std::min(halo_side - 1, py / pixels_per_tile));
-			for (int32_t px = 0; px < width; ++px) {
-				const int32_t tile_x = std::max(0, std::min(halo_side - 1, px / pixels_per_tile));
-				cutout_field[static_cast<size_t>(py * width + px)] =
-					read_solid(p_cutout_halo, halo_side, tile_x, tile_y) ? 1.0f : 0.0f;
-			}
-		}
-		cutout_blurred = box_blur_once(
-			cutout_field,
-			width,
-			height,
-			std::max(1, pixels_per_tile / 4)
-		);
-	}
-
 	for (int32_t py = 0; py < height; ++py) {
 		const float world_y = static_cast<float>(p_origin_world_y) + (static_cast<float>(py) + 0.5f) * step_px;
 		for (int32_t px = 0; px < width; ++px) {
@@ -471,124 +390,19 @@ godot::Dictionary build_halo_mask(
 			const float field = sample_grid_bilinear(blurred, width, height, static_cast<float>(px) + disp_x, static_cast<float>(py) + disp_y);
 			float alpha = smooth_float((field - (threshold - edge_width)) / (edge_width * 2.0f));
 			alpha = std::max(0.0f, std::min(1.0f, alpha));
-			const int32_t roof_byte_value = std::max(0, std::min(255, static_cast<int32_t>(std::lround(alpha * 255.0f))));
-			if (roof_bytes_write != nullptr) {
-				roof_bytes_write[py * width + px] = static_cast<uint8_t>(roof_byte_value);
-			}
-			if (!cutout_blurred.empty()) {
-				const float cutout_field = sample_grid_bilinear(
-					cutout_blurred,
-					width,
-					height,
-					static_cast<float>(px) + disp_x * 0.32f,
-					static_cast<float>(py) + disp_y * 0.32f
-				);
-				float cutout_alpha = smooth_float((cutout_field - 0.28f) / 0.44f);
-				const int32_t tile_x = px / pixels_per_tile;
-				const int32_t tile_y = py / pixels_per_tile;
-				if (read_solid(p_cutout_halo, halo_side, tile_x, tile_y)) {
-					const float local_x = std::fmod(static_cast<float>(px) + 0.5f, static_cast<float>(pixels_per_tile));
-					const float local_y = std::fmod(static_cast<float>(py) + 0.5f, static_cast<float>(pixels_per_tile));
-					const float core_min = static_cast<float>(pixels_per_tile) * 0.25f;
-					const float core_max = static_cast<float>(pixels_per_tile) * 0.75f;
-					if (local_x >= core_min && local_x <= core_max && local_y >= core_min && local_y <= core_max) {
-						cutout_alpha = 1.0f;
-					}
-				}
-				alpha *= 1.0f - cutout_alpha;
-			}
-			alpha = std::max(0.0f, std::min(1.0f, alpha));
 			const int32_t byte_value = std::max(0, std::min(255, static_cast<int32_t>(std::lround(alpha * 255.0f))));
 			bytes_write[py * width + px] = static_cast<uint8_t>(byte_value);
 		}
 	}
 
 	result["mask"] = bytes;
-	result["roof_mask"] = roof_bytes;
 	result["width"] = width;
 	result["height"] = height;
 	result["step_px"] = static_cast<double>(step_px);
 	result["solid_sample_count"] = solid_sample_count;
-	result["cutout_sample_count"] = cutout_sample_count;
 	result["halo_side"] = halo_side;
 	result["halo_radius_tiles"] = halo_radius_tiles;
 	result["pixels_per_tile"] = pixels_per_tile;
-	return result;
-}
-
-godot::PackedByteArray compose_cover_mask(
-	const godot::PackedByteArray &p_open_mask,
-	const godot::PackedByteArray &p_roof_mask,
-	const godot::PackedByteArray &p_visibility_halo,
-	int32_t p_pixels_per_tile
-) {
-	if (p_open_mask.is_empty() || p_open_mask.size() != p_roof_mask.size()) {
-		return godot::PackedByteArray();
-	}
-	const int32_t mask_side = static_cast<int32_t>(std::lround(std::sqrt(static_cast<double>(p_open_mask.size()))));
-	const int32_t halo_side = static_cast<int32_t>(std::lround(std::sqrt(static_cast<double>(p_visibility_halo.size()))));
-	const int32_t pixels_per_tile = std::max(1, p_pixels_per_tile);
-	if (mask_side <= 0
-			|| p_open_mask.size() != mask_side * mask_side
-			|| halo_side <= 0
-			|| p_visibility_halo.size() != halo_side * halo_side
-			|| mask_side != halo_side * pixels_per_tile) {
-		return godot::PackedByteArray();
-	}
-
-	bool has_visible_cutout = false;
-	for (int32_t index = 0; index < p_visibility_halo.size(); ++index) {
-		if (p_visibility_halo[index] != 0) {
-			has_visible_cutout = true;
-			break;
-		}
-	}
-	if (!has_visible_cutout) {
-		return p_roof_mask;
-	}
-
-	const int32_t pixel_count = mask_side * mask_side;
-	std::vector<float> visibility_field(static_cast<size_t>(pixel_count), 0.0f);
-	for (int32_t py = 0; py < mask_side; ++py) {
-		const int32_t tile_y = std::min(halo_side - 1, py / pixels_per_tile);
-		for (int32_t px = 0; px < mask_side; ++px) {
-			const int32_t tile_x = std::min(halo_side - 1, px / pixels_per_tile);
-			visibility_field[static_cast<size_t>(py * mask_side + px)] =
-				read_solid(p_visibility_halo, halo_side, tile_x, tile_y) ? 1.0f : 0.0f;
-		}
-	}
-	const std::vector<float> visibility_blurred = box_blur_once(
-		visibility_field,
-		mask_side,
-		mask_side,
-		std::max(1, pixels_per_tile / 4)
-	);
-
-	godot::PackedByteArray result;
-	result.resize(pixel_count);
-	uint8_t *result_write = result.ptrw();
-	for (int32_t py = 0; py < mask_side; ++py) {
-		const int32_t tile_y = py / pixels_per_tile;
-		for (int32_t px = 0; px < mask_side; ++px) {
-			const int32_t index = py * mask_side + px;
-			const int32_t tile_x = px / pixels_per_tile;
-			float reveal = smooth_float((visibility_blurred[static_cast<size_t>(index)] - 0.18f) / 0.64f);
-			if (read_solid(p_visibility_halo, halo_side, tile_x, tile_y)) {
-				const float local_x = std::fmod(static_cast<float>(px) + 0.5f, static_cast<float>(pixels_per_tile));
-				const float local_y = std::fmod(static_cast<float>(py) + 0.5f, static_cast<float>(pixels_per_tile));
-				const float core_min = static_cast<float>(pixels_per_tile) * 0.25f;
-				const float core_max = static_cast<float>(pixels_per_tile) * 0.75f;
-				if (local_x >= core_min && local_x <= core_max && local_y >= core_min && local_y <= core_max) {
-					reveal = 1.0f;
-				}
-			}
-			const int32_t roof_value = static_cast<int32_t>(p_roof_mask[index]);
-			const int32_t open_value = static_cast<int32_t>(p_open_mask[index]);
-			const int32_t cutout_delta = std::max(0, roof_value - open_value);
-			const int32_t value = roof_value - static_cast<int32_t>(std::lround(static_cast<float>(cutout_delta) * reveal));
-			result_write[index] = static_cast<uint8_t>(std::max(0, std::min(255, value)));
-		}
-	}
 	return result;
 }
 

@@ -708,7 +708,6 @@ func get_mountain_torch_shadow_field_mask(torch_world_pos: Vector2, radius_px: f
 				chunk_coord,
 				halo.get("halo", PackedByteArray()) as PackedByteArray,
 				&"torch_shadow_field",
-				halo.get("cutout_halo", PackedByteArray()) as PackedByteArray,
 			)
 			pending = true
 			continue
@@ -858,12 +857,9 @@ func set_active_mountain_component(mountain_id: int, component_id: int) -> void:
 	if resolved_mountain_id == _active_cover_mountain_id \
 			and resolved_component_id == _active_cover_component_id:
 		return
-	var previous_component_id: int = _active_cover_component_id
 	_active_cover_mountain_id = resolved_mountain_id
 	_active_cover_component_id = resolved_component_id
-	_refresh_cover_visibility_for_loaded_chunks(
-		_collect_cover_transition_chunks(previous_component_id, resolved_component_id),
-	)
+	_refresh_cover_visibility_for_loaded_chunks()
 
 
 func is_walkable_at_world(world_pos: Vector2) -> bool:
@@ -1324,7 +1320,6 @@ func _mountain_native_mask_visual_apply_tick() -> bool:
 			_mountain_face_normal_fill_texture,
 			_mountain_foothill_texture,
 			_mountain_foothill_normal_texture,
-			_get_contour_world_core(),
 		)
 		if not applied:
 			continue
@@ -1628,7 +1623,6 @@ func _prefetch_chunk_masks(chunk_coord: Vector2i) -> bool:
 				chunk_coord,
 				mountain_halo.get("halo", PackedByteArray()) as PackedByteArray,
 				&"prefetch",
-				mountain_halo.get("cutout_halo", PackedByteArray()) as PackedByteArray,
 			)
 	if TERRAIN_EDGE_MASK_RUNTIME_ENABLED and _has_loaded_terrain_edge_halo_sources(chunk_coord):
 		if not _terrain_edge_solid_halo_cache.has(chunk_coord):
@@ -2432,7 +2426,6 @@ func _request_mountain_native_mask_for_chunk(
 		chunk_coord: Vector2i,
 		solid_halo: PackedByteArray,
 		reason: StringName,
-		cutout_halo: PackedByteArray = PackedByteArray(),
 ) -> void:
 	chunk_coord = _canonicalize_chunk_coord(chunk_coord)
 	if not _get_ready_mountain_native_mask_result(chunk_coord).is_empty():
@@ -2455,8 +2448,6 @@ func _request_mountain_native_mask_for_chunk(
 		_generation_epoch,
 		revision,
 		reason,
-		&"mountain",
-		cutout_halo,
 	)
 
 
@@ -2641,7 +2632,6 @@ func _refresh_mountain_native_masks_around_tile(world_tile: Vector2i) -> void:
 				affected_chunk,
 				dig_halo.get("halo", PackedByteArray()) as PackedByteArray,
 				&"mining",
-				dig_halo.get("cutout_halo", PackedByteArray()) as PackedByteArray,
 			)
 
 
@@ -3041,7 +3031,6 @@ func _can_publish_chunk_with_mountain_mask(chunk_coord: Vector2i, packet: Dictio
 		chunk_coord,
 		cached_halo.get("halo", PackedByteArray()) as PackedByteArray,
 		&"publish",
-		cached_halo.get("cutout_halo", PackedByteArray()) as PackedByteArray,
 	)
 	if _packet_has_raster_mountain(packet):
 		return false
@@ -3287,11 +3276,8 @@ func _handle_cover_chunk_published(published_chunk_coord: Vector2i) -> void:
 	for chunk_coord: Vector2i in published_chunks:
 		affected_chunks[chunk_coord] = true
 	if bool(active_change.get("state_changed", false)):
-		for chunk_coord: Vector2i in _collect_cover_transition_chunks(
-			int(active_change.get("previous_component_id", 0)),
-			int(active_change.get("component_id", 0)),
-		):
-			affected_chunks[chunk_coord] = true
+		_refresh_cover_visibility_for_loaded_chunks()
+		return
 	_refresh_cover_visibility_for_loaded_chunks(_dictionary_vector2i_keys(affected_chunks))
 
 
@@ -3302,35 +3288,32 @@ func _handle_cover_chunk_unloaded(chunk_coord: Vector2i) -> void:
 		Callable(self, "_sample_mountain_cover_tile"),
 	)
 	var active_change: Dictionary = _repair_active_cover_component_from_player_position()
-	var affected_chunks: Dictionary = { }
-	var unloaded_chunks: Array[Vector2i] = _variant_to_vector2i_array(cover_result.get("affected_chunks", []))
-	for affected_chunk: Vector2i in unloaded_chunks:
-		affected_chunks[affected_chunk] = true
 	if bool(active_change.get("state_changed", false)):
-		for affected_chunk: Vector2i in _collect_cover_transition_chunks(
-			int(active_change.get("previous_component_id", 0)),
-			int(active_change.get("component_id", 0)),
-		):
-			affected_chunks[affected_chunk] = true
-	_refresh_cover_visibility_for_loaded_chunks(_dictionary_vector2i_keys(affected_chunks))
+		_refresh_cover_visibility_for_loaded_chunks()
+		return
+	var unloaded_chunks: Array[Vector2i] = _variant_to_vector2i_array(cover_result.get("affected_chunks", []))
+	_refresh_cover_visibility_for_loaded_chunks(unloaded_chunks)
 
 
 func _handle_cover_tile_dug(world_tile: Vector2i) -> void:
+	var previous_active_component_id: int = _active_cover_component_id
 	var cover_result: Dictionary = _mountain_cavity_cache.on_tile_dug(
 		world_tile,
 		Callable(self, "_sample_mountain_cover_tile"),
 	)
 	var active_change: Dictionary = _repair_active_cover_component_from_player_position()
+	if bool(active_change.get("state_changed", false)):
+		_refresh_cover_visibility_for_loaded_chunks()
+		return
 	var affected_chunks: Dictionary = { }
 	var dug_chunks: Array[Vector2i] = _variant_to_vector2i_array(cover_result.get("affected_chunks", []))
 	for chunk_coord: Vector2i in dug_chunks:
 		affected_chunks[chunk_coord] = true
-	if bool(active_change.get("state_changed", false)):
-		for chunk_coord: Vector2i in _collect_cover_transition_chunks(
-			int(active_change.get("previous_component_id", 0)),
-			int(active_change.get("component_id", 0)),
-		):
-			affected_chunks[chunk_coord] = true
+	for component_id: int in [previous_active_component_id, _active_cover_component_id]:
+		if component_id <= 0:
+			continue
+		for component_chunk_coord: Vector2i in _mountain_cavity_cache.get_component_chunks(component_id):
+			affected_chunks[component_chunk_coord] = true
 	_refresh_cover_visibility_for_loaded_chunks(_dictionary_vector2i_keys(affected_chunks))
 
 
@@ -3383,11 +3366,10 @@ func _repair_active_cover_component_from_player_position() -> Dictionary:
 
 
 func _refresh_cover_visibility_for_loaded_chunks(target_chunks: Array[Vector2i] = []) -> void:
-	var refresh_chunks: Array[Vector2i] = _expand_cover_visual_chunks(target_chunks)
+	var refresh_chunks: Array[Vector2i] = target_chunks
 	if refresh_chunks.is_empty():
 		refresh_chunks = _dictionary_vector2i_keys(_chunk_views)
 	var seen_chunks: Dictionary = { }
-	var visibility_masks_by_chunk: Dictionary = { }
 	for chunk_coord: Vector2i in refresh_chunks:
 		if seen_chunks.has(chunk_coord):
 			continue
@@ -3395,88 +3377,9 @@ func _refresh_cover_visibility_for_loaded_chunks(target_chunks: Array[Vector2i] 
 		var chunk_view: ChunkView = _chunk_views.get(chunk_coord) as ChunkView
 		if chunk_view == null:
 			continue
-		var visual_dirty: bool = chunk_view.apply_cover_visibility(
-			_get_cached_cover_visibility_mask(chunk_coord, visibility_masks_by_chunk),
-			_build_cover_visibility_halo(chunk_coord, visibility_masks_by_chunk),
+		chunk_view.apply_cover_visibility(
+			_mountain_cavity_cache.build_chunk_visibility_mask(chunk_coord, _active_cover_component_id),
 		)
-		if visual_dirty:
-			_queue_mountain_native_mask_visual_upload(chunk_coord)
-
-
-func _expand_cover_visual_chunks(target_chunks: Array[Vector2i]) -> Array[Vector2i]:
-	if target_chunks.is_empty():
-		return []
-	var expanded: Dictionary = { }
-	for target_chunk: Vector2i in target_chunks:
-		for offset_y: int in range(-1, 2):
-			for offset_x: int in range(-1, 2):
-				var chunk_coord: Vector2i = _canonicalize_chunk_coord(
-					target_chunk + Vector2i(offset_x, offset_y),
-				)
-				if _chunk_views.has(chunk_coord):
-					expanded[chunk_coord] = true
-	return _dictionary_vector2i_keys(expanded)
-
-
-func _get_cached_cover_visibility_mask(chunk_coord: Vector2i, cache: Dictionary) -> PackedByteArray:
-	chunk_coord = _canonicalize_chunk_coord(chunk_coord)
-	if not cache.has(chunk_coord):
-		cache[chunk_coord] = _mountain_cavity_cache.build_chunk_visibility_mask(
-			chunk_coord,
-			_active_cover_component_id,
-		)
-	return cache[chunk_coord] as PackedByteArray
-
-
-func _build_cover_visibility_halo(
-		chunk_coord: Vector2i,
-		visibility_masks_by_chunk: Dictionary,
-) -> PackedByteArray:
-	chunk_coord = _canonicalize_chunk_coord(chunk_coord)
-	var halo_radius: int = MOUNTAIN_HALO_MASK_RADIUS_TILES
-	var halo_side: int = WorldRuntimeConstants.CHUNK_SIZE + halo_radius * 2
-	var visibility_halo := PackedByteArray()
-	visibility_halo.resize(halo_side * halo_side)
-	var local_min: int = -halo_radius
-	var local_max: int = WorldRuntimeConstants.CHUNK_SIZE + halo_radius
-	for source_offset_y: int in range(-1, 2):
-		var source_base_y: int = source_offset_y * WorldRuntimeConstants.CHUNK_SIZE
-		var from_local_y: int = maxi(local_min, source_base_y)
-		var to_local_y: int = mini(local_max, source_base_y + WorldRuntimeConstants.CHUNK_SIZE)
-		for source_offset_x: int in range(-1, 2):
-			var source_base_x: int = source_offset_x * WorldRuntimeConstants.CHUNK_SIZE
-			var from_local_x: int = maxi(local_min, source_base_x)
-			var to_local_x: int = mini(local_max, source_base_x + WorldRuntimeConstants.CHUNK_SIZE)
-			var source_chunk: Vector2i = _canonicalize_chunk_coord(
-				chunk_coord + Vector2i(source_offset_x, source_offset_y),
-			)
-			var source_mask: PackedByteArray = _get_cached_cover_visibility_mask(
-				source_chunk,
-				visibility_masks_by_chunk,
-			)
-			for local_y: int in range(from_local_y, to_local_y):
-				var source_y: int = local_y - source_base_y
-				var target_row: int = (local_y + halo_radius) * halo_side
-				var source_row: int = source_y * WorldRuntimeConstants.CHUNK_SIZE
-				for local_x: int in range(from_local_x, to_local_x):
-					var source_x: int = local_x - source_base_x
-					visibility_halo[target_row + local_x + halo_radius] = source_mask[
-						source_row + source_x
-					]
-	return visibility_halo
-
-
-func _collect_cover_transition_chunks(
-	previous_component_id: int,
-	next_component_id: int,
-) -> Array[Vector2i]:
-	var chunks: Dictionary = { }
-	for component_id: int in [previous_component_id, next_component_id]:
-		if component_id <= 0:
-			continue
-		for chunk_coord: Vector2i in _mountain_cavity_cache.get_component_chunks(component_id):
-			chunks[chunk_coord] = true
-	return _dictionary_vector2i_keys(chunks)
 
 
 func _apply_debug_overlay_visibility_to_loaded_chunks() -> void:
@@ -3570,11 +3473,7 @@ func _build_native_mountain_contour_for_chunk(chunk_coord: Vector2i) -> Dictiona
 	}
 
 
-func _build_native_mountain_halo_mask(
-		solid_halo: PackedByteArray,
-		mask_origin_world: Vector2,
-		cutout_halo: PackedByteArray = PackedByteArray(),
-) -> Dictionary:
+func _build_native_mountain_halo_mask(solid_halo: PackedByteArray, mask_origin_world: Vector2) -> Dictionary:
 	var world_core: Object = _get_contour_world_core()
 	if world_core == null:
 		return { }
@@ -3586,7 +3485,6 @@ func _build_native_mountain_halo_mask(
 		MOUNTAIN_HALO_MASK_PIXELS_PER_TILE,
 		mask_origin_world.x,
 		mask_origin_world.y,
-		cutout_halo,
 	)
 	if result_variant is Dictionary:
 		return result_variant as Dictionary
@@ -3609,16 +3507,11 @@ func _get_cached_mountain_solid_halo(chunk_coord: Vector2i) -> Dictionary:
 			and int(cached.get("revision", -2)) == revision \
 			and int(cached.get("epoch", -2)) == _generation_epoch:
 		return cached
-	var fields: Dictionary = _build_mountain_halo_fields(
-		chunk_coord,
-		MOUNTAIN_HALO_MASK_RADIUS_TILES,
-	)
-	var halo: PackedByteArray = fields.get("solid_halo", PackedByteArray()) as PackedByteArray
+	var halo: PackedByteArray = _build_mountain_solid_halo(chunk_coord, MOUNTAIN_HALO_MASK_RADIUS_TILES)
 	cached = {
 		"revision": revision,
 		"epoch": _generation_epoch,
 		"halo": halo,
-		"cutout_halo": fields.get("cutout_halo", PackedByteArray()) as PackedByteArray,
 		"has_any": _solid_halo_has_any(halo),
 	}
 	_mountain_solid_halo_cache[chunk_coord] = cached
@@ -3645,19 +3538,10 @@ func _get_cached_terrain_edge_solid_halo(chunk_coord: Vector2i) -> Dictionary:
 
 
 func _build_mountain_solid_halo(chunk_coord: Vector2i, halo_radius_tiles: int = 1) -> PackedByteArray:
-	return _build_mountain_halo_fields(
-		chunk_coord,
-		halo_radius_tiles,
-	).get("solid_halo", PackedByteArray()) as PackedByteArray
-
-
-func _build_mountain_halo_fields(chunk_coord: Vector2i, halo_radius_tiles: int = 1) -> Dictionary:
 	halo_radius_tiles = maxi(1, halo_radius_tiles)
 	var halo_side: int = WorldRuntimeConstants.CHUNK_SIZE + halo_radius_tiles * 2
 	var solid_halo := PackedByteArray()
 	solid_halo.resize(halo_side * halo_side)
-	var cutout_halo := PackedByteArray()
-	cutout_halo.resize(halo_side * halo_side)
 	var local_min: int = -halo_radius_tiles
 	var local_max: int = WorldRuntimeConstants.CHUNK_SIZE + halo_radius_tiles
 	for source_offset_y: int in range(-1, 2):
@@ -3692,6 +3576,12 @@ func _build_mountain_halo_fields(chunk_coord: Vector2i, halo_radius_tiles: int =
 					var index: int = source_row + local_x - source_base_x
 					if index < 0 or index >= terrain_ids.size() or index >= walkable_flags.size():
 						continue
+					var terrain_id: int = int(terrain_ids[index])
+					if terrain_id != WorldRuntimeConstants.TERRAIN_MOUNTAIN_WALL \
+							and terrain_id != WorldRuntimeConstants.TERRAIN_MOUNTAIN_FOOT:
+						continue
+					if int(walkable_flags[index]) != 0:
+						continue
 					if index >= mountain_ids.size() or int(mountain_ids[index]) <= 0:
 						continue
 					if index >= mountain_flags.size():
@@ -3699,21 +3589,8 @@ func _build_mountain_halo_fields(chunk_coord: Vector2i, halo_radius_tiles: int =
 					var flags: int = int(mountain_flags[index])
 					if (flags & (WorldRuntimeConstants.MOUNTAIN_FLAG_WALL | WorldRuntimeConstants.MOUNTAIN_FLAG_FOOT)) == 0:
 						continue
-					var terrain_id: int = int(terrain_ids[index])
-					var walkable: bool = int(walkable_flags[index]) != 0
-					var halo_index: int = halo_row + local_x + halo_radius_tiles
-					if not walkable \
-							and (
-								terrain_id == WorldRuntimeConstants.TERRAIN_MOUNTAIN_WALL \
-										or terrain_id == WorldRuntimeConstants.TERRAIN_MOUNTAIN_FOOT
-							):
-						solid_halo[halo_index] = 1
-					elif walkable and terrain_id == WorldRuntimeConstants.TERRAIN_PLAINS_DUG:
-						cutout_halo[halo_index] = 1
-	return {
-		"solid_halo": solid_halo,
-		"cutout_halo": cutout_halo,
-	}
+					solid_halo[halo_row + local_x + halo_radius_tiles] = 1
+	return solid_halo
 
 
 func _build_terrain_edge_solid_halo(chunk_coord: Vector2i, halo_radius_tiles: int = 1) -> PackedByteArray:

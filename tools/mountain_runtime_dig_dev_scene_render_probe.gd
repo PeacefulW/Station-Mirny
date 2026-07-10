@@ -72,9 +72,6 @@ func _run() -> void:
 
 	var streamer: Node = scene.get_node_or_null("WorldRuntimeV0/WorldStreamer")
 	_assert(streamer != null, "Probe must reach the runtime WorldStreamer.")
-	var mining_feedback: CanvasItem = streamer.get_node_or_null("MiningFeedbackLayer") as CanvasItem
-	if mining_feedback != null:
-		mining_feedback.visible = false
 	var mountain_tile: Vector2i = snapshot.get("mountain_tile", Vector2i.ZERO) as Vector2i
 	var stand_tile: Vector2i = snapshot.get("stand_tile", Vector2i.ZERO) as Vector2i
 	var dig_dir: Vector2i = mountain_tile - stand_tile
@@ -98,141 +95,12 @@ func _run() -> void:
 	snapshot = await _wait_settled(scene, false)
 	_assert(_is_settled(snapshot, false), "Native masks must settle after digging.")
 	print("RENDER_PROBE stage=settled_after_dig")
-	var deep_dug_tile: Vector2i = mountain_tile + dig_dir * maxi(0, dug_count - 1)
-	var deep_outside_before_entry: Dictionary = streamer.call(
-		"get_mountain_cover_render_debug_snapshot",
-		deep_dug_tile,
-	) as Dictionary
-	print("RENDER_PROBE outside_roof_before_entry=%s" % str(deep_outside_before_entry))
-	_assert(
-		bool(deep_outside_before_entry.get("native_cover_ready", false)),
-		"Deep dug tile must have a composed native roof outside.",
-	)
-	_assert(
-		float(deep_outside_before_entry.get("native_visual_mask_value", 0.0)) > 0.80,
-		"Outside native visual mask must close the deep dug tile.",
-	)
 	for _frame: int in range(30):
 		await process_frame
 	_capture("%s/after_dig_%d_tiles.png" % [OUTPUT_DIR, dug_count])
-
-	var player: Node2D = scene.get_node_or_null("WorldRuntimeV0/Player") as Node2D
-	var camera: Camera2D = scene.get_node_or_null("WorldRuntimeV0/Player/Camera2D") as Camera2D
-	_assert(player != null, "Probe must reach the runtime player.")
-	var inside_tile: Vector2i = deep_dug_tile
-	if player != null:
-		player.global_position = WorldRuntimeConstants.tile_to_world_center(inside_tile)
-		if player.has_method("stop_movement"):
-			player.call("stop_movement")
-	if camera != null:
-		camera.reset_smoothing()
-		camera.force_update_scroll()
-	for _frame: int in range(30):
-		await process_frame
-	var inside_cover: Dictionary = streamer.call(
-		"get_mountain_cover_debug_snapshot",
-		inside_tile,
-	) as Dictionary
-	var inside_component_id: int = int(inside_cover.get("component_id", 0))
-	_assert(inside_component_id > 0, "Deep dug tile must belong to a cavity component.")
-	_assert(
-		int(inside_cover.get("active_component_id", 0)) == inside_component_id,
-		"Entering a dug tile must activate exactly its connected cavity.",
-	)
-	var inside_render: Dictionary = streamer.call(
-		"get_mountain_cover_render_debug_snapshot",
-		inside_tile,
-	) as Dictionary
-	print("RENDER_PROBE inside_roof=%s" % str(inside_render))
-	_assert(
-		float(inside_render.get("mask_value", 1.0)) < 0.01,
-		"Inside cavity roof target mask must be transparent over the deep tile.",
-	)
-	_assert(
-		float(inside_render.get("native_visual_mask_value", 1.0)) < 0.20,
-		"Inside native visual mask must reveal the deep dug tile.",
-	)
-	var inside_world_pos: Vector2 = WorldRuntimeConstants.tile_to_world_center(inside_tile)
-	var inside_chunk: Vector2i = WorldRuntimeConstants.tile_to_chunk(inside_tile)
-	var inside_local: Vector2i = WorldRuntimeConstants.tile_to_local(inside_tile)
-	var inside_packet: Dictionary = streamer.call("get_chunk_packet", inside_chunk) as Dictionary
-	var inside_index: int = WorldRuntimeConstants.local_to_index(inside_local)
-	var inside_terrain_ids: PackedInt32Array = inside_packet.get(
-		"terrain_ids",
-		PackedInt32Array(),
-	) as PackedInt32Array
-	var inside_walkable_flags: PackedByteArray = inside_packet.get(
-		"walkable_flags",
-		PackedByteArray(),
-	) as PackedByteArray
-	var native_masks: Dictionary = streamer.get("_mountain_native_masks_by_chunk") as Dictionary
-	var inside_native_result: Dictionary = native_masks.get(inside_chunk, { }) as Dictionary
-	var inside_native_byte: int = int(streamer.call(
-		"_sample_mountain_native_mask_result",
-		inside_native_result,
-		inside_chunk,
-		inside_world_pos,
-	))
-	var inside_native_hit: Dictionary = streamer.call(
-		"_sample_mountain_mask_hit",
-		inside_world_pos,
-	) as Dictionary
-	print("RENDER_PROBE inside terrain=%d walkable=%d native_byte=%d native_hit=%s" % [
-		int(inside_terrain_ids[inside_index]),
-		int(inside_walkable_flags[inside_index]),
-		inside_native_byte,
-		str(inside_native_hit),
-	])
-	_capture("%s/inside_cavity_%d_tiles.png" % [OUTPUT_DIR, dug_count])
-
-	if player != null:
-		player.global_position = WorldRuntimeConstants.tile_to_world_center(stand_tile)
-		if player.has_method("stop_movement"):
-			player.call("stop_movement")
-	if camera != null:
-		camera.reset_smoothing()
-		camera.force_update_scroll()
-	for _frame: int in range(30):
-		await process_frame
-	var outside_cover: Dictionary = streamer.call(
-		"get_mountain_cover_debug_snapshot",
-		stand_tile,
-	) as Dictionary
-	_assert(
-		int(outside_cover.get("active_component_id", -1)) == 0,
-		"Leaving the cavity must restore outside cover state.",
-	)
-	var deep_outside_render: Dictionary = streamer.call(
-		"get_mountain_cover_render_debug_snapshot",
-		inside_tile,
-	) as Dictionary
-	print("RENDER_PROBE outside_roof_after_exit=%s" % str(deep_outside_render))
-	_assert(
-		float(deep_outside_render.get("mask_value", 0.0)) > 0.99,
-		"Outside state must cover the deep tunnel tile again.",
-	)
-	_assert(
-		float(deep_outside_render.get("native_visual_mask_value", 0.0)) > 0.80,
-		"Outside native visual mask must restore the deep tunnel roof.",
-	)
-	var mouth_outside_render: Dictionary = streamer.call(
-		"get_mountain_cover_render_debug_snapshot",
-		mountain_tile,
-	) as Dictionary
-	print("RENDER_PROBE outside_mouth_after_exit=%s" % str(mouth_outside_render))
-	_assert(
-		float(mouth_outside_render.get("mask_value", 1.0)) < 0.01,
-		"Outside state must keep the real mouth tile visible.",
-	)
-	_assert(
-		float(mouth_outside_render.get("native_visual_mask_value", 1.0)) < 0.20,
-		"Outside native visual mask must keep the real mouth open.",
-	)
-	_capture("%s/outside_again_%d_tiles.png" % [OUTPUT_DIR, dug_count])
 	print("RENDER_PROBE dug=%d target=%s stand=%s" % [dug_count, str(mountain_tile), str(stand_tile)])
 	scene.queue_free()
 	await process_frame
-	print("RENDER_PROBE result failed=%s" % str(_failed))
 	quit(1 if _failed else 0)
 
 func _wait_settled(scene: Node, require_stand_walkable: bool = true) -> Dictionary:
@@ -301,6 +169,5 @@ func _capture(path: String) -> void:
 func _assert(condition: bool, message: String) -> void:
 	if condition:
 		return
-	print("RENDER_PROBE ASSERT_FAIL: %s" % message)
 	push_error(message)
 	_failed = true

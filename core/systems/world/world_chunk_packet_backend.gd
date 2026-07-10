@@ -152,14 +152,12 @@ func queue_mountain_halo_mask_request(
 	epoch: int,
 	revision: int,
 	reason: StringName,
-	mask_purpose: StringName = &"mountain",
-	cutout_halo: PackedByteArray = PackedByteArray(),
+	mask_purpose: StringName = &"mountain"
 ) -> void:
 	_request_mutex.lock()
 	_pending_requests.append({
 		"kind": "mountain_halo_mask",
 		"solid_halo": solid_halo.duplicate(),
-		"cutout_halo": cutout_halo.duplicate(),
 		"target_chunk": target_chunk,
 		"mask_origin_world": mask_origin_world,
 		"chunk_size_tiles": maxi(1, chunk_size_tiles),
@@ -484,8 +482,7 @@ func _process_mountain_halo_mask_request(worker_world_core: Object, request: Dic
 			int(request.get("tile_size_px", 1)),
 			int(request.get("pixels_per_tile", 1)),
 			mask_origin_world.x,
-			mask_origin_world.y,
-			request.get("cutout_halo", PackedByteArray()) as PackedByteArray,
+			mask_origin_world.y
 		)
 		if result_variant is Dictionary:
 			result = result_variant as Dictionary
@@ -505,10 +502,6 @@ func _process_mountain_halo_mask_request(worker_world_core: Object, request: Dic
 	result["revision"] = int(request.get("revision", -1))
 	result["reason"] = request.get("reason", &"worker") as StringName
 	result["mask_purpose"] = request.get("mask_purpose", &"mountain") as StringName
-	if result["mask_purpose"] == &"mountain":
-		result["cutout_halo"] = (
-			request.get("cutout_halo", PackedByteArray()) as PackedByteArray
-		).duplicate()
 	result["target_chunk"] = request.get("target_chunk", Vector2i.ZERO) as Vector2i
 	result["mask_origin_world"] = request.get("mask_origin_world", Vector2.ZERO) as Vector2
 	result["queued_msec"] = int(request.get("queued_msec", started_msec))
