@@ -62,6 +62,49 @@ float sample_grid_bilinear(const std::vector<float> &p_values, int32_t p_width, 
 	return lerp_float(lerp_float(a, b, tx), lerp_float(c, d, tx), ty);
 }
 
+std::vector<float> box_blur_once(
+	const std::vector<float> &p_source,
+	int32_t p_width,
+	int32_t p_height,
+	int32_t p_radius
+) {
+	if (p_radius <= 0 || p_width <= 0 || p_height <= 0) {
+		return p_source;
+	}
+	std::vector<float> temp(static_cast<size_t>(p_width * p_height), 0.0f);
+	std::vector<float> result(static_cast<size_t>(p_width * p_height), 0.0f);
+	const float divisor = static_cast<float>(p_radius * 2 + 1);
+	for (int32_t y = 0; y < p_height; ++y) {
+		float sum = 0.0f;
+		for (int32_t x = -p_radius; x <= p_radius; ++x) {
+			const int32_t sample_x = std::max(0, std::min(p_width - 1, x));
+			sum += p_source[static_cast<size_t>(y * p_width + sample_x)];
+		}
+		for (int32_t x = 0; x < p_width; ++x) {
+			temp[static_cast<size_t>(y * p_width + x)] = sum / divisor;
+			const int32_t remove_x = std::max(0, std::min(p_width - 1, x - p_radius));
+			const int32_t add_x = std::max(0, std::min(p_width - 1, x + p_radius + 1));
+			sum += p_source[static_cast<size_t>(y * p_width + add_x)];
+			sum -= p_source[static_cast<size_t>(y * p_width + remove_x)];
+		}
+	}
+	for (int32_t x = 0; x < p_width; ++x) {
+		float sum = 0.0f;
+		for (int32_t y = -p_radius; y <= p_radius; ++y) {
+			const int32_t sample_y = std::max(0, std::min(p_height - 1, y));
+			sum += temp[static_cast<size_t>(sample_y * p_width + x)];
+		}
+		for (int32_t y = 0; y < p_height; ++y) {
+			result[static_cast<size_t>(y * p_width + x)] = sum / divisor;
+			const int32_t remove_y = std::max(0, std::min(p_height - 1, y - p_radius));
+			const int32_t add_y = std::max(0, std::min(p_height - 1, y + p_radius + 1));
+			sum += temp[static_cast<size_t>(add_y * p_width + x)];
+			sum -= temp[static_cast<size_t>(remove_y * p_width + x)];
+		}
+	}
+	return result;
+}
+
 float hash_float(int32_t p_x, int32_t p_y) {
 	uint32_t value = static_cast<uint32_t>(p_x) * 0x8da6b343U;
 	value ^= static_cast<uint32_t>(p_y) * 0xd8163841U;
@@ -287,7 +330,8 @@ godot::Dictionary build_halo_mask(
 	int32_t p_tile_size_px,
 	int32_t p_pixels_per_tile,
 	double p_origin_world_x,
-	double p_origin_world_y
+	double p_origin_world_y,
+	const godot::PackedByteArray &p_dug_halo
 ) {
 	godot::Dictionary result;
 	result["mask"] = godot::PackedByteArray();
@@ -304,6 +348,10 @@ godot::Dictionary build_halo_mask(
 	if (p_solid_halo.size() != halo_side * halo_side) {
 		return result;
 	}
+	const bool dual_mask_requested = !p_dug_halo.is_empty();
+	if (dual_mask_requested && p_dug_halo.size() != p_solid_halo.size()) {
+		return result;
+	}
 	const int32_t halo_margin = halo_side - p_chunk_size;
 	if (halo_margin < 2 || (halo_margin % 2) != 0) {
 		return result;
@@ -318,10 +366,20 @@ godot::Dictionary build_halo_mask(
 	bytes.resize(pixel_count);
 	uint8_t *bytes_write = bytes.ptrw();
 
+	int32_t closed_sample_count = 0;
+	int32_t dug_sample_count = 0;
 	int32_t solid_sample_count = 0;
 	for (int32_t y = halo_radius_tiles; y < halo_radius_tiles + p_chunk_size; ++y) {
 		for (int32_t x = halo_radius_tiles; x < halo_radius_tiles + p_chunk_size; ++x) {
-			if (read_solid(p_solid_halo, halo_side, x, y)) {
+			const bool closed_solid = read_solid(p_solid_halo, halo_side, x, y);
+			const bool dug = dual_mask_requested && read_solid(p_dug_halo, halo_side, x, y);
+			if (closed_solid) {
+				++closed_sample_count;
+			}
+			if (dug) {
+				++dug_sample_count;
+			}
+			if (closed_solid && !dug) {
 				++solid_sample_count;
 			}
 		}
@@ -393,6 +451,217 @@ godot::Dictionary build_halo_mask(
 			const int32_t byte_value = std::max(0, std::min(255, static_cast<int32_t>(std::lround(alpha * 255.0f))));
 			bytes_write[py * width + px] = static_cast<uint8_t>(byte_value);
 		}
+	}
+
+	if (dual_mask_requested) {
+		godot::PackedByteArray closed_roof_mask = bytes;
+		godot::PackedByteArray remaining_mass_mask;
+		remaining_mass_mask.resize(pixel_count);
+		uint8_t *remaining_write = remaining_mass_mask.ptrw();
+		godot::PackedByteArray visual_remaining_mass_mask;
+		visual_remaining_mass_mask.resize(pixel_count);
+		uint8_t *visual_remaining_write = visual_remaining_mass_mask.ptrw();
+
+		bool has_dug_samples = false;
+		for (int32_t index = 0; index < p_dug_halo.size(); ++index) {
+			if (p_dug_halo[index] != 0) {
+				has_dug_samples = true;
+				break;
+			}
+		}
+
+		std::vector<float> cutout_blurred;
+		if (has_dug_samples) {
+			std::vector<float> cutout_field(static_cast<size_t>(pixel_count), 0.0f);
+			for (int32_t py = 0; py < height; ++py) {
+				const int32_t tile_y = py / pixels_per_tile;
+				for (int32_t px = 0; px < width; ++px) {
+					const int32_t tile_x = px / pixels_per_tile;
+					cutout_field[static_cast<size_t>(py * width + px)] =
+						read_solid(p_dug_halo, halo_side, tile_x, tile_y) ? 1.0f : 0.0f;
+				}
+			}
+			cutout_blurred = box_blur_once(
+				cutout_field,
+				width,
+				height,
+				std::max(1, pixels_per_tile / 4)
+			);
+		}
+
+		for (int32_t py = 0; py < height; ++py) {
+			const int32_t tile_y = py / pixels_per_tile;
+			const float world_y = static_cast<float>(p_origin_world_y) + (static_cast<float>(py) + 0.5f) * step_px;
+			for (int32_t px = 0; px < width; ++px) {
+				const int32_t index = py * width + px;
+				const int32_t tile_x = px / pixels_per_tile;
+				const bool dug = read_solid(p_dug_halo, halo_side, tile_x, tile_y);
+				// A mined source tile is empty in its entirety. Outside it, gameplay
+				// follows the same organic contour as presentation so a visible
+				// cutout fringe never hides an invisible ledge.
+				remaining_write[index] = dug ? 0 : closed_roof_mask[index];
+				if (cutout_blurred.empty()) {
+					visual_remaining_write[index] = closed_roof_mask[index];
+					continue;
+				}
+
+				const float world_x = static_cast<float>(p_origin_world_x) + (static_cast<float>(px) + 0.5f) * step_px;
+				// This is the excavation contour from fbedb3b, intentionally tied
+				// to the same broad displacement as the mountain silhouette. It
+				// gives joined rooms and turns one continuous, hand-cut outline.
+				const float disp_x = ((fbm_noise((world_x + 43.0f) / 360.0f, (world_y - 139.0f) / 360.0f) - 0.5f) * static_cast<float>(pixels_per_tile) * 1.15f)
+						+ ((fbm_noise((world_x - 211.0f) / 170.0f, (world_y + 79.0f) / 170.0f) - 0.5f) * static_cast<float>(pixels_per_tile) * 0.46f);
+				const float disp_y = ((fbm_noise((world_x - 97.0f) / 380.0f, (world_y + 181.0f) / 380.0f) - 0.5f) * static_cast<float>(pixels_per_tile) * 1.15f)
+						+ ((fbm_noise((world_x + 157.0f) / 176.0f, (world_y - 223.0f) / 176.0f) - 0.5f) * static_cast<float>(pixels_per_tile) * 0.46f);
+				const float cutout_field = sample_grid_bilinear(
+					cutout_blurred,
+					width,
+					height,
+					static_cast<float>(px) + disp_x * 0.32f,
+					static_cast<float>(py) + disp_y * 0.32f
+				);
+				float cutout_alpha = smooth_float((cutout_field - 0.28f) / 0.44f);
+
+				if (dug) {
+					const float local_x = std::fmod(static_cast<float>(px) + 0.5f, static_cast<float>(pixels_per_tile));
+					const float local_y = std::fmod(static_cast<float>(py) + 0.5f, static_cast<float>(pixels_per_tile));
+					const float core_min = static_cast<float>(pixels_per_tile) * 0.25f;
+					const float core_max = static_cast<float>(pixels_per_tile) * 0.75f;
+					const float core_mid = static_cast<float>(pixels_per_tile) * 0.50f;
+					const float mouth_min = static_cast<float>(pixels_per_tile) * 0.125f;
+					const float mouth_max = static_cast<float>(pixels_per_tile) * 0.875f;
+					const bool in_core_x = local_x >= core_min && local_x <= core_max;
+					const bool in_core_y = local_y >= core_min && local_y <= core_max;
+					const bool north_dug = read_solid(p_dug_halo, halo_side, tile_x, tile_y - 1);
+					const bool east_dug = read_solid(p_dug_halo, halo_side, tile_x + 1, tile_y);
+					const bool south_dug = read_solid(p_dug_halo, halo_side, tile_x, tile_y + 1);
+					const bool west_dug = read_solid(p_dug_halo, halo_side, tile_x - 1, tile_y);
+					const bool north_exterior = !read_solid(p_solid_halo, halo_side, tile_x, tile_y - 1);
+					const bool east_exterior = !read_solid(p_solid_halo, halo_side, tile_x + 1, tile_y);
+					const bool south_exterior = !read_solid(p_solid_halo, halo_side, tile_x, tile_y + 1);
+					const bool west_exterior = !read_solid(p_solid_halo, halo_side, tile_x - 1, tile_y);
+					const bool north_negative_continues = west_dug
+						&& !read_solid(p_solid_halo, halo_side, tile_x - 1, tile_y - 1);
+					const bool north_positive_continues = east_dug
+						&& !read_solid(p_solid_halo, halo_side, tile_x + 1, tile_y - 1);
+					const bool south_negative_continues = west_dug
+						&& !read_solid(p_solid_halo, halo_side, tile_x - 1, tile_y + 1);
+					const bool south_positive_continues = east_dug
+						&& !read_solid(p_solid_halo, halo_side, tile_x + 1, tile_y + 1);
+					const bool east_negative_continues = north_dug
+						&& !read_solid(p_solid_halo, halo_side, tile_x + 1, tile_y - 1);
+					const bool east_positive_continues = south_dug
+						&& !read_solid(p_solid_halo, halo_side, tile_x + 1, tile_y + 1);
+					const bool west_negative_continues = north_dug
+						&& !read_solid(p_solid_halo, halo_side, tile_x - 1, tile_y - 1);
+					const bool west_positive_continues = south_dug
+						&& !read_solid(p_solid_halo, halo_side, tile_x - 1, tile_y + 1);
+					const bool topology_core = in_core_x && in_core_y;
+					const bool topology_arm = (north_dug && in_core_x && local_y <= core_mid)
+						|| (east_dug && in_core_y && local_x >= core_mid)
+						|| (south_dug && in_core_x && local_y >= core_mid)
+						|| (west_dug && in_core_y && local_x <= core_mid);
+					// The outward half of a physical mouth is the one deliberately
+					// non-organic exception: clamp it to a straight modular portal.
+					// Same-direction neighbours extend the lateral bounds to the tile
+					// seam, so a 2..N-wide entrance has no internal stone posts.
+					const bool north_zone = north_exterior && local_y <= core_mid;
+					const bool east_zone = east_exterior && local_x >= core_mid;
+					const bool south_zone = south_exterior && local_y >= core_mid;
+					const bool west_zone = west_exterior && local_x <= core_mid;
+					const bool mouth_portal_zone = north_zone || east_zone || south_zone || west_zone;
+					const bool north_portal = north_zone
+						&& local_x >= (north_negative_continues ? 0.0f : mouth_min)
+						&& local_x <= (north_positive_continues ? static_cast<float>(pixels_per_tile) : mouth_max);
+					const bool south_portal = south_zone
+						&& local_x >= (south_negative_continues ? 0.0f : mouth_min)
+						&& local_x <= (south_positive_continues ? static_cast<float>(pixels_per_tile) : mouth_max);
+					const bool east_portal = east_zone
+						&& local_y >= (east_negative_continues ? 0.0f : mouth_min)
+						&& local_y <= (east_positive_continues ? static_cast<float>(pixels_per_tile) : mouth_max);
+					const bool west_portal = west_zone
+						&& local_y >= (west_negative_continues ? 0.0f : mouth_min)
+						&& local_y <= (west_positive_continues ? static_cast<float>(pixels_per_tile) : mouth_max);
+					const bool mouth_portal_open = north_portal || east_portal || south_portal || west_portal;
+					if (mouth_portal_zone) {
+						cutout_alpha = mouth_portal_open ? 1.0f : 0.0f;
+					} else if (topology_core || topology_arm) {
+						cutout_alpha = 1.0f;
+					}
+				} else if (!read_solid(p_solid_halo, halo_side, tile_x, tile_y)) {
+					// CLOSED's organic contour intentionally spills into the first
+					// exterior tile. Without carrying the mouth through that spill, the
+					// facade turns it into an undiggable rounded threshold. Project the
+					// same straight portal through this one outside cell; pixels where C
+					// is already zero are unchanged.
+					const float local_x = std::fmod(static_cast<float>(px) + 0.5f, static_cast<float>(pixels_per_tile));
+					const float local_y = std::fmod(static_cast<float>(py) + 0.5f, static_cast<float>(pixels_per_tile));
+					const float mouth_min = static_cast<float>(pixels_per_tile) * 0.125f;
+					const float mouth_max = static_cast<float>(pixels_per_tile) * 0.875f;
+					const bool source_north = read_solid(p_dug_halo, halo_side, tile_x, tile_y - 1);
+					const bool source_east = read_solid(p_dug_halo, halo_side, tile_x + 1, tile_y);
+					const bool source_south = read_solid(p_dug_halo, halo_side, tile_x, tile_y + 1);
+					const bool source_west = read_solid(p_dug_halo, halo_side, tile_x - 1, tile_y);
+					const bool south_negative_continues = source_north
+						&& read_solid(p_dug_halo, halo_side, tile_x - 1, tile_y - 1)
+						&& !read_solid(p_solid_halo, halo_side, tile_x - 1, tile_y);
+					const bool south_positive_continues = source_north
+						&& read_solid(p_dug_halo, halo_side, tile_x + 1, tile_y - 1)
+						&& !read_solid(p_solid_halo, halo_side, tile_x + 1, tile_y);
+					const bool north_negative_continues = source_south
+						&& read_solid(p_dug_halo, halo_side, tile_x - 1, tile_y + 1)
+						&& !read_solid(p_solid_halo, halo_side, tile_x - 1, tile_y);
+					const bool north_positive_continues = source_south
+						&& read_solid(p_dug_halo, halo_side, tile_x + 1, tile_y + 1)
+						&& !read_solid(p_solid_halo, halo_side, tile_x + 1, tile_y);
+					const bool east_negative_continues = source_west
+						&& read_solid(p_dug_halo, halo_side, tile_x - 1, tile_y - 1)
+						&& !read_solid(p_solid_halo, halo_side, tile_x, tile_y - 1);
+					const bool east_positive_continues = source_west
+						&& read_solid(p_dug_halo, halo_side, tile_x - 1, tile_y + 1)
+						&& !read_solid(p_solid_halo, halo_side, tile_x, tile_y + 1);
+					const bool west_negative_continues = source_east
+						&& read_solid(p_dug_halo, halo_side, tile_x + 1, tile_y - 1)
+						&& !read_solid(p_solid_halo, halo_side, tile_x, tile_y - 1);
+					const bool west_positive_continues = source_east
+						&& read_solid(p_dug_halo, halo_side, tile_x + 1, tile_y + 1)
+						&& !read_solid(p_solid_halo, halo_side, tile_x, tile_y + 1);
+					const bool south_projection = source_north
+						&& local_x >= (south_negative_continues ? 0.0f : mouth_min)
+						&& local_x <= (south_positive_continues ? static_cast<float>(pixels_per_tile) : mouth_max);
+					const bool north_projection = source_south
+						&& local_x >= (north_negative_continues ? 0.0f : mouth_min)
+						&& local_x <= (north_positive_continues ? static_cast<float>(pixels_per_tile) : mouth_max);
+					const bool east_projection = source_west
+						&& local_y >= (east_negative_continues ? 0.0f : mouth_min)
+						&& local_y <= (east_positive_continues ? static_cast<float>(pixels_per_tile) : mouth_max);
+					const bool west_projection = source_east
+						&& local_y >= (west_negative_continues ? 0.0f : mouth_min)
+						&& local_y <= (west_positive_continues ? static_cast<float>(pixels_per_tile) : mouth_max);
+					const bool has_projection_source = source_north || source_east || source_south || source_west;
+					if (has_projection_source) {
+						cutout_alpha = (south_projection || north_projection || east_projection || west_projection)
+							? 1.0f
+							: 0.0f;
+					}
+				}
+				const float remaining_alpha = static_cast<float>(closed_roof_mask[index])
+					* (1.0f - cutout_alpha);
+				const uint8_t visual_value = static_cast<uint8_t>(std::max(
+					0,
+					std::min(255, static_cast<int32_t>(std::lround(remaining_alpha)))
+				));
+				visual_remaining_write[index] = visual_value;
+				remaining_write[index] = dug ? 0 : visual_value;
+			}
+		}
+
+		bytes = remaining_mass_mask;
+		result["closed_roof_mask"] = closed_roof_mask;
+		result["remaining_mass_mask"] = remaining_mass_mask;
+		result["visual_remaining_mass_mask"] = visual_remaining_mass_mask;
+		result["closed_sample_count"] = closed_sample_count;
+		result["dug_sample_count"] = dug_sample_count;
 	}
 
 	result["mask"] = bytes;

@@ -228,6 +228,7 @@ func _build_shader_viewport(
 	sprite.scale = Vector2.ONE * mask_step_px
 	var material := ShaderMaterial.new()
 	material.shader = MOUNTAIN_TOP_MASK_UNDERLAY_SHADER
+	material.set_shader_parameter("closed_mask_texture", mask_texture)
 	material.set_shader_parameter("top_texture", top_texture)
 	material.set_shader_parameter("top_texture_size", Vector2(maxf(1.0, float(top_texture.get_width())), maxf(1.0, float(top_texture.get_height()))))
 	material.set_shader_parameter("face_texture", face_texture)

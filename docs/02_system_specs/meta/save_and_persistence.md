@@ -4,8 +4,8 @@ doc_type: system_spec
 status: approved
 owner: engineering+design
 source_of_truth: true
-version: 1.10
-last_updated: 2026-07-09
+version: 1.11
+last_updated: 2026-07-11
 related_docs:
   - multiplayer_and_modding.md
   - ../../05_adrs/0003-immutable-base-plus-runtime-diff.md
@@ -56,6 +56,22 @@ Current V0 runtime implementation:
 - `world.json` stores `world_seed` and `world_version` alongside the existing world flags
 - changed terrain diffs are sharded as `chunks/<x>_<y>.json`
 - load order is deterministic base restore first, then per-chunk diff apply
+
+### Mountain construction roof reconstruction
+
+- Mountain excavation persists only through the existing per-tile chunk diff
+  (`terrain_id = TERRAIN_PLAINS_DUG` plus walkability). No new save field is
+  introduced by the construction roof.
+- Immutable closed roof ownership comes from regenerated
+  `mountain_id_per_tile + mountain_flags`; live remaining mass comes from that
+  ownership minus applied excavation diff.
+- `closed_roof_mask`, `remaining_mass_mask`, dug/reveal halos,
+  `MountainCavityCache`, active cover selection, GPU textures and numeric
+  `component_id` are transient derived state and must never be serialized.
+- During restore, base generation and chunk diff apply precede paired mask and
+  cavity reconstruction. A player restored inside a dug mountain component is
+  resolved against reconstructed membership; correctness depends on membership,
+  not on preserving its former numeric component id.
 
 ### Weather slow-state persistence
 
@@ -419,6 +435,8 @@ Confirmed `world.json` shape in the current worldgen code path:
 
 - large worlds remain saveable without full-world dumps
 - modified chunks reload exactly as changed
+- mountain closed/remaining masks and cavity membership reconstruct from base +
+  diff without additional save payload
 - current-version player/base/progression state survives save/load
 - non-current `world_version` saves are rejected before runtime diffs or other
   gameplay state are applied

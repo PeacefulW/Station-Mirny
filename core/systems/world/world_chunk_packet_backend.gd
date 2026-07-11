@@ -152,12 +152,14 @@ func queue_mountain_halo_mask_request(
 	epoch: int,
 	revision: int,
 	reason: StringName,
-	mask_purpose: StringName = &"mountain"
+	mask_purpose: StringName = &"mountain",
+	dug_halo: PackedByteArray = PackedByteArray(),
 ) -> void:
 	_request_mutex.lock()
 	_pending_requests.append({
 		"kind": "mountain_halo_mask",
 		"solid_halo": solid_halo.duplicate(),
+		"dug_halo": dug_halo.duplicate(),
 		"target_chunk": target_chunk,
 		"mask_origin_world": mask_origin_world,
 		"chunk_size_tiles": maxi(1, chunk_size_tiles),
@@ -468,7 +470,17 @@ func _process_mountain_raster_request(worker_world_core: Object, request: Dictio
 func _process_mountain_halo_mask_request(worker_world_core: Object, request: Dictionary) -> void:
 	var result: Dictionary = {}
 	var started_msec: int = Time.get_ticks_msec()
-	if not worker_world_core.has_method("build_mountain_halo_mask"):
+	var mask_purpose: StringName = request.get("mask_purpose", &"mountain") as StringName
+	var solid_halo: PackedByteArray = request.get("solid_halo", PackedByteArray()) as PackedByteArray
+	var dug_halo: PackedByteArray = request.get("dug_halo", PackedByteArray()) as PackedByteArray
+	var dual_mask_requested: bool = mask_purpose == &"mountain" and not dug_halo.is_empty()
+	var native_dug_halo: PackedByteArray = dug_halo if mask_purpose == &"mountain" else PackedByteArray()
+	if dual_mask_requested and dug_halo.size() != solid_halo.size():
+		result = {
+			"success": false,
+			"message": "Mountain dug halo shape must match the closed solid halo shape.",
+		}
+	elif not worker_world_core.has_method("build_mountain_halo_mask"):
 		result = {
 			"success": false,
 			"message": "WorldCore.build_mountain_halo_mask is unavailable in this build.",
@@ -477,21 +489,43 @@ func _process_mountain_halo_mask_request(worker_world_core: Object, request: Dic
 		var mask_origin_world: Vector2 = request.get("mask_origin_world", Vector2.ZERO) as Vector2
 		var result_variant: Variant = worker_world_core.call(
 			"build_mountain_halo_mask",
-			request.get("solid_halo", PackedByteArray()) as PackedByteArray,
+			solid_halo,
 			int(request.get("chunk_size_tiles", 1)),
 			int(request.get("tile_size_px", 1)),
 			int(request.get("pixels_per_tile", 1)),
 			mask_origin_world.x,
-			mask_origin_world.y
+			mask_origin_world.y,
+			native_dug_halo,
 		)
 		if result_variant is Dictionary:
 			result = result_variant as Dictionary
 			var mask: PackedByteArray = result.get("mask", PackedByteArray()) as PackedByteArray
 			var mask_width: int = int(result.get("width", 0))
 			var mask_height: int = int(result.get("height", 0))
-			result["success"] = mask_width > 0 \
+			var expected_byte_count: int = mask_width * mask_height
+			var output_valid: bool = mask_width > 0 \
 				and mask_height > 0 \
-				and mask.size() == mask_width * mask_height
+				and mask.size() == expected_byte_count
+			if output_valid and dual_mask_requested:
+				var remaining_mask: PackedByteArray = result.get(
+					"remaining_mass_mask",
+					PackedByteArray(),
+				) as PackedByteArray
+				var visual_remaining_mask: PackedByteArray = result.get(
+					"visual_remaining_mass_mask",
+					PackedByteArray(),
+				) as PackedByteArray
+				var closed_mask: PackedByteArray = result.get(
+					"closed_roof_mask",
+					PackedByteArray(),
+				) as PackedByteArray
+				output_valid = remaining_mask.size() == expected_byte_count \
+					and visual_remaining_mask.size() == expected_byte_count \
+					and closed_mask.size() == expected_byte_count \
+					and mask == remaining_mask
+				if not output_valid:
+					result["message"] = "Native mountain construction-mask output is malformed."
+			result["success"] = output_valid
 		else:
 			result = {
 				"success": false,
@@ -501,7 +535,9 @@ func _process_mountain_halo_mask_request(worker_world_core: Object, request: Dic
 	result["epoch"] = int(request.get("epoch", -1))
 	result["revision"] = int(request.get("revision", -1))
 	result["reason"] = request.get("reason", &"worker") as StringName
-	result["mask_purpose"] = request.get("mask_purpose", &"mountain") as StringName
+	result["mask_purpose"] = mask_purpose
+	if mask_purpose == &"mountain":
+		result["dug_halo"] = dug_halo.duplicate()
 	result["target_chunk"] = request.get("target_chunk", Vector2i.ZERO) as Vector2i
 	result["mask_origin_world"] = request.get("mask_origin_world", Vector2.ZERO) as Vector2
 	result["queued_msec"] = int(request.get("queued_msec", started_msec))

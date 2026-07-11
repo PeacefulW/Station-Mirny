@@ -2092,7 +2092,11 @@ void WorldCore::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("generate_chunk_packets_batch", "seed", "coords", "world_version", "settings_packed"), &WorldCore::generate_chunk_packets_batch);
 	ClassDB::bind_method(D_METHOD("make_world_preview_patch_image", "packet", "render_mode"), &WorldCore::make_world_preview_patch_image);
 	ClassDB::bind_method(D_METHOD("build_mountain_contour_debug", "solid_halo", "chunk_size", "tile_size_px"), &WorldCore::build_mountain_contour_debug);
-	ClassDB::bind_method(D_METHOD("build_mountain_halo_mask", "solid_halo", "chunk_size", "tile_size_px", "pixels_per_tile", "origin_world_x", "origin_world_y"), &WorldCore::build_mountain_halo_mask);
+	ClassDB::bind_method(
+		D_METHOD("build_mountain_halo_mask", "solid_halo", "chunk_size", "tile_size_px", "pixels_per_tile", "origin_world_x", "origin_world_y", "dug_halo"),
+		&WorldCore::build_mountain_halo_mask,
+		DEFVAL(PackedByteArray())
+	);
 	ClassDB::bind_method(D_METHOD("build_grass_scatter_buffer", "seed", "chunk_coord", "terrain_ids", "lake_flags", "mountain_halo", "mountain_halo_radius_tiles", "params"), &WorldCore::build_grass_scatter_buffer);
 	ClassDB::bind_method(D_METHOD("build_mountain_plateau_raster_image", "packets", "target_chunk", "preset", "top_image", "face_image"), &WorldCore::build_mountain_plateau_raster_image);
 	ClassDB::bind_method(D_METHOD("resolve_world_foundation_spawn_tile", "seed", "world_version", "settings_packed"), &WorldCore::resolve_world_foundation_spawn_tile);
@@ -2278,7 +2282,8 @@ Dictionary WorldCore::build_mountain_halo_mask(
 	int64_t p_tile_size_px,
 	int64_t p_pixels_per_tile,
 	double p_origin_world_x,
-	double p_origin_world_y
+	double p_origin_world_y,
+	PackedByteArray p_dug_halo
 ) {
 	return mountain_contour::build_halo_mask(
 		p_solid_halo,
@@ -2286,7 +2291,8 @@ Dictionary WorldCore::build_mountain_halo_mask(
 		static_cast<int32_t>(p_tile_size_px),
 		static_cast<int32_t>(p_pixels_per_tile),
 		p_origin_world_x,
-		p_origin_world_y
+		p_origin_world_y,
+		p_dug_halo
 	);
 }
 

@@ -1,0 +1,37 @@
+{
+	"mask_step_px": 8.0,
+	"pixels_per_tile": 8,
+	"probe": "mountain_modular_mouth_render_probe",
+	"production_shader": "res://assets/shaders/mountain_top_mask_underlay.gdshader",
+	"scenarios": [
+		{
+			"center_reveal_at_0_20": 1.0,
+			"deep_reveal_at_0_34": 0.0,
+			"internal_seam_min_reveal": 1.0,
+			"mouth_tile_count": 1,
+			"name": "one_tile_mouth",
+			"negative_outer_shoulder_at_0_18": 0.0,
+			"positive_outer_shoulder_at_0_18": 0.0,
+			"selector_codes": [
+				4
+			],
+			"shallow_connected_segments": 1
+		},
+		{
+			"center_reveal_at_0_20": 1.0,
+			"deep_reveal_at_0_34": 0.0,
+			"internal_seam_min_reveal": 1.0,
+			"mouth_tile_count": 3,
+			"name": "three_tile_mouth",
+			"negative_outer_shoulder_at_0_18": 0.0,
+			"positive_outer_shoulder_at_0_18": 0.0,
+			"selector_codes": [
+				36,
+				52,
+				20
+			],
+			"shallow_connected_segments": 1
+		}
+	],
+	"selector_side": 10
+}

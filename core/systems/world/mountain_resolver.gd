@@ -21,7 +21,10 @@ func update_from_player_position(
 		}
 		return
 	var tile_coord: Vector2i = WorldRuntimeConstants.world_to_tile(world_pos)
-	var current_sample: Dictionary = streamer.get_mountain_cover_sample(tile_coord)
+	var current_sample: Dictionary = streamer.resolve_mountain_cover_at_world(
+		world_pos,
+		_last_component_id,
+	)
 	if not bool(current_sample.get("ready", false)):
 		_debug_snapshot = {
 			"ready": false,
@@ -42,6 +45,10 @@ func update_from_player_position(
 		"sample_mountain_flags": int(current_sample.get("mountain_flags", 0)),
 		"sample_component_id": current_component_id,
 		"sample_is_opening": bool(current_sample.get("is_opening", false)),
+		"resolved_from_organic_cutout": bool(current_sample.get(
+			"resolved_from_organic_cutout",
+			false,
+		)),
 		"resolved_mountain_id": current_mountain_id,
 		"resolved_component_id": current_component_id,
 		"last_mountain_id_before_update": last_mountain_id_before_update,

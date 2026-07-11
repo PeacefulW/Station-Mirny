@@ -4,8 +4,8 @@ doc_type: system_spec
 status: approved
 owner: engineering
 source_of_truth: true
-version: 1.6
-last_updated: 2026-05-05
+version: 1.10
+last_updated: 2026-07-11
 related_docs:
   - ../../README.md
   - ../../00_governance/WORKFLOW.md
@@ -58,9 +58,9 @@ The player must be able to:
   extra step or reveal delay
 - from outside, see only real mouth / opening holes; the rest of the
   interior stays hidden behind the mountain's crown texture
-- when inside, reveal only the current connected orthogonal cavity and its
-  canonical shell; foreign cavity interiors remain sealed, but real surface
-  mouths stay visible
+- when inside, remove the construction roof only above the current connected
+  orthogonal cavity; the live remaining mountain mass supplies its real inner
+  walls, while foreign cavity interiors remain sealed
 - tune mountain density, scale, continuity, and ruggedness at world
   creation; the settings travel with the save and cannot be retroactively
   changed by repository edits
@@ -74,11 +74,13 @@ V1 is an **additive** extension of V0. It adds:
   hierarchical labeling for `world_version >= 6`
 - `ChunkPacketV1` with three additive fields, no V0 field removed
 - new surface terrain ids: `TERRAIN_MOUNTAIN_WALL`, `TERRAIN_MOUNTAIN_FOOT`
-- roof presentation layer in `ChunkView`, one `TileMapLayer` per
-  `mountain_id` inside a chunk
+- native construction mask set in `ChunkView`: immutable closed roof `C`,
+  gameplay remaining mass `S`, and visual remaining mass `V`
 - `MountainCavityCache` runtime-derived opening / cavity component cache
-- `MountainResolver` O(1) per-step point-in-cavity lookup from player tile
-- mask-only roof reveal driven by current cavity or outside opening state
+- `MountainResolver` bounded O(1) per-step point-in-cavity lookup from the
+  exact floor tile or its real organic excavation fringe
+- floor-only roof reveal driven by the current cavity component; outside uses
+  the closed roof with only a shallow directional sub-tile mouth aperture
 - `MountainGenSettings` resource + `worldgen_settings.mountains` section
   in `world.json`
 - bump `WORLD_VERSION` from `1` to `2` for M1, then to `3` for the
@@ -90,8 +92,8 @@ V1 is an **additive** extension of V0. It adds:
 
 V1 does not include:
 - water generation, multiple biomes, climate data, biome blend logic
-- SDF or door-opening spatial reveal effects (deferred polish; requires a
-  separate spec amendment to pursue)
+- time-based / radial reveal effects and authored door decals; the approved
+  construction masks may use bounded organic contour feathering
 - propagation of surface `mountain_id` to `z != 0` as canonical identity
   (ADR-0006 boundary; only a cheap generation modifier is allowed)
 - node-per-mountain debug visualization beyond a single debug metric
@@ -118,15 +120,15 @@ V1 does not include:
 
 | Question | Answer |
 |---|---|
-| Canonical, runtime overlay, or visual only? | Field, identity, flags, and atlas indices are canonical. Cavity component membership, opening flags, and active viewer state are runtime-derived overlay. Roof cells are visual only. |
-| Save/load required? | Yes, for `worldgen_settings.mountains` in `world.json`. No for cavity cache, opening cache, or active cover state. |
+| Canonical, runtime overlay, or visual only? | Field, identity, flags, and atlas indices are canonical. Excavation is authoritative diff. Closed roof `C`, gameplay remaining mass `S`, visual remaining mass `V`, cavity component membership, mouth selectors, and active viewer state are runtime-derived presentation/cache data. |
+| Save/load required? | Yes, for `worldgen_settings.mountains` and excavation diff. No for `C`, `S`, `V`, cavity cache, mouth/reveal selectors, or active cover state: they rebuild from immutable base + diff. |
 | Deterministic? | Yes. Field, identity, and atlas indices are pure `f(seed, world_version, coord, settings_packed)`. |
 | Must work on unloaded chunks? | Yes. All per-tile canonical data is recomputable from base + diff on demand. |
-| C++ compute or main-thread apply? | Field sample, hierarchical domain solve / legacy anchor fallback, and atlas indices are C++ compute. Roof cell placement, chunk mask upload, and cavity/opening cache refresh are main-thread apply. |
-| Dirty unit | `16 x 16` chunk for generation; one tile for excavation mutation; one loaded chunk plus direct seam-neighbor diff participants for publish / unload; one current cavity component for inside reveal. |
-| Single owner | `WorldCore` for base field. `WorldDiffStore` for diff. `ChunkView` for static roof presentation and per-chunk mask material. `MountainCavityCache` for runtime-derived cavity/opening state. `WorldStreamer` for active cover selection. `world.json` for `worldgen_settings`. |
+| C++ compute or main-thread apply? | Field generation and the `C/S/V` `32 x 32`-tile halo rasterization are worker-side C++. Main thread uploads queued textures and updates bounded `32 x 32` tile reveal/mouth halos. |
+| Dirty unit | `16 x 16` chunk for generation; one tile plus native-halo seam neighbours for excavation; old/new component chunks plus one chunk halo for enter/exit; published/unloaded chunk plus seam participants for streaming. |
+| Single owner | `WorldCore` for base field and native `C/S/V` compute. `WorldDiffStore` for excavation diff. `ChunkView` for visual `C/V` presentation while retaining `S` for gameplay sampling. `MountainCavityCache` for transient component membership. `WorldStreamer` for active cover/mouth selection and dirty scheduling. |
 | 10x / 100x scale path | Version `6` keeps identity on aligned macro solves with reusable native cache, recursive subdivision only for mixed cells, and versioned `min_label_cell_size = 8`. Publish inherits V0 slicing. No whole-world scan is introduced. |
-| Main-thread blocking? | No. Generation stays in the existing worker path. Apply remains sliced through `FrameBudgetDispatcher.CATEGORY_STREAMING`. |
+| Main-thread blocking? | No broad work. Paired masks stay in the existing worker queue; texture uploads stay under the existing mountain visual upload budget; active reveal rebuild touches only transition/dirty chunks and halo neighbours. |
 | Hidden GDScript fallback? | Forbidden. Native `WorldCore` is required; absence fails loudly per LAW 9. |
 | Could it become heavy later? | Yes. Noise octaves, hierarchical leaf count, and revealed cavity size scale. All stay inside native generation or bounded cache refresh; movement-time work remains cached lookup only. |
 | Whole-world prepass? | Forbidden. All field and identity work is local to one chunk plus a bounded aligned macro halo reused through `WorldCore`. |
@@ -349,60 +351,125 @@ Rules:
 | Base field, identity, flags, atlas | `WorldCore` (native) | Emit V1 packet. |
 | Diff | `WorldDiffStore` | Unchanged from V0. |
 | Chunk orchestration | `WorldStreamer` | Forward new packet fields; flatten settings; persist settings in `world.json`. |
-| Presentation | `ChunkView` | Own base/overlay/roof layers and per-chunk cover mask textures. |
-| Runtime cover cache | `MountainCavityCache` | Derive cavity component membership, opening flags, opening shell, and current-cavity shell from canonical packet + diff geometry. |
-| Point-in-cavity lookup | `MountainResolver` | Per-frame derive current cavity component under the player tile; update active cover selection. |
+| Presentation | `ChunkView` | Keep gameplay remaining mass `S` for collision/mining sampling, upload visual remaining mass `V`, and lazily own immutable closed-roof `C`, a combined roof-reveal selector, and a separate tiny physical-mouth selector. |
+| Runtime cover cache | `MountainCavityCache` | Derive orthogonal cavity component membership from canonical mountain ownership + excavation diff. Legacy opening/shell metadata is diagnostic only and does not drive the construction roof. |
+| Point-in-cavity lookup | `MountainResolver` | Per-frame derive current cavity component from the exact floor tile or the bounded organic `C-S` fringe around it; update active cover selection. |
 
 ### Roof Presentation
 
-- `ChunkView` holds `Dictionary[int, Dictionary[int, TileMapLayer]]
-  roof_layers_by_mountain`: `mountain_id -> presentation terrain_id -> layer`
-- roof layers are created lazily on first tile assignment for a given
-  `(mountain_id, presentation terrain_id)` pair
-- roof layer `tile_set` is provided by
-  `WorldTileSetFactory.get_roof_tile_set(terrain_id)`; `TERRAIN_MOUNTAIN_WALL`
-  and `TERRAIN_MOUNTAIN_FOOT` keep separate 47-tile presentation resources
-  while sharing the same per-`mountain_id` cover mask texture
-- roof cells are placed for every tile with
-  `mountain_id > 0 and (is_wall == 1 or is_foot == 1)`
-- after publish, roof cells remain static; runtime cover changes are
-  mask-only via shader/material state
-- runtime cover state must never mutate canonical terrain geometry or roof
-  tile placement
-- aggregated alpha per chunk is **forbidden**
-- on chunk unload, `ChunkView.queue_free` destroys all roof layers
-
-Guardrail (mandatory from M2 onward):
-- `WorldStreamer` exposes debug metric `roof_layers_per_chunk_max`
-- when value exceeds `6`, emit one warning per session:
-  `"roof layer explosion: chunk %s has %d mountains"`
+- Native worker input for every mountain mask request is one paired halo:
+  - `C_tiles`: immutable roof-bearing ownership from
+    `mountain_id > 0 && flags & (WALL|FOOT)`, ignoring diff;
+  - `D_tiles`: authoritative mountain-owned `TERRAIN_PLAINS_DUG` cells after
+    diff application.
+- The broad blur/noise pass rasterizes `C_tiles` once into immutable closed
+  organic roof mask `C`.
+- The visual excavation contour `V` is the retained `fbedb3b` room formula:
+  the dug tile field receives one box blur of `pixels_per_tile / 4`, samples the
+  mountain's broad displacement at `0.32` strength, and applies
+  `smooth((cutout_field - 0.28) / 0.44)` against `C`. This gives joined rooms,
+  corners and branches one continuous hand-cut contour instead of a grid of
+  full-tile rectangles.
+- Every dug tile additionally forces a central `25%..75%` topology core and a
+  half-tile arm toward each dug cardinal neighbour fully open in `V`. Arms meet
+  across tile seams, so straight, L, T and cross junctions cannot close at their
+  centres even when the organic contour is displaced.
+- A physical mouth is the deliberate non-organic exception in `V`: the outward
+  half of a dug tile next to exterior `C_tiles=0` is clamped to a straight
+  portal. Its one-tile lateral bounds are `12.5%..87.5%`; a same-direction mouth
+  in the adjacent tile extends that side to the seam. Thus a `2..N`-tile-wide
+  entrance is one uninterrupted span with jambs only at its outer ends.
+- Gameplay remaining mass `S` equals `V` on non-dug source tiles but hard-zeros
+  every pixel of every `D_tiles=1` source tile. The organic fringe in adjacent
+  retaining cells remains mineable/collidable, while no visual overhang can
+  make an already mined tile impassable. Required invariant:
+  `0 <= S <= V <= C` for every pixel.
+- One worker result carries `closed_roof_mask = C`,
+  `remaining_mass_mask = S`, `visual_remaining_mass_mask = V`, and compatibility
+  alias `mask = S`. `mask`/`S` is not the texture used to draw the room contour.
+  No synchronous GDScript pixel compositor is allowed.
+- `ChunkView` renders two sprites with the same origin, clip and material set:
+  - `BASE(V)` draws the physical outer/inner facade and exposes the real ground
+    floor; collision and mining separately sample `S`;
+  - `ROOF(C,V,R,M)` is visual-only. `R` is the active cavity floor. `M` stores
+    `N/E/S/W` direction bits for real surface mouth cells. `R` selects the full
+    organic `V` cutout; outside, `M` selects only the straight shallow physical
+    portal at the corresponding facade edge.
+- `ROOF` is the immediate equal-z sibling after `BASE`, below the existing
+  player/decor depth ladder. This preserves the approved exterior
+  mountain/object occlusion contract; generated objects are never anchored on
+  immutable mountain cells, and the local player reveals the component before
+  occupying its interior.
+- The roof contribution suppresses its own structural facade/eave band. This
+  leaves the live `BASE` facade in charge of the real mouth and prevents the
+  facade from moving deeper into the mountain when the roof is closed.
+- The ordinary ground `_base_layer` remains visible below every cutout. Black
+  fill, clear-color holes, entrance decals and duplicated floor textures are
+  forbidden.
+- Collision, resolver and mining always sample gameplay `S`, never `V`, `R`,
+  `M`, or the rendered roof. Introducing `V` changes presentation only; roof
+  ownership and resolver entry/exit semantics remain unchanged.
+- Mountain torch-shadow composition samples `C` outside and selects `V` for
+  active-component floor tiles plus a torch-only one-tile support ring. This
+  derived light selector never changes `ROOF`, excavation or collision. Torch
+  occlusion follows the same native organic `C-V` edge that the player sees
+  instead of a 64 px rectangle,
+  while hidden/foreign excavation remains under `C` (ADR-0005).
+- The closed mask remains publishable even when every local mountain cell has
+  been excavated; quarry/collapse semantics are a separate future feature.
+- The legacy `roof_layers_by_mountain` tile presentation may remain disabled
+  for compatibility, but it is not an authoritative or active cover path.
 
 ### Cover Cache and Visibility
 
 - `MountainCavityCache` is runtime-derived only; it never mutates canonical
   packet fields
 - required runtime cache surfaces:
-  - tile -> `mountain_id`
   - tile -> `component_id`
-  - tile -> `is_opening`
-  - component -> member tiles + canonical shell + opening shell
-- outside state:
-  - visible tiles are only `opening + opening_shell`
-  - `opening_shell` is only the orthogonal canonical shell that touches a
-    real mouth; it must not extend one tile deeper into the cavity
-  - interior floor tiles outside the mouth stay hidden
-- inside state:
-  - visible tiles are only `current_component.tiles +
-    current_component.shell + outside_visible(openings + opening_shell)`
-  - foreign cavity interiors stay hidden, but foreign real surface mouths
-    remain visible
-- shell data is derived from canonical `mountain_id + (is_wall|is_foot)`
-  geometry around the revealed cavity; it is not derived from a generic
-  walkable-only heuristic
+  - component -> authoritative excavated member tiles and touched chunks
+- outside state is `R=0`; `M` encodes only true surface mouth cells plus their
+  outward cardinal direction. The shader opens a straight, shallow portal about
+  one quarter of a tile deep, so the closed roof reaches the entrance instead of
+  removing the whole first tunnel tile
+- inside state uses `R=current_component.tiles` only; shell, opening shell and
+  outside-visible fields must not be copied into the roof reveal selector
+- `M` is independent of the active component and contains opening floor cells
+  only, never opening shell; its low four bits are `N=1/E=2/S=4/W=8`. Active
+  component cells use selector value `255`; bits `16/32` mark lateral
+  continuation so a wide mouth removes its internal jambs and keeps only small
+  chamfers at the two outer header corners. Continuation is encoded only for a
+  single-direction cell;
+  the shader resolves lateral neighbours separately for each direction only on
+  rare multi-direction organic-corner fragments, so one direction cannot
+  deepen another and a wide mouth does not pinch at its corner cell
+- `ChunkView` uploads two tiny `32 x 32` L8 selectors: the combined roof reveal
+  field (`255` for active `R`, otherwise the low-six-bit `M` code) and a separate
+  physical mouth texture. The latter keeps each source `M` code and copies its
+  direction/continuation bits into exactly one outward neighbour marked by bit
+  `64`. This one-cell projection clears the organic `C` spill without repeated
+  neighbour searches in the shader. Active value `255` deliberately overwrites
+  direction bits in the combined field; the stable physical texture preserves
+  the same aperture both outside and inside the cavity. The shader locally
+  removes the global crag warp around the full portal SDF, keeping its opening
+  straight while the surrounding mountain contour remains organic
+- the tile reveal halo is `32 x 32` L8 bytes: chunk `16 x 16` plus the same
+  `8`-tile native halo on every side; it shares UV/world origin with `C` and `S`
+- torch-only support expands raw binary `R` by exactly one Chebyshev tile on
+  the complete `32 x 32` halo before chunk clipping. It contains only non-dug
+  cells. A support cell touching any foreign dug source fails closed; neither a
+  foreign dug tile nor a second support ring is selected. The bound matches the
+  native cutout reach (`blur + warp < 1 tile`) and preserves chunk continuity
+- wide mouths, left/right branches and multiple mouths require no special-case
+  identity: orthogonally connected dug tiles share the same component and
+  `BASE(V)` supplies every physical aperture
 - diagonal-only contact never connects cavity components
 - adjacent mountains must remain independent because component membership is
   constrained by stable canonical `mountain_id`
-- SDF / spatial reveal effects are forbidden in V1
+- component ids are transient and may change after merge/reload; membership,
+  not the numeric id, is the contract
+- component floor chunks are cached incrementally, and per-chunk selectors use
+  fixed `16 x 16` membership lookups; enter/exit must not rescan every tile once
+  per component chunk
 
 ### Mountain Resolver
 
@@ -414,10 +481,18 @@ Guardrail (mandatory from M2 onward):
      nothing
   3. treat `component_id > 0` as inside immediately, including when standing
      on an entrance tile
-  4. when active component changes, update `WorldStreamer` active cover
+  4. if the exact tile has no component, sample immutable `C` and remaining
+     raw `S` (without facade-collision projection) at the player position; only
+     when `C` is solid and `S` is open, inspect the fixed `3 x 3` tile
+     neighbourhood and prefer the previous component. Fallback distance uses
+     wrapped X and ordinary Y distance under ADR-0002.
+     This retains ownership in a real organic excavated corner without keeping
+     the roof open on ordinary exterior ground
+  5. when active component changes, update `WorldStreamer` active cover
      selection
 
-Resolver does O(1) work per frame; no flood fill, scene-tree query, or
+Resolver does bounded O(1) work per frame (one exact sample, two raster samples,
+at most eight cached neighbour samples); no flood fill, scene-tree query, or
 raycast is allowed on the hot path.
 
 ### Excavation and Opening Derivation
@@ -436,6 +511,14 @@ raycast is allowed on the hot path.
   never written back into packet or diff
 - orthogonal excavation that joins two cavity components merges them into one
   visible cavity; diagonal-only contact does not
+- the immediate collision patch may clear gameplay `S` locally, but the queued
+  native reconcile is authoritative for `S/V` separation: `S` must preserve a
+  fully open source cell for every `D_tiles=1`, while `V` may retain organic
+  corner overhang outside its guaranteed topology core/arms
+- facade collision remains authoritative on retaining rock. The only exterior
+  exemption is a walkable apron tile cardinally adjacent to a true opening;
+  this prevents the projected facade lip from pinching the player's footprint
+  before its centre reaches the dug mouth
 - cover updates after mutation must not use mass `set_cell`, `TileMap.clear`,
   or loaded-world global rebuilds
 
@@ -443,11 +526,22 @@ raycast is allowed on the hot path.
 
 - mountain packet fields travel through the existing V0 chunk publish
   path unchanged
-- roof `TileMapLayer` population is part of the same sliced publish loop
+- `C/S/V` mask compute travels through the existing worker mask queue and one
+  revision/inflight/cache key per chunk
 - no new `FrameBudgetDispatcher` category is introduced; reuse
-  `CATEGORY_STREAMING` for publish and local cover-mask refresh
+  the existing mountain visual-upload queue and its `0.75 ms/frame` budget
 - on chunk publish / unload, update only the published or unloaded chunk plus
   direct seam-neighbor diff participants needed to refresh cavity metadata
+- on active component transition, refresh only the union of old/new component
+  chunks expanded by one chunk for the native halo; an empty target list must
+  never mean "scan every loaded ChunkView"
+- a newly published chunk remains hidden only while its real native mountain
+  visual is pending. Plain/shore chunks never enter this gate. After the `C/S/V`
+  result and restored active selector upload, the view becomes visible and only
+  then emits `chunk_loaded`, preventing a one-frame closed-roof flash on reload
+- zero-dug mountain chunks use the legacy single `BASE` draw and allocate no
+  CLOSED/selector textures; the second roof sprite/resources are created lazily
+  on the first excavation
 - `TileMapLayer.clear()` remains forbidden on runtime mutation paths
 
 ## Persistence Contract
@@ -560,10 +654,14 @@ Chunk diffs keep `ChunkDiffV0` shape. Forbidden additions:
 
 - `MountainCavityCache` state is transient; not persisted
 - active cover selection is transient; not persisted
+- `closed_roof_mask`, `remaining_mass_mask`, `visual_remaining_mass_mask`,
+  dug/reveal/mouth halos, GPU textures and worker revisions are transient derived
+  data; none enter `world.json` or `chunks/*.json`
 - after load, derived cavity / opening state is rebuilt from loaded packet +
   diff data during publish
-- the resolver may update active component selection on the first post-load
-  physics frame, but no save payload stores reveal / cover state
+- a player restored on a mountain-owned dug tile must resolve the rebuilt
+  component before that chunk's first visible roof state; no save payload stores
+  reveal / cover state or relies on stable numeric `component_id`
 
 ## Event Contract
 
@@ -584,9 +682,10 @@ contract.
 | Satellite outcrop solve | background (native worker) | current chunk candidate anchor cells | outside main thread |
 | Passage / pocket / gorge carve solve | background (native worker) | current chunk `32 x 32` mountain sample grid plus bounded nearby `32`-tile anchors | outside main thread |
 | Sliced mountain publish | background apply | batch of cells | shares V0 `CATEGORY_STREAMING` budget |
+| Closed/gameplay/visual native masks (`C/S/V`) | background (native worker) | one `32 x 32` tile halo / chunk revision | outside main thread; one result, queued `C/V` and tiny-selector uploads |
 | Resolver tile lookup | interactive | 1 tile | < 0.05 ms/frame |
-| Cover mask upload on state switch | background apply | loaded chunks only | bounded by loaded ring; no topology rebuild |
-| Excavation mutation | interactive | 1 tile + affected cavity metadata | V0 budget, unchanged |
+| Roof reveal upload on state switch | background apply | old/new component chunks + one-chunk halo | existing `0.75 ms/frame` visual budget; no native rebuild |
+| Excavation mutation | interactive | 1 tile + native-halo seam neighbours | immediate collision patch; native/GPU follow-up queued |
 | Cavity/opening cache refresh on mutation | interactive | local dirty neighborhood + affected component metadata | < 1.0 ms at normal scale |
 | Cavity/opening rebuild on publish / unload | boot/load | published/unloaded chunk plus direct seam participants | loading / streaming only |
 
@@ -597,6 +696,9 @@ contract.
 - flood-fill over interior tiles on enter / movement
 - chunk-wide rescan on every player step
 - global rebuild of loaded-world cavity visibility on every publish / unload
+- all-loaded-chunk reveal sweep on enter, exit or one-tile excavation
+- synchronous native-mask generation or `ImageTexture` upload in the mining input frame
+- CPU composition of `C`, `S`, `V` and `R` into a replacement collision/render mask
 - `mountain_id` recompute on mutation
 - cover state in save payload
 - autotile-47 pass during cover updates (atlas indices are precomputed at
@@ -630,27 +732,41 @@ contract.
 
 ### Cover Visibility
 
-- [ ] outside mountain: only real mouth / opening holes are visible
-- [ ] outside mountain: no interior tunnel / cavity leaks through the cover
+- [ ] outside mountain: `BASE(V)` makes the physical mouth readable and shows
+      the real ground floor; no black/clear-color fill is visible
+- [ ] outside mountain: `ROOF(C)` hides the tunnel depth and the outer facade
+      remains at the immutable construction edge instead of moving inward
 - [ ] standing on an entrance tile counts as inside immediately
 - [ ] entering a cavity reveals the full connected orthogonal cavity
       immediately
+- [ ] leaving restores a roof pixel-identical to the initial outside state
 - [ ] separate cavities remain isolated while inside one of them
-- [ ] foreign real surface mouths remain visible while inside a current cavity
 - [ ] foreign cavity interiors remain hidden while inside a current cavity
 - [ ] adjacent mountains behave independently
+- [ ] narrow, wide, L/T-shaped and cross-chunk cavities do not show a cellular
+      roof boundary
+- [ ] a one-tile mouth has a straight threshold/header with restrained outer
+      chamfers; a `2..N`-tile mouth has no internal posts and retains only its two
+      outer jambs
+- [ ] torch shadows inside those cavities follow the same native organic edge;
+      no square 64 px shadow plate remains around active dug tiles
 - [ ] cover state is not written to the save payload
 
 ### Excavation
 
 - [ ] digging a new mouth makes the opening visible from outside without
       revealing the whole cavity
-- [ ] remaining interior tiles stay covered while the mountain is sealed
-      from outside
+- [ ] one-tile and wide dug source cells remain fully open after native
+      reconcile; the actual player footprint can traverse them
+- [ ] retaining wall cells stay solid, blocked and mineable
 - [ ] orthogonal excavation that joins two cavities makes them reveal as one
 - [ ] diagonal-only contact does not merge passability or visibility
-- [ ] reveal never becomes the source of truth for wall geometry or
-      autotile-47 presentation
+- [ ] `remaining_mass_mask <= closed_roof_mask` for every native output pixel
+- [ ] `remaining_mass_mask <= visual_remaining_mass_mask <= closed_roof_mask`
+      for every native output pixel; only gameplay `S` is required to be zero
+      across the whole dug source tile
+- [ ] reveal never becomes the source of truth for wall geometry, collision or
+      mining
 
 ### Persistence
 
@@ -663,6 +779,8 @@ contract.
       world, not the edited defaults
 - [ ] excavation diff survives save/load; cavity / opening runtime state is
       reconstructed correctly after load
+- [ ] fully excavated local mountain metadata still publishes its closed roof
+      outside; `C/S/V` and numeric component ids are reconstructed, not saved
 
 ### Performance
 
@@ -671,8 +789,9 @@ contract.
 - [ ] chunk publish / evict do not trigger full loaded-world cover rebuild
 - [ ] interactive excavation including cover-cache refresh completes under
       `1.0 ms` at p95
-- [ ] `roof_layers_per_chunk_max > 24` emits exactly one warning per
-      session, not per frame
+- [ ] enter/exit does not request native rebuild and queued roof/reveal uploads
+      remain inside the existing `0.75 ms/frame` budget
+- [ ] one excavation dirties only owner chunk plus native-halo seam neighbours
 - [ ] no measurable regression in V0 acceptance tests when
       `worldgen_settings.mountains.density = 0.0`
 
@@ -766,11 +885,13 @@ All five open questions Q1–Q5 are resolved in
 `MOUNTAIN_GENERATION_ARCHITECTURE.md` §10 as canonical Decision blocks.
 Summary:
 
-- Q1. Roof presentation is per `mountain_id`, not per chunk.
+- Q1. Canonical ownership remains per `mountain_id`; active presentation is a
+  per-chunk native `C/S/V` mask set with matching halo, not one tile layer per owner.
 - Q2. Cavity/opening visibility is runtime-derived from packet + diff;
   not persisted.
-- Q3. First playable cover uses static roof + mask-only reveal; SDF and
-  time-based alpha fade are deferred.
+- Q3. First playable cover uses immutable construction roof `C`, gameplay mass
+  `S`, visual mass `V`, and floor-only component selector `R`; time-based alpha
+  fade is deferred.
 - Q4. Settings live in `world.json` under `worldgen_settings`;
   `world_version` is not a settings hash.
 - Q5. Subsurface stays a separate domain; surface `mountain_id` does not
@@ -916,6 +1037,25 @@ Acceptance tests for M6:
 - [ ] native packet generation remains worker-side and introduces no
       main-thread generation loop.
 
+### M7 — Construction Roof and Native Excavation Cutout (2026-07-11)
+
+Goal: replace the disabled tile-roof visibility path with the natural
+construction model proven by the runtime prototype.
+
+Changes:
+- worker emits `C/S/V` masks from immutable ownership + diff
+- gameplay `S` hard-clears every dug tile while `V` keeps the organic fbed room
+  contour, topology core/arms, and straight continuation-aware physical mouths
+- `ChunkView` renders live `BASE(V)` plus independent visual `ROOF(C,V,R,M)`;
+  collision/mining keep sampling `S`
+- `MountainResolver` keeps automatic entry/exit; reveal contains only active
+  component floor cells
+- derived masks/components stay out of persistence and rebuild from base + diff
+
+Acceptance tests for M7 are the Cover Visibility, Excavation, Persistence and
+Performance gates above. M7 supersedes the active presentation semantics of M2
+and M3; their tile-layer/opening-shell text is implementation history only.
+
 ## Status Rationale
 
 This spec is approved because:
@@ -933,3 +1073,15 @@ This spec is approved because:
 Implementation tasks may cite this spec as `approved` prerequisite.
 Changes to the rules above require a new version of this document with
 `last_updated` bumped and a changelog entry describing the amendment.
+
+Version `1.7` is the M7 amendment: paired construction masks replace the legacy
+tile-roof/opening-shell presentation without changing packet or save schemas.
+Version `1.9` fixes the torch-only component selector so dynamic light consumes
+the active native excavation mask (including its bounded organic fringe), while
+roof reveal, collision, excavation truth, packet shape and persistence remain
+unchanged.
+Version `1.10` separates gameplay remaining mass `S` from visual remaining mass
+`V`, restores the fbed room contour with guaranteed topology cores/arms, and
+defines straight modular mouths plus their independent physical selector and
+one-cell exterior projection. Construction-roof and resolver ownership do not
+change.

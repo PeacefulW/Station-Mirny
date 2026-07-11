@@ -18,6 +18,7 @@ func _init() -> void:
 		Vector2i(1, 1),
 		Vector2i(5, 0),
 		Vector2i(5, 1),
+		Vector2i(6, 1),
 		Vector2i(11, 0),
 	]
 	var load_result: Dictionary = cache.on_chunk_loaded(
@@ -40,6 +41,34 @@ func _init() -> void:
 	_assert(int(other_mountain_opening.get("mountain_id", 0)) == 2, "second mountain should keep independent ownership")
 	_assert(int(other_mountain_opening.get("component_id", 0)) > 0, "foot-band mouth should still become a component")
 	_assert(bool(other_mountain_opening.get("is_opening", false)), "foot-band mouth should still count as opening")
+
+	var closed_roof_mask: PackedByteArray = cache.build_chunk_component_floor_mask(
+		Vector2i.ZERO,
+		0
+	)
+	_assert(_mask_is_zero(closed_roof_mask), "outside component id 0 must keep the construction roof fully closed")
+
+	var first_component_floor_mask: PackedByteArray = cache.build_chunk_component_floor_mask(
+		Vector2i.ZERO,
+		int(first_opening.get("component_id", 0))
+	)
+	_assert(_mask_has_tile(first_component_floor_mask, Vector2i(1, 0)), "active construction cutout should contain its opening floor tile")
+	_assert(_mask_has_tile(first_component_floor_mask, Vector2i(1, 1)), "active construction cutout should contain its interior floor tile")
+	_assert(not _mask_has_tile(first_component_floor_mask, Vector2i(0, 0)), "active construction cutout must not inherit legacy opening shell")
+	_assert(not _mask_has_tile(first_component_floor_mask, Vector2i(0, 1)), "active construction cutout must contain component floors only, never wall shell")
+	_assert(not _mask_has_tile(first_component_floor_mask, Vector2i(5, 0)), "active construction cutout must not reveal a foreign cavity opening")
+	_assert(not _mask_has_tile(first_component_floor_mask, Vector2i(5, 1)), "active construction cutout must not reveal a foreign cavity interior")
+	_assert(not _mask_has_tile(first_component_floor_mask, Vector2i(6, 1)), "active construction cutout must not reveal a foreign side-facing mouth")
+	_assert(not _mask_has_tile(first_component_floor_mask, Vector2i(11, 0)), "active construction cutout must not reveal another mountain opening")
+	var physical_mouth_mask: PackedByteArray = cache.build_chunk_opening_floor_mask(
+		Vector2i.ZERO,
+	)
+	_assert(_mask_has_tile(physical_mouth_mask, Vector2i(1, 0)), "physical mouth selector should include the first real boundary floor")
+	_assert(_mask_has_tile(physical_mouth_mask, Vector2i(5, 0)), "physical mouth selector should include a foreign real boundary floor")
+	_assert(_mask_has_tile(physical_mouth_mask, Vector2i(6, 1)), "physical mouth selector should include a west/east-facing real boundary floor")
+	_assert(_mask_has_tile(physical_mouth_mask, Vector2i(11, 0)), "physical mouth selector should include another mountain real boundary floor")
+	_assert(not _mask_has_tile(physical_mouth_mask, Vector2i(1, 1)), "physical mouth selector must not reveal tunnel depth")
+	_assert(not _mask_has_tile(physical_mouth_mask, Vector2i(0, 0)), "physical mouth selector must not inherit opening shell")
 
 	var outside_mask: PackedByteArray = cache.build_chunk_visibility_mask(Vector2i.ZERO, 0)
 	_assert(_mask_has_tile(outside_mask, Vector2i(1, 0)), "outside should show first opening")
@@ -69,6 +98,13 @@ func _init() -> void:
 	var diagonal_only: Dictionary = cache.get_sample(Vector2i(2, 2), Callable(self, "_sample_tile"))
 	_assert(int(diagonal_only.get("component_id", 0)) > 0, "diagonal dig should create a component")
 	_assert(int(diagonal_only.get("component_id", 0)) != int(first_opening.get("component_id", 0)), "diagonal-only contact must not connect cavities")
+	var diagonal_floor_mask: PackedByteArray = cache.build_chunk_component_floor_mask(
+		Vector2i.ZERO,
+		int(diagonal_only.get("component_id", 0))
+	)
+	_assert(_mask_has_tile(diagonal_floor_mask, Vector2i(2, 2)), "diagonal component cutout should contain its own floor")
+	_assert(not _mask_has_tile(diagonal_floor_mask, Vector2i(1, 1)), "diagonal-only contact must remain a separate construction cutout")
+	_assert(not _mask_has_tile(diagonal_floor_mask, Vector2i(5, 0)), "diagonal construction cutout must not inherit foreign openings")
 
 	for bridge_tile: Vector2i in [Vector2i(2, 1), Vector2i(3, 1), Vector2i(4, 1)]:
 		_set_floor(
@@ -88,6 +124,23 @@ func _init() -> void:
 	)
 	_assert(_mask_has_tile(merged_mask, Vector2i(5, 1)), "merged cavity should reveal right-side floor")
 	_assert(_mask_has_tile(merged_mask, Vector2i(11, 0)), "merged cavity should still keep other mountain mouth visible")
+	var merged_component_floor_mask: PackedByteArray = cache.build_chunk_component_floor_mask(
+		Vector2i.ZERO,
+		int(merged_left.get("component_id", 0))
+	)
+	for merged_floor: Vector2i in [
+		Vector2i(1, 0),
+		Vector2i(1, 1),
+		Vector2i(2, 1),
+		Vector2i(3, 1),
+		Vector2i(4, 1),
+		Vector2i(5, 0),
+		Vector2i(5, 1),
+		Vector2i(6, 1),
+	]:
+		_assert(_mask_has_tile(merged_component_floor_mask, merged_floor), "orthogonal merge should include floor %s in one active construction cutout" % str(merged_floor))
+	_assert(not _mask_has_tile(merged_component_floor_mask, Vector2i(0, 1)), "merged construction cutout must still exclude wall shell")
+	_assert(not _mask_has_tile(merged_component_floor_mask, Vector2i(11, 0)), "merged construction cutout must still exclude another mountain opening")
 	_assert_roof_tileset_mapping()
 
 	if _failed:
@@ -109,7 +162,7 @@ func _seed_mountain_one() -> void:
 				WorldRuntimeConstants.MOUNTAIN_FLAG_INTERIOR | WorldRuntimeConstants.MOUNTAIN_FLAG_WALL,
 				false
 			)
-	for floor_tile: Vector2i in [Vector2i(1, 0), Vector2i(1, 1), Vector2i(5, 0), Vector2i(5, 1)]:
+	for floor_tile: Vector2i in [Vector2i(1, 0), Vector2i(1, 1), Vector2i(5, 0), Vector2i(5, 1), Vector2i(6, 1)]:
 		_set_floor(
 			floor_tile,
 			1,
@@ -139,6 +192,12 @@ func _sample_tile(world_tile: Vector2i) -> Dictionary:
 func _mask_has_tile(mask: PackedByteArray, world_tile: Vector2i) -> bool:
 	var index: int = WorldRuntimeConstants.local_to_index(WorldRuntimeConstants.tile_to_local(world_tile))
 	return index >= 0 and index < mask.size() and mask[index] != 0
+
+func _mask_is_zero(mask: PackedByteArray) -> bool:
+	for value: int in mask:
+		if value != 0:
+			return false
+	return true
 
 func _assert_roof_tileset_mapping() -> void:
 	var view := ChunkView.new()

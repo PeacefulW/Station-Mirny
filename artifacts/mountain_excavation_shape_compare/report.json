@@ -1,0 +1,142 @@
+{
+	"columns": [
+		"production_hard",
+		"fbed_style_reference",
+		"production_visual"
+	],
+	"pixels_per_tile": 8,
+	"probe": "mountain_excavation_shape_compare",
+	"reference_commit": "fbedb3b",
+	"scenarios": [
+		{
+			"dug_tile_count": 1,
+			"fbed_style_reference": {
+				"dug_fully_clear_fraction": 0.5156,
+				"dug_mean_reveal": 0.8122,
+				"dug_open_fraction_at_50": 0.8438,
+				"open_components_at_50": 1,
+				"retained_mean_solid": 0.0
+			},
+			"name": "one_tile_entrance",
+			"production_hard": {
+				"dug_fully_clear_fraction": 1.0,
+				"dug_mean_reveal": 1.0,
+				"dug_open_fraction_at_50": 1.0,
+				"open_components_at_50": 1,
+				"retained_mean_solid": 0.0
+			},
+			"production_visual": {
+				"dug_fully_clear_fraction": 0.625,
+				"dug_mean_reveal": 0.7671,
+				"dug_open_fraction_at_50": 0.7813,
+				"open_components_at_50": 1,
+				"retained_mean_solid": 0.0
+			},
+			"retained_tile_count": 0
+		},
+		{
+			"dug_tile_count": 3,
+			"fbed_style_reference": {
+				"dug_fully_clear_fraction": 0.6979,
+				"dug_mean_reveal": 0.9097,
+				"dug_open_fraction_at_50": 0.9375,
+				"open_components_at_50": 1,
+				"retained_mean_solid": 0.0
+			},
+			"name": "straight_3_tile_corridor",
+			"production_hard": {
+				"dug_fully_clear_fraction": 1.0,
+				"dug_mean_reveal": 1.0,
+				"dug_open_fraction_at_50": 1.0,
+				"open_components_at_50": 1,
+				"retained_mean_solid": 0.0
+			},
+			"production_visual": {
+				"dug_fully_clear_fraction": 0.6979,
+				"dug_mean_reveal": 0.9097,
+				"dug_open_fraction_at_50": 0.9375,
+				"open_components_at_50": 1,
+				"retained_mean_solid": 0.0
+			},
+			"retained_tile_count": 0
+		},
+		{
+			"dug_tile_count": 7,
+			"fbed_style_reference": {
+				"dug_fully_clear_fraction": 0.7254,
+				"dug_mean_reveal": 0.9237,
+				"dug_open_fraction_at_50": 0.9375,
+				"open_components_at_50": 1,
+				"retained_mean_solid": 0.0
+			},
+			"name": "l_turn",
+			"production_hard": {
+				"dug_fully_clear_fraction": 1.0,
+				"dug_mean_reveal": 1.0,
+				"dug_open_fraction_at_50": 1.0,
+				"open_components_at_50": 1,
+				"retained_mean_solid": 0.0
+			},
+			"production_visual": {
+				"dug_fully_clear_fraction": 0.7254,
+				"dug_mean_reveal": 0.9237,
+				"dug_open_fraction_at_50": 0.9375,
+				"open_components_at_50": 1,
+				"retained_mean_solid": 0.0
+			},
+			"retained_tile_count": 0
+		},
+		{
+			"dug_tile_count": 12,
+			"fbed_style_reference": {
+				"dug_fully_clear_fraction": 0.7429,
+				"dug_mean_reveal": 0.9212,
+				"dug_open_fraction_at_50": 0.9489,
+				"open_components_at_50": 1,
+				"retained_mean_solid": 0.0
+			},
+			"name": "t_room",
+			"production_hard": {
+				"dug_fully_clear_fraction": 1.0,
+				"dug_mean_reveal": 1.0,
+				"dug_open_fraction_at_50": 1.0,
+				"open_components_at_50": 1,
+				"retained_mean_solid": 0.0
+			},
+			"production_visual": {
+				"dug_fully_clear_fraction": 0.7429,
+				"dug_mean_reveal": 0.9212,
+				"dug_open_fraction_at_50": 0.9489,
+				"open_components_at_50": 1,
+				"retained_mean_solid": 0.0
+			},
+			"retained_tile_count": 0
+		},
+		{
+			"dug_tile_count": 41,
+			"fbed_style_reference": {
+				"dug_fully_clear_fraction": 0.9131,
+				"dug_mean_reveal": 0.9753,
+				"dug_open_fraction_at_50": 0.9832,
+				"open_components_at_50": 1,
+				"retained_mean_solid": 0.7964
+			},
+			"name": "adjacent_retaining_island",
+			"production_hard": {
+				"dug_fully_clear_fraction": 1.0,
+				"dug_mean_reveal": 1.0,
+				"dug_open_fraction_at_50": 1.0,
+				"open_components_at_50": 1,
+				"retained_mean_solid": 0.7964
+			},
+			"production_visual": {
+				"dug_fully_clear_fraction": 0.9131,
+				"dug_mean_reveal": 0.9753,
+				"dug_open_fraction_at_50": 0.9832,
+				"open_components_at_50": 1,
+				"retained_mean_solid": 0.7964
+			},
+			"retained_tile_count": 1
+		}
+	]
+}

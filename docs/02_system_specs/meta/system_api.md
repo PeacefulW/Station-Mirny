@@ -4,8 +4,8 @@ doc_type: system_spec
 status: draft
 owner: engineering
 source_of_truth: true
-version: 0.8
-last_updated: 2026-06-29
+version: 0.10
+last_updated: 2026-07-11
 related_docs:
   - ../README.md
   - commands.md
@@ -400,7 +400,7 @@ Confirmed public native surface:
 | `generate_chunk_packets_batch(seed: int, coords: PackedVector2Array, world_version: int, settings_packed: PackedFloat32Array)` | `Array` | Returns one canonical chunk packet per requested coordinate; current chunk generation emits ground, mountain, and Lake Generation L2 bed terrain classes and reads the `WorldPrePass` substrate for lake fields. |
 | `make_world_preview_patch_image(packet: Dictionary, render_mode: StringName)` | `Image` | Builds a lightweight preview patch image from an existing `ChunkPacketV1`; current modes are terrain, mountain id, and mountain classification. Terrain mode reads ground, mountain, and lake-bed packet terrain ids; it does not generate chunks. |
 | `build_mountain_contour_debug(solid_halo: PackedByteArray, chunk_size: int, tile_size_px: int)` | `Dictionary` | Debug-only native marching-squares helper for Mountain Contour Mesh L1. Input is a compact `(chunk_size + 2)^2` solid mask with a one-tile halo; output contains derived `vertices: PackedVector2Array` and `indices: PackedInt32Array`. This is visual/debug data only, not packet truth, save state, collision, or walkability. |
-| `build_mountain_halo_mask(solid_halo: PackedByteArray, chunk_size: int, tile_size_px: int, pixels_per_tile: int, origin_world_x: float, origin_world_y: float)` | `Dictionary` | Derived native mask helper for runtime mountain and terrain-edge presentation. Returns `MountainHaloMaskResult` from `packet_schemas.md`; not packet truth, save state, collision, or terrain ownership. |
+| `build_mountain_halo_mask(solid_halo: PackedByteArray, chunk_size: int, tile_size_px: int, pixels_per_tile: int, origin_world_x: float, origin_world_y: float, dug_halo: PackedByteArray = PackedByteArray())` | `Dictionary` | Derived native mask helper. Empty `dug_halo` preserves the legacy terrain-edge result. A same-sized mountain `dug_halo` returns immutable closed roof `C`, gameplay remaining mass `S` (`mask` alias), and visual remaining mass `V`. `S` hard-clears every dug source tile; `V` retains the fbed organic contour with guaranteed topology core/arms and straight continuation-aware physical mouths. These fields are never packet/save truth. |
 | `build_mountain_plateau_raster_image(packets: Array, target_chunk: Vector2i, preset: Dictionary, top_image: Image, face_image: Image)` | `Dictionary` | Authoring/probe raster helper still used by the worker backend. Returns `MountainPlateauRasterImageResult` from `packet_schemas.md`; broad debug/probe output, not the normal chunk packet or save shape. |
 | `resolve_world_foundation_spawn_tile(seed: int, world_version: int, settings_packed: PackedFloat32Array)` | `Dictionary` | Resolves the V1 foundation spawn tile from the substrate and returns the shape documented as `WorldFoundationSpawnResult` in `packet_schemas.md` |
 | `build_grass_scatter_buffer(seed: int, chunk_coord: Vector2i, terrain_ids: PackedInt32Array, lake_flags: PackedByteArray, mountain_halo: PackedByteArray, mountain_halo_radius_tiles: int, params: PackedFloat32Array)` | `Dictionary` | Presentation-only deterministic grass tuft placement for one chunk; returns the `GrassScatterBufferResult` shape from `packet_schemas.md` (ready `MultiMesh` buffer). `mountain_halo` is the same cross-chunk solid halo `WorldStreamer` builds for the mountain mask, reused so mountain-edge clearance sees neighbouring-chunk mountains too (added 2026-07-04). Density mirrors the ground material's aperiodic world fields; never packet truth, save state, collision, or walkability. |
@@ -427,8 +427,10 @@ Current code notes:
 - Preview spawn resolution uses the shared worker wrapper, not a main-thread
   GDScript fallback.
 - Mountain halo and plateau raster outputs are derived native presentation or
-  debug/probe results. They must not be persisted or treated as authoritative
-  terrain, walkability, navigation, or chunk packet data.
+  debug/probe results. `C/S/V` rebuild from immutable packet ownership plus
+  authoritative diff and must not be persisted or treated as canonical terrain,
+  navigation, or chunk packet data. Runtime collision/mining samples derived `S`;
+  rendered BASE/ROOF contours and active torch shadows sample `V`.
 
 Not documented here as safe entrypoints:
 - direct calls to `world_prepass::*` helpers from script, because they are native
@@ -452,6 +454,7 @@ Confirmed readable entrypoints:
 | `collect_chunk_diffs()` | `Array[Dictionary]` | Serialized dirty chunk entries |
 | `get_chunk_packet(chunk_coord: Vector2i)` | `Dictionary` | Loaded chunk packet or `{}`; read-only world-domain lookup for `MountainResolver` |
 | `get_mountain_cover_sample(world_tile: Vector2i)` | `Dictionary` | Read-only cover sample for one tile: `mountain_id`, `mountain_flags`, `component_id`, `is_opening`, `walkable` |
+| `resolve_mountain_cover_at_world(world_pos: Vector2, preferred_component_id: int = 0)` | `Dictionary` | Bounded resolver surface. Uses exact cached floor ownership first; only inside the real organic `C solid / raw S open` delta may it select a component from the fixed `3 x 3` neighbourhood, preferring the previous component to prevent corner flicker and using cylindrical X distance at the world seam. |
 | `get_mountain_cover_debug_snapshot(world_tile: Vector2i)` | `Dictionary` | Debug-only snapshot including `inside_outside_state`, active component ids, and `roof_layers_per_chunk_max` |
 | `is_walkable_at_world(world_pos: Vector2)` | `bool` | Reads `base + diff`; returns `false` while a chunk is not ready |
 | `has_resource_at_world(world_pos: Vector2)` | `bool` | Diggable surface query for the current harvest path (`TERRAIN_MOUNTAIN_WALL` and `TERRAIN_MOUNTAIN_FOOT`); returns `true` only when the tile also has an orthogonally exposed walkable face |
@@ -466,7 +469,7 @@ Confirmed mutation entrypoints:
 | `load_world_state(data: Dictionary) -> bool` | Restores only current-version `world.json` payloads. Returns `false` before mutating runtime state when `world_version` is missing/non-current or the current `worldgen_settings` shape is incomplete; on success restores `world_seed` / `world_version`, rebuilds `worldgen_settings.world_bounds`, `worldgen_settings.foundation`, `worldgen_settings.mountains`, `worldgen_settings.lakes`, `worldgen_settings.plains_trees`, and `worldgen_settings.plains_small_rocks` from `world.json`, and clears runtime state |
 | `load_chunk_diffs(entries: Array)` | Loads serialized chunk diffs into `WorldDiffStore` |
 | `try_harvest_at_world(world_pos: Vector2)` | Single-tile harvest path; converts one nearest qualifying diggable surface tile into its dug state and rejects diagonal-only sealed rock |
-| `set_active_mountain_component(mountain_id: int, component_id: int)` | World-domain cover selection surface used by `MountainResolver` to switch between outside state and one active cavity |
+| `set_active_mountain_component(mountain_id: int, component_id: int)` | World-domain cover selection surface used by `MountainResolver`. Invalid/zero component selects outside (`R=0`). A valid component rebuilds floor-only reveal halos for old/new component chunks plus halo neighbours. Torch-mask composition may derive a bounded non-dug support ring from the same raw halo; roof semantics stay floor-only. The mutation queues visual uploads but never flood-fills, rebuilds native masks, mutates diff, or relies on stable numeric component ids. |
 | `toggle_debug_tile_grid()` | Toggles the developer-only `F6` 64 px grid overlay for loaded chunks |
 | `toggle_debug_mountain_solid_mask()` | Toggles the developer-only `F7` current solid mountain mask overlay for loaded chunks |
 | `toggle_debug_mountain_contour()` | Toggles the developer-only `F10` native contour mesh overlay for loaded chunks; does not bind or use `F8` |

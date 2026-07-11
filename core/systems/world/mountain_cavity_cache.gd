@@ -8,6 +8,26 @@ var _component_id_by_tile: Dictionary = {}
 var _opening_flag_by_tile: Dictionary = {}
 var _component_data_by_id: Dictionary = {}
 var _outside_visible_by_chunk: Dictionary = {}
+var _horizontal_wrap_width_tiles: int = 0
+var _horizontal_wrap_width_chunks: int = 0
+
+
+## The finite foundation wraps only X. Width 0 preserves the legacy unbounded
+## graph exactly, including negative coordinates; Y is never canonicalized.
+func configure_horizontal_wrap(width_tiles: int) -> void:
+	var resolved_width_tiles: int = maxi(0, width_tiles)
+	if _horizontal_wrap_width_tiles == resolved_width_tiles:
+		return
+	clear()
+	_horizontal_wrap_width_tiles = resolved_width_tiles
+	_horizontal_wrap_width_chunks = 0
+	if resolved_width_tiles > 0:
+		# Mirror WorldBoundsSettings.get_width_chunks(); persisted dimensions are
+		# foundation-cell aligned, so tile and chunk canonicalization share a seam.
+		_horizontal_wrap_width_chunks = maxi(
+			1,
+			resolved_width_tiles / WorldRuntimeConstants.CHUNK_SIZE,
+		)
 
 func clear() -> void:
 	_next_component_id = 1
@@ -22,7 +42,51 @@ func has_component(component_id: int) -> bool:
 func get_component_chunks(component_id: int) -> Array[Vector2i]:
 	return _collect_component_chunks(component_id)
 
+
+## Returns only authoritative excavated floor cells that belong to one
+## connected cavity.  Presentation deliberately does not inherit the legacy
+## opening/shell fields: the native remaining-mass mask owns every facade,
+## while this field answers only which roof cutout the player is currently in.
+func build_chunk_component_floor_mask(
+	chunk_coord: Vector2i,
+	active_component_id: int,
+) -> PackedByteArray:
+	chunk_coord = _canonicalize_chunk(chunk_coord)
+	var mask := PackedByteArray()
+	mask.resize(WorldRuntimeConstants.CHUNK_CELL_COUNT)
+	if not has_component(active_component_id):
+		return mask
+	# Fixed 16x16 lookup stays O(chunk cells) even if one connected cave spans
+	# thousands of tiles. Iterating the whole component once per halo source
+	# chunk would turn enter/exit into O(component tiles * component chunks).
+	var chunk_tile_origin: Vector2i = chunk_coord * WorldRuntimeConstants.CHUNK_SIZE
+	for local_y: int in range(WorldRuntimeConstants.CHUNK_SIZE):
+		var row: int = local_y * WorldRuntimeConstants.CHUNK_SIZE
+		for local_x: int in range(WorldRuntimeConstants.CHUNK_SIZE):
+			var world_tile: Vector2i = chunk_tile_origin + Vector2i(local_x, local_y)
+			if int(_component_id_by_tile.get(world_tile, 0)) == active_component_id:
+				mask[row + local_x] = 1
+	return mask
+
+
+## Physical surface mouths are a separate selector from the active cavity.
+## They punch only the real boundary cell through the closed construction roof
+## and therefore work for north/east/west as well as the tall south facade.
+func build_chunk_opening_floor_mask(chunk_coord: Vector2i) -> PackedByteArray:
+	chunk_coord = _canonicalize_chunk(chunk_coord)
+	var mask := PackedByteArray()
+	mask.resize(WorldRuntimeConstants.CHUNK_CELL_COUNT)
+	var chunk_tile_origin: Vector2i = chunk_coord * WorldRuntimeConstants.CHUNK_SIZE
+	for local_y: int in range(WorldRuntimeConstants.CHUNK_SIZE):
+		var row: int = local_y * WorldRuntimeConstants.CHUNK_SIZE
+		for local_x: int in range(WorldRuntimeConstants.CHUNK_SIZE):
+			var world_tile: Vector2i = chunk_tile_origin + Vector2i(local_x, local_y)
+			if bool(_opening_flag_by_tile.get(world_tile, false)):
+				mask[row + local_x] = 1
+	return mask
+
 func get_sample(world_tile: Vector2i, sample_tile: Callable) -> Dictionary:
+	world_tile = _canonicalize_tile(world_tile)
 	var geometry: Dictionary = sample_tile.call(world_tile) as Dictionary
 	if not bool(geometry.get("ready", false)):
 		return {"ready": false}
@@ -41,6 +105,8 @@ func on_chunk_loaded(
 	candidate_world_tiles: Array[Vector2i],
 	sample_tile: Callable
 ) -> Dictionary:
+	published_chunk_coord = _canonicalize_chunk(published_chunk_coord)
+	candidate_world_tiles = _canonicalize_unique_tiles(candidate_world_tiles)
 	var affected_components: Dictionary = {}
 	for world_tile: Vector2i in candidate_world_tiles:
 		if WorldRuntimeConstants.tile_to_chunk(world_tile) != published_chunk_coord:
@@ -68,6 +134,8 @@ func on_chunk_unloaded(
 	dirty_world_tiles: Array[Vector2i],
 	sample_tile: Callable
 ) -> Dictionary:
+	unloaded_chunk_coord = _canonicalize_chunk(unloaded_chunk_coord)
+	dirty_world_tiles = _canonicalize_unique_tiles(dirty_world_tiles)
 	var affected_old_components: Dictionary = {}
 	for world_tile: Vector2i in dirty_world_tiles:
 		var component_id: int = int(_component_id_by_tile.get(world_tile, 0))
@@ -109,9 +177,24 @@ func on_chunk_unloaded(
 	}
 
 func on_tile_dug(world_tile: Vector2i, sample_tile: Callable) -> Dictionary:
+	world_tile = _canonicalize_tile(world_tile)
 	var geometry: Dictionary = sample_tile.call(world_tile) as Dictionary
 	var affected_components: Dictionary = {}
+	var merge_chunks: Dictionary = {}
 	if _is_floor_tile(geometry):
+		var neighboring_components: Array[int] = _collect_neighboring_component_ids(
+			world_tile,
+			int(geometry.get("mountain_id", 0)),
+		)
+		if neighboring_components.size() > 1:
+			# A bridge can attach a far-away secondary cavity while keeping the
+			# active primary numeric id unchanged. Capture both sides before merge
+			# so roof reveal refresh reaches every newly owned floor chunk.
+			for neighboring_component_id: int in neighboring_components:
+				for component_chunk: Vector2i in _collect_component_chunks(
+					neighboring_component_id,
+				):
+					merge_chunks[component_chunk] = true
 		var component_id: int = _ensure_floor_tile_present(world_tile, geometry, sample_tile)
 		if component_id > 0:
 			affected_components[component_id] = true
@@ -131,6 +214,8 @@ func on_tile_dug(world_tile: Vector2i, sample_tile: Callable) -> Dictionary:
 	)
 	var affected_chunks: Dictionary = {}
 	affected_chunks[WorldRuntimeConstants.tile_to_chunk(world_tile)] = true
+	for merge_chunk_variant: Variant in merge_chunks.keys():
+		affected_chunks[merge_chunk_variant as Vector2i] = true
 	for shell_chunk: Vector2i in shell_chunks:
 		affected_chunks[shell_chunk] = true
 	for component_id_variant: Variant in affected_components.keys():
@@ -144,6 +229,7 @@ func on_tile_dug(world_tile: Vector2i, sample_tile: Callable) -> Dictionary:
 	}
 
 func build_chunk_visibility_mask(chunk_coord: Vector2i, active_component_id: int) -> PackedByteArray:
+	chunk_coord = _canonicalize_chunk(chunk_coord)
 	var mask: PackedByteArray = PackedByteArray()
 	mask.resize(WorldRuntimeConstants.CHUNK_CELL_COUNT)
 	var outside_visible: Dictionary = _outside_visible_by_chunk.get(chunk_coord, {}) as Dictionary
@@ -174,6 +260,7 @@ func get_debug_snapshot(
 	}
 
 func _ensure_floor_tile_present(world_tile: Vector2i, geometry: Dictionary, sample_tile: Callable) -> int:
+	world_tile = _canonicalize_tile(world_tile)
 	var existing_component_id: int = int(_component_id_by_tile.get(world_tile, 0))
 	if existing_component_id > 0:
 		return existing_component_id
@@ -192,14 +279,18 @@ func _ensure_floor_tile_present(world_tile: Vector2i, geometry: Dictionary, samp
 	var tiles: Dictionary = component.get("tiles", {}) as Dictionary
 	tiles[world_tile] = true
 	component["tiles"] = tiles
+	var chunks: Dictionary = component.get("floor_chunks", {}) as Dictionary
+	chunks[WorldRuntimeConstants.tile_to_chunk(world_tile)] = true
+	component["floor_chunks"] = chunks
 	_component_data_by_id[component_id] = component
 	return component_id
 
 func _collect_neighboring_component_ids(world_tile: Vector2i, mountain_id: int) -> Array[int]:
+	world_tile = _canonicalize_tile(world_tile)
 	var component_ids: Array[int] = []
 	var seen: Dictionary = {}
 	for offset: Vector2i in [Vector2i.LEFT, Vector2i.RIGHT, Vector2i.UP, Vector2i.DOWN]:
-		var neighbor_tile: Vector2i = world_tile + offset
+		var neighbor_tile: Vector2i = _canonicalize_tile(world_tile + offset)
 		var component_id: int = int(_component_id_by_tile.get(neighbor_tile, 0))
 		if component_id <= 0 or seen.has(component_id):
 			continue
@@ -217,6 +308,7 @@ func _create_component(mountain_id: int) -> int:
 	_component_data_by_id[component_id] = {
 		"mountain_id": mountain_id,
 		"tiles": {},
+		"floor_chunks": {},
 		"openings": {},
 		"shell": {},
 		"opening_shell": {},
@@ -241,6 +333,11 @@ func _merge_component_into(primary_component_id: int, secondary_component_id: in
 			elif section_name == "openings":
 				_opening_flag_by_tile[world_tile] = true
 		primary[section_name] = primary_section
+	var primary_chunks: Dictionary = primary.get("floor_chunks", {}) as Dictionary
+	var secondary_chunks: Dictionary = secondary.get("floor_chunks", {}) as Dictionary
+	for chunk_variant: Variant in secondary_chunks.keys():
+		primary_chunks[chunk_variant as Vector2i] = true
+	primary["floor_chunks"] = primary_chunks
 	_component_data_by_id[primary_component_id] = primary
 	_component_data_by_id.erase(secondary_component_id)
 
@@ -249,7 +346,7 @@ func _rebuild_split_components(remaining_tiles: Dictionary, sample_tile: Callabl
 	var unvisited: Dictionary = remaining_tiles.duplicate(true)
 	while not unvisited.is_empty():
 		var seed_variant: Variant = unvisited.keys()[0]
-		var seed_tile: Vector2i = seed_variant as Vector2i
+		var seed_tile: Vector2i = _canonicalize_tile(seed_variant as Vector2i)
 		var seed_geometry: Dictionary = sample_tile.call(seed_tile) as Dictionary
 		if not _is_floor_tile(seed_geometry):
 			unvisited.erase(seed_tile)
@@ -258,15 +355,18 @@ func _rebuild_split_components(remaining_tiles: Dictionary, sample_tile: Callabl
 		var queue: Array[Vector2i] = [seed_tile]
 		unvisited.erase(seed_tile)
 		while not queue.is_empty():
-			var current_tile: Vector2i = queue.pop_front()
+			var current_tile: Vector2i = _canonicalize_tile(queue.pop_front())
 			_component_id_by_tile[current_tile] = component_id
 			var component: Dictionary = _component_data_by_id.get(component_id, {}) as Dictionary
 			var tiles: Dictionary = component.get("tiles", {}) as Dictionary
 			tiles[current_tile] = true
 			component["tiles"] = tiles
+			var chunks: Dictionary = component.get("floor_chunks", {}) as Dictionary
+			chunks[WorldRuntimeConstants.tile_to_chunk(current_tile)] = true
+			component["floor_chunks"] = chunks
 			_component_data_by_id[component_id] = component
 			for offset: Vector2i in [Vector2i.LEFT, Vector2i.RIGHT, Vector2i.UP, Vector2i.DOWN]:
-				var neighbor_tile: Vector2i = current_tile + offset
+				var neighbor_tile: Vector2i = _canonicalize_tile(current_tile + offset)
 				if not unvisited.has(neighbor_tile):
 					continue
 				var neighbor_geometry: Dictionary = sample_tile.call(neighbor_tile) as Dictionary
@@ -291,7 +391,7 @@ func _rebuild_component_metadata(component_id: int, sample_tile: Callable) -> vo
 	var tiles: Dictionary = component.get("tiles", {}) as Dictionary
 	var shell_candidates: Dictionary = {}
 	for tile_variant: Variant in tiles.keys():
-		var world_tile: Vector2i = tile_variant as Vector2i
+		var world_tile: Vector2i = _canonicalize_tile(tile_variant as Vector2i)
 		if _compute_is_opening(world_tile, sample_tile):
 			var openings: Dictionary = component.get("openings", {}) as Dictionary
 			openings[world_tile] = true
@@ -321,7 +421,8 @@ func _rebuild_component_metadata(component_id: int, sample_tile: Callable) -> vo
 func _refresh_openings_for_tiles(tiles_to_check: Array[Vector2i], sample_tile: Callable) -> Array[Vector2i]:
 	var changed_tiles: Array[Vector2i] = []
 	var seen: Dictionary = {}
-	for world_tile: Vector2i in tiles_to_check:
+	for source_tile: Vector2i in tiles_to_check:
+		var world_tile: Vector2i = _canonicalize_tile(source_tile)
 		if seen.has(world_tile):
 			continue
 		seen[world_tile] = true
@@ -372,13 +473,16 @@ func _refresh_shells_near_tiles(
 				opening_shell[candidate_tile] = true
 			else:
 				opening_shell.erase(candidate_tile)
-			affected_chunks[WorldRuntimeConstants.tile_to_chunk(candidate_tile)] = true
+			affected_chunks[_canonicalize_chunk(
+				WorldRuntimeConstants.tile_to_chunk(candidate_tile),
+			)] = true
 		component["shell"] = shell
 		component["opening_shell"] = opening_shell
 		_component_data_by_id[component_id] = component
 	return _dictionary_vector2i_keys(affected_chunks)
 
 func _compute_is_opening(world_tile: Vector2i, sample_tile: Callable) -> bool:
+	world_tile = _canonicalize_tile(world_tile)
 	var component_id: int = int(_component_id_by_tile.get(world_tile, 0))
 	if component_id <= 0:
 		return false
@@ -387,7 +491,8 @@ func _compute_is_opening(world_tile: Vector2i, sample_tile: Callable) -> bool:
 		return false
 	var mountain_id: int = int(geometry.get("mountain_id", 0))
 	for offset: Vector2i in [Vector2i.LEFT, Vector2i.RIGHT, Vector2i.UP, Vector2i.DOWN]:
-		var neighbor_geometry: Dictionary = sample_tile.call(world_tile + offset) as Dictionary
+		var neighbor_tile: Vector2i = _canonicalize_tile(world_tile + offset)
+		var neighbor_geometry: Dictionary = sample_tile.call(neighbor_tile) as Dictionary
 		if not bool(neighbor_geometry.get("ready", false)):
 			continue
 		if not bool(neighbor_geometry.get("walkable", false)):
@@ -399,6 +504,7 @@ func _compute_is_opening(world_tile: Vector2i, sample_tile: Callable) -> bool:
 	return false
 
 func _should_tile_be_component_shell(world_tile: Vector2i, component_id: int, sample_tile: Callable) -> bool:
+	world_tile = _canonicalize_tile(world_tile)
 	if _component_id_by_tile.has(world_tile):
 		return false
 	var component: Dictionary = _component_data_by_id.get(component_id, {}) as Dictionary
@@ -415,6 +521,7 @@ func _should_tile_be_component_shell(world_tile: Vector2i, component_id: int, sa
 	return false
 
 func _should_tile_be_opening_shell(world_tile: Vector2i, component_id: int, sample_tile: Callable) -> bool:
+	world_tile = _canonicalize_tile(world_tile)
 	if _component_id_by_tile.has(world_tile):
 		return false
 	var component: Dictionary = _component_data_by_id.get(component_id, {}) as Dictionary
@@ -426,7 +533,8 @@ func _should_tile_be_opening_shell(world_tile: Vector2i, component_id: int, samp
 	if int(geometry.get("mountain_id", 0)) != int(component.get("mountain_id", 0)):
 		return false
 	var openings: Dictionary = component.get("openings", {}) as Dictionary
-	for neighbor_tile: Vector2i in [world_tile + Vector2i.LEFT, world_tile + Vector2i.RIGHT, world_tile + Vector2i.UP, world_tile + Vector2i.DOWN]:
+	for offset: Vector2i in [Vector2i.LEFT, Vector2i.RIGHT, Vector2i.UP, Vector2i.DOWN]:
+		var neighbor_tile: Vector2i = _canonicalize_tile(world_tile + offset)
 		if openings.has(neighbor_tile):
 			return true
 	return false
@@ -434,7 +542,7 @@ func _should_tile_be_opening_shell(world_tile: Vector2i, component_id: int, samp
 func _rebuild_outside_visibility_for_chunks(chunks: Array[Vector2i]) -> void:
 	var unique_chunks: Dictionary = {}
 	for chunk_coord: Vector2i in chunks:
-		unique_chunks[chunk_coord] = true
+		unique_chunks[_canonicalize_chunk(chunk_coord)] = true
 	for chunk_variant: Variant in unique_chunks.keys():
 		var chunk_coord: Vector2i = chunk_variant as Vector2i
 		var local_coords: Dictionary = {}
@@ -456,12 +564,17 @@ func _collect_component_chunks(component_id: int) -> Array[Vector2i]:
 	var component: Dictionary = _component_data_by_id.get(component_id, {}) as Dictionary
 	if component.is_empty():
 		return []
-	var chunks: Dictionary = {}
-	for section_name: String in ["tiles", "shell", "openings", "opening_shell"]:
-		var section: Dictionary = component.get(section_name, {}) as Dictionary
-		for tile_variant: Variant in section.keys():
-			chunks[WorldRuntimeConstants.tile_to_chunk(tile_variant as Vector2i)] = true
-	return _dictionary_vector2i_keys(chunks)
+	var chunks: Dictionary = component.get("floor_chunks", {}) as Dictionary
+	if not chunks.is_empty():
+		return _dictionary_vector2i_keys(chunks)
+	# Compatibility fallback for components created before the cached chunk
+	# field was introduced in a live dev session.
+	var derived_chunks: Dictionary = {}
+	for tile_variant: Variant in (component.get("tiles", {}) as Dictionary).keys():
+		derived_chunks[_canonicalize_chunk(
+			WorldRuntimeConstants.tile_to_chunk(_canonicalize_tile(tile_variant as Vector2i)),
+		)] = true
+	return _dictionary_vector2i_keys(derived_chunks)
 
 func _collect_affected_chunks_from_components(component_ids: Array[int]) -> Array[Vector2i]:
 	var chunks: Dictionary = {}
@@ -471,8 +584,9 @@ func _collect_affected_chunks_from_components(component_ids: Array[int]) -> Arra
 	return _dictionary_vector2i_keys(chunks)
 
 func _apply_tiles_to_mask(mask: PackedByteArray, tiles: Dictionary, chunk_coord: Vector2i) -> void:
+	chunk_coord = _canonicalize_chunk(chunk_coord)
 	for tile_variant: Variant in tiles.keys():
-		var world_tile: Vector2i = tile_variant as Vector2i
+		var world_tile: Vector2i = _canonicalize_tile(tile_variant as Vector2i)
 		if WorldRuntimeConstants.tile_to_chunk(world_tile) != chunk_coord:
 			continue
 		var index: int = WorldRuntimeConstants.local_to_index(WorldRuntimeConstants.tile_to_local(world_tile))
@@ -499,19 +613,21 @@ func _is_roof_tile(sample: Dictionary) -> bool:
 		and (mountain_flags & (WorldRuntimeConstants.MOUNTAIN_FLAG_WALL | WorldRuntimeConstants.MOUNTAIN_FLAG_FOOT)) != 0
 
 func _cross_tiles(world_tile: Vector2i) -> Array[Vector2i]:
+	world_tile = _canonicalize_tile(world_tile)
 	return [
 		world_tile,
-		world_tile + Vector2i.LEFT,
-		world_tile + Vector2i.RIGHT,
-		world_tile + Vector2i.UP,
-		world_tile + Vector2i.DOWN,
+		_canonicalize_tile(world_tile + Vector2i.LEFT),
+		_canonicalize_tile(world_tile + Vector2i.RIGHT),
+		_canonicalize_tile(world_tile + Vector2i.UP),
+		_canonicalize_tile(world_tile + Vector2i.DOWN),
 	]
 
 func _expand_eight_neighbors(world_tile: Vector2i) -> Array[Vector2i]:
+	world_tile = _canonicalize_tile(world_tile)
 	var result: Array[Vector2i] = []
 	for offset_y: int in range(-1, 2):
 		for offset_x: int in range(-1, 2):
-			result.append(world_tile + Vector2i(offset_x, offset_y))
+			result.append(_canonicalize_tile(world_tile + Vector2i(offset_x, offset_y)))
 	return result
 
 func _dictionary_int_keys(source: Dictionary) -> Array[int]:
@@ -531,8 +647,46 @@ func _dictionary_vector2i_keys(source: Dictionary) -> Array[Vector2i]:
 	return result
 
 func _chunk_touches_any_anchor(chunk_coord: Vector2i, anchor_tiles: Array[Vector2i]) -> bool:
+	chunk_coord = _canonicalize_chunk(chunk_coord)
 	for anchor_tile: Vector2i in anchor_tiles:
-		var anchor_chunk: Vector2i = WorldRuntimeConstants.tile_to_chunk(anchor_tile)
-		if absi(anchor_chunk.x - chunk_coord.x) <= 1 and absi(anchor_chunk.y - chunk_coord.y) <= 1:
+		var anchor_chunk: Vector2i = _canonicalize_chunk(
+			WorldRuntimeConstants.tile_to_chunk(_canonicalize_tile(anchor_tile)),
+		)
+		if _wrapped_chunk_delta_abs(anchor_chunk.x, chunk_coord.x) <= 1 \
+				and absi(anchor_chunk.y - chunk_coord.y) <= 1:
 			return true
 	return false
+
+
+func _canonicalize_unique_tiles(source_tiles: Array[Vector2i]) -> Array[Vector2i]:
+	var result: Array[Vector2i] = []
+	var seen: Dictionary = {}
+	for source_tile: Vector2i in source_tiles:
+		var tile: Vector2i = _canonicalize_tile(source_tile)
+		if seen.has(tile):
+			continue
+		seen[tile] = true
+		result.append(tile)
+	return result
+
+
+func _canonicalize_tile(tile: Vector2i) -> Vector2i:
+	if _horizontal_wrap_width_tiles <= 0:
+		return tile
+	return Vector2i(posmod(tile.x, _horizontal_wrap_width_tiles), tile.y)
+
+
+func _canonicalize_chunk(chunk: Vector2i) -> Vector2i:
+	if _horizontal_wrap_width_chunks <= 0:
+		return chunk
+	return Vector2i(posmod(chunk.x, _horizontal_wrap_width_chunks), chunk.y)
+
+
+func _wrapped_chunk_delta_abs(a: int, b: int) -> int:
+	if _horizontal_wrap_width_chunks <= 0:
+		return absi(a - b)
+	var direct_delta: int = absi(
+		posmod(a, _horizontal_wrap_width_chunks) \
+				- posmod(b, _horizontal_wrap_width_chunks),
+	)
+	return mini(direct_delta, _horizontal_wrap_width_chunks - direct_delta)

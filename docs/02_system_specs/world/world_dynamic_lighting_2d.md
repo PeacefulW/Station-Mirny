@@ -4,8 +4,8 @@ doc_type: system_spec
 status: approved
 source_of_truth: true
 owner: engineering+art
-version: 1.3
-last_updated: 2026-07-05
+version: 1.5
+last_updated: 2026-07-11
 related_docs:
   - ../../05_adrs/0005-light-is-gameplay-system.md
   - ../../05_adrs/0001-runtime-work-and-dirty-update-foundation.md
@@ -106,6 +106,12 @@ Two owners, deliberately split:
   contribution, so the visible FACADE catches warm torch light while the top/roof
   stays dark. The runtime mountain visual mask is kept at 8 samples/tile
   (`step_px = 8 px`); 4 samples/tile exposed the mask texel grid as stair steps.
+  Excavated BASE and construction-roof reveal sample visual remaining mass `V`,
+  not gameplay `mask`/`S`: `V` preserves the organic room contour and its
+  straight continuation-aware physical mouths while `S` may be fully clear over
+  a mined source tile. A separate tiny physical-mouth selector keeps the same
+  aperture SDF when active-floor value `255` replaces direction bits in the
+  combined roof selector.
   This owner draws the facade-vs-roof look and base facade lighting; it is **not**
   changed by the redesign. It does **not** know occlusion, so a facade the torch cannot
   see (around a corner / behind a spur) is still drawn lit here — the field below
@@ -178,6 +184,15 @@ Two owners, deliberately split:
     window is composed by row-blitting each ready native-mask chunk rect into the
     field mask; do not return to per-sample `world_to_tile` / dictionary lookup in
     the compose loop, which caused movement hitches with the torch enabled.
+  - **Construction-roof compatibility.** Outside a cavity the shadow field uses
+    immutable closed mass `C`. Inside, raw binary component halo `R` (production
+    bytes are `1`, not GPU-normalized `255`) selects visual remaining mass `V`
+    plus its bounded torch-only support ring. Therefore torch blockers follow
+    the same organic contour that is rendered, a retained solid island in
+    the cave remains an occluder, while the dug mouth is open and lets the radial
+    torch pool continue onto exterior ground. This selection is derived lighting
+    data only: it does not alter gameplay `S`, excavation, collision, resolver,
+    or roof reveal.
   - **Retire list (engine-occluder path) — completed 2026-07-05.**
     - `player_torch.gd`: `shadow_enabled` / `shadow_filter` / `shadow_filter_smooth` /
       `shadow_item_cull_mask` and the `MOUNTAIN_OCCLUDER_LIGHT_LAYER` constant.
@@ -260,6 +275,10 @@ Two owners, deliberately split:
 - [x] **Torch shadow field:** the mountain sprite facade stays torch-lit where the
       torch has line-of-sight, occluded facade darkens by testing line-of-sight from
       its south foot, and roof/top stays dark (unchanged sprite owner).
+- [x] **Cave island and mouth:** a retained solid island casts onto open interior
+      floor, clear interior LOS remains lit, the straight mouth passes torch light
+      to exterior ground, and adjacent exterior ground behind the lip stays dark
+      (`tools/mountain_torch_shadow_cave_island_probe.gd`).
 - [x] **No dig spike:** the torch ground shadow adds no per-dig main-thread geometry
       rebuild; on retiring the engine path, `_rebuild_mountain_light_occluders` and the
       `_mountain_light_occluder_*` machinery are gone (static read).
@@ -311,6 +330,12 @@ Two owners, deliberately split:
    from ready native masks and snaps the window at 256 px; the same probe reduced
    shadow-mask CPU max to ~10-12 ms in an aggressive movement sweep, with most frames
    cache hits.
+   **Construction-roof correction 2026-07-11:** component selection now accepts
+   the real nonzero binary `R` bytes instead of looking specifically for `255`;
+   focused CPU and windowed cave-island probes cover the regression.
+   **Visual-contour correction 2026-07-11:** selected cave chunks now blit `V`,
+   not gameplay `mask`/`S`, so torch shadows match the visible organic rooms and
+   straight physical mouths while collision keeps its full dug-tile clearance.
    Object occluders (trees/rocks) and any sun occluder path remain unstarted.
 3. (Later, separate) gameplay visibility authority per ADR-0005.
 

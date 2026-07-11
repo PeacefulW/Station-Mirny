@@ -1,0 +1,26 @@
+LAYER MountainTopMaskUnderlay node=/root/MountainRuntimeDigDevScene/WorldRuntimeV0/WorldStreamer/@Node2D@35/MountainTopMaskUnderlay class=Sprite2D visible=true z=19 material=ShaderMaterial shader=res://assets/shaders/mountain_top_mask_underlay.gdshader
+LAYER MountainClosedRoofOverlay node=/root/MountainRuntimeDigDevScene/WorldRuntimeV0/WorldStreamer/@Node2D@35/MountainClosedRoofOverlay class=Sprite2D visible=true z=19 material=ShaderMaterial shader=res://assets/shaders/mountain_top_mask_underlay.gdshader
+LAYER MountainRockUnderlay node=/root/MountainRuntimeDigDevScene/WorldRuntimeV0/WorldStreamer/@Node2D@35/MountainRockUnderlay class=Sprite2D visible=true z=3 material=ShaderMaterial shader=res://assets/shaders/mountain_foothill_overlay.gdshader
+LAYER MountainFoothillOverlay node=/root/MountainRuntimeDigDevScene/WorldRuntimeV0/WorldStreamer/@Node2D@35/MountainFoothillOverlay class=Sprite2D visible=true z=4 material=ShaderMaterial shader=res://assets/shaders/mountain_foothill_overlay.gdshader
+CAPTURE 00_all visibility=base:1,roof:1,rock:1,foothill:1 entrance=(497, 596) threshold=(299, 189)
+CAPTURE 01_without_base visibility=base:0,roof:1,rock:1,foothill:1 entrance=(497, 596) threshold=(299, 189)
+CAPTURE 02_without_roof visibility=base:1,roof:0,rock:1,foothill:1 entrance=(497, 596) threshold=(299, 189)
+CAPTURE 03_without_rock visibility=base:1,roof:1,rock:0,foothill:1 entrance=(497, 596) threshold=(299, 189)
+CAPTURE 04_without_foothill visibility=base:1,roof:1,rock:1,foothill:0 entrance=(497, 596) threshold=(299, 189)
+CAPTURE 05_without_all_four visibility=base:0,roof:0,rock:0,foothill:0 entrance=(497, 596) threshold=(299, 189)
+CAPTURE 06_only_base visibility=base:1,roof:0,rock:0,foothill:0 entrance=(497, 596) threshold=(299, 189)
+CAPTURE 07_only_roof visibility=base:0,roof:1,rock:0,foothill:0 entrance=(497, 596) threshold=(299, 189)
+CAPTURE 08_only_rock visibility=base:0,roof:0,rock:1,foothill:0 entrance=(497, 596) threshold=(299, 189)
+CAPTURE 09_only_foothill visibility=base:0,roof:0,rock:0,foothill:1 entrance=(497, 596) threshold=(299, 189)
+DIFF 01_without_base entrance_pixels=90786 threshold_pixels=56266 threshold_luma_delta=8328.645
+DIFF 02_without_roof entrance_pixels=90858 threshold_pixels=6626 threshold_luma_delta=183.193
+DIFF 03_without_rock entrance_pixels=19888 threshold_pixels=11669 threshold_luma_delta=176.893
+DIFF 04_without_foothill entrance_pixels=32244 threshold_pixels=27011 threshold_luma_delta=961.829
+DIFF 05_without_all_four entrance_pixels=249028 threshold_pixels=56497 threshold_luma_delta=4987.120
+DIFF 06_only_base entrance_pixels=125612 threshold_pixels=35232 threshold_luma_delta=1350.574
+DIFF 07_only_roof entrance_pixels=90431 threshold_pixels=56486 threshold_luma_delta=4752.109
+DIFF 08_only_rock entrance_pixels=249036 threshold_pixels=56498 threshold_luma_delta=8621.830
+DIFF 09_only_foothill entrance_pixels=248972 threshold_pixels=56268 threshold_luma_delta=5396.271
+TARGET mouth_tile=(2108, 468) chunk_coord=(131, 29) chunk_node=/root/MountainRuntimeDigDevScene/WorldRuntimeV0/WorldStreamer/@Node2D@35
+ROOT_CAUSE pre_rebuild_threshold_owner=MountainTopMaskUnderlay shader=res://assets/shaders/mountain_top_mask_underlay.gdshader pass=structural_wall_mask_to_wall_mask cause=residual_visual_remaining_mass_strip_at_south_mouth_edge
+CURRENT_SET note=captured_after_visual-mask_rebuild; inspect_00_all_threshold_for_post-rebuild_result

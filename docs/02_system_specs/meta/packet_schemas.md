@@ -4,8 +4,8 @@ doc_type: system_spec
 status: draft
 owner: engineering
 source_of_truth: true
-version: 1.5
-last_updated: 2026-07-09
+version: 1.7
+last_updated: 2026-07-11
 related_docs:
   - ../README.md
   - system_api.md
@@ -923,15 +923,20 @@ Current code notes:
 ### `MountainHaloMaskResult`
 
 Returned by native
-`WorldCore.build_mountain_halo_mask(solid_halo, chunk_size, tile_size_px, pixels_per_tile, origin_world_x, origin_world_y)`.
+`WorldCore.build_mountain_halo_mask(solid_halo, chunk_size, tile_size_px, pixels_per_tile, origin_world_x, origin_world_y, dug_halo = PackedByteArray())`.
 
 ```text
 {
   "mask": PackedByteArray,
+  "remaining_mass_mask"?: PackedByteArray,
+  "visual_remaining_mass_mask"?: PackedByteArray,
+  "closed_roof_mask"?: PackedByteArray,
   "width": int,
   "height": int,
   "step_px": float,
   "solid_sample_count": int,
+  "closed_sample_count"?: int,
+  "dug_sample_count"?: int,
   "halo_side": int,
   "halo_radius_tiles"?: int,
   "pixels_per_tile"?: int,
@@ -951,6 +956,7 @@ results:
   "mask_purpose": StringName,      # "mountain" or "terrain_edge"
   "target_chunk": Vector2i,
   "mask_origin_world": Vector2,
+  "dug_halo"?: PackedByteArray, # mountain purpose only; tile-resolution derived input
   "queued_msec": int,
   "worker_started_msec": int,
   "worker_elapsed_ms": int,
@@ -961,6 +967,32 @@ results:
 
 Current code notes:
 - `mask.size()` must equal `width * height` for `success = true`
+- mountain requests pass immutable roof-bearing ownership as `solid_halo` and a
+  same-sized authoritative excavation field as `dug_halo`; success additionally
+  requires `remaining_mass_mask`, `visual_remaining_mass_mask`, and
+  `closed_roof_mask` to equal `width * height`, with
+  `mask == remaining_mass_mask`
+- for construction mountain results `closed_sample_count` counts closed core source
+  tiles, `dug_sample_count` counts dug core source tiles, and
+  `solid_sample_count` counts remaining closed-minus-dug core source tiles
+- field meanings for construction mountain results are:
+  - `closed_roof_mask = C`: immutable organic construction silhouette;
+  - `visual_remaining_mass_mask = V`: `C` cut by the fbed excavation field
+    (one `pixels_per_tile / 4` box blur, broad displacement sampled at `0.32`,
+    and `smooth((field - 0.28) / 0.44)`), plus a guaranteed `25%..75%` core and
+    half-tile arms toward dug cardinal neighbours;
+  - `remaining_mass_mask = S`: gameplay mask equal to `V` on non-dug source
+    tiles and hard-zero across every `dug_halo = 1` source tile;
+  - `mask`: compatibility alias for gameplay `S`, not the rendered room mask
+- a dug tile adjacent to exterior closed ownership clamps the outward half of
+  `V` to a straight physical portal. Lateral bounds are `12.5%..87.5%` for an
+  isolated tile; same-direction adjacent mouths extend to their shared seam so
+  a wide mouth has no internal stone post
+- required per-pixel invariant is `0 <= S <= V <= C`. Organic feather may extend
+  into neighbouring non-dug tiles; only `S`, not `V`, is required to be zero over
+  the whole dug source tile
+- empty `dug_halo` preserves the legacy single-mask result byte-for-byte. This
+  is the `terrain_edge` contract and does not add the `C/S/V` mountain fields
 - `step_px = tile_size_px / pixels_per_tile`
 - invalid input returns an empty mask with zero dimensions
 - the mask is derived runtime presentation/cache data; it is not packet truth,

@@ -41,9 +41,38 @@ uniform float projected_shadow_angle_deg = 234.0;
 uniform float projected_shadow_length_px = 72.0;
 uniform float projected_shadow_opacity = 0.0;
 uniform float projected_shadow_softness_px = 28.0;
+uniform float projected_shadow_draw_enabled = 1.0;
 uniform vec3 projected_shadow_color = vec3(0.030, 0.026, 0.018);
 uniform float top_surface_alpha = 1.0;
 uniform float wall_surface_alpha = 1.0;
+// Neutral by default. The dev-only construction prototype opts a frozen copy
+// of the native mask into roof-only composition: the current live mask keeps
+// owning facade, floor reveal, collision, and mining.
+uniform float roof_overlay_mode = 0.0;
+// Production construction roof. TEXTURE is the immutable closed silhouette;
+// the live remaining-mass texture is revealed only where the resolver-selected
+// connected cavity owns the native C-S cutout. CPU expands tile ownership into
+// a native-resolution selector, including a shallow directional mouth aperture;
+// the shader samples it nearest + linear for an authored one-sample soft edge.
+uniform sampler2D closed_mask_texture : filter_linear;
+uniform sampler2D remaining_mask_texture : filter_linear;
+uniform sampler2D active_floor_halo_texture : filter_nearest;
+uniform sampler2D active_floor_halo_soft_texture : filter_linear;
+// Physical mouth directions stay separate from the active-floor selector.
+// Active cells become 255 and lose direction bits; this field keeps the
+// modular jamb/header stable both outside and inside a cavity.
+uniform sampler2D physical_mouth_halo_texture : filter_nearest;
+// Uniform gate keeps the mouth SDF and its neighbour texture reads off the
+// untouched-mountain / terrain-edge hot path. ChunkView enables it only when
+// the tiny selector actually contains a physical surface mouth.
+uniform float physical_mouth_enabled = 0.0;
+uniform sampler2D any_cutout_halo_texture : filter_nearest;
+uniform float roof_component_reveal_enabled = 0.0;
+uniform float mouth_portal_half_width = 0.375;
+uniform float mouth_portal_depth = 0.27;
+uniform float mouth_portal_corner_chamfer = 0.0625;
+uniform float mouth_portal_corner_depth = 0.0625;
+uniform float mouth_portal_edge_softness = 0.018;
 // Hard dark contact line at the wall base; 0 removes it (mountains), the
 // shoreline keeps it for a crisp waterline.
 uniform float base_outline_strength = 0.92;
@@ -183,6 +212,148 @@ float uv_rect_inside(vec2 uv, vec2 min_uv, vec2 max_uv) {
 	return step(min_uv.x, uv.x) * step(min_uv.y, uv.y) * step(uv.x, max_uv.x) * step(uv.y, max_uv.y);
 }
 
+float selector_has_bit(float code, float bit_value) {
+	return step(0.5, mod(floor(code / bit_value), 2.0));
+}
+
+float mouth_direction_signed_distance(
+		float inward,
+		float lateral,
+		float negative_continues,
+		float positive_continues
+) {
+	float negative_open = step(0.5, negative_continues);
+	float positive_open = step(0.5, positive_continues);
+	float half_width = clamp(mouth_portal_half_width, 0.12, 0.50);
+	float left_edge = 0.5 - half_width;
+	float right_edge = 0.5 + half_width;
+	float chamfer = max(mouth_portal_corner_chamfer, 0.001);
+	float left_loss = clamp(left_edge + chamfer - lateral, 0.0, chamfer)
+		* (1.0 - negative_open);
+	float right_loss = clamp(lateral - (right_edge - chamfer), 0.0, chamfer)
+		* (1.0 - positive_open);
+	float cap_loss = max(left_loss, right_loss)
+		* (mouth_portal_corner_depth / chamfer);
+	float header_sd = inward - (mouth_portal_depth - cap_loss);
+	// Continuation removes the corresponding side constraint entirely. Moving
+	// it merely to the tile seam would leave a post inside a multi-tile mouth.
+	float left_sd = mix(left_edge - lateral, -2.0, negative_open);
+	float right_sd = mix(lateral - right_edge, -2.0, positive_open);
+	return max(header_sd, max(left_sd, right_sd));
+}
+
+float sample_physical_mouth_direction_code(vec2 selector_uv) {
+	return floor(texture(physical_mouth_halo_texture, selector_uv).r * 255.0 + 0.5);
+}
+
+float sample_mouth_signed_distance_for_cell(
+		float selector_code,
+		vec2 source_selector_uv,
+		vec2 cell_uv
+) {
+	// Codes 1/2/4/8 are N/E/S/W. Active component cells use 255 and skip
+	// this path. fract() gives a stable sub-tile coordinate at any halo size.
+	vec2 selector_size = vec2(textureSize(physical_mouth_halo_texture, 0));
+	float negative_continues = selector_has_bit(selector_code, 16.0);
+	float positive_continues = selector_has_bit(selector_code, 32.0);
+	float north_bit = selector_has_bit(selector_code, 1.0);
+	float east_bit = selector_has_bit(selector_code, 2.0);
+	float south_bit = selector_has_bit(selector_code, 4.0);
+	float west_bit = selector_has_bit(selector_code, 8.0);
+	float direction_count = north_bit + east_bit + south_bit + west_bit;
+	if (direction_count < 0.5) {
+		return 2.0;
+	}
+	// Bit 64 marks the one exterior cell carrying a projected copy of the
+	// source mouth. Subtracting one tile from inward distance extends the same
+	// straight aperture through CLOSED's organic fringe without neighbour
+	// searches in every effective-mask probe.
+	float exterior_projection = selector_has_bit(selector_code, 64.0);
+	float north_negative = negative_continues;
+	float north_positive = positive_continues;
+	float east_negative = negative_continues;
+	float east_positive = positive_continues;
+	float south_negative = negative_continues;
+	float south_positive = positive_continues;
+	float west_negative = negative_continues;
+	float west_positive = positive_continues;
+	if (direction_count > 1.5) {
+		// Mixed organic corner: CPU intentionally stored no shared continuation
+		// bits. Resolve lateral neighbours per direction only in this rare mouth
+		// fragment, so SOUTH continuity cannot deepen EAST (or vice versa).
+		vec2 selector_texel = 1.0 / selector_size;
+		vec2 left_uv = source_selector_uv - vec2(selector_texel.x, 0.0);
+		vec2 right_uv = source_selector_uv + vec2(selector_texel.x, 0.0);
+		vec2 up_uv = source_selector_uv - vec2(0.0, selector_texel.y);
+		vec2 down_uv = source_selector_uv + vec2(0.0, selector_texel.y);
+		float left_code = sample_physical_mouth_direction_code(left_uv) * uv_inside(left_uv);
+		float right_code = sample_physical_mouth_direction_code(right_uv) * uv_inside(right_uv);
+		float up_code = sample_physical_mouth_direction_code(up_uv) * uv_inside(up_uv);
+		float down_code = sample_physical_mouth_direction_code(down_uv) * uv_inside(down_uv);
+		north_negative = selector_has_bit(left_code, 1.0);
+		north_positive = selector_has_bit(right_code, 1.0);
+		south_negative = selector_has_bit(left_code, 4.0);
+		south_positive = selector_has_bit(right_code, 4.0);
+		east_negative = selector_has_bit(up_code, 2.0);
+		east_positive = selector_has_bit(down_code, 2.0);
+		west_negative = selector_has_bit(up_code, 8.0);
+		west_positive = selector_has_bit(down_code, 8.0);
+	}
+	float inactive_sd = 2.0;
+	float north = mix(inactive_sd, mouth_direction_signed_distance(
+		cell_uv.y - exterior_projection, cell_uv.x, north_negative, north_positive
+	), north_bit);
+	float east = mix(inactive_sd, mouth_direction_signed_distance(
+		1.0 - cell_uv.x - exterior_projection, cell_uv.y, east_negative, east_positive
+	), east_bit);
+	float south = mix(inactive_sd, mouth_direction_signed_distance(
+		1.0 - cell_uv.y - exterior_projection, cell_uv.x, south_negative, south_positive
+	), south_bit);
+	float west = mix(inactive_sd, mouth_direction_signed_distance(
+		cell_uv.x - exterior_projection, cell_uv.y, west_negative, west_positive
+	), west_bit);
+	return min(min(north, east), min(south, west));
+}
+
+float sample_physical_mouth_signed_distance(vec2 selector_uv) {
+	float inside = uv_inside(selector_uv);
+	if (inside < 0.5) {
+		return 2.0;
+	}
+	vec2 selector_size = vec2(textureSize(physical_mouth_halo_texture, 0));
+	vec2 cell_uv = fract(selector_uv * selector_size);
+	float selector_code = sample_physical_mouth_direction_code(selector_uv);
+	return sample_mouth_signed_distance_for_cell(selector_code, selector_uv, cell_uv);
+}
+
+float sample_physical_mouth_shape(vec2 selector_uv) {
+	float mouth_sd = sample_physical_mouth_signed_distance(selector_uv);
+	float edge_soft = max(mouth_portal_edge_softness, 0.002);
+	return 1.0 - smoothstep(-edge_soft, edge_soft, mouth_sd);
+}
+
+float sample_effective_mountain_mask(vec2 uv) {
+	float closed_mask = texture(closed_mask_texture, uv).r;
+	if (roof_component_reveal_enabled < 0.5) {
+		return closed_mask;
+	}
+	float inside = uv_inside(uv);
+	float selector_raw = texture(active_floor_halo_texture, uv).r;
+	float selector_code = floor(selector_raw * 255.0 + 0.5);
+	float active_exact = step(127.5, selector_code) * inside;
+	// Direction codes are <= 63/255 and therefore cannot pollute this binary
+	// component feather even though both fields share one tiny L8 texture.
+	float active_soft = smoothstep(0.25, 0.75, texture(active_floor_halo_soft_texture, uv).r) * inside;
+	float mouth_reveal = 0.0;
+	if (physical_mouth_enabled > 0.5) {
+		mouth_reveal = sample_physical_mouth_shape(uv);
+	}
+	float foreign_cutout = step(0.5, texture(any_cutout_halo_texture, uv).r) * (1.0 - active_exact);
+	float reveal = max(max(active_exact, mouth_reveal), active_soft * (1.0 - foreign_cutout));
+	float remaining_mask = texture(remaining_mask_texture, uv).r;
+	return mix(closed_mask, remaining_mask, clamp(reveal, 0.0, 1.0));
+}
+
 float shadow_axis_owner_weight(float value, float min_value, float max_value, float texel_size, float blend_texels) {
 	float blend_uv = max(texel_size * max(blend_texels, 1.0), 0.0001);
 	float left = smoothstep(min_value - blend_uv, min_value + blend_uv, value);
@@ -201,16 +372,16 @@ float shadow_owner_weight(vec2 uv, vec2 min_uv, vec2 max_uv, vec2 texel, float b
 // Minimum mask solidity over an 8-direction ring: 1.0 means "no open edge
 // within this radius", i.e. the pixel sits deeper than radius_texels inside
 // the massif. The smooth falloff of the minimum doubles as the step ramp.
-float ring_interior(sampler2D mask_tex, vec2 uv, vec2 texel, float radius_texels) {
+float ring_interior(vec2 uv, vec2 texel, float radius_texels) {
 	float interior = 1.0;
-	interior = min(interior, mask_to_top(texture(mask_tex, uv + vec2(texel.x, 0.0) * radius_texels).r));
-	interior = min(interior, mask_to_top(texture(mask_tex, uv - vec2(texel.x, 0.0) * radius_texels).r));
-	interior = min(interior, mask_to_top(texture(mask_tex, uv + vec2(0.0, texel.y) * radius_texels).r));
-	interior = min(interior, mask_to_top(texture(mask_tex, uv - vec2(0.0, texel.y) * radius_texels).r));
-	interior = min(interior, mask_to_top(texture(mask_tex, uv + vec2(texel.x, texel.y) * radius_texels * 0.7071).r));
-	interior = min(interior, mask_to_top(texture(mask_tex, uv + vec2(-texel.x, texel.y) * radius_texels * 0.7071).r));
-	interior = min(interior, mask_to_top(texture(mask_tex, uv + vec2(texel.x, -texel.y) * radius_texels * 0.7071).r));
-	interior = min(interior, mask_to_top(texture(mask_tex, uv + vec2(-texel.x, -texel.y) * radius_texels * 0.7071).r));
+	interior = min(interior, mask_to_top(sample_effective_mountain_mask(uv + vec2(texel.x, 0.0) * radius_texels)));
+	interior = min(interior, mask_to_top(sample_effective_mountain_mask(uv - vec2(texel.x, 0.0) * radius_texels)));
+	interior = min(interior, mask_to_top(sample_effective_mountain_mask(uv + vec2(0.0, texel.y) * radius_texels)));
+	interior = min(interior, mask_to_top(sample_effective_mountain_mask(uv - vec2(0.0, texel.y) * radius_texels)));
+	interior = min(interior, mask_to_top(sample_effective_mountain_mask(uv + vec2(texel.x, texel.y) * radius_texels * 0.7071)));
+	interior = min(interior, mask_to_top(sample_effective_mountain_mask(uv + vec2(-texel.x, texel.y) * radius_texels * 0.7071)));
+	interior = min(interior, mask_to_top(sample_effective_mountain_mask(uv + vec2(texel.x, -texel.y) * radius_texels * 0.7071)));
+	interior = min(interior, mask_to_top(sample_effective_mountain_mask(uv + vec2(-texel.x, -texel.y) * radius_texels * 0.7071)));
 	return interior;
 }
 
@@ -239,6 +410,7 @@ vec2 visual_mask_uv(vec2 uv, vec2 texel, vec2 wp) {
 void fragment() {
 	float body_area = uv_rect_inside(UV, chunk_uv_min, chunk_uv_max);
 	float shadow_draw_area = uv_rect_inside(UV, shadow_draw_uv_min, shadow_draw_uv_max);
+	float overlay_mode = clamp(roof_overlay_mode, 0.0, 1.0);
 	// Body uses a tiny opaque overlap; projected shadow uses a wider blended overlap.
 	if (max(body_area, shadow_draw_area) < 0.5) {
 		discard;
@@ -247,14 +419,22 @@ void fragment() {
 	vec2 tex_size = vec2(textureSize(TEXTURE, 0));
 	vec2 texel = 1.0 / tex_size;
 	vec2 world_px = world_origin_px + UV * tex_size * sample_step_px;
-	vec2 base_uv = visual_mask_uv(UV, texel, world_px);
-	float top_here = mask_to_top(texture(TEXTURE, base_uv).r);
-	float top_l = mask_to_top(texture(TEXTURE, base_uv - vec2(texel.x, 0.0)).r);
-	float top_r = mask_to_top(texture(TEXTURE, base_uv + vec2(texel.x, 0.0)).r);
-	float top_u = mask_to_top(texture(TEXTURE, base_uv - vec2(0.0, texel.y)).r);
-	float top_d = mask_to_top(texture(TEXTURE, base_uv + vec2(0.0, texel.y)).r);
+	vec2 warped_base_uv = visual_mask_uv(UV, texel, world_px);
+	// Preserve the authored straight portal through the global crag warp. The
+	// blend is SDF-local (not tile-local), so it cannot expose a square seam in
+	// the surrounding roof while the threshold/jambs stay geometrically flat.
+	float raw_mouth_sd = 2.0;
+	if (physical_mouth_enabled > 0.5) {
+		raw_mouth_sd = sample_physical_mouth_signed_distance(UV);
+	}
+	float mouth_unwarp = 1.0 - smoothstep(0.30, 0.48, abs(raw_mouth_sd));
+	vec2 base_uv = mix(warped_base_uv, UV, mouth_unwarp);
+	float top_here = mask_to_top(sample_effective_mountain_mask(base_uv));
+	float top_l = mask_to_top(sample_effective_mountain_mask(base_uv - vec2(texel.x, 0.0)));
+	float top_r = mask_to_top(sample_effective_mountain_mask(base_uv + vec2(texel.x, 0.0)));
+	float top_u = mask_to_top(sample_effective_mountain_mask(base_uv - vec2(0.0, texel.y)));
+	float top_d = mask_to_top(sample_effective_mountain_mask(base_uv + vec2(0.0, texel.y)));
 	vec2 mask_grad = vec2(top_l - top_r, top_u - top_d);
-
 	float wall_texels = max(1.0, facade_height_px / sample_step_px);
 	float overhang_texels = max(1.0, overhang_px / sample_step_px);
 
@@ -264,7 +444,7 @@ void fragment() {
 		float prev = top_here;
 		int steps = int(min(wall_texels + 2.0, 96.0));
 		for (int d = 1; d <= steps; d++) {
-			float cur = mask_to_top(texture(TEXTURE, base_uv + vec2(0.0, texel.y * float(d))).r);
+			float cur = mask_to_top(sample_effective_mountain_mask(base_uv + vec2(0.0, texel.y * float(d))));
 			if (cur < 0.5 && prev >= 0.5) {
 				float t = (prev - 0.5) / max(prev - cur, 0.0001);
 				edge_below = float(d) - 1.0 + t;
@@ -277,7 +457,12 @@ void fragment() {
 	float wall_solid_mask = smoothstep(0.38, 0.66, top_here);
 	float wall_base_fade = smoothstep(-0.50, 0.15, edge_below);
 	float wall_top_fade = 1.0 - smoothstep(wall_texels - 1.65, wall_texels + 1.65, edge_below);
-	float wall_mask = body_area * wall_valid * wall_solid_mask * wall_base_fade * wall_top_fade;
+	float structural_wall_mask = body_area * wall_valid * wall_solid_mask * wall_base_fade * wall_top_fade;
+	// A frozen roof copy must not repaint the structural south facade. Removing
+	// the same band from its top surface lets the excavated live BASE show the
+	// real mouth while the deeper cavity remains covered by the closed roof.
+	float roof_surface_mask = top_here * body_area * (1.0 - structural_wall_mask * overlay_mode);
+	float wall_mask = structural_wall_mask * (1.0 - overlay_mode);
 	bool is_wall = wall_mask > 0.02;
 
 	// OPEN pixel: cosmetic roof eave just below the silhouette ("козырёк").
@@ -287,18 +472,20 @@ void fragment() {
 	if (top_here < 0.5 && overhang_px > 0.5) {
 		int osteps = int(min(overhang_texels + 2.0, 24.0));
 		for (int d = 1; d <= osteps; d++) {
-			if (mask_to_top(texture(TEXTURE, base_uv - vec2(0.0, texel.y * float(d))).r) >= 0.5) {
+			if (mask_to_top(sample_effective_mountain_mask(base_uv - vec2(0.0, texel.y * float(d)))) >= 0.5) {
 				overhang = 1.0 - smoothstep(0.0, overhang_texels, float(d) - 1.0);
 				break;
 			}
 		}
 	}
-	overhang *= body_area;
+	// BASE owns the one physical eave. The construction ROOF is a cover-only
+	// contribution and must not double the translucent rim.
+	overhang *= body_area * (1.0 - overlay_mode);
 
-	float coverage = max(top_here * body_area, overhang);
+	float coverage = max(roof_surface_mask, overhang);
 	float projected_shadow = 0.0;
 	float shadow_open_space = (1.0 - smoothstep(0.08, 0.56, top_here)) * (1.0 - clamp(overhang, 0.0, 1.0) * 0.92);
-	if (projected_shadow_opacity > 0.001 && projected_shadow_length_px > 1.0 && shadow_open_space > 0.001) {
+	if (projected_shadow_draw_enabled > 0.5 && projected_shadow_opacity > 0.001 && projected_shadow_length_px > 1.0 && shadow_open_space > 0.001) {
 		float shadow_a = radians(projected_shadow_angle_deg);
 		vec2 shadow_dir = normalize(vec2(cos(shadow_a), sin(shadow_a)));
 		vec2 shadow_side = vec2(-shadow_dir.y, shadow_dir.x);
@@ -320,11 +507,11 @@ void fragment() {
 			float right_w = uv_inside(right_uv);
 			float wide_left_w = uv_inside(wide_left_uv);
 			float wide_right_w = uv_inside(wide_right_uv);
-			float center = mask_to_top(texture(TEXTURE, base_uv).r) * center_w;
-			float left = mask_to_top(texture(TEXTURE, left_uv).r) * left_w;
-			float right = mask_to_top(texture(TEXTURE, right_uv).r) * right_w;
-			float wide_left = mask_to_top(texture(TEXTURE, wide_left_uv).r) * wide_left_w;
-			float wide_right = mask_to_top(texture(TEXTURE, wide_right_uv).r) * wide_right_w;
+			float center = mask_to_top(sample_effective_mountain_mask(base_uv)) * center_w;
+			float left = mask_to_top(sample_effective_mountain_mask(left_uv)) * left_w;
+			float right = mask_to_top(sample_effective_mountain_mask(right_uv)) * right_w;
+			float wide_left = mask_to_top(sample_effective_mountain_mask(wide_left_uv)) * wide_left_w;
+			float wide_right = mask_to_top(sample_effective_mountain_mask(wide_right_uv)) * wide_right_w;
 			float source = center * 0.42 + (left + right) * 0.20 + (wide_left + wide_right) * 0.09;
 			float source_weight = center_w * 0.42 + (left_w + right_w) * 0.20 + (wide_left_w + wide_right_w) * 0.09;
 			float distance_fade = pow(1.0 - t, 1.45);
@@ -392,8 +579,8 @@ void fragment() {
 		float terrace_wobble = (fbm2(world_px / 300.0 + vec2(-9.0, 37.0)) - 0.5) * 2.0 * terrace_wobble_px;
 		float inner_texels = max((terrace_inner_px + terrace_wobble) / max(sample_step_px, 0.001), 1.0);
 		float upper_texels = max((terrace_upper_px + terrace_wobble * 1.4) / max(sample_step_px, 0.001), 1.0);
-		float inner_level = smoothstep(0.30, 0.72, ring_interior(TEXTURE, base_uv, texel, inner_texels));
-		float upper_level = smoothstep(0.30, 0.72, ring_interior(TEXTURE, base_uv, texel, upper_texels));
+		float inner_level = smoothstep(0.30, 0.72, ring_interior(base_uv, texel, inner_texels));
+		float upper_level = smoothstep(0.30, 0.72, ring_interior(base_uv, texel, upper_texels));
 		float plateau_lift = (inner_level * 0.075 + upper_level * 0.085) * terrace_strength;
 		// Asymmetric ledge per level: a dark base shadow just below the step
 		// and a lit lip just above it read as real relief, unlike a symmetric
@@ -424,8 +611,8 @@ void fragment() {
 		// A rim opening toward the sun is lit, a rim opening away falls into
 		// shade, so east/west flanks gain volume and track the time of day.
 		vec2 sun_step = vec2(cos(a), sin(a)) * texel * (side_shade_reach_px / max(sample_step_px, 0.001));
-		float open_toward = 1.0 - mask_to_top(texture(TEXTURE, base_uv + sun_step).r);
-		float open_away = 1.0 - mask_to_top(texture(TEXTURE, base_uv - sun_step).r);
+		float open_toward = 1.0 - mask_to_top(sample_effective_mountain_mask(base_uv + sun_step));
+		float open_away = 1.0 - mask_to_top(sample_effective_mountain_mask(base_uv - sun_step));
 		float side_signed = open_toward - open_away;
 		float rim_breakup = 0.72 + small_mottle * 0.56;
 		top_lit *= 1.0
@@ -465,7 +652,7 @@ void fragment() {
 	// leaked into the WIDE projected-shadow overlap band (MASK_SHADOW_CHUNK_OVERLAP_PX,
 	// 48 px), so two neighbouring chunk sprites double-composited their edges into a
 	// brighter rectangular seam — very visible once the torch lit the rock at night.
-	float out_alpha = top_here * top_col.a * top_surface_alpha * body_area;
+	float out_alpha = roof_surface_mask * top_col.a * top_surface_alpha;
 
 	if (top_band_px > 0.5) {
 		// Shoreline band: keep the top fill only near the open contour. The
@@ -474,14 +661,14 @@ void fragment() {
 		float band_wobble = (fbm2(world_px / 240.0 + vec2(27.0, -53.0)) - 0.5) * 2.0 * top_band_feather_px;
 		float band_texels = max((top_band_px + band_wobble) / max(sample_step_px, 0.001), 1.0);
 		float interior = top_here;
-		interior = min(interior, mask_to_top(texture(TEXTURE, UV + vec2(texel.x, 0.0) * band_texels).r));
-		interior = min(interior, mask_to_top(texture(TEXTURE, UV - vec2(texel.x, 0.0) * band_texels).r));
-		interior = min(interior, mask_to_top(texture(TEXTURE, UV + vec2(0.0, texel.y) * band_texels).r));
-		interior = min(interior, mask_to_top(texture(TEXTURE, UV - vec2(0.0, texel.y) * band_texels).r));
-		interior = min(interior, mask_to_top(texture(TEXTURE, UV + vec2(texel.x, texel.y) * band_texels * 0.7071).r));
-		interior = min(interior, mask_to_top(texture(TEXTURE, UV + vec2(-texel.x, texel.y) * band_texels * 0.7071).r));
-		interior = min(interior, mask_to_top(texture(TEXTURE, UV + vec2(texel.x, -texel.y) * band_texels * 0.7071).r));
-		interior = min(interior, mask_to_top(texture(TEXTURE, UV + vec2(-texel.x, -texel.y) * band_texels * 0.7071).r));
+		interior = min(interior, mask_to_top(sample_effective_mountain_mask(UV + vec2(texel.x, 0.0) * band_texels)));
+		interior = min(interior, mask_to_top(sample_effective_mountain_mask(UV - vec2(texel.x, 0.0) * band_texels)));
+		interior = min(interior, mask_to_top(sample_effective_mountain_mask(UV + vec2(0.0, texel.y) * band_texels)));
+		interior = min(interior, mask_to_top(sample_effective_mountain_mask(UV - vec2(0.0, texel.y) * band_texels)));
+		interior = min(interior, mask_to_top(sample_effective_mountain_mask(UV + vec2(texel.x, texel.y) * band_texels * 0.7071)));
+		interior = min(interior, mask_to_top(sample_effective_mountain_mask(UV + vec2(-texel.x, texel.y) * band_texels * 0.7071)));
+		interior = min(interior, mask_to_top(sample_effective_mountain_mask(UV + vec2(texel.x, -texel.y) * band_texels * 0.7071)));
+		interior = min(interior, mask_to_top(sample_effective_mountain_mask(UV + vec2(-texel.x, -texel.y) * band_texels * 0.7071)));
 		float band_alpha = 1.0 - smoothstep(0.35, 0.85, interior);
 		out_alpha *= band_alpha;
 	}
