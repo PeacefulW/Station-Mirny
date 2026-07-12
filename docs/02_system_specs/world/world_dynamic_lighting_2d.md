@@ -4,7 +4,7 @@ doc_type: system_spec
 status: approved
 source_of_truth: true
 owner: engineering+art
-version: 1.7
+version: 1.8
 last_updated: 2026-07-12
 related_docs:
   - ../../05_adrs/0005-light-is-gameplay-system.md
@@ -359,6 +359,14 @@ Version `1.7` records the independently authored layered-tree v4 bake: screen
 physical tree shadow. The live presentation sun remains at north-west
 (`225 degrees`); this tree-asset promotion does not change its runtime owner,
 public API, gameplay-light authority, or save boundary.
+
+Version `1.8` records the paired grass-atlas promotion: the same authored
+`10:00` Sun and `20%` low shadowless albedo kicker, real blade self-shadow, and
+a fixed east-south-east physical ground shadow. Unlike trees, grass shadow
+length does not follow time of day; wind moves the tuft while the baked root and
+shadow remain fixed. This is presentation data only and does not change live
+light ownership, gameplay-light authority, public API, save/load, placement, or
+runtime work classes.
 
 ## Required Updates
 - `docs/02_system_specs/README.md` — index entry (added with this draft).

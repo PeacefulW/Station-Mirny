@@ -2,8 +2,8 @@
 
 Follows the layered tree bake recipe: an ORTHO camera looking down at the
 tuft from the tree-family elevation, roots scattered in depth on uneven
-soil (no ruler-flat baseline), a Cycles shadow-catcher pass with the shared
-fixed sun so ground shadows land screen north-east like the trees.
+soil (no ruler-flat baseline), a Cycles shadow-catcher pass with the selected
+10:00 Sun so ground shadows land screen east-south-east like the trees.
 """
 
 from __future__ import annotations
@@ -40,6 +40,11 @@ def parse_args() -> argparse.Namespace:
         type=str,
         default="",
         help="JSON object deep-merged over the profile (variant exploration).",
+    )
+    parser.add_argument(
+        "--write-self-shadow-reference",
+        action="store_true",
+        help="Also render each albedo frame with Sun shadowing disabled for strict self-shadow comparison.",
     )
     argv = sys.argv
     argv = argv[argv.index("--") + 1 :] if "--" in argv else []
@@ -136,8 +141,13 @@ def configure_albedo_lighting(scene: bpy.types.Scene, profile: dict) -> None:
                 math.radians(float(lighting["sun_azimuth_degrees"])),
             )
             obj.data.energy = float(lighting["albedo_sun_energy"])
+            if hasattr(obj.data, "angle"):
+                obj.data.angle = math.radians(float(lighting.get("albedo_sun_angular_diameter_degrees", 4.0)))
         elif obj.name.startswith("GrassTuftFill"):
             obj.data.energy = float(lighting["fill_energy"])
+        elif obj.name.startswith("GrassTuftLowOppositeKicker"):
+            obj.hide_render = False
+            obj.data.energy = float(lighting["low_opposite_kicker"]["energy"])
 
 
 def place_camera_anchor(camera: bpy.types.Object, profile: dict) -> None:
@@ -192,12 +202,28 @@ def setup_scene(profile: dict) -> bpy.types.Object:
         math.radians(float(lighting["sun_azimuth_degrees"])),
     )
 
-    fill_data = bpy.data.lights.new("GrassTuftFill", "AREA")
-    fill = bpy.data.objects.new("GrassTuftFill", fill_data)
-    bpy.context.collection.objects.link(fill)
-    fill.location = Vector((0.0, -1.4, 0.42))
-    fill.data.energy = float(lighting["fill_energy"])
-    fill.data.size = float(lighting["fill_size"])
+    kicker_profile = lighting.get("low_opposite_kicker", {})
+    if bool(kicker_profile.get("enabled", False)):
+        tuft_profile = profile["tuft"]
+        height = max(
+            float(tuft_profile["height_max"]) + float(tuft_profile.get("biofield_extra_height", 0.0)),
+            0.001,
+        )
+        spot_data = bpy.data.lights.new("GrassTuftLowOppositeKicker", "SPOT")
+        spot = bpy.data.objects.new("GrassTuftLowOppositeKicker", spot_data)
+        bpy.context.collection.objects.link(spot)
+        spot.location = Vector((
+            float(kicker_profile["position_x"]),
+            float(kicker_profile["position_y"]),
+            height * float(kicker_profile["height_fraction"]),
+        ))
+        look_at(spot, Vector((0.0, 0.0, height * float(kicker_profile["target_height_fraction"]))))
+        spot.data.energy = float(kicker_profile["energy"])
+        color = kicker_profile["color"]
+        spot.data.color = (float(color[0]), float(color[1]), float(color[2]))
+        spot.data.spot_size = math.radians(float(kicker_profile["spot_size_degrees"]))
+        spot.data.spot_blend = float(kicker_profile["spot_blend"])
+        spot.data.use_shadow = bool(kicker_profile["use_shadow"])
     configure_albedo_lighting(scene, profile)
     return camera
 
@@ -581,6 +607,8 @@ def setup_shadow_scene(objects: list[bpy.types.Object], profile: dict) -> bpy.ty
             obj.data.energy = float(lighting["shadow_sun_energy"])
         elif obj.name.startswith("GrassTuftFill"):
             obj.data.energy = 0.0
+        elif obj.name.startswith("GrassTuftLowOppositeKicker"):
+            obj.hide_render = True
 
     plane_mesh = bpy.data.meshes.new("GrassShadowCatcherPlaneMesh")
     size = 1.6
@@ -621,6 +649,13 @@ def main() -> None:
         configure_albedo_render(bpy.context.scene, profile)
         configure_albedo_lighting(bpy.context.scene, profile)
         render_frame(out_dir / f"frame_{frame_index:02d}.png")
+        if args.write_self_shadow_reference:
+            sun = bpy.data.objects.get("GrassTuftSun")
+            if sun is None:
+                raise RuntimeError("GrassTuftSun is required for the self-shadow reference.")
+            sun.data.use_shadow = False
+            render_frame(out_dir / f"no_self_shadow_frame_{frame_index:02d}.png")
+            sun.data.use_shadow = True
         render_shadow_frame(out_dir / ("shadow_frame_%02d.png" % frame_index), objects, profile)
         remove_objects(objects)
         print(f"Rendered grass frame {step + 1}/{len(frame_indices)} (index {frame_index})")

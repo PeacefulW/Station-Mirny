@@ -1429,8 +1429,11 @@ func _ensure_grass_scatter_sources() -> void:
 	)
 	_grass_shadow_atlas_material.set_shader_parameter(
 		"overlay_shadow_runtime_direction",
-		WorldVisualLightingProfile.shadow_direction_for_light_angle_deg(
-			WorldVisualLightingProfile.DEFAULT_LIGHT_ANGLE_DEG,
+		grass_params.get(
+			"directional_shadow_runtime_direction",
+			WorldVisualLightingProfile.shadow_direction_for_light_angle_deg(
+				WorldVisualLightingProfile.DEFAULT_LIGHT_ANGLE_DEG,
+			),
 		),
 	)
 	_grass_shadow_atlas_material.set_shader_parameter(

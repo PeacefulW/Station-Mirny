@@ -12,13 +12,14 @@ from PIL import Image
 
 
 ROOT = Path(__file__).resolve().parents[2]
-TREE_PROFILE_PATH = ROOT / "tools" / "tree_atlas" / "layered_asset_bake_profile.json"
+TREE_PROFILE_PATH = ROOT / "tools" / "tree_atlas" / "layered_tree_bake_profile_10_oclock_fill_20.json"
 GRASS_PROFILE_PATH = ROOT / "tools" / "grass_atlas" / "grass_tuft_bake_profile.json"
 BLENDER_BAKE_PATH = ROOT / "tools" / "grass_atlas" / "blender_grass_tuft_bake.py"
 POSTPROCESS_PATH = ROOT / "tools" / "grass_atlas" / "postprocess_grass_tuft_atlas.py"
-PROTOTYPE_ALBEDO_PATH = ROOT / "artifacts" / "blender_grass_tufts" / "grass_tuft_albedo_atlas.png"
-PROTOTYPE_SHADOW_PATH = ROOT / "artifacts" / "blender_grass_tufts" / "grass_tuft_shadow_atlas.png"
-PROTOTYPE_RAW_SHADOW_PATH = ROOT / "artifacts" / "blender_grass_tufts" / "frames" / "shadow_frame_00.png"
+PROTOTYPE_ROOT = ROOT / "artifacts" / "blender_grass_tufts_10_oclock_fill_20"
+PROTOTYPE_ALBEDO_PATH = PROTOTYPE_ROOT / "grass_tuft_albedo_atlas.png"
+PROTOTYPE_SHADOW_PATH = PROTOTYPE_ROOT / "grass_tuft_shadow_atlas.png"
+PROTOTYPE_RAW_SHADOW_PATH = PROTOTYPE_ROOT / "frames" / "shadow_frame_00.png"
 RUNTIME_GRASS_ATLAS_PATH = ROOT / "assets" / "textures" / "world" / "biomes" / "plains" / "flora" / "grass_tuft_atlas.png"
 RUNTIME_SHADOW_ATLAS_PATH = ROOT / "assets" / "textures" / "world" / "biomes" / "plains" / "flora" / "grass_tuft_shadow_atlas.png"
 GRASS_MATERIAL_SET_PATH = ROOT / "data" / "terrain" / "material_sets" / "grass_scatter_material_set.tres"
@@ -100,9 +101,9 @@ class GrassTuftBakeContractTest(unittest.TestCase):
         tree_profile = json.loads(TREE_PROFILE_PATH.read_text(encoding="utf-8"))
         grass_profile = json.loads(GRASS_PROFILE_PATH.read_text(encoding="utf-8"))
 
-        self.assertEqual(grass_profile["profile_id"], "station_peaceful_grass_tuft_bake_v1")
+        self.assertEqual(grass_profile["profile_id"], "station_mirny_grass_tuft_10_oclock_fill_20_v2")
         self.assertEqual(grass_profile["inherits_profile_id"], tree_profile["profile_id"])
-        self.assertEqual(grass_profile["version"], 1)
+        self.assertEqual(grass_profile["version"], 2)
         self.assertEqual(grass_profile["atlas"]["columns"], 4)
         self.assertEqual(grass_profile["atlas"]["rows"], 8)
         self.assertEqual(grass_profile["atlas"]["frame_count"], 32)
@@ -114,6 +115,9 @@ class GrassTuftBakeContractTest(unittest.TestCase):
             tree_profile["lighting"]["shadow_sun_elevation_degrees"],
         )
         self.assertEqual(grass_profile["lighting"]["fixed_shadow_direction"], tree_profile["lighting"]["fixed_shadow_direction"])
+        self.assertEqual(grass_profile["lighting"]["fixed_shadow_direction_vector_screen"], [0.866025, 0.5])
+        self.assertEqual(grass_profile["lighting"]["low_opposite_kicker"], tree_profile["lighting"]["low_opposite_kicker"])
+        self.assertEqual(grass_profile["render"]["exposure"], 0.75)
         self.assertEqual(
             grass_profile["palette"]["source_reference"],
             "assets/textures/world/biomes/plains/flora/grass_tuft_atlas.png",
@@ -123,11 +127,12 @@ class GrassTuftBakeContractTest(unittest.TestCase):
         self.assertEqual(grass_profile["postprocess"]["albedo_grade_rgb_multiply"], [1.0, 0.68, 0.38])
         self.assertEqual(grass_profile["render"]["shadow_engine"], tree_profile["render"]["shadow_engine"])
         self.assertEqual(grass_profile["lighting"]["shadow_sun_energy"], tree_profile["lighting"]["shadow_sun_energy"])
-        self.assertFalse(grass_profile["runtime"]["replace_live_runtime_asset"])
+        self.assertTrue(grass_profile["runtime"]["replace_live_runtime_asset"])
         self.assertEqual(
             grass_profile["runtime"]["sun_shadow_mode"],
-            "blender_baked_north_east_rotated_to_runtime_shadow_axis",
+            "blender_baked_east_south_east_fixed_length",
         )
+        self.assertEqual(grass_profile["runtime"]["shadow_length_mode"], "fixed")
 
     def test_grass_profile_targets_relaxed_broken_steppe_tufts(self) -> None:
         grass_profile = json.loads(GRASS_PROFILE_PATH.read_text(encoding="utf-8"))
@@ -215,6 +220,10 @@ class GrassTuftBakeContractTest(unittest.TestCase):
         self.assertIn('"overlay_shadow_rotation_enabled", 1.0', world_streamer_text)
         self.assertIn("overlay_shadow_runtime_direction", shader_text)
         self.assertIn("overlay_shadow_anchor_uv", shader_text)
+        self.assertNotIn("shadow_length_scale", shader_text)
+        self.assertIn('"directional_shadow_runtime_direction": Vector2(0.866025, 0.5)', material_text)
+        self.assertIn('grass_params.get(', world_streamer_text)
+        self.assertIn('"directional_shadow_runtime_direction"', world_streamer_text)
 
         blender_bake_text = BLENDER_BAKE_PATH.read_text(encoding="utf-8")
         postprocess_text = POSTPROCESS_PATH.read_text(encoding="utf-8")
@@ -252,13 +261,80 @@ class GrassTuftBakeContractTest(unittest.TestCase):
         delta_x = shadow_center[0] - source_center[0]
         delta_y = shadow_center[1] - source_center[1]
         self.assertGreater(delta_x, 2.0)
-        self.assertLess(delta_y, -2.0)
+        self.assertGreater(delta_y, 2.0)
         self.assertGreater(delta_x / abs(delta_y), 0.35)
         self.assertLess(delta_x / abs(delta_y), 1.65)
         self.assertGreaterEqual(bbox[0], 2)
         self.assertGreaterEqual(bbox[1], 2)
         self.assertLessEqual(bbox[2], 30)
         self.assertLessEqual(bbox[3], 30)
+
+    def test_selected_frames_have_measurable_real_self_shadow(self) -> None:
+        for frame_index in (0, 2, 16, 20):
+            with self.subTest(frame_index=frame_index):
+                full = Image.open(PROTOTYPE_ROOT / "frames" / f"frame_{frame_index:02d}.png").convert("RGBA")
+                reference = Image.open(
+                    PROTOTYPE_ROOT / "frames" / f"no_self_shadow_frame_{frame_index:02d}.png"
+                ).convert("RGBA")
+                full_pixels = full.load()
+                ref_pixels = reference.load()
+                compared = 0
+                shadowed = 0
+                max_delta = 0
+                for y in range(full.height):
+                    for x in range(full.width):
+                        fp = full_pixels[x, y]
+                        rp = ref_pixels[x, y]
+                        if fp[3] < 96 or rp[3] < 96:
+                            continue
+                        compared += 1
+                        full_luma = (fp[0] * 299 + fp[1] * 587 + fp[2] * 114) // 1000
+                        ref_luma = (rp[0] * 299 + rp[1] * 587 + rp[2] * 114) // 1000
+                        delta = ref_luma - full_luma
+                        max_delta = max(max_delta, delta)
+                        if delta >= 2:
+                            shadowed += 1
+                self.assertGreater(compared, 30)
+                self.assertGreater(shadowed / float(compared), 0.01)
+                self.assertGreaterEqual(max_delta, 5)
+
+    def test_selected_review_direction_and_production_guard(self) -> None:
+        review = PROTOTYPE_ROOT / "selected_10_oclock_fill_20_review.png"
+        metrics_path = PROTOTYPE_ROOT / "selected_10_oclock_fill_20_metrics.json"
+        guard_path = PROTOTYPE_ROOT / "production_guard.json"
+        manifest_path = PROTOTYPE_ROOT / "promotion_manifest.json"
+        self.assertTrue(review.is_file())
+        metrics = json.loads(metrics_path.read_text(encoding="utf-8"))
+        self.assertEqual(set(metrics), {"frame_00", "frame_02", "frame_16", "frame_20"})
+        centroid_deltas = []
+        for frame_metrics in metrics.values():
+            self.assertGreater(frame_metrics["shadowed_fraction_delta_ge_2"], 0.01)
+            self.assertGreaterEqual(frame_metrics["max_luminance_delta"], 5)
+            self.assertEqual(frame_metrics["authored_shadow_direction"], [0.866025, 0.5])
+            self.assertGreater(frame_metrics["max_forward_extent_from_authored_root"], 5.0)
+            self.assertGreater(frame_metrics["below_root_alpha_fraction"], 0.25)
+            centroid_deltas.append(frame_metrics["shadow_centroid_from_authored_root"])
+        # Individual tufts lean around the fixed root, so a single tiny caster can
+        # have a centroid a few pixels left of the anchor. Across representative
+        # frames the physical ground-shadow mass must still land right and down.
+        self.assertGreater(sum(delta[0] for delta in centroid_deltas), 0.0)
+        self.assertTrue(all(delta[1] > 0.0 for delta in centroid_deltas))
+        self.assertTrue(json.loads(guard_path.read_text(encoding="utf-8"))["passed"])
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        self.assertEqual(manifest["profile_id"], "station_mirny_grass_tuft_10_oclock_fill_20_v2")
+        self.assertEqual(set(manifest["promoted"]), {"grass_tuft_atlas.png", "grass_tuft_shadow_atlas.png"})
+
+    def test_kicker_is_albedo_only_and_fixed_shadow_has_no_time_stretch(self) -> None:
+        profile = json.loads(GRASS_PROFILE_PATH.read_text(encoding="utf-8"))
+        kicker = profile["lighting"]["low_opposite_kicker"]
+        self.assertFalse(kicker["use_shadow"])
+        self.assertEqual(kicker["affects"], "albedo_only")
+        blender_text = BLENDER_BAKE_PATH.read_text(encoding="utf-8")
+        shader_text = GRASS_SHADER_PATH.read_text(encoding="utf-8")
+        self.assertIn('obj.name.startswith("GrassTuftLowOppositeKicker")', blender_text)
+        self.assertIn("obj.hide_render = True", blender_text)
+        self.assertNotIn("shadow_length_scale", shader_text)
+        self.assertNotIn("get_shadow_length_factor", shader_text)
 
 
 if __name__ == "__main__":

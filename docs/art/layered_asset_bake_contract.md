@@ -8,12 +8,15 @@ The machine-readable sources of truth are:
 - `tools/tree_atlas/layered_asset_bake_profile.json` for the legacy shared v1
   small-rock bake;
 - `tools/tree_atlas/layered_tree_bake_profile_10_oclock_fill_20.json` for
-  production layered trees.
+  production layered trees;
+- `tools/grass_atlas/grass_tuft_bake_profile.json` for the production grass
+  albedo and physical-shadow atlases.
 
 Current profiles:
 
 - `station_peaceful_layered_asset_bake_v1` for small rocks;
 - `station_mirny_layered_tree_10_oclock_fill_20_v4` for trees;
+- `station_mirny_grass_tuft_10_oclock_fill_20_v2` for grass;
 - `station_mirny_layered_tree_fixed_nw_winter_v2` is the superseded tree
   profile retained for bake history and proof reproducibility; it used
   `sun_azimuth_degrees: 205.201124`.
@@ -61,6 +64,21 @@ Current profiles:
 - Existing small-rock assets remain on this profile until a separately approved
   rock rebake.
 
+## Fixed Grass Bake Rules (V2)
+
+- Atlas layout remains `4 x 8` frames at `160 x 120` per frame.
+- Grass reuses the tree v4 screen `10:00` Sun, Filmic Medium High Contrast,
+  `0.75` exposure, and the same `20%` low opposite shadowless Spot.
+- The Spot affects albedo only and is hidden from every shadow-catcher render.
+- Cycles Sun lighting supplies real blade-to-blade self-shadow in the albedo
+  frames and a separate complete physical ground-shadow atlas.
+- The authored and runtime ground-shadow direction is fixed screen
+  east-south-east (`[0.866025, 0.5]`).
+- The tuft root, shadow contact, direction and length remain fixed while wind
+  moves only the visible tuft. Grass does not inherit the tree time-of-day
+  shadow stretch.
+- Existing wind, season, snow and palette-bank masks remain unchanged.
+
 ## Required Outputs
 
 Each layered asset directory must contain:
@@ -78,6 +96,10 @@ Tree assets additionally contain `trunk.png`, `foliage.png`, `wind_mask.png`,
 and `season_mask.png`. Static small rock assets intentionally do not contain a
 wind mask or season mask; their body layer is `albedo.png`.
 
+Grass promotion replaces only `grass_tuft_atlas.png` and
+`grass_tuft_shadow_atlas.png`; wind/season/snow helper atlases stay on their
+existing production assets.
+
 Tree `meta.json` records the v4 profile, numeric yaw, fixed screen shadow
 direction, and contact-lock distance. Rock `meta.json` continues to record the
 legacy shared v1 profile.
@@ -89,6 +111,10 @@ The visible tree and shadow share the metadata anchor. Time-of-day may change
 shadow visibility and stretch the far end, but it must not rotate the shadow,
 move the root-side contact zone, suppress root geometry, or create a second
 synthetic shadow.
+
+Production grass uses its paired baked east-south-east physical-shadow atlas.
+Per-tuft lean and non-uniform scale are cancelled around the authored root so
+wind cannot rotate or detach the shadow. Runtime does not stretch grass shadows.
 
 Winter is a reversible presentation amount. It may recolour/freeze foliage and
 reveal supported snow/frost, but it must not reduce foliage alpha or produce a

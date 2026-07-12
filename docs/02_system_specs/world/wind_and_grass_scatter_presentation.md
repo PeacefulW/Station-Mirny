@@ -4,8 +4,8 @@ doc_type: system_spec
 status: approved
 owner: engineering+design
 source_of_truth: true
-version: 1.2
-last_updated: 2026-07-11
+version: 1.3
+last_updated: 2026-07-12
 related_docs:
   - ../../00_governance/ENGINEERING_STANDARDS.md
   - ../../00_governance/WORKFLOW.md
@@ -734,6 +734,97 @@ feature thinner than the sampled radius — worse at *larger* radii, not better.
   simulated neighbour chunk; asserts every surviving tuft origin respects
   clearance against the halo, not the chunk's own empty `terrain_ids`).
 
+### Iteration 6 — Tree-matched 10:00 grass lighting and self-shadow — APPROVED
+
+User-approved visual-only atlas rebake. The grass keeps its existing geometry,
+32-frame grid, dry/biofield banks, native placement, wind deformation and
+runtime batching. Only authored lighting, physical shadow direction and the
+paired runtime atlas presentation may change.
+
+Design intent:
+
+- reuse the selected layered-tree v4 screen `10:00` Sun direction and exposure;
+- use the same normalized low opposite shadowless Spot as an albedo-only
+  readability lift; it must never enter the shadow-catcher pass;
+- preserve real Cycles self-shadow between blades inside every albedo frame;
+- bake the complete Sun-only ground shadow toward screen east-south-east,
+  matching `[0.866025, 0.5]` within render tolerance;
+- keep every tuft root and its ground-shadow contact invariant under wind and
+  time-of-day;
+- keep grass shadow length fixed. No dawn/dusk stretch, rotation, translation,
+  or per-instance shadow animation is allowed;
+- preserve the current fallback contact-blob policy, atlas frame grid,
+  palette-bank selection, snow/wind/season masks and instance packing.
+
+Law 0 / performance classification:
+
+- layer: presentation-only authored assets; no canonical world data;
+- save/load, deterministic placement, unloaded-chunk semantics and
+  `world_version`: unchanged;
+- runtime work: existing preloaded atlas plus existing batched material only;
+  no new CPU work, no per-frame parameter broadcast, no per-instance nodes;
+- source of truth / write owner: the versioned grass bake profile and
+  `tools/grass_atlas` offline Blender pipeline;
+- derived data: 32 source frames, review images, packed albedo/shadow atlases
+  and existing helper masks;
+- dirty unit: one offline grass atlas batch; runtime grass dirty unit remains
+  one chunk scatter buffer and is not changed;
+- target scale: thousands of tufts per chunk and dozens of loaded chunks remain
+  one shared texture/material path;
+- escalation path: visual complexity must stay in the offline bake. A future
+  runtime-lighting design requires a separate approved iteration.
+
+Allowed files:
+
+- this spec;
+- `tools/grass_atlas/**` for the selected profile, bake, pack, review and focused
+  tests;
+- `artifacts/blender_grass_tufts_10_oclock_fill_20/**` for isolated proof output;
+- `assets/textures/world/biomes/plains/flora/grass_tuft_atlas.png`;
+- `assets/textures/world/biomes/plains/flora/grass_tuft_shadow_atlas.png`;
+- the existing grass shadow material/shader and focused grass probes only where
+  required to replace the old south-east target with fixed east-south-east;
+- `WorldStreamer` grass-material setup only: replace its hardcoded canonical
+  shadow target with the authored `directional_shadow_runtime_direction`
+  sampling parameter, retaining the old canonical direction as fallback;
+- canonical grass/bake/lighting docs required by the promotion.
+
+Forbidden files and behavior:
+
+- `gdextension/src/grass_scatter.*`, placement fields, density, frame selection,
+  instance buffers or mountain clearance;
+- every other `WorldStreamer` path, all `ChunkView` lifecycle, `WindRuntime`,
+  `WeatherRuntime`, `TimeManager`, save/load, packet/event/command schemas or
+  public API;
+- tree, rock, terrain, player-shadow or world-light runtime assets;
+- runtime shadow stretching or a second grass instance buffer.
+
+Acceptance criteria:
+
+- [x] all 32 albedo and physical-shadow frames bake and pack into the existing
+      `4 x 8`, `160 x 120` atlas contract without clipping or bank reordering;
+- [x] a labelled proof shows representative dry and biofield tufts with real
+      blade-to-blade self-shadow; a strict Sun/self-shadow diagnostic reports a
+      nonzero interior luminance delta instead of relying only on visual labels;
+- [x] the paired Sun-only physical shadow measures east-south-east from the root
+      and the shadowless Spot contributes zero shadow-catcher pixels;
+- [x] runtime probes show the grass root and shadow contact fixed while wind
+      moves the tuft tips; changing hour does not change grass shadow direction
+      or length;
+- [x] candidate and production atlas pixels match after promotion, and a guard
+      proves no placement/worldgen/save/tree/rock asset changed;
+- [x] focused bake tests, existing grass smoke/probe coverage and project boot
+      pass; final visual acceptance remains a manual in-world check.
+
+Iteration 6 proof (2026-07-12): `13/13` focused Python contract tests;
+`world_streamer_visual_patch_smoke_test: OK`; headless project boot exit `0`;
+windowed `grass_runtime_probe: DONE` with `73,308` instances across `25`
+grass chunks; windowed `grass_wind_dir_probe: ALL CHECKS PASSED`. The selected
+review records nonzero real self-shadow on frames `00`, `02`, `16`, `20`, the
+fixed authored/runtime direction `[0.866025, 0.5]`, and a passing promotion
+guard. The shader/material contract zeros all shadow wind amplitudes and exposes
+no time-of-day shadow length input.
+
 ## Required Updates
 
 - `docs/README.md` and `docs/02_system_specs/README.md`: link this spec (done
@@ -745,3 +836,9 @@ feature thinner than the sampled radius — worse at *larger* radii, not better.
   `get_wind_gustiness()` and debug override entries are documented.
 - `event_contracts.md`, `commands.md`: not required in V0 (no events, no
   mutations) — recheck at each iteration.
+- Iteration 6: update this spec and the grass/bake lighting contract; recheck
+  `system_api.md`, `packet_schemas.md`, `event_contracts.md`, and `commands.md`.
+  Update those boundary docs only if their public behavior changes; the approved
+  design expects zero boundary changes. Rechecked 2026-07-12: no public API,
+  packet, event or command behavior changed; `layered_asset_bake_contract.md`
+  and `world_dynamic_lighting_2d.md` were updated for the promoted grass profile.

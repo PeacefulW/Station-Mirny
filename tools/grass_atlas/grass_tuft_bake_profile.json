@@ -1,7 +1,7 @@
 {
-	"profile_id": "station_peaceful_grass_tuft_bake_v1",
-	"inherits_profile_id": "station_peaceful_layered_asset_bake_v1",
-	"version": 1,
+	"profile_id": "station_mirny_grass_tuft_10_oclock_fill_20_v2",
+	"inherits_profile_id": "station_mirny_layered_tree_10_oclock_fill_20_v4",
+	"version": 2,
 	"atlas": {
 		"columns": 4,
 		"rows": 8,
@@ -12,14 +12,31 @@
 		"frame_height": 120
 	},
 	"lighting": {
-		"sun_azimuth_degrees": 315.0,
-		"albedo_sun_elevation_degrees": 52.0,
+		"sun_azimuth_degrees": 219.0,
+		"albedo_sun_elevation_degrees": 38.0,
+		"albedo_sun_angular_diameter_degrees": 4.0,
 		"shadow_sun_elevation_degrees": 42.0,
-		"albedo_sun_energy": 2.0,
+		"albedo_sun_energy": 2.25,
 		"shadow_sun_energy": 3.5,
-		"fill_energy": 28.0,
+		"fill_energy": 0.0,
 		"fill_size": 4.0,
-		"fixed_shadow_direction": "screen_north_east"
+		"screen_sun_direction": "west_north_west_10_oclock",
+		"fixed_shadow_direction": "screen_east_south_east",
+		"fixed_shadow_direction_vector_screen": [0.866025, 0.5],
+		"low_opposite_kicker": {
+			"enabled": true,
+			"screen_side": "east_south_east_opposite_10_oclock_sun",
+			"position_x": 2.25,
+			"position_y": -2.05,
+			"height_fraction": 0.08,
+			"target_height_fraction": 0.43,
+			"energy": 23.3515625,
+			"color": [1.0, 0.97, 0.92],
+			"spot_size_degrees": 52.0,
+			"spot_blend": 0.88,
+			"use_shadow": false,
+			"affects": "albedo_only"
+		}
 	},
 	"camera": {
 		"type": "ORTHO",
@@ -86,9 +103,9 @@
 		"samples": 64,
 		"use_denoising": true,
 		"transparent_film": true,
-		"view_transform": "Standard",
-		"look": "None",
-		"exposure": 0.0,
+		"view_transform": "Filmic",
+		"look": "Medium High Contrast",
+		"exposure": 0.75,
 		"gamma": 1.0,
 		"color_mode": "RGBA"
 	},
@@ -103,8 +120,10 @@
 	},
 	"runtime": {
 		"target": "grass_scatter_multimesh",
-		"replace_live_runtime_asset": false,
-		"sun_shadow_mode": "blender_baked_north_east_rotated_to_runtime_shadow_axis",
+		"replace_live_runtime_asset": true,
+		"sun_shadow_mode": "blender_baked_east_south_east_fixed_length",
+		"fixed_shadow_direction_vector_screen": [0.866025, 0.5],
+		"shadow_length_mode": "fixed",
 		"dynamic_light_shadows": "not_for_individual_grass_tufts",
 		"normal_maps_generated": false
 	},

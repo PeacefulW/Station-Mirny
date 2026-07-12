@@ -44,17 +44,18 @@ uniform float alpha_cutoff = 0.02;
 uniform float macro_field_scale_px = 2600.0;
 uniform float macro_warm_strength = 0.10;
 uniform float macro_dry_strength = 0.22;
-// Dev/probe overlay mode: lets the grass atlas test scene draw generated
-// shadow/snow atlases with the exact same wind deformation as the albedo pass.
+// Dev/probe overlay mode draws generated shadow/snow atlases through the shared
+// batch shader. Production shadow materials zero wind amplitudes so the root,
+// contact, direction and fixed length do not move with the visible tuft.
 uniform float overlay_exact = 0.0;
 uniform float overlay_alpha = 1.0;
 uniform vec3 overlay_rgb = vec3(1.0, 1.0, 1.0);
 // Directional shadow atlases keep their authored UVs, but their quad geometry
 // is rotated in world space around the tuft root so non-uniform instance scale
-// and per-tuft lean cannot pull the cast axis away from south-east.
+// and per-tuft lean cannot pull the selected cast axis away from east-south-east.
 uniform float overlay_shadow_rotation_enabled = 0.0;
-uniform vec2 overlay_shadow_baked_direction = vec2(0.887216, -0.461354);
-uniform vec2 overlay_shadow_runtime_direction = vec2(0.70710678, 0.70710678);
+uniform vec2 overlay_shadow_baked_direction = vec2(0.866025, 0.5);
+uniform vec2 overlay_shadow_runtime_direction = vec2(0.866025, 0.5);
 uniform vec2 overlay_shadow_anchor_uv = vec2(0.42, 0.75);
 // Диагностика проб: 1.0 — рисовать значение gust-поля яркостью вместо травы.
 uniform float debug_gust_view = 0.0;

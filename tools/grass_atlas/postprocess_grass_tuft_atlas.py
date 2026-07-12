@@ -18,6 +18,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--frames-dir", required=True, type=Path)
     parser.add_argument("--out-dir", required=True, type=Path)
     parser.add_argument("--profile", type=Path, default=DEFAULT_PROFILE_PATH)
+    parser.add_argument(
+        "--copy-to",
+        type=Path,
+        default=None,
+        help="Promote the packed albedo and physical-shadow atlases to a runtime flora directory.",
+    )
     return parser.parse_args()
 
 
@@ -128,11 +134,10 @@ def make_fake_shadow_from_alpha(
     shadow = shadow.filter(ImageFilter.GaussianBlur(2.2))
     canvas = Image.new("L", alpha.size, 0)
 
-    # Match the authored layered-tree shadow axis in PNG space: right and up.
-    # Runtime rotates this bake-space north-east vector around the root onto
-    # the canonical south-east cast direction.
+    # Match the selected layered-tree physical cast axis in PNG space:
+    # east-south-east (right and down). Runtime keeps this axis fixed.
     center_x = (x0 + x1) * 0.5 + cropped.height * 0.34
-    center_y = y1 - cropped.height * 0.72
+    center_y = y1 + cropped.height * 0.08
     paste_x = int(round(center_x - shadow_width * 0.5))
     paste_y = int(round(center_y - shadow_height * 0.5))
 
@@ -340,7 +345,7 @@ def compose_preview_panel(images: dict[str, Image.Image]) -> Image.Image:
     return panel
 
 
-def save_outputs(frames_dir: Path, out_dir: Path, profile: dict) -> None:
+def save_outputs(frames_dir: Path, out_dir: Path, profile: dict, copy_to: Path | None = None) -> None:
     atlas_profile = profile["atlas"]
     columns = int(atlas_profile["columns"])
     rows = int(atlas_profile["rows"])
@@ -413,15 +418,25 @@ def save_outputs(frames_dir: Path, out_dir: Path, profile: dict) -> None:
         "atlas": atlas_profile,
         "source_frames": str(frames_dir),
         "shadow_source": shadow_source,
+        "lighting": profile["lighting"],
+        "runtime": profile["runtime"],
         "outputs": list(outputs.keys()) + ["preview_panel.png"],
-        "runtime_note": "Prototype only; live grass_tuft_atlas.png is not replaced.",
+        "runtime_note": (
+            "Selected production atlases promoted from this candidate."
+            if copy_to is not None
+            else "Isolated selected-lighting candidate; runtime is not replaced."
+        ),
     }
     (out_dir / "meta.json").write_text(json.dumps(meta, indent="\t", ensure_ascii=False), encoding="utf-8")
+    if copy_to is not None:
+        copy_to.mkdir(parents=True, exist_ok=True)
+        albedo.save(copy_to / "grass_tuft_atlas.png")
+        shadow.save(copy_to / "grass_tuft_shadow_atlas.png")
 
 
 def main() -> None:
     args = parse_args()
-    save_outputs(args.frames_dir, args.out_dir, load_profile(args.profile))
+    save_outputs(args.frames_dir, args.out_dir, load_profile(args.profile), args.copy_to)
     print(f"Wrote grass tuft prototype atlases to {args.out_dir}")
 
 
