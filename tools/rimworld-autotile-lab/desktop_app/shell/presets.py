@@ -32,7 +32,7 @@ PRESETS = {
         "variants": 6,
         "texture_scale": 1.0,
         "bake_height_shading": False,
-        "light_angle_deg": 234.0,
+        "light_angle_deg": 225.0,
         "preview_mode": "lit",
         "textures": {
             "top": "",

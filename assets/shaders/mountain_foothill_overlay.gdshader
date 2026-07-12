@@ -13,6 +13,10 @@ uniform float outer_width_px = 116.0;
 uniform float outer_width_variation_px = 0.0;
 uniform float inner_width_px = 36.0;
 uniform float foothill_alpha = 0.62;
+// The opaque rock underlay only backs fractional mountain pixels. The separate
+// foothill pass owns the visible exterior apron; disabling this ring prevents
+// the underlay from outlining newly excavated interior cuts.
+uniform float edge_band_strength = 1.0;
 uniform float footprint_fill_strength = 0.0;
 uniform float footprint_fill_alpha = 0.78;
 uniform float max_alpha = 0.78;
@@ -29,7 +33,7 @@ uniform float top_threshold_low = 0.40;
 uniform float top_threshold_high = 0.58;
 uniform vec2 chunk_uv_min = vec2(0.1, 0.1);
 uniform vec2 chunk_uv_max = vec2(0.9, 0.9);
-uniform float light_angle_deg = 234.0;
+uniform float light_angle_deg = 225.0;
 uniform float light_ambient = 0.70;
 uniform float light_diffuse = 0.26;
 uniform bool temporary_disable_terrain_normals = true;
@@ -154,7 +158,7 @@ void fragment() {
 
 	float outside_band = (1.0 - solid) * outer_score;
 	float inside_band = solid * inner_score * 0.42;
-	float edge_band = max(outside_band, inside_band);
+	float edge_band = max(outside_band, inside_band) * clamp(edge_band_strength, 0.0, 1.0);
 	float footprint_fill = solid
 		* clamp(footprint_fill_strength, 0.0, 1.0)
 		* mix(0.46, 0.62, fbm2(world_px / 1180.0 + vec2(67.0, -42.0)));

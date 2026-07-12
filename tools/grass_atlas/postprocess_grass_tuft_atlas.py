@@ -128,9 +128,11 @@ def make_fake_shadow_from_alpha(
     shadow = shadow.filter(ImageFilter.GaussianBlur(2.2))
     canvas = Image.new("L", alpha.size, 0)
 
-    # Match the baked layered-tree shadow vector in PNG space: right and down.
+    # Match the authored layered-tree shadow axis in PNG space: right and up.
+    # Runtime rotates this bake-space north-east vector around the root onto
+    # the canonical south-east cast direction.
     center_x = (x0 + x1) * 0.5 + cropped.height * 0.34
-    center_y = y1 + shadow_height * 0.10
+    center_y = y1 - cropped.height * 0.72
     paste_x = int(round(center_x - shadow_width * 0.5))
     paste_y = int(round(center_y - shadow_height * 0.5))
 

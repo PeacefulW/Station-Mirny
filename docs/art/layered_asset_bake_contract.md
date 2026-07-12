@@ -19,7 +19,8 @@ Current profile: `station_peaceful_layered_asset_bake_v1`.
 - `root_embed_fraction: 0.065`
 - Camera type is orthographic.
 - Render view transform is Filmic with Medium High Contrast.
-- Shadows are baked toward screen north-east.
+- Shadow textures are authored toward screen north-east; this is the texture-space
+  bake axis, not the final runtime direction.
 - normal maps are generated but disabled in runtime.
 
 ## Required Outputs
@@ -44,8 +45,11 @@ frame size, sun angles, and root embed fraction used for the bake.
 
 ## Runtime Rules
 
-Sun shadows are baked fixed north-east and can only stretch away from the root.
-The root side must stay pinned to the object anchor.
+Runtime rotates the authored north-east shadow around the object anchor onto the
+canonical cast-shadow axis. With the fixed north-west light (`225°`), the final
+screen-space shadow points south-east (`45°`). Time of day may change length,
+opacity, and softness, but not that azimuth. Stretching happens away from the
+root after this rotation; the root side stays pinned to the object anchor.
 
 Dynamic light shadows are runtime fake shadows. They are separate from this
 sun-shadow bake contract.

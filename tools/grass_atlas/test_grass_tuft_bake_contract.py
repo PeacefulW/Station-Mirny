@@ -24,6 +24,7 @@ RUNTIME_SHADOW_ATLAS_PATH = ROOT / "assets" / "textures" / "world" / "biomes" / 
 GRASS_MATERIAL_SET_PATH = ROOT / "data" / "terrain" / "material_sets" / "grass_scatter_material_set.tres"
 CHUNK_VIEW_PATH = ROOT / "core" / "systems" / "world" / "chunk_view.gd"
 WORLD_STREAMER_PATH = ROOT / "core" / "systems" / "world" / "world_streamer.gd"
+GRASS_SHADER_PATH = ROOT / "assets" / "shaders" / "grass_scatter_batch.gdshader"
 
 
 def load_postprocess_module():
@@ -123,6 +124,10 @@ class GrassTuftBakeContractTest(unittest.TestCase):
         self.assertEqual(grass_profile["render"]["shadow_engine"], tree_profile["render"]["shadow_engine"])
         self.assertEqual(grass_profile["lighting"]["shadow_sun_energy"], tree_profile["lighting"]["shadow_sun_energy"])
         self.assertFalse(grass_profile["runtime"]["replace_live_runtime_asset"])
+        self.assertEqual(
+            grass_profile["runtime"]["sun_shadow_mode"],
+            "blender_baked_north_east_rotated_to_runtime_shadow_axis",
+        )
 
     def test_grass_profile_targets_relaxed_broken_steppe_tufts(self) -> None:
         grass_profile = json.loads(GRASS_PROFILE_PATH.read_text(encoding="utf-8"))
@@ -199,6 +204,7 @@ class GrassTuftBakeContractTest(unittest.TestCase):
         material_text = GRASS_MATERIAL_SET_PATH.read_text(encoding="utf-8")
         chunk_view_text = CHUNK_VIEW_PATH.read_text(encoding="utf-8")
         world_streamer_text = WORLD_STREAMER_PATH.read_text(encoding="utf-8")
+        shader_text = GRASS_SHADER_PATH.read_text(encoding="utf-8")
 
         self.assertIn('&"grass_tuft_shadow_atlas"', material_text)
         self.assertIn("_grass_shadow_atlas_layers", chunk_view_text)
@@ -206,6 +212,9 @@ class GrassTuftBakeContractTest(unittest.TestCase):
         self.assertIn("if not has_shadow_atlas:", chunk_view_text)
         self.assertIn("_grass_shadow_atlas", world_streamer_text)
         self.assertIn('_grass_shadow_atlas_material.set_shader_parameter("overlay_exact", 1.0)', world_streamer_text)
+        self.assertIn('"overlay_shadow_rotation_enabled", 1.0', world_streamer_text)
+        self.assertIn("overlay_shadow_runtime_direction", shader_text)
+        self.assertIn("overlay_shadow_anchor_uv", shader_text)
 
         blender_bake_text = BLENDER_BAKE_PATH.read_text(encoding="utf-8")
         postprocess_text = POSTPROCESS_PATH.read_text(encoding="utf-8")
@@ -243,9 +252,9 @@ class GrassTuftBakeContractTest(unittest.TestCase):
         delta_x = shadow_center[0] - source_center[0]
         delta_y = shadow_center[1] - source_center[1]
         self.assertGreater(delta_x, 2.0)
-        self.assertGreater(delta_y, 2.0)
-        self.assertGreater(delta_x / delta_y, 0.35)
-        self.assertLess(delta_x / delta_y, 1.65)
+        self.assertLess(delta_y, -2.0)
+        self.assertGreater(delta_x / abs(delta_y), 0.35)
+        self.assertLess(delta_x / abs(delta_y), 1.65)
         self.assertGreaterEqual(bbox[0], 2)
         self.assertGreaterEqual(bbox[1], 2)
         self.assertLessEqual(bbox[2], 30)

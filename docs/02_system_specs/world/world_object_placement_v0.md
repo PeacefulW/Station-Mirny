@@ -4,8 +4,8 @@ doc_type: system_spec
 status: draft
 owner: engineering+design
 source_of_truth: true
-version: 0.6
-last_updated: 2026-07-09
+version: 0.7
+last_updated: 2026-07-11
 related_docs:
   - ../../00_governance/ENGINEERING_STANDARDS.md
   - ../../00_governance/PROJECT_GLOSSARY.md
@@ -32,7 +32,8 @@ Current implementation note (2026-07-09): `world_version == 63` keeps the
 previous generated stone/rock object families removed (`object_kind` values
 `1`, `5`, and `6`) and uses clustered replacement small rocks as visual-only
 `object_kind == 7`. The replacement uses Blender-baked layered assets, snow
-masks, fixed sun-shadow stretch, edge/rocky-patch placement bias, and close
+masks, anchored north-east-bake to south-east-runtime shadow rotation/stretch,
+edge/rocky-patch placement bias, and close
 intra-cluster spacing; it does not use wind masks, collision, harvest, ore, or
 stone resource node data.
 
@@ -77,7 +78,8 @@ V0 includes only:
   chunk-scoped trunk collision shape owners;
 - a small rock proof using `object_kind == 7`, authored plains-small-rock
   placement settings, Blender-baked layered presentation, snow masks, and
-  fixed sun-shadow stretch with no collision or wind mask;
+  anchored bake-to-runtime south-east sun-shadow rotation/stretch with no
+  collision or wind mask;
 - no active historical generated stone/rock/ore object families `1`, `5`, or
   `6` in `world_version >= 61`;
 - asset folder rules for sprites, atlases, and related presentation assets;
@@ -336,7 +338,8 @@ Rules:
   stone/rock families (`object_kind` values `1`, `5`, and `6`).
 - for `world_version >= 62`, native object packets may emit visual-only
   `object_kind == 7` small rocks from `worldgen_settings.plains_small_rocks`.
-  Their layered runtime reuses the tree bake shadow direction/stretch rules,
+  Their layered runtime reuses the tree rule: clip/stretch on the authored
+  north-east bake axis, then rotate around the anchor to runtime south-east,
   loads snow masks/overlays, and intentionally has no wind or collision path.
 - for `world_version >= 63`, small rock placement is clustered: candidate
   centers are accepted by grass/soil edge score, rocky-patch score, and path-edge
@@ -364,8 +367,10 @@ Required direction:
   presentation data, not gameplay identity;
 - sprite-frame animation for living decor must stay in shader/material uniforms,
   not per-frame CPU buffer rebuilds;
-- contact-shadow, dynamic sun-shadow, or wind changes update shader uniforms,
-  not per-object CPU geometry;
+- batched contact-shadow, dynamic sun-shadow, or wind changes update shader
+  uniforms; layered authored-shadow objects may rebuild only their bounded
+  loaded presentation polygons when lighting-profile inputs change, never
+  placement or gameplay state;
 - depth ordering uses the shared player-relative mid-layer depth ladder
   (`WorldRuntimeConstants.DEPTH_STRIPE_PX` / `DEPTH_STRIPES_PER_CHUNK`,
   anchor owned by `WorldStreamer`): bounded sparse per-stripe batch layers
@@ -576,8 +581,9 @@ V0 is acceptable when:
 - trees are emitted through `object_kind == 4`, use deterministic variants, and
   use chunk-scoped trunk collision shape owners only;
 - small rocks are emitted through `object_kind == 7`, use deterministic
-  layered variants, have snow masks/overlays, stretch baked shadows at low sun,
-  and create no collision;
+  layered variants, have snow masks/overlays, rotate baked shadows around their
+  anchors onto the south-east axis before low-sun stretch, and create no
+  collision;
 - accepted flora, trees, and small rocks are emitted from the native object
   packet, not from a runtime GDScript scatter generator;
 - active generated stone/rock object families `1`, `5`, and `6` are not emitted

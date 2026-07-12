@@ -4,8 +4,8 @@ doc_type: system_spec
 status: approved
 owner: engineering+art
 source_of_truth: true
-version: 1.1
-last_updated: 2026-06-10
+version: 1.3
+last_updated: 2026-07-12
 related_docs:
   - ../../README.md
   - ../../00_governance/ENGINEERING_STANDARDS.md
@@ -146,20 +146,22 @@ resources, the active runtime uses a transitional native-mask presentation:
   wash streaks and sparse vertical crack lines from world-space gradient
   noise, a vertical stretch of the face-texture sampling, and an
   albedo-derived sun-lit crest shoulder at the roof junction gated by the
-  documented daylight shadow visibility (dims to neutral at night, like the
-  rim lips). Live torch-lit mountain presentation must not enable
+  documented daylight visibility (dims to neutral at night). Live torch-lit
+  mountain presentation must not enable
   layered facade strata, quantized wall-depth bands, or concentric height
   terraces derived from mask distance-to-edge; the warm point light makes those
   contour-derived cues read as ribbed facade artifacts.
-  Rim and cut highlights are derived from the rock albedo (brightened and
-  warmed by the documented low-sun shadow-length parameter), never painted
-  with fixed colors; the sun-driven brightening and warmth are additionally
-  gated by the documented daylight shadow visibility (the same gate that
-  fades projected shadows), so rims dim to a faint neutral edge at night
-  instead of reading as neon glow against the night tint; sparse orange biofield accents may creep onto lit rims,
-  gated by the same world-space field family as the ground's orange patches. These are presentation-only material cues; collision,
-  resource, and mining checks keep reading the raw mask bytes, and they do not
-  create new terrain ids, save data, collision ownership, or worldgen state.
+  Explicit rim, cut-highlight, mask-gradient bevel, biofield-rim, and projected
+  ground-shadow passes are disabled for the mountain. They outlined the mask
+  instead of describing rock volume and exposed fractional-alpha RGB leaks as
+  bright one-pixel contours. Mountain depth comes from the facade, crest ramp,
+  albedo and material normals; edge color must use the same coverage that owns
+  edge alpha. The opaque rock underlay may back fractional mountain pixels but
+  must not emit its own visible edge band around live excavation cuts; the
+  separate immutable foothill pass alone owns the exterior apron. These are
+  presentation-only material cues; collision, resource,
+  and mining checks keep reading the raw mask bytes, and they do not create new
+  terrain ids, save data, collision ownership, or worldgen state.
 - Mask bounds include a fixed halo around the chunk, so adjacent chunks overlap
   enough for continuous contours. The owner chunk sample wins for gameplay
   queries inside its mask; neighbour masks are only an overlap fallback for
@@ -270,16 +272,20 @@ by chunk-local masks or overlay sprites:
     dark bed material is an underwater look only).
 - Mountains keep their separate native mask and z-order, so terrain ground
   presentation must not replace or mutate mountain presentation.
-- Mountain and terrain-ground shadow projection is driven by
+- Mountain and terrain-ground lighting is driven by
   `WorldVisualLightingProfile`. Runtime and visual lock dev scenes must share
-  that profile for sun angle, shadow length, opacity, softness, dusk/dawn fade,
-  and terrain-edge shadow opacity scale. Shader parameters may differ per visual
-  layer only through documented layer multipliers; they must not introduce a
-  second hidden lighting curve.
+  that profile for the fixed north-west sun angle, shadow length, opacity,
+  softness, dusk/dawn fade, and terrain-edge shadow opacity scale. The mountain
+  surface uses that light for normal/facade relief but intentionally does not
+  draw a separate projected ground-shadow band or explicit silhouette/rim lip;
+  those contour passes produced artificial black and bright outlines. The
+  terrain-edge shoreline may still use its documented projected shadow. Shader
+  parameters may differ per visual layer only through documented layer
+  multipliers; they must not introduce a second hidden lighting curve.
 - Cross-chunk mask-shader seam law: per-chunk mask halos must cover the longest
-  cross-chunk sampling reach of their shaders (projected shadow walk plus
-  lateral softness, foothill outer search), and split shadow ownership across a
-  seam must composite to exactly the full shadow value
+  enabled cross-chunk sampling reach of their shaders (terrain-edge projected
+  shadow walk plus lateral softness, foothill outer search), and split shadow
+  ownership across a seam must composite to exactly the full shadow value
   (`alpha = 1 - (1 - s)^w` with axis-multiplied weights). Ground composition
   itself has no such seams because it has no chunk-local inputs.
 

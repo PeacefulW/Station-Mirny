@@ -33,6 +33,12 @@ func _run() -> void:
 		"Mountain rock underlay must override footprint fill alpha independently from the soft foothill apron."
 	)
 	_assert(
+		shader_source.contains("uniform float edge_band_strength")
+			and shader_source.contains("edge_band_strength, 0.0, 1.0")
+			and chunk_view_source.contains("set_shader_parameter(\"edge_band_strength\", 0.0)"),
+		"Opaque rock underlay must not draw a visible edge ring around live excavation cuts."
+	)
+	_assert(
 		chunk_view_source.contains("_clear_mountain_rock_underlay()"),
 		"Clearing the live mountain mask must also clear the live rock underlay."
 	)

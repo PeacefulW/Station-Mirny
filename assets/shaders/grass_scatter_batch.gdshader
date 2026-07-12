@@ -49,6 +49,13 @@ uniform float macro_dry_strength = 0.22;
 uniform float overlay_exact = 0.0;
 uniform float overlay_alpha = 1.0;
 uniform vec3 overlay_rgb = vec3(1.0, 1.0, 1.0);
+// Directional shadow atlases keep their authored UVs, but their quad geometry
+// is rotated in world space around the tuft root so non-uniform instance scale
+// and per-tuft lean cannot pull the cast axis away from south-east.
+uniform float overlay_shadow_rotation_enabled = 0.0;
+uniform vec2 overlay_shadow_baked_direction = vec2(0.887216, -0.461354);
+uniform vec2 overlay_shadow_runtime_direction = vec2(0.70710678, 0.70710678);
+uniform vec2 overlay_shadow_anchor_uv = vec2(0.42, 0.75);
 // Диагностика проб: 1.0 — рисовать значение gust-поля яркостью вместо травы.
 uniform float debug_gust_view = 0.0;
 
@@ -80,6 +87,29 @@ float gradient_noise(vec2 p) {
 
 void vertex() {
 	instance_data = COLOR;
+	mat2 model_2x2 = mat2(MODEL_MATRIX[0].xy, MODEL_MATRIX[1].xy);
+	float det = model_2x2[0].x * model_2x2[1].y - model_2x2[1].x * model_2x2[0].y;
+	float safe_det = abs(det) > 0.000001 ? det : 0.000001;
+	mat2 inv_model_2x2 = mat2(
+		vec2(model_2x2[1].y, -model_2x2[0].y),
+		vec2(-model_2x2[1].x, model_2x2[0].x)
+	) / safe_det;
+	if (overlay_shadow_rotation_enabled > 0.5) {
+		vec2 baked_world_direction = normalize(model_2x2 * normalize(overlay_shadow_baked_direction));
+		vec2 runtime_direction = normalize(overlay_shadow_runtime_direction);
+		float rotation_cos = clamp(dot(baked_world_direction, runtime_direction), -1.0, 1.0);
+		float rotation_sin = baked_world_direction.x * runtime_direction.y
+			- baked_world_direction.y * runtime_direction.x;
+		// QuadMesh local coordinates are centred; anchor UV is expressed from
+		// the texture's top-left, matching the atlas bake profile.
+		vec2 pivot_local = overlay_shadow_anchor_uv - vec2(0.5);
+		vec2 world_delta = model_2x2 * (VERTEX - pivot_local);
+		vec2 rotated_world_delta = vec2(
+			world_delta.x * rotation_cos - world_delta.y * rotation_sin,
+			world_delta.x * rotation_sin + world_delta.y * rotation_cos
+		);
+		VERTEX = pivot_local + inv_model_2x2 * rotated_world_delta;
+	}
 	vec2 world_pos = (MODEL_MATRIX * vec4(VERTEX, 0.0, 1.0)).xy;
 	v_world_pos = world_pos;
 	vec2 dir = normalize(wind_direction + vec2(0.0001, 0.0));
@@ -134,13 +164,6 @@ void vertex() {
 	// смещение здесь умножалось бы на размер пучка (источник растяжения).
 	// Считаем мировое смещение в долях высоты пучка и заводим его обратно
 	// в локальные координаты инверсией 2x2-части модели.
-	mat2 model_2x2 = mat2(MODEL_MATRIX[0].xy, MODEL_MATRIX[1].xy);
-	float det = model_2x2[0].x * model_2x2[1].y - model_2x2[1].x * model_2x2[0].y;
-	float safe_det = abs(det) > 0.000001 ? det : 0.000001;
-	mat2 inv_model_2x2 = mat2(
-		vec2(model_2x2[1].y, -model_2x2[0].y),
-		vec2(-model_2x2[1].x, model_2x2[0].x)
-	) / safe_det;
 	float tuft_height_px = length(MODEL_MATRIX[1].xy);
 	float blade = blade_weight * blade_weight;
 	// Колебание — по ЛОКАЛЬному направлению; storm_lean — по ГЛОБАЛьному ветру;

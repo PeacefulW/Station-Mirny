@@ -214,6 +214,7 @@ func _build_grass_layers() -> void:
 	# Порядок как в рантайме: направленная тень под травой, трава, снег сверху.
 	_shadow_layer = _make_batch_layer("GrassShadowBatch", GRASS_TUFT_SHADOW_ATLAS, -6, true, false)
 	_shadow_material = _shadow_layer.material as ShaderMaterial
+	_configure_directional_shadow_material()
 	add_child(_shadow_layer)
 	_grass_layer = _make_batch_layer("GrassBatch", GRASS_TUFT_ATLAS, 0, false, true)
 	_grass_material = _grass_layer.material as ShaderMaterial
@@ -282,6 +283,26 @@ func _build_trees() -> void:
 		instances.append(instance)
 	_tree_layer.set_instances(instances)
 	_tree_layer.set_season_amount(_season_amount)
+
+
+func _configure_directional_shadow_material() -> void:
+	if _shadow_material == null:
+		return
+	_shadow_material.set_shader_parameter("overlay_shadow_rotation_enabled", 1.0)
+	_shadow_material.set_shader_parameter(
+		"overlay_shadow_baked_direction",
+		_params.get("directional_shadow_baked_direction", Vector2(0.887216, -0.461354)),
+	)
+	_shadow_material.set_shader_parameter(
+		"overlay_shadow_runtime_direction",
+		WorldVisualLightingProfile.shadow_direction_for_light_angle_deg(
+			WorldVisualLightingProfile.DEFAULT_LIGHT_ANGLE_DEG,
+		),
+	)
+	_shadow_material.set_shader_parameter(
+		"overlay_shadow_anchor_uv",
+		_params.get("directional_shadow_anchor_uv", Vector2(0.42, 0.75)),
+	)
 
 
 func _build_camera() -> void:
@@ -360,6 +381,7 @@ func _apply_material_params() -> void:
 		material.set_shader_parameter("local_dir_field_scale_px", float(_params.get("local_dir_field_scale_px", 1400.0)))
 		material.set_shader_parameter("local_dir_gust_gain", float(_params.get("local_dir_gust_gain", 0.9)))
 	if _shadow_material != null:
+		_configure_directional_shadow_material()
 		_shadow_material.set_shader_parameter(
 			"overlay_alpha",
 			float(_params.get("directional_shadow_alpha", 0.88)),

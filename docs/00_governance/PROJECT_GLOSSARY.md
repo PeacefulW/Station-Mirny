@@ -191,7 +191,7 @@ See: ADR-0007.
 Generation is the stable base. Runtime is the changing layer on top.
 
 ### Time of day
-Runtime dimension. Drives: ambient light level, shadow angles, fauna activity patterns, player visibility. Phases: dawn, day, dusk, night. Night = darkness = exposure pressure. Currently implemented in `TimeManager` + `DaylightSystem`.
+Runtime dimension. Drives: ambient light level, shadow length/opacity, fauna activity patterns, player visibility. The visual azimuth is fixed north-west with south-east cast shadows; phases still drive colour and energy. Phases: dawn, day, dusk, night. Night = darkness = exposure pressure. Currently implemented in `TimeManager` + `DaylightSystem`.
 
 ### Season
 Runtime dimension on a slow cycle. Drives: base temperature offset, storm frequency, spore density, flora state. Phases: warm, spore, cold, storm. Each season shifts the balance of survival pressure. Currently: enum exists in `TimeManager`, gameplay effects not implemented.

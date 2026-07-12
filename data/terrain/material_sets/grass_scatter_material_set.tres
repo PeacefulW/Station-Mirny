@@ -23,6 +23,8 @@ sampling_params = {
 "candidate_grid_side": 80.0,
 "density_scale": 5.0,
 "directional_shadow_alpha": 0.72,
+"directional_shadow_anchor_uv": Vector2(0.42, 0.75),
+"directional_shadow_baked_direction": Vector2(0.887216, -0.461354),
 "dry_frame_count": 16.0,
 "height_scale": 1.0,
 "instance_cap": 8192.0,
@@ -53,4 +55,3 @@ sampling_params = {
 "tuft_min_width_px": 40.0,
 "wind_sway_fraction": 0.19
 }
-

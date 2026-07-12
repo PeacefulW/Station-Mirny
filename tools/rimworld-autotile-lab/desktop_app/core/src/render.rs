@@ -7020,7 +7020,7 @@ mod tests {
                 height: height.clone(),
                 normal: normal.clone(),
             },
-            234.0,
+            225.0,
         );
         let fringe_lit = build_lit_preview_image(
             &TileBuffers {
@@ -7029,7 +7029,7 @@ mod tests {
                 height,
                 normal,
             },
-            234.0,
+            225.0,
         );
 
         assert_eq!(

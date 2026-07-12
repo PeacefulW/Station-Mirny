@@ -4,7 +4,7 @@ doc_type: system_spec
 status: approved
 source_of_truth: true
 owner: engineering+art
-version: 1.5
+version: 1.6
 last_updated: 2026-07-11
 related_docs:
   - ../../05_adrs/0005-light-is-gameplay-system.md
@@ -20,8 +20,8 @@ related_docs:
 
 Introduce **real Godot 2D lighting** (`CanvasModulate` ambient + `DirectionalLight2D`
 sun + `PointLight2D` torch/lamps) so that:
-- terrain `NORMAL_MAP` finally produces volume (pebbles/pits relief) under a moving
-  sun, and
+- terrain `NORMAL_MAP` finally produces volume (pebbles/pits relief) under a fixed
+  north-west sun direction whose energy and colour still follow time of day, and
 - a player-carried torch lights the world dynamically (warm pool in the dark) — the
   core "inside-safe / outside-hostile" atmosphere.
 
@@ -72,7 +72,7 @@ reads in a dark ambient, and `DirectionalLight2D` lights the ground. Captures in
 |---|---|
 | Canonical data, overlay, or visual only? | Visual illumination only. |
 | Save/load? | No. |
-| Deterministic? | Lighting is presentation; sun model from time-of-day, torch from player. |
+| Deterministic? | Lighting is presentation; sun azimuth is fixed north-west, sun energy/colour/length come from time-of-day, torch from player. |
 | C++ or main thread? | Engine 2D lighting (GPU) + a few light nodes on the main thread. |
 | Single owner | Sun/ambient driven by the daylight/`WorldVisualLightingProfile` model; torch owned by the player. |
 | 10x/100x | Lights without shadows are cheap; the Iter 2 torch shadow is a GPU shader field bounded by the torch pool + a bounded per-dig mask-window blit — independent of world size. |
@@ -84,9 +84,10 @@ reads in a dark ambient, and `DirectionalLight2D` lights the ground. Captures in
 ### Iteration 1 — Lights + normal relief (no cast shadows)
 - Rework the existing `DaylightSystem` `CanvasModulate` to be the **ambient floor**
   (lower values: bright-ish day, dark night) instead of a near-full tint.
-- Add a `DirectionalLight2D` **sun**: angle/energy/colour driven by the same
-  time-of-day model (`WorldVisualLightingProfile`), so terrain normals get relief
-  that shifts with the day.
+- Add a `DirectionalLight2D` **sun**: fixed north-west angle from
+  `WorldVisualLightingProfile`; energy/colour/shadow length remain driven by the
+  time-of-day model. Terrain normals therefore keep one authored light direction
+  and cast-shadow axis (south-east) while day/night still changes their strength.
 - Add a `PointLight2D` **torch** on the player (warm, ranged), `shadow_enabled=false`
   → moving pool of light + local normal relief at night.
 - Reconcile with the existing in-shader cosmetic ground shade (reduce/disable the
@@ -259,8 +260,9 @@ Two owners, deliberately split:
   occluders).
 
 ## Acceptance Criteria
-- [ ] `DaylightSystem` drives an ambient floor; a `DirectionalLight2D` sun + player
-      `PointLight2D` torch exist and follow the time-of-day / player.
+- [ ] `DaylightSystem` drives an ambient floor; a north-west `DirectionalLight2D`
+      sun keeps shadows on the south-east axis while its energy/colour/length follow
+      time-of-day; the player `PointLight2D` torch follows the player.
 - [ ] Render probe: terrain normal relief visible under sun (with good normals); torch
       pool + relief follows the player at night; day/night reads via ambient+sun
       (manual human verification).
@@ -286,18 +288,21 @@ Two owners, deliberately split:
 ## Implementation Iterations
 1. Lights + ambient rebalance + normal relief. **Status: landed 2026-06-24.**
    `DaylightSystem` rebalanced to ambient floors + creates/drives a
-   `DirectionalLight2D` sun (energy from ambient phase brightness, angle from
-   `WorldVisualLightingProfile` by hour, off underground). Player gains a `Torch`
+   `DirectionalLight2D` sun (energy from ambient phase brightness, fixed north-west
+   angle from `WorldVisualLightingProfile`, off underground). Player gains a `Torch`
    `PointLight2D` (`player_torch.gd`, self-generated radial texture, no occluder
    shadows). In-shader cosmetic `shade_dir_strength` reduced 0.16→0.06 to avoid
    double-darkening. Verified via render probe (day in the live scene; night+torch
    via `tools/ground_light_probe.gd`). Relief payoff pending authored terrain normals.
    **Rebalanced after first feedback (over-bright):** day ambient stays familiar
-   (~0.85) with a *gentle* sun key (`SUN_DAY_ENERGY` 1.25→0.45); **night is near-black**
+   (~0.85) with a *gentle* sun key (`SUN_DAY_ENERGY` 1.25→0.55); **night is near-black**
    (`COLOR_NIGHT ≈ 0.03` — zero visibility without a light source, by design; additive
    spores/fireflies and the torch stay visible). Torch is **off by default with a dev
    on/off toggle (key F)**, lower energy/range (0.9 / 2.2) so it no longer washes the
    day. Probe captures: day-natural / night-pitch-black / night-torch-pool.
+   **Fixed-direction art pass (2026-07-11):** north-west azimuth remains constant,
+   and the gentle day key is `0.55` so the warmer authored mountain relief remains
+   readable after the old moving noon angle is removed.
    **Cloud occlusion update landed 2026-06-25:** open-sky cloud occlusion now
    multiplies the real `SunLight2D` direct key and cools/dims the ambient floor;
    the old screen-space cloud darkening, flatten, and sun-ray overlays are no
@@ -338,6 +343,10 @@ Two owners, deliberately split:
    straight physical mouths while collision keeps its full dug-tile clearance.
    Object occluders (trees/rocks) and any sun occluder path remain unstarted.
 3. (Later, separate) gameplay visibility authority per ADR-0005.
+
+Version `1.6` fixes the presentation sun azimuth at north-west (`225°`), so cast
+shadows consistently fall south-east. Time of day still owns sun energy, colour,
+visibility and shadow length; no gameplay-light authority or save boundary changes.
 
 ## Required Updates
 - `docs/02_system_specs/README.md` — index entry (added with this draft).

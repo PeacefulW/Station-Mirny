@@ -51,7 +51,7 @@
 	"runtime": {
 		"normal_maps_generated": true,
 		"normal_maps_enabled": false,
-		"sun_shadow_mode": "baked_fixed_north_east_stretch_only",
+		"sun_shadow_mode": "baked_north_east_rotated_to_runtime_shadow_axis_then_stretched",
 		"dynamic_light_shadows": "runtime_fake"
 	}
 }

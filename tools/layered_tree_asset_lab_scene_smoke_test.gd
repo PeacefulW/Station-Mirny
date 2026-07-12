@@ -36,7 +36,9 @@ func _run() -> void:
 	_assert(snapshot.has("shadow_hour"), "Layered tree lab must expose baked shadow hour.")
 	_assert(absf(float(snapshot.get("shadow_hour", 0.0)) - 14.5) < 0.01, "Layered tree lab must start at the neutral baked shadow hour.")
 	_assert(snapshot.has("shadow_rotation_degrees"), "Layered tree lab must expose shadow rotation.")
-	_assert(absf(float(snapshot.get("shadow_rotation_degrees", 999.0))) < 0.01, "Sun shadow direction must remain fixed north-east.")
+	var shadow_direction: Vector2 = snapshot.get("shadow_direction", Vector2.ZERO) as Vector2
+	_assert(shadow_direction.x > 0.70 and shadow_direction.y > 0.70, "North-west sun must cast the layered tree shadow south-east.")
+	_assert(absf(float(snapshot.get("shadow_rotation_degrees", 999.0)) - 72.4745) < 0.1, "Baked north-east shadow must rotate around the root to the south-east runtime axis.")
 	_assert(absf(float(snapshot.get("shadow_length_scale", 0.0)) - 1.0) < 0.01, "Neutral sun shadow must keep baked length.")
 	_assert(absf(float(snapshot.get("shadow_width_scale", 0.0)) - 1.0) < 0.01, "Sun shadow width must stay baked.")
 	_assert(scene.has_method("set_debug_shadow_hour"), "Layered tree lab must expose debug shadow hour setter.")
@@ -47,7 +49,7 @@ func _run() -> void:
 		_assert(float(snapshot.get("shadow_length_scale", 0.0)) > 1.45, "Sunrise shadow must stretch along its baked direction.")
 		_assert(absf(float(snapshot.get("shadow_width_scale", 0.0)) - 1.0) < 0.01, "Sunrise shadow must not get wider.")
 		_assert(absf(float(snapshot.get("shadow_backward_stretch_scale", 0.0)) - 1.0) < 0.01, "Sunrise shadow must not stretch back under the tree root.")
-		_assert(absf(float(snapshot.get("shadow_rotation_degrees", 999.0))) < 0.01, "Sunrise shadow direction must remain fixed north-east.")
+		_assert(absf(float(snapshot.get("shadow_rotation_degrees", 999.0)) - 72.4745) < 0.1, "Shadow length changes must preserve the fixed south-east direction.")
 	scene.queue_free()
 	await process_frame
 	if _failed:

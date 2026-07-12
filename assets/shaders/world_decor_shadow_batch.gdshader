@@ -1,7 +1,7 @@
 shader_type canvas_item;
 render_mode blend_mix;
 
-uniform float shadow_angle_rad = 0.0;
+uniform float shadow_angle_rad = 0.78539816339;
 uniform float shadow_length_px = 0.0;
 uniform float shadow_opacity = 0.0;
 uniform float shadow_softness_px = 24.0;

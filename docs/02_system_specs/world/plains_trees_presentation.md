@@ -4,8 +4,8 @@ doc_type: system_spec
 status: draft
 owner: engineering+design
 source_of_truth: true
-version: 0.1
-last_updated: 2026-06-21
+version: 0.2
+last_updated: 2026-07-11
 related_docs:
   - ../../00_governance/ENGINEERING_STANDARDS.md
   - ../../00_governance/WORKFLOW.md
@@ -69,7 +69,8 @@ in the world:
   on screen), never the whole tree;
 - the player walks correctly **in front of / behind** trees;
 - canopies sway on the **same wind** as the grass;
-- shadows fall **with the sun** (time of day), not in a fixed baked direction;
+- shadows follow the canonical **north-west sun / south-east cast axis**;
+  time of day changes their length and opacity, not their azimuth;
 - adding a new tree / bush / flora type later requires only **data + an atlas**,
   never new depth code.
 
@@ -87,9 +88,10 @@ in the world:
   + `update_mid_ladder_z` re-assignment). Trees carry no independent z.
 - **Wind** response: the shared wind global uniforms drive a tree wind material
   (canopy sways, base planted), no new wind owner.
-- **Sun-tied silhouette cast shadow**: direction and length derived from the
-  canonical sun model (`TimeManager.get_sun_angle()` /
-  `get_shadow_length_factor()`), as a derived presentation layer below grass.
+- **Sun-tied silhouette cast shadow**: fixed south-east direction from the
+  canonical north-west sun (`TimeManager.get_sun_angle()`) and time-driven
+  length/opacity (`get_shadow_length_factor()`), as a derived presentation
+  layer below grass.
 - **Deterministic per-instance variation** (atlas variant, scale tier, tint,
   wind phase) from a hash of seed / chunk / tile (no `randf` — LAW: deterministic
   hashing).
@@ -193,16 +195,15 @@ stretch (same contract as grass). Trees respond more slowly and weakly than
 grass via authored per-material params. No new wind owner, no per-consumer
 broadcast.
 
-### Sun-tied silhouette shadow, not baked, not fixed
+### Canonical south-east silhouette shadow
 
-The cast shadow is the tree silhouette projected onto the ground (the same
-texture, flattened and sheared from the base), **tied to the canonical sun**:
-direction from `TimeManager.get_sun_angle()` and length from
-`get_shadow_length_factor()` — the same sun model the mountain shadow uses. It
-is a derived presentation layer **below** the grass stripes (so grass overdraws
-it on the ground) and updates as the sun moves (shader uniform / bounded
-per-stripe transform update owned by presentation), never a baked direction and
-never painted into the atlas.
+The cast shadow is the tree silhouette projected onto the ground and **tied to
+the canonical sun**. `TimeManager.get_sun_angle()` supplies the fixed `225°`
+north-west light angle, so presentation uses the opposite `45°` south-east cast
+axis; `get_shadow_length_factor()` changes length with time. Layered assets may
+carry an authored shadow texture, but its bake-space direction is rotated around
+the planted root to this runtime axis before stretching. The derived layer stays
+below the grass stripes, and no gameplay system reads it.
 
 ### Procedural atlas, generator-first; palette is data
 
@@ -316,10 +317,10 @@ per-frame `set_shader_parameter` broadcast (the globals are written once by
 ### Shadow
 
 A derived silhouette shadow layer renders below the grass stripes
-(`Z_GRASS_SHADOW` neighborhood), reading the canonical sun for direction and
-length. It updates as the sun moves through shader uniforms / a bounded
-per-stripe transform update, never per-object CPU geometry rebuilds and never a
-baked direction.
+(`Z_GRASS_SHADOW` neighborhood). Layered assets clip and stretch their authored
+north-east shadow in texture space, then rotate both polygon halves around the
+root onto the canonical south-east axis. Lighting-profile changes rebuild only
+the loaded presentation polygons; gameplay and placement stay untouched.
 
 ### Diff refresh
 
@@ -358,8 +359,8 @@ stable / deterministic instance identity, never display names or asset paths.
 - Depth re-assignment: plain `z_index` writes on existing stripe nodes when the
   ladder anchor changes — O(loaded stripe nodes), no buffer rebuild.
 - Wind: O(1) global write per frame (shared), shader animates.
-- Shadow: shader-uniform / bounded transform update per frame; no per-object
-  rebuild.
+- Shadow: bounded loaded-presentation refresh only when lighting inputs change;
+  no per-frame direction solve and no gameplay dependency.
 - Target scale: a walkable forest across loaded chunks; authored per-chunk
   instance cap; importance-ordered buffers + zoom `visible_instance_count`
   trimming available later (as grass), no rebuild.
@@ -401,8 +402,9 @@ V0 is acceptable when:
   atlas painting;
 - canopies sway on the shared wind (strength 0 freezes sway; pause stops it);
   the runtime contains no per-frame wind broadcast for trees;
-- shadows fall in the **sun direction** and change with time of day; setting the
-  hour changes shadow direction/length; the shadow is not baked into the atlas;
+- shadows fall south-east, opposite the fixed north-west sun; setting the hour
+  changes length/opacity but preserves direction, and any authored shadow atlas
+  is rotated around its root onto that canonical axis;
 - removing the tree layer entirely leaves gameplay, saves, grass, and other
   systems untouched.
 
@@ -415,7 +417,8 @@ This design is wrong if:
   interleaved on the ladder;
 - tree placement appears in a GDScript loop or as one node per tree;
 - the shared wind gets a second writer or a per-tree broadcast path returns;
-- the shadow direction is fixed/baked rather than sun-tied;
+- a baked shadow remains on its authoring axis instead of being rotated onto the
+  canonical south-east runtime axis;
 - tree buffers block first chunk reveal or rebuild during interactive input;
 - VRAM/buffer growth: dense-chunk tree buffer must stay within the authored cap.
 

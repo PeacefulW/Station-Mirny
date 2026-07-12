@@ -1,6 +1,7 @@
 extends SceneTree
 
 const WorldObjectPacketLayer = preload("res://core/systems/world/world_object_packet_layer.gd")
+const WorldVisualLightingProfile = preload("res://core/systems/world/world_visual_lighting_profile.gd")
 
 const OBJECT_KIND_TREE: int = 4
 const LAYERED_TREE_DIR: String = "res://assets/sprites/flora/layered_trees/tree_01"
@@ -21,7 +22,7 @@ func _run() -> void:
 	root.add_child(layer)
 	layer.set_layered_tree_asset_dirs([LAYERED_TREE_DIR, LAYERED_TREE_DIR_2, LAYERED_TREE_DIR_3, LAYERED_TREE_DIR_4, LAYERED_TREE_DIR_5])
 	layer.configure_packet(_single_tree_packet())
-	layer.set_sun_lighting(234.0, 78.0, 0.62, 24.0)
+	layer.set_sun_lighting(WorldVisualLightingProfile.DEFAULT_LIGHT_ANGLE_DEG, 78.0, 0.62, 24.0)
 	layer.update_ladder_z(0)
 
 	var state: Dictionary = layer.get_debug_state()
@@ -48,6 +49,8 @@ func _run() -> void:
 		_assert(not bool(layered_state.get("foliage_has_normal_texture", true)), "Layered foliage material must not receive the normal texture for now.")
 		_assert(not bool(layered_state.get("snow_has_normal_texture", true)), "Layered snow material must not receive the normal texture for now.")
 		_assert(absf(float(layered_state.get("shadow_backward_stretch_scale", 0.0)) - 1.0) < 0.01, "Layered sun shadow must keep root side fixed.")
+		var shadow_direction: Vector2 = layered_state.get("shadow_direction", Vector2.ZERO) as Vector2
+		_assert(shadow_direction.x > 0.70 and shadow_direction.y > 0.70, "North-west sun must cast layered tree shadows south-east.")
 		_assert(not bool(layered_state.get("uses_packet_tint", true)), "Layered tree renderer must ignore packet tint for the prototype tree.")
 		_assert(int(layered_state.get("unique_visual_scale_count", 0)) == 1, "Layered tree renderer must ignore packet size variability.")
 		_assert(_shader_uses_scene_lighting("res://assets/shaders/layered_tree_trunk_season.gdshader"), "Layered trunk shader must follow 2D scene lighting.")

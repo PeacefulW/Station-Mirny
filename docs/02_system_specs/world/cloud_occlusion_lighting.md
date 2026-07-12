@@ -4,8 +4,8 @@ doc_type: system_spec
 status: approved
 owner: engineering+design
 source_of_truth: true
-version: 1.0
-last_updated: 2026-06-29
+version: 1.1
+last_updated: 2026-07-11
 related_docs:
   - weather_runtime.md
   - world_dynamic_lighting_2d.md
@@ -175,7 +175,8 @@ shader state, and the visibility scalar all derive on load.
 ### Global sun response (`DaylightSystem`)
 
 `DaylightSystem` already owns the `DirectionalLight2D` sun (energy from the
-day phase, angle by hour, off underground). It reads `WeatherRuntime`
+day phase, fixed north-west azimuth from `WorldVisualLightingProfile`, off
+underground). It reads `WeatherRuntime`
 occlusion and, **only in the current open-sky context**:
 
 - scales sun energy by `(1 − k · O(cover))` so overcast nearly extinguishes the

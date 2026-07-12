@@ -119,7 +119,7 @@ Confirmed readable state:
 | `get_hour()` | method | Whole hour |
 | `get_day_progress()` | method | `0.0..1.0` day progress |
 | `get_sun_progress()` | method | Normalized sun progress |
-| `get_sun_angle()` | method | Shadow angle in radians |
+| `get_sun_angle()` | method | Canonical light angle in radians (`225°`, north-west); cast-shadow consumers use the opposite `45°` south-east axis |
 | `get_shadow_length_factor()` | method | Derived shadow-length factor |
 | `is_time_paused()` | method | Pause query |
 | `get_time_scale()` | method | Time scale query |

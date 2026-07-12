@@ -9,7 +9,10 @@ const SNOW_ACCUMULATION_SHADER: Shader = preload("res://assets/shaders/layered_t
 const TRUNK_SEASON_SHADER: Shader = preload("res://assets/shaders/layered_tree_trunk_season.gdshader")
 
 const LADDER_ANCHOR_UNSET: int = 1 << 30
-const SHADOW_DIRECTION: Vector2 = Vector2(0.887216, -0.461354)
+# Existing shadow atlases were authored north-east. Runtime rotates their
+# geometry around the planted anchor before applying the canonical sun stretch.
+const BAKED_SHADOW_DIRECTION: Vector2 = Vector2(0.887216, -0.461354)
+const DEFAULT_RUNTIME_SHADOW_DIRECTION: Vector2 = Vector2(0.70710678, 0.70710678)
 const DEFAULT_ASSET_DIR: String = "res://assets/sprites/flora/layered_trees/tree_01"
 const BASE_WIND_STRENGTH_PX: float = 3.0
 const FIXED_TREE_FRAME_SCALE: float = 0.64
@@ -34,6 +37,8 @@ var _season_amount: float = 0.0
 var _shadow_length_scale: float = 1.0
 var _shadow_opacity: float = 0.0
 var _shadow_backward_stretch_scale: float = 1.0
+var _shadow_direction: Vector2 = DEFAULT_RUNTIME_SHADOW_DIRECTION
+var _shadow_rotation_rad: float = DEFAULT_RUNTIME_SHADOW_DIRECTION.angle() - BAKED_SHADOW_DIRECTION.angle()
 
 
 func set_asset_dir(asset_dir: String) -> void:
@@ -57,11 +62,13 @@ func set_world_origin_y(world_origin_y: float) -> void:
 
 
 func set_sun_lighting(
-		_light_angle_deg: float,
+		light_angle_deg: float,
 		shadow_length_px: float,
 		shadow_opacity: float,
 		_shadow_softness_px: float,
 ) -> void:
+	_shadow_direction = WorldVisualLightingProfile.shadow_direction_for_light_angle_deg(light_angle_deg)
+	_shadow_rotation_rad = _shadow_direction.angle() - BAKED_SHADOW_DIRECTION.angle()
 	var low_sun: float = clampf(
 		(shadow_length_px - WorldVisualLightingProfile.SHADOW_MIN_LENGTH_PX)
 				/ maxf(
@@ -137,6 +144,8 @@ func get_debug_state() -> Dictionary:
 		"snow_has_normal_texture": _material_has_texture(_snow_material, "tree_normal_texture"),
 		"shadow_length_scale": _shadow_length_scale,
 		"shadow_backward_stretch_scale": _shadow_backward_stretch_scale,
+		"shadow_direction": _shadow_direction,
+		"shadow_rotation_degrees": rad_to_deg(_shadow_rotation_rad),
 		"season_amount": _season_amount,
 		"fixed_frame_scale": FIXED_TREE_FRAME_SCALE,
 		"uses_packet_tint": USE_PACKET_TINT,
@@ -356,9 +365,9 @@ func _set_shadow_polygon(
 func _shadow_texture_point_to_local(point: Vector2, scale_factor: float, stretch_forward: bool, anchor: Vector2) -> Vector2:
 	var delta: Vector2 = point - anchor
 	if stretch_forward:
-		var forward_distance: float = maxf(delta.dot(SHADOW_DIRECTION), 0.0)
-		delta += SHADOW_DIRECTION * forward_distance * (_shadow_length_scale - 1.0)
-	return delta * scale_factor
+		var forward_distance: float = maxf(delta.dot(BAKED_SHADOW_DIRECTION), 0.0)
+		delta += BAKED_SHADOW_DIRECTION * forward_distance * (_shadow_length_scale - 1.0)
+	return delta.rotated(_shadow_rotation_rad) * scale_factor
 
 
 func _clip_shadow_polygon(points: Array[Vector2], keep_forward: bool, anchor: Vector2) -> Array[Vector2]:
@@ -394,7 +403,9 @@ func _shadow_line_intersection(a: Vector2, b: Vector2, anchor: Vector2) -> Vecto
 
 
 func _shadow_signed_distance(point: Vector2, anchor: Vector2) -> float:
-	return (point - anchor).dot(SHADOW_DIRECTION)
+	# Clipping happens in texture space, so it follows the authored bake axis;
+	# the resulting polygons are rotated into runtime space around the anchor.
+	return (point - anchor).dot(BAKED_SHADOW_DIRECTION)
 
 
 func _scale_for_size(_size_px: float) -> float:

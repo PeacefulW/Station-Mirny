@@ -15,7 +15,7 @@ const WORLD_SCENE: String = "res://scenes/world/world_runtime_v0.tscn"
 const SEED: int = WorldRuntimeConstants.DEFAULT_WORLD_SEED
 const DENSITY: float = 0.60
 const LAKE_DENSITY: float = 0.0
-const SCAN_RADIUS: int = 16
+const SCAN_RADIUS: int = 24
 const ZOOM: float = 1.3
 const OUT: String = "res://artifacts/mountain_closeup/closeup.png"
 
@@ -30,6 +30,10 @@ func _run() -> void:
 	var spawn: Dictionary = core.call("resolve_world_foundation_spawn_tile", SEED, WorldRuntimeConstants.WORLD_VERSION, settings_packed) as Dictionary
 	var center: Vector2i = WorldRuntimeConstants.tile_to_chunk(spawn.get("spawn_tile", Vector2i.ZERO) as Vector2i)
 	var edge_tile: Vector2i = _find_dense_mountain_tile(core, settings_packed, center)
+	if edge_tile == Vector2i(-1, -1):
+		push_error("mountain_closeup_probe: no partial mountain edge found")
+		get_tree().quit(1)
+		return
 
 	var scene: Node = (load(WORLD_SCENE) as PackedScene).instantiate()
 	add_child(scene)
@@ -44,22 +48,16 @@ func _run() -> void:
 	var lakes: LakeGenSettings = LakeGenSettings.from_save_dict(DefaultLakeGenSettings.to_save_dict())
 	lakes.density = LAKE_DENSITY
 	streamer.initialize_new_world(SEED, settings, bounds, foundation, lakes)
-	player.global_position = WorldRuntimeConstants.tile_to_world_center(edge_tile)
-	streamer._update_player_chunk_coord()
 	if camera != null:
 		camera.enabled = true
 		camera.position_smoothing_enabled = false
 		camera.zoom = Vector2(ZOOM, ZOOM)
-	for _f: int in range(300):
-		streamer._streaming_tick()
-		if streamer.has_method("_mountain_native_mask_visual_apply_tick"):
-			streamer._mountain_native_mask_visual_apply_tick()
-		await get_tree().process_frame
-		var d: Dictionary = streamer.get_mountain_mask_runtime_debug_state()
-		if streamer._requested_chunks.is_empty() and int(d.get("native_mask_inflight_count", 0)) == 0 \
-				and int(d.get("native_mask_visual_upload_queue_count", 0)) == 0 \
-				and int(d.get("ready_native_mask_chunk_count", 0)) > 0 and not streamer._has_pending_streaming_work():
-			break
+	# Let the async foundation spawn settle before moving the player; otherwise
+	# the deferred spawn assignment can overwrite the probe target.
+	await _stream_until_stable(streamer)
+	player.global_position = WorldRuntimeConstants.tile_to_world_center(edge_tile)
+	streamer._update_player_chunk_coord()
+	await _stream_until_stable(streamer)
 	if camera != null:
 		camera.force_update_scroll()
 	for _frame: int in range(8):
@@ -76,12 +74,25 @@ func _run() -> void:
 	await get_tree().process_frame
 	get_tree().quit(0)
 
+
+func _stream_until_stable(streamer: Variant) -> void:
+	for _f: int in range(300):
+		streamer._streaming_tick()
+		if streamer.has_method("_mountain_native_mask_visual_apply_tick"):
+			streamer._mountain_native_mask_visual_apply_tick()
+		await get_tree().process_frame
+		var d: Dictionary = streamer.get_mountain_mask_runtime_debug_state()
+		if streamer._requested_chunks.is_empty() \
+				and int(d.get("native_mask_inflight_count", 0)) == 0 \
+				and int(d.get("native_mask_visual_upload_queue_count", 0)) == 0 \
+				and int(d.get("ready_native_mask_chunk_count", 0)) > 0 \
+				and not streamer._has_pending_streaming_work():
+			return
+
 func _find_dense_mountain_tile(core: Object, settings: PackedFloat32Array, center: Vector2i) -> Vector2i:
 	# Pick a partly-mountain chunk (has an edge, ~half solid) so the capture frames
 	# both the rock top and the facade/contour where artifacts show.
-	var best: Vector2i = center * WorldRuntimeConstants.CHUNK_SIZE + Vector2i(8, 8)
-	var best_score: int = 1 << 30
-	for radius: int in range(0, SCAN_RADIUS + 1):
+	for radius: int in range(1, SCAN_RADIUS + 1):
 		var coords := PackedVector2Array()
 		for cy: int in range(center.y - radius, center.y + radius + 1):
 			for cx: int in range(center.x - radius, center.x + radius + 1):
@@ -93,26 +104,39 @@ func _find_dense_mountain_tile(core: Object, settings: PackedFloat32Array, cente
 		for pv: Variant in packets:
 			var p: Dictionary = pv as Dictionary
 			var s: int = _solids(p)
-			if s < 80:
+			if s < 70 or s > 200:
 				continue
-			var score: int = absi(s - 150)
-			if score < best_score:
-				best_score = score
-				best = (p.get("chunk_coord", Vector2i.ZERO) as Vector2i) * WorldRuntimeConstants.CHUNK_SIZE + Vector2i(8, 8)
-		if best_score <= 20:
-			break
-	return best
+			var south_tile: Vector2i = _find_south_mountain_edge_tile(p)
+			if south_tile == Vector2i(-1, -1):
+				continue
+			var chunk_coord: Vector2i = p.get("chunk_coord", Vector2i.ZERO) as Vector2i
+			return chunk_coord * WorldRuntimeConstants.CHUNK_SIZE + south_tile + Vector2i(0, 1)
+	return Vector2i(-1, -1)
+
+
+func _find_south_mountain_edge_tile(packet: Dictionary) -> Vector2i:
+	var terrain_ids: PackedInt32Array = packet.get("terrain_ids", PackedInt32Array()) as PackedInt32Array
+	if terrain_ids.size() < WorldRuntimeConstants.CHUNK_CELL_COUNT:
+		return Vector2i(-1, -1)
+	for y: int in range(WorldRuntimeConstants.CHUNK_SIZE - 6, 1, -1):
+		for x: int in range(2, WorldRuntimeConstants.CHUNK_SIZE - 2):
+			var terrain_id: int = int(terrain_ids[y * WorldRuntimeConstants.CHUNK_SIZE + x])
+			var below_id: int = int(terrain_ids[(y + 1) * WorldRuntimeConstants.CHUNK_SIZE + x])
+			var solid: bool = terrain_id == WorldRuntimeConstants.TERRAIN_MOUNTAIN_WALL \
+					or terrain_id == WorldRuntimeConstants.TERRAIN_MOUNTAIN_FOOT
+			var below_open: bool = below_id != WorldRuntimeConstants.TERRAIN_MOUNTAIN_WALL \
+					and below_id != WorldRuntimeConstants.TERRAIN_MOUNTAIN_FOOT
+			if solid and below_open:
+				return Vector2i(x, y)
+	return Vector2i(-1, -1)
 
 func _solids(packet: Dictionary) -> int:
 	var terrain_ids: PackedInt32Array = packet.get("terrain_ids", PackedInt32Array()) as PackedInt32Array
-	var walkable_flags: PackedByteArray = packet.get("walkable_flags", PackedByteArray()) as PackedByteArray
-	var mountain_ids: PackedInt32Array = packet.get("mountain_id_per_tile", PackedInt32Array()) as PackedInt32Array
 	var c: int = 0
 	for i: int in range(mini(terrain_ids.size(), WorldRuntimeConstants.CHUNK_CELL_COUNT)):
 		var t: int = int(terrain_ids[i])
-		if (t == WorldRuntimeConstants.TERRAIN_MOUNTAIN_WALL or t == WorldRuntimeConstants.TERRAIN_MOUNTAIN_FOOT) \
-				and (i >= walkable_flags.size() or int(walkable_flags[i]) == 0) \
-				and i < mountain_ids.size() and int(mountain_ids[i]) > 0:
+		if t == WorldRuntimeConstants.TERRAIN_MOUNTAIN_WALL \
+				or t == WorldRuntimeConstants.TERRAIN_MOUNTAIN_FOOT:
 			c += 1
 	return c
 

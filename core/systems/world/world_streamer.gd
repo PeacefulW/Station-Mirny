@@ -1421,6 +1421,21 @@ func _ensure_grass_scatter_sources() -> void:
 	_grass_shadow_atlas_material.set_shader_parameter("storm_lean_fraction", 0.0)
 	_grass_shadow_atlas_material.set_shader_parameter("intra_tuft_flutter", 0.0)
 	_grass_shadow_atlas_material.set_shader_parameter("overlay_exact", 1.0)
+	_grass_shadow_atlas_material.set_shader_parameter("overlay_shadow_rotation_enabled", 1.0)
+	_grass_shadow_atlas_material.set_shader_parameter(
+		"overlay_shadow_baked_direction",
+		grass_params.get("directional_shadow_baked_direction", Vector2(0.887216, -0.461354)),
+	)
+	_grass_shadow_atlas_material.set_shader_parameter(
+		"overlay_shadow_runtime_direction",
+		WorldVisualLightingProfile.shadow_direction_for_light_angle_deg(
+			WorldVisualLightingProfile.DEFAULT_LIGHT_ANGLE_DEG,
+		),
+	)
+	_grass_shadow_atlas_material.set_shader_parameter(
+		"overlay_shadow_anchor_uv",
+		grass_params.get("directional_shadow_anchor_uv", Vector2(0.42, 0.75)),
+	)
 	_grass_shadow_atlas_material.set_shader_parameter(
 		"overlay_alpha",
 		float(grass_params.get("directional_shadow_alpha", 0.88)),

@@ -15,6 +15,7 @@ extends SceneTree
 
 const ChunkView = preload("res://core/systems/world/chunk_view.gd")
 const SHADOW_FIELD_SHADER = preload("res://assets/shaders/mountain_torch_shadow_field.gdshader")
+const WorldVisualLightingProfile = preload("res://core/systems/world/world_visual_lighting_profile.gd")
 
 const OUTPUT_DIR: String = "res://artifacts/mountain_torch_shadow_cave_island_probe"
 const TOP_TEXTURE_PATH: String = "res://assets/textures/world/biomes/plains/mountain/rock_top_albedo.png"
@@ -175,7 +176,7 @@ func _build_mountain(parent: Node2D) -> void:
 		"runtime_visual_clip_to_target_rect": true,
 	}
 	_view.apply_mountain_render_page(result, top_texture, face_texture)
-	_view.apply_sun_lighting(234.0, 0.0, 0.0, 1.0)
+	_view.apply_sun_lighting(WorldVisualLightingProfile.DEFAULT_LIGHT_ANGLE_DEG, 0.0, 0.0, 1.0)
 
 
 func _build_torch(parent: Node2D) -> void:

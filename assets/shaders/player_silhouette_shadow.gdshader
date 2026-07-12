@@ -11,7 +11,7 @@ render_mode blend_mix, unshaded;
 // ground line; shadow_projection: how far the figure height lays out (length).
 // Contract: docs/02_system_specs/progression/player_sun_shadow_v0.md
 
-uniform vec2 shadow_dir = vec2(0.59, 0.81);
+uniform vec2 shadow_dir = vec2(0.70710678, 0.70710678);
 uniform float shadow_projection = 0.7;
 uniform float shadow_opacity = 0.0;
 uniform float sprite_height_px = 256.0;

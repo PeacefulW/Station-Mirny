@@ -1,6 +1,10 @@
 # Godot 4 generated files
 .godot/
 *.import
+!assets/textures/world/biomes/plains/mountain/rock_top_albedo.png.import
+!assets/textures/world/biomes/plains/mountain/rock_face_albedo.png.import
+!assets/textures/world/biomes/plains/mountain/rock_top_normal.png.import
+!assets/textures/world/biomes/plains/mountain/rock_face_normal.png.import
 
 # Export
 export/

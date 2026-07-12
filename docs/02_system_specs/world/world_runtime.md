@@ -4,8 +4,8 @@ doc_type: system_spec
 status: approved
 owner: engineering
 source_of_truth: true
-version: 1.6
-last_updated: 2026-06-24
+version: 1.7
+last_updated: 2026-07-11
 related_docs:
   - ../../README.md
   - ../../00_governance/WORKFLOW.md
@@ -123,8 +123,9 @@ The amendment also allows replacement visual-only small rocks as
 `object_kind == 7`. They are emitted as native object packet records from the
 shared plains grass field transition, use deterministic layered Blender-baked
 asset directories selected by `object_variant`, expose no collision, use no
-wind mask, and stretch their baked sun shadow at low sun using the same fixed
-direction rule as layered trees.
+wind mask, rotate their authored north-east sun shadow around the anchor onto
+the canonical south-east axis, and stretch it at low sun using the same rule as
+layered trees.
 
 ## Law 0 Classification
 
@@ -305,8 +306,9 @@ accepted 2D mountain look:
   mining, lake simulation, or save/load.
 - Visual sun/shadow parameters are locked in
   `WorldVisualLightingProfile`. Runtime `WorldStreamer` reads the current
-  `TimeManager` hour/progress, derives sun angle, projected shadow length,
-  opacity, softness, and dusk/dawn fade from that profile, then pushes only
+  `TimeManager` hour/progress, reads the profile's fixed north-west sun angle,
+  derives projected shadow length, opacity, softness, and dusk/dawn fade from
+  that profile, then pushes only
   shader material parameters into loaded `ChunkView` instances. This is visual
   presentation work; it does not create a gameplay light authority and does not
   mutate world generation, save state, terrain ids, or walkability.

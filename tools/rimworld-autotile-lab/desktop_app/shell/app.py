@@ -624,7 +624,7 @@ class CliffForgeApp:
         self.normal_strength_var = tk.DoubleVar(value=8.0)
         self.normal_detail_strength_var = tk.DoubleVar(value=4.0)
         self.bake_height_shading_var = tk.BooleanVar(value=False)
-        self.light_angle_var = tk.DoubleVar(value=234.0)
+        self.light_angle_var = tk.DoubleVar(value=225.0)
         self.texture_color_overlay_var = tk.BooleanVar(value=False)
         self.forced_variant_var = tk.StringVar(value=LABEL_AUTO_VARIANT)
         self.top_color_var = tk.StringVar(value="#705940")
@@ -1794,7 +1794,7 @@ class CliffForgeApp:
             )
             self.normal_detail_strength_var.set(preset.get("normal_detail_strength", 1.25))
             self.bake_height_shading_var.set(bool(preset.get("bake_height_shading", False)))
-            self.light_angle_var.set(preset.get("light_angle_deg", 234.0))
+            self.light_angle_var.set(preset.get("light_angle_deg", 225.0))
             preview_mode = preset.get("preview_mode")
             if preview_mode:
                 self.preview_mode_var.set(PREVIEW_MODE_LABELS.get(preview_mode, PREVIEW_MODE_LABELS["lit"]))

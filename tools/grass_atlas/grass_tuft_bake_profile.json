@@ -104,7 +104,7 @@
 	"runtime": {
 		"target": "grass_scatter_multimesh",
 		"replace_live_runtime_asset": false,
-		"sun_shadow_mode": "blender_baked_fixed_north_east",
+		"sun_shadow_mode": "blender_baked_north_east_rotated_to_runtime_shadow_axis",
 		"dynamic_light_shadows": "not_for_individual_grass_tufts",
 		"normal_maps_generated": false
 	},

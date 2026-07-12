@@ -4,8 +4,8 @@ doc_type: system_spec
 status: approved
 owner: engineering+design
 source_of_truth: true
-version: 1.1
-last_updated: 2026-07-08
+version: 1.2
+last_updated: 2026-07-11
 related_docs:
   - ../../00_governance/ENGINEERING_STANDARDS.md
   - ../../00_governance/WORKFLOW.md
@@ -274,12 +274,13 @@ authored data:
   already a grass carpet — tufts grow out of grass, not bare soil. Same
   `grass_density` field feeds both, so they stay synchronized.
 - **Directional baked shadows.** Each atlas frame has a paired frame in
-  `grass_tuft_shadow_atlas` (Cycles shadow-catcher pass, shared fixed sun:
-  azimuth 315°, elevation 42° — same screen north-east direction as the
-  layered tree shadows). `ChunkView` draws them as per-stripe
-  `MultiMeshInstance2D` layers that share the tuft multimesh buffers
-  (`Z_GRASS_SHADOW + 1`, `overlay_exact` material with wind zeroed), so
-  shadows stay glued to their tufts at zero extra buffer cost.
+  `grass_tuft_shadow_atlas` (Cycles shadow-catcher pass; the authored texture
+  axis is screen north-east). `ChunkView` draws it as per-stripe
+  `MultiMeshInstance2D` layers sharing the tuft buffers. The shadow material
+  rotates each quad in world space around the authored root onto the canonical
+  south-east cast axis, cancelling per-tuft lean and non-uniform scale; UVs stay
+  unchanged and wind is zeroed. Thus shadows remain glued to their roots with
+  no second instance buffer and agree with the fixed north-west sun.
 - **Contact-shadow blobs (fallback).** Native still emits flat shadow blobs
   under larger tufts (`shadow_buffer`); the blob layer at `Z_GRASS_SHADOW`
   renders them only when the material set has no shadow atlas wired

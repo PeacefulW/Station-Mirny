@@ -4,8 +4,8 @@ doc_type: system_spec
 status: approved
 source_of_truth: true
 owner: engineering+art
-version: 1.0
-last_updated: 2026-06-24
+version: 1.1
+last_updated: 2026-07-11
 related_docs:
   - terrain_hybrid_presentation.md
   - plains_ground_field_composition.md
@@ -42,7 +42,7 @@ light/visibility *authority*, not the renderer. Everything in this spec is
 
 - **Iteration 1 (this landing):** large-scale cosmetic shading of the plains
   ground, hybrid model — a constant ambient-AO "form" field (present day and
-  night) plus a sun-directional component that fades with daylight; the shared
+  night) plus a fixed north-west sun-directional component that fades with daylight; the shared
   ground material starts receiving the sun model.
 - **Iteration 2 (later):** contact AO / "weight" under scatter objects (trees
   now; reusable by the rock objects of the `scatter + litter` step).
@@ -61,7 +61,7 @@ light/visibility *authority*, not the renderer. Everything in this spec is
 |---|---|
 | Canonical data, overlay, or visual only? | Visual-only derived state (albedo brightness). |
 | Save/load required? | No. Authored knobs live in the material set; sun model is live-derived. |
-| Deterministic? | Visually deterministic for a given world position + time of day; not gameplay state. |
+| Deterministic? | Visually deterministic for a given world position + daylight phase; sun azimuth stays fixed north-west; not gameplay state. |
 | Must it work on unloaded chunks? | Ground shade derives from world position + the global sun model; no chunk-local state. |
 | C++ or main thread? | Shader renders pixels; one shared material's sun uniforms updated on the main thread on sun change (O(1)). |
 | Dirty unit | None new. One shared ground material uniform update per sun change. |
@@ -101,7 +101,7 @@ wired generically to shader uniforms:
 - `shade_dir_strength` (`0.16`) — daytime directional shade depth.
 
 Runtime-driven uniforms (NOT in tres; set from the sun model, sensible defaults
-for a static daytime look): `ground_sun_angle_deg` (default `234.0`),
+for a static daytime look): `ground_sun_angle_deg` (default `225.0`, north-west),
 `ground_sun_day` (default `1.0`).
 
 ## Runtime Architecture

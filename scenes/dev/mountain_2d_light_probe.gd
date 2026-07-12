@@ -1,8 +1,9 @@
 class_name Mountain2DLightProbe
 extends Node2D
 
+const WorldVisualLightingProfile = preload("res://core/systems/world/world_visual_lighting_profile.gd")
 const SUN_ENERGY: float = 1.25
-const SUN_ROTATION_DEGREES: float = -42.0
+const SUN_ROTATION_DEGREES: float = WorldVisualLightingProfile.DEFAULT_LIGHT_ANGLE_DEG
 const AMBIENT_COLOR: Color = Color(0.34, 0.31, 0.27, 1.0)
 const SUN_COLOR: Color = Color(1.0, 0.84, 0.58, 1.0)
 

@@ -115,7 +115,7 @@ class AppPayloadTests(unittest.TestCase):
             "variants": 6,
             "texture_scale": 1.0,
             "bake_height_shading": False,
-            "light_angle_deg": 234.0,
+            "light_angle_deg": 225.0,
             "preview_mode": "lit",
         }
 
@@ -202,7 +202,7 @@ class AppPayloadTests(unittest.TestCase):
         self.assertEqual(instance.geometry_variance_var.get(), 0.75)
         self.assertEqual(instance.normal_strength_var.get(), 8.0)
         self.assertEqual(instance.normal_detail_strength_var.get(), 4.0)
-        self.assertEqual(instance.light_angle_var.get(), 234.0)
+        self.assertEqual(instance.light_angle_var.get(), 225.0)
         self.assertEqual(instance.preview_mode_var.get(), app.PREVIEW_MODE_LABELS["lit"])
         self.assertFalse(instance.bake_height_shading_var.get())
 

@@ -16,9 +16,9 @@ shader_type canvas_item;
 //     clip overlap to cover subpixel seams while camera movement is fractional.
 
 uniform sampler2D top_texture : filter_linear_mipmap, repeat_enable;
-uniform sampler2D face_texture : filter_linear, repeat_enable;
+uniform sampler2D face_texture : filter_linear_mipmap, repeat_enable;
 uniform sampler2D top_normal_texture : filter_linear_mipmap, repeat_enable;
-uniform sampler2D face_normal_texture : filter_linear, repeat_enable;
+uniform sampler2D face_normal_texture : filter_linear_mipmap, repeat_enable;
 uniform vec2 top_texture_size = vec2(1024.0, 1024.0);
 uniform vec2 face_texture_size = vec2(1024.0, 1024.0);
 uniform vec2 world_origin_px = vec2(0.0, 0.0);
@@ -31,13 +31,14 @@ uniform float facade_height_px = 72.0; // height of the south wall strip WITHIN 
 uniform float overhang_px = 8.0;       // cosmetic roof eave projected below the silhouette
 uniform float top_threshold_low = 0.40;
 uniform float top_threshold_high = 0.58;
-uniform float light_angle_deg = 234.0;
+uniform float light_angle_deg = 225.0;
 uniform float normal_strength = 1.35;
+uniform float top_mask_normal_strength = 0.0;
 uniform float material_normal_mix = 0.0;
 uniform float material_normal_strength = 0.62;
 uniform float light_ambient = 0.68;
 uniform float light_diffuse = 0.34;
-uniform float projected_shadow_angle_deg = 234.0;
+uniform float projected_shadow_angle_deg = 45.0;
 uniform float projected_shadow_length_px = 72.0;
 uniform float projected_shadow_opacity = 0.0;
 uniform float projected_shadow_softness_px = 28.0;
@@ -95,6 +96,21 @@ uniform float side_shade_reach_px = 26.0;
 uniform float roof_drift_scale_px = 0.0;
 uniform float roof_drift_strength = 0.0;
 uniform float roof_vein_strength = 0.0;
+// Art-directed roof grade. The source rock stays shared and tileable; the
+// mountain material shifts it toward warmer, heavier plateau stone without
+// baking biome lighting into the texture itself.
+uniform vec3 top_grade_tint = vec3(1.0);
+uniform float top_grade_saturation = 1.0;
+uniform float top_grade_value = 1.0;
+uniform float top_grade_contrast = 1.0;
+uniform float top_detail_scale = 2.0;
+uniform float top_detail_albedo_strength = 0.0;
+uniform float top_detail_normal_mix = 0.0;
+uniform float top_detail_normal_strength = 0.35;
+uniform float top_cavity_strength = 0.0;
+uniform float top_warmth_variation = 0.0;
+uniform vec3 top_sun_tint = vec3(1.0);
+uniform vec3 top_shadow_tint = vec3(1.0);
 // Height terraces: concentric steps derived from the mask distance-to-edge
 // (ring probes, like the shore band). Inner plateaus lift slightly, a thin
 // dark step line separates the levels. Pure cosmetics: collision, mining, and
@@ -129,8 +145,21 @@ uniform float wall_desaturate = 0.0;        // shade desaturation toward the bas
 uniform float wall_streak_strength = 0.0;   // vertical wash/streak tone drift
 uniform float wall_crack_strength = 0.0;    // sparse thin vertical crack lines
 uniform float wall_texture_v_stretch = 1.0; // >1 stretches face texture features vertically
+uniform float face_height_normal_strength = 0.0;
+uniform float face_mask_normal_strength = 0.0;
+uniform float face_material_normal_mix = 0.0;
+uniform float face_detail_scale = 1.0;
+uniform float face_detail_albedo_strength = 0.0;
+uniform float face_detail_normal_mix = 0.0;
+uniform float face_detail_normal_strength = 0.25;
 uniform float crest_light_strength = 0.0;   // albedo-derived sun-lit shoulder at the wall top
 uniform float crest_height_frac = 0.16;     // crest band height as a fraction of wall height
+uniform vec3 crest_warm_tint = vec3(1.16, 0.95, 0.78);
+uniform float crest_day_brightness = 1.38;
+uniform float silhouette_lit_strength = 0.64;
+uniform float silhouette_shadow_strength = 0.64;
+uniform float rim_lip_lit_strength = 0.12;
+uniform float rim_lip_shadow_strength = 0.12;
 uniform vec2 chunk_uv_min = vec2(0.1, 0.1);
 uniform vec2 chunk_uv_max = vec2(0.9, 0.9);
 uniform vec2 shadow_uv_min = vec2(0.1, 0.1);
@@ -553,25 +582,67 @@ void fragment() {
 	vec2 top_uv = world_px * top_texture_scale / tz / max(top_texture_size, vec2(1.0));
 	vec2 top_uv_dx = (world_px + vec2(grad_px, 0.0)) * top_texture_scale / tz / max(top_texture_size, vec2(1.0));
 	vec2 top_uv_dy = (world_px + vec2(0.0, grad_px)) * top_texture_scale / tz / max(top_texture_size, vec2(1.0));
+	// A rotated high-frequency copy restores close-up texel density without
+	// shrinking the large plate layer that carries the mountain silhouette.
+	vec2 top_detail_world_px = vec2(-world_px.y, world_px.x) + vec2(431.0, 217.0);
+	vec2 top_detail_uv = top_detail_world_px * top_texture_scale * max(top_detail_scale, 1.0) / tz / max(top_texture_size, vec2(1.0));
 	vec4 top_col = texture(top_texture, top_uv);
+	vec4 top_detail_col = texture(top_texture, top_detail_uv);
+	float top_height = luma(top_col.rgb);
+	float top_detail_luma = luma(top_detail_col.rgb);
 	top_col.rgb *= top_variation;
 	top_col.rgb = mix(top_col.rgb, top_col.rgb * top_dust_tint, smoothstep(0.68, 0.96, macro) * 0.20);
+	float detail_relief = smoothstep(0.24, 0.76, top_detail_luma);
+	top_col.rgb *= mix(
+		1.0 - top_detail_albedo_strength,
+		1.0 + top_detail_albedo_strength,
+		detail_relief
+	);
+	float warmth_field = clamp(macro * 0.62 + mid_mottle * 0.38, 0.0, 1.0);
+	vec3 field_tint = mix(vec3(0.98, 1.0, 1.025), vec3(1.065, 1.0, 0.90), warmth_field);
+	top_col.rgb *= mix(vec3(1.0), field_tint, top_warmth_variation);
+	float cavity = 1.0 - smoothstep(0.21, 0.48, mix(top_height, top_detail_luma, 0.28));
+	top_col.rgb *= 1.0 - cavity * top_cavity_strength;
+	float graded_top_luma = luma(top_col.rgb);
+	top_col.rgb = mix(vec3(graded_top_luma), top_col.rgb, clamp(top_grade_saturation, 0.0, 1.5));
+	top_col.rgb = clamp(
+		(top_col.rgb - vec3(0.5)) * max(top_grade_contrast, 0.0) + vec3(0.5),
+		vec3(0.0),
+		vec3(1.0)
+	);
+	top_col.rgb *= top_grade_tint * top_grade_value;
 	vec3 top_n = vec3(0.0, 0.0, 1.0);
 	if (!temporary_disable_terrain_normals) {
-		float h_c = luma(top_col.rgb);
+		// Height derivatives must come from the ungraded source. Comparing a
+		// tinted center sample with raw neighbours created a false constant tilt
+		// and was the reason mountain normals had to stay disabled.
+		float h_c = top_height;
 		float h_x = luma(texture(top_texture, top_uv_dx).rgb);
 		float h_y = luma(texture(top_texture, top_uv_dy).rgb);
 		top_n = normalize(vec3(
-			mask_grad.x * 2.2 + (h_c - h_x) * normal_strength * 0.38,
-			mask_grad.y * 2.2 + (h_c - h_y) * normal_strength * 0.38,
+			mask_grad.x * top_mask_normal_strength + (h_c - h_x) * normal_strength * 0.38,
+			mask_grad.y * top_mask_normal_strength + (h_c - h_y) * normal_strength * 0.38,
 			1.0
 		));
 		if (material_normal_mix > 0.001) {
 			vec3 top_detail_n = unpack_normal(texture(top_normal_texture, top_uv).rgb);
 			top_n = normalize(mix(top_n, blend_normals(top_n, top_detail_n), clamp(material_normal_mix, 0.0, 1.0)));
 		}
+		if (top_detail_normal_mix > 0.001) {
+			vec3 fine_n = unpack_normal(texture(top_normal_texture, top_detail_uv).rgb);
+			// UV is rotated 90 degrees, so rotate the tangent-space XY response
+			// back into world-screen axes before combining it with the broad form.
+			fine_n = normalize(vec3(fine_n.y, -fine_n.x, fine_n.z));
+			vec3 detailed_n = normalize(vec3(
+				top_n.xy + fine_n.xy * top_detail_normal_strength,
+				max(0.001, top_n.z * max(0.001, fine_n.z))
+			));
+			top_n = normalize(mix(top_n, detailed_n, clamp(top_detail_normal_mix, 0.0, 1.0)));
+		}
 	}
-	vec3 top_lit = top_col.rgb * (light_ambient + light_diffuse * clamp(dot(top_n, light_dir), 0.0, 1.0));
+	float top_ndl = clamp(dot(top_n, light_dir), 0.0, 1.0);
+	vec3 top_light_tint = mix(top_shadow_tint, top_sun_tint, smoothstep(0.08, 0.88, top_ndl));
+	vec3 top_lit = top_col.rgb * (light_ambient + light_diffuse * top_ndl) * top_light_tint;
 	if (terrace_strength > 0.001 && top_here >= 0.5) {
 		// Concentric height terraces from distance-to-edge ring probes. The
 		// noise-wobbled radii keep the step contours organic and parallel to
@@ -627,24 +698,43 @@ void fragment() {
 	vec2 face_uv = face_world_px * face_texture_scale / tz / max(face_texture_size, vec2(1.0));
 	vec2 face_uv_dx = (face_world_px + vec2(grad_px, 0.0)) * face_texture_scale / tz / max(face_texture_size, vec2(1.0));
 	vec2 face_uv_dy = (face_world_px + vec2(0.0, grad_px)) * face_texture_scale / tz / max(face_texture_size, vec2(1.0));
+	vec2 face_detail_uv = (face_world_px + vec2(173.0, 619.0)) * face_texture_scale * max(face_detail_scale, 1.0) / tz / max(face_texture_size, vec2(1.0));
 	vec4 face_col = texture(face_texture, face_uv);
+	vec4 face_detail_col = texture(face_texture, face_detail_uv);
+	float face_height = luma(face_col.rgb);
+	float face_detail_luma = luma(face_detail_col.rgb);
 	face_col.rgb *= 0.86 + (macro - 0.5) * 0.10;
+	face_col.rgb *= mix(
+		1.0 - face_detail_albedo_strength,
+		1.0 + face_detail_albedo_strength,
+		smoothstep(0.22, 0.78, face_detail_luma)
+	);
 	vec3 face_n = vec3(0.0, 0.0, 1.0);
 	if (!temporary_disable_terrain_normals) {
-		float fh_c = luma(face_col.rgb);
+		float fh_c = face_height;
 		float fh_x = luma(texture(face_texture, face_uv_dx).rgb);
 		float fh_y = luma(texture(face_texture, face_uv_dy).rgb);
 		face_n = normalize(vec3(
-			mask_grad.x * 1.55 + (fh_c - fh_x) * normal_strength * 0.62,
-			mask_grad.y * 1.55 + (fh_c - fh_y) * normal_strength * 0.62,
+			mask_grad.x * face_mask_normal_strength + (fh_c - fh_x) * face_height_normal_strength,
+			mask_grad.y * face_mask_normal_strength + (fh_c - fh_y) * face_height_normal_strength,
 			1.0
 		));
-		if (material_normal_mix > 0.001) {
+		if (face_material_normal_mix > 0.001) {
 			vec3 face_detail_n = unpack_normal(texture(face_normal_texture, face_uv).rgb);
-			face_n = normalize(mix(face_n, blend_normals(face_n, face_detail_n), clamp(material_normal_mix, 0.0, 1.0)));
+			face_n = normalize(mix(face_n, blend_normals(face_n, face_detail_n), clamp(face_material_normal_mix, 0.0, 1.0)));
+		}
+		if (face_detail_normal_mix > 0.001) {
+			vec3 fine_face_n = unpack_normal(texture(face_normal_texture, face_detail_uv).rgb);
+			vec3 detailed_face_n = normalize(vec3(
+				face_n.xy + fine_face_n.xy * face_detail_normal_strength,
+				max(0.001, face_n.z * max(0.001, fine_face_n.z))
+			));
+			face_n = normalize(mix(face_n, detailed_face_n, clamp(face_detail_normal_mix, 0.0, 1.0)));
 		}
 	}
-	vec3 facade_color = face_col.rgb * (light_ambient + light_diffuse * clamp(dot(face_n, light_dir), 0.0, 1.0));
+	float face_ndl = clamp(dot(face_n, light_dir), 0.0, 1.0);
+	vec3 face_light_tint = mix(top_shadow_tint, top_sun_tint, smoothstep(0.08, 0.88, face_ndl));
+	vec3 facade_color = face_col.rgb * (light_ambient + light_diffuse * face_ndl) * face_light_tint;
 
 	vec3 color = top_lit;
 	// Gate the roof by body_area (the tiny chunk overlap) like walls/overhang/
@@ -688,9 +778,9 @@ void fragment() {
 		if (wall_crack_strength > 0.001) {
 			// Sparse vertical cracks: thin iso-band of x-heavy gradient fbm,
 			// gated by a second field so lines break up (same recipe as roof veins).
-			float crack_base = fbm2(vec2(world_px.x / 92.0, world_px.y / 470.0) + vec2(-53.0, 29.0));
+			float crack_base = fbm2(vec2(world_px.x / 150.0, world_px.y / 620.0) + vec2(-53.0, 29.0));
 			float crack_line = smoothstep(0.465, 0.5, crack_base) * (1.0 - smoothstep(0.5, 0.535, crack_base));
-			float crack_gate = smoothstep(0.42, 0.60, fbm2(vec2(world_px.x / 300.0, world_px.y / 900.0) + vec2(71.0, -11.0)));
+			float crack_gate = smoothstep(0.42, 0.60, fbm2(vec2(world_px.x / 380.0, world_px.y / 1000.0) + vec2(71.0, -11.0)));
 			wall_color *= 1.0 - crack_line * crack_gate * wall_crack_strength;
 		}
 		// Smooth crest->base value ramp (a single continuous gradient, NOT
@@ -707,16 +797,23 @@ void fragment() {
 			// visibility (same gate as rim lips) -> dims to neutral at night.
 			float crest_daylight = smoothstep(0.05, 0.45, projected_shadow_opacity);
 			float crest_low_sun = clamp((projected_shadow_length_px - 80.0) / 280.0, 0.0, 1.0);
-			vec3 crest_warm = mix(vec3(1.0), vec3(1.16, 0.95, 0.78), (0.35 + crest_low_sun * 0.65) * crest_daylight);
+			vec3 crest_warm = mix(vec3(1.0), crest_warm_tint, (0.35 + crest_low_sun * 0.65) * crest_daylight);
 			float crest_band = smoothstep(1.0 - crest_height_frac * 1.8, 1.0 - crest_height_frac * 0.35, wall_h);
 			float crest_breakup = 0.62 + small_mottle * 0.76;
-			vec3 crest_color = wall_color * mix(1.05, 1.38, crest_daylight) * crest_warm;
+			vec3 crest_color = wall_color * mix(1.05, crest_day_brightness, crest_daylight) * crest_warm;
 			wall_color = mix(wall_color, crest_color, crest_band * crest_light_strength * crest_breakup);
 		}
 		float base_outline = 1.0 - smoothstep(0.0, 1.0 / max(sample_step_px, 1.0), edge_below);
 		wall_color = mix(wall_color, vec3(0.0, 0.0, 0.0), clamp(base_outline, 0.0, 1.0) * base_outline_strength);
-		color = mix(color, wall_color, wall_mask);
-		out_alpha = max(out_alpha, wall_mask * wall_surface_alpha);
+		// Resolve RGB ownership with the same coverage that writes alpha. Using
+		// wall_mask directly left the bright roof RGB inside a fractional wall
+		// edge whose alpha came only from the facade; straight-alpha composition
+		// then exposed it as a one-pixel light contour over the ground.
+		float wall_alpha = wall_mask * wall_surface_alpha;
+		float combined_alpha = max(out_alpha, wall_alpha);
+		float wall_color_weight = wall_alpha / max(combined_alpha, 0.0001);
+		color = mix(color, wall_color, clamp(wall_color_weight, 0.0, 1.0));
+		out_alpha = combined_alpha;
 	}
 
 	// Cosmetic roof eave over the open space just below the silhouette.
@@ -736,13 +833,17 @@ void fragment() {
 	// optional sparse biofield creep matching the ground's orange field).
 	float silhouette = body_area * smoothstep(0.08, 0.5, top_here) * (1.0 - smoothstep(0.5, 0.82, top_here));
 	float inner_rim = body_area * smoothstep(0.42, 0.72, top_here) * (1.0 - smoothstep(0.76, 0.96, top_here));
-	color = mix(color, vec3(0.03, 0.02, 0.012), silhouette * 0.64);
+	float rim_grad_length = length(mask_grad);
+	vec2 rim_outward = rim_grad_length > 0.0001 ? mask_grad / rim_grad_length : vec2(0.0, 1.0);
+	float rim_facing = clamp(dot(rim_outward, normalize(light_dir.xy)) * 0.5 + 0.5, 0.0, 1.0);
+	float silhouette_strength = mix(silhouette_shadow_strength, silhouette_lit_strength, rim_facing);
+	color = mix(color, vec3(0.03, 0.02, 0.012), silhouette * silhouette_strength);
 	// Тот же ночной гейт, что у верхней кромки стены (см. sun_daylight выше).
 	float lip_daylight = smoothstep(0.05, 0.45, projected_shadow_opacity);
 	float lip_low_sun = clamp((projected_shadow_length_px - 80.0) / 280.0, 0.0, 1.0);
 	vec3 lip_warm_tint = mix(vec3(1.0), vec3(1.16, 0.93, 0.76), (0.35 + lip_low_sun * 0.65) * lip_daylight);
 	vec3 inner_lip = top_col.rgb * mix(1.10, 1.32, lip_daylight) * lip_warm_tint;
-	float lip_mix = 0.12;
+	float lip_mix = mix(rim_lip_shadow_strength, rim_lip_lit_strength, rim_facing);
 	if (biofield_rim_strength > 0.001) {
 		float lip_bio_field = fbm2(world_px / max(biofield_rim_scale_px, 1.0) + vec2(-27.3, 8.1));
 		float lip_bio_gate = smoothstep(0.60, 0.72, lip_bio_field) * biofield_rim_strength;

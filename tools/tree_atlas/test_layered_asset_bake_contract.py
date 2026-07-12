@@ -31,6 +31,10 @@ class LayeredAssetBakeContractTest(unittest.TestCase):
         self.assertEqual(profile["lighting"]["shadow_sun_elevation_degrees"], 42.0)
         self.assertEqual(profile["planting"]["root_embed_fraction"], 0.065)
         self.assertFalse(profile["runtime"]["normal_maps_enabled"])
+        self.assertEqual(
+            profile["runtime"]["sun_shadow_mode"],
+            "baked_north_east_rotated_to_runtime_shadow_axis_then_stretched",
+        )
 
     def test_contract_doc_exists_and_names_required_rules(self) -> None:
         self.assertTrue(DOC_PATH.is_file(), "Layered asset bake contract must be documented.")

@@ -5,8 +5,10 @@ const TREE_DIR: String = "res://assets/sprites/flora/layered_trees/tree_01"
 const FOLIAGE_WIND_SHADER: Shader = preload("res://assets/shaders/layered_tree_foliage_wind.gdshader")
 const SNOW_ACCUMULATION_SHADER: Shader = preload("res://assets/shaders/layered_tree_snow_accumulation.gdshader")
 const TRUNK_SEASON_SHADER: Shader = preload("res://assets/shaders/layered_tree_trunk_season.gdshader")
+const WorldVisualLightingProfile = preload("res://core/systems/world/world_visual_lighting_profile.gd")
 const MAX_WIND_STRENGTH_PX: float = 18.0
-const SHADOW_DIRECTION: Vector2 = Vector2(0.887216, -0.461354)
+const BAKED_SHADOW_DIRECTION: Vector2 = Vector2(0.887216, -0.461354)
+const DEFAULT_RUNTIME_SHADOW_DIRECTION: Vector2 = Vector2(0.70710678, 0.70710678)
 
 var _meta: Dictionary = {}
 var _root_position: Vector2 = Vector2(512.0, 620.0)
@@ -18,6 +20,8 @@ var _shadow_hour: float = 14.5
 var _shadow_length_scale: float = 1.0
 var _shadow_width_scale: float = 1.0
 var _shadow_backward_stretch_scale: float = 1.0
+var _shadow_direction: Vector2 = DEFAULT_RUNTIME_SHADOW_DIRECTION
+var _shadow_rotation_rad: float = DEFAULT_RUNTIME_SHADOW_DIRECTION.angle() - BAKED_SHADOW_DIRECTION.angle()
 var _shadow_root: Node2D = null
 var _shadow_polygons: Array[Polygon2D] = []
 var _shadow_texture: Texture2D = null
@@ -118,7 +122,8 @@ func get_debug_snapshot() -> Dictionary:
 		"snow_enabled": _season_amount > 0.01,
 		"season_amount": _season_amount,
 		"shadow_hour": _shadow_hour,
-		"shadow_rotation_degrees": 0.0,
+		"shadow_direction": _shadow_direction,
+		"shadow_rotation_degrees": rad_to_deg(_shadow_rotation_rad),
 		"shadow_length_scale": _shadow_length_scale,
 		"shadow_width_scale": _shadow_width_scale,
 		"shadow_backward_stretch_scale": _shadow_backward_stretch_scale,
@@ -200,7 +205,7 @@ func _build_hud() -> void:
 func _update_hud() -> void:
 	if _hud_label == null:
 		return
-	_hud_label.text = "Layered tree asset lab | Space winter | Z/X season %.2f | +/- wind %.1f/%0.0f px | Q/E fixed NE shadow %.1f h | 1/2/3" % [
+	_hud_label.text = "Layered tree asset lab | Space winter | Z/X season %.2f | +/- wind %.1f/%0.0f px | Q/E fixed SE shadow %.1f h | 1/2/3" % [
 		_season_amount,
 		_wind_strength_px,
 		MAX_WIND_STRENGTH_PX,
@@ -211,6 +216,10 @@ func _update_hud() -> void:
 func _apply_shadow_hour() -> void:
 	if _shadow_root == null:
 		return
+	_shadow_direction = WorldVisualLightingProfile.shadow_direction_for_light_angle_deg(
+		WorldVisualLightingProfile.DEFAULT_LIGHT_ANGLE_DEG,
+	)
+	_shadow_rotation_rad = _shadow_direction.angle() - BAKED_SHADOW_DIRECTION.angle()
 	var t: float = clampf((_shadow_hour - 13.0) / 3.0, 0.0, 1.0)
 	var day_edge: float = absf(t - 0.5) * 2.0
 	_shadow_length_scale = lerpf(1.0, 1.85, day_edge)
@@ -271,9 +280,9 @@ func _set_shadow_polygon(polygon: Polygon2D, texture_points: Array[Vector2], str
 func _shadow_texture_point_to_local(point: Vector2, stretch_forward: bool) -> Vector2:
 	var delta: Vector2 = point - _shadow_anchor_px
 	if stretch_forward:
-		var forward_distance: float = maxf(delta.dot(SHADOW_DIRECTION), 0.0)
-		delta += SHADOW_DIRECTION * forward_distance * (_shadow_length_scale - 1.0)
-	return delta * _tree_scale
+		var forward_distance: float = maxf(delta.dot(BAKED_SHADOW_DIRECTION), 0.0)
+		delta += BAKED_SHADOW_DIRECTION * forward_distance * (_shadow_length_scale - 1.0)
+	return delta.rotated(_shadow_rotation_rad) * _tree_scale
 
 
 func _clip_shadow_polygon(points: Array[Vector2], keep_forward: bool) -> Array[Vector2]:
@@ -309,7 +318,7 @@ func _shadow_line_intersection(a: Vector2, b: Vector2) -> Vector2:
 
 
 func _shadow_signed_distance(point: Vector2) -> float:
-	return (point - _shadow_anchor_px).dot(SHADOW_DIRECTION)
+	return (point - _shadow_anchor_px).dot(BAKED_SHADOW_DIRECTION)
 
 
 func _make_sprite(sprite_name: String, path: String, position: Vector2, scale_factor: float) -> Sprite2D:

@@ -23,8 +23,9 @@ const COLOR_DAY := Color(0.85, 0.85, 0.83)
 const COLOR_DUSK := Color(0.66, 0.50, 0.40)
 const COLOR_UNDERGROUND := Color(1.0, 1.0, 1.0)
 ## Солнце — МЯГКИЙ ключ (рельеф по нормали), не второй фонарь: иначе день
-## пересвечивается. Угол — из WorldVisualLightingProfile по времени суток.
-const SUN_DAY_ENERGY := 0.45
+## пересвечивается. Угол фиксирован на северо-запад через
+## WorldVisualLightingProfile; время суток меняет силу и цвет.
+const SUN_DAY_ENERGY := 0.55
 ## При полном cloud occlusion прямой солнечный ключ почти исчезает: остаётся
 ## холодный diffuse ambient, а не screen-space затемняющий слой.
 const SUN_OVERCAST_DIRECT_FACTOR := 0.06
@@ -86,7 +87,7 @@ func _process(delta: float) -> void:
 
 
 ## Солнце ведётся от текущей ambient-яркости (плавно вместе с CanvasModulate):
-## энергия = доля дня, угол = время суток. Под землёй солнце выключено
+## энергия = доля дня, угол = фиксированный северо-запад. Под землёй солнце выключено
 ## (подземный свет — отдельная геймплейная система, ADR-0005).
 func _update_sun(delta: float, cloud_occlusion: float) -> void:
 	if _sun == null:

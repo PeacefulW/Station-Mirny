@@ -4,8 +4,8 @@ doc_type: system_spec
 status: approved
 source_of_truth: true
 owner: engineering+art
-version: 2.1
-last_updated: 2026-07-04
+version: 2.2
+last_updated: 2026-07-12
 related_docs:
   - wind_and_grass_scatter_presentation.md
   - plains_trees_presentation.md
@@ -57,9 +57,10 @@ player and break the confirmed player↔tree Y-sort.
   a mountain — physically plausible, accepted.
 - Biofield spores (`Z_GRASS_SPORE = 290`) now render above mountain pixels at edges —
   they are airborne particles, accepted.
-- The mountain's projected sun shadow (part of the same mask sprite, now z 19)
-  renders under grass tufts (z 20+); grass inside long dawn/dusk mountain shadows
-  pops slightly. Accepted as minor; revisit only if a probe shows it objectionable.
+- The mountain mask no longer draws its former projected sun-shadow band: it
+  read as a detached black contour at the facade base. Mountain depth is owned
+  by its facade and material lighting, so there is no mountain shadow-layer
+  interaction with grass tufts to accept here.
 
 ## Follow-up: grass tufts visible inside the mountain (fixed 2026-07-04)
 

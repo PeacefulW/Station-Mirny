@@ -12,7 +12,7 @@ render_mode blend_mix, unshaded;
 uniform float atlas_columns = 4.0;
 uniform float atlas_rows = 4.0;
 uniform float atlas_frame_count = 16.0;
-uniform vec2 shadow_dir = vec2(0.62, 0.58);
+uniform vec2 shadow_dir = vec2(0.70710678, 0.70710678);
 uniform float shadow_foreshorten = 0.5;
 uniform float shadow_opacity = 0.30;
 

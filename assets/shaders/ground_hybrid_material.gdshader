@@ -91,7 +91,7 @@ uniform float shade_ambient_strength = 0.13;
 uniform float shade_relief_px = 520.0;
 uniform float shade_directional_gain = 3.2;
 uniform float shade_dir_strength = 0.16;
-uniform float ground_sun_angle_deg = 234.0;
+uniform float ground_sun_angle_deg = 225.0;
 uniform float ground_sun_day = 1.0;
 
 varying vec2 world_pos;

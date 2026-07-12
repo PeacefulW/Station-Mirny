@@ -38,11 +38,11 @@ const MOUNTAIN_ROCK_UNDERLAY_FILL_STRENGTH: float = 1.0
 const MOUNTAIN_ROCK_UNDERLAY_FILL_ALPHA: float = 3.0
 const MOUNTAIN_ROCK_UNDERLAY_MAX_ALPHA: float = 1.0
 const MOUNTAIN_FOOTHILL_OVERLAY_ENABLED: bool = true
-const MOUNTAIN_FOOTHILL_TEXTURE_SCALE: float = 0.60
-const MOUNTAIN_FOOTHILL_OUTER_WIDTH_PX: float = 154.0
-const MOUNTAIN_FOOTHILL_OUTER_WIDTH_VARIATION_PX: float = 96.0
-const MOUNTAIN_FOOTHILL_INNER_WIDTH_PX: float = 54.0
-const MOUNTAIN_FOOTHILL_ALPHA: float = 0.68
+const MOUNTAIN_FOOTHILL_TEXTURE_SCALE: float = 0.55
+const MOUNTAIN_FOOTHILL_OUTER_WIDTH_PX: float = 112.0
+const MOUNTAIN_FOOTHILL_OUTER_WIDTH_VARIATION_PX: float = 52.0
+const MOUNTAIN_FOOTHILL_INNER_WIDTH_PX: float = 34.0
+const MOUNTAIN_FOOTHILL_ALPHA: float = 0.78
 const TERRAIN_EDGE_FACADE_HEIGHT_PX: float = 22.0
 const TERRAIN_EDGE_TOP_TEXTURE_SCALE: float = 0.70
 const TERRAIN_EDGE_FACE_TEXTURE_SCALE: float = 0.38
@@ -75,10 +75,10 @@ const MASK_UNDERLAY_CHUNK_OVERLAP_PX: float = 3.0
 const MASK_SHADOW_CHUNK_OVERLAP_PX: float = 48.0
 # Scree debris numeric knobs (texture comes from the mountain material set's
 # &"scree_albedo" extra slot; presentation-only).
-const MOUNTAIN_SCREE_STRENGTH: float = 1.0
-const MOUNTAIN_SCREE_TEXTURE_SCALE: float = 1.0
-const MOUNTAIN_SCREE_PATCH_SCALE_PX: float = 760.0
-const MOUNTAIN_SCREE_COVERAGE: float = 0.38
+const MOUNTAIN_SCREE_STRENGTH: float = 0.72
+const MOUNTAIN_SCREE_TEXTURE_SCALE: float = 0.82
+const MOUNTAIN_SCREE_PATCH_SCALE_PX: float = 880.0
+const MOUNTAIN_SCREE_COVERAGE: float = 0.26
 
 var chunk_coord: Vector2i = Vector2i.ZERO
 
@@ -648,10 +648,10 @@ func apply_sun_lighting(
 	_sun_shadow_length_px = shadow_length_px
 	_sun_shadow_opacity = shadow_opacity
 	_sun_shadow_softness_px = shadow_softness_px
-	_apply_sun_lighting_to_mask_material(_mountain_top_mask_material, 1.0)
+	_apply_sun_lighting_to_mask_material(_mountain_top_mask_material, 1.0, false)
 	# The closed construction roof is co-located with BASE. Letting it cast the
 	# same projected shadow would double-darken the massif and its chunk seams.
-	_apply_sun_lighting_to_mask_material(_mountain_closed_roof_mask_material, 0.0)
+	_apply_sun_lighting_to_mask_material(_mountain_closed_roof_mask_material, 0.0, false)
 	_apply_sun_lighting_to_foothill_material(_mountain_rock_underlay_material)
 	_apply_sun_lighting_to_foothill_material(_mountain_foothill_overlay_material)
 	_apply_sun_lighting_to_rock_patch_material(_rock_patch_overlay_material)
@@ -1514,18 +1514,22 @@ func _upload_mountain_mask_texture(
 		)
 	if face_normal_texture == null:
 		face_normal_texture = top_normal_texture
-	if top_normal_texture != null and face_normal_texture != null:
+	var has_mountain_material_normals: bool = top_normal_texture != null and face_normal_texture != null
+	if has_mountain_material_normals:
 		material.set_shader_parameter("top_normal_texture", top_normal_texture)
 		material.set_shader_parameter("face_normal_texture", face_normal_texture)
-		material.set_shader_parameter("material_normal_mix", 1.0)
-		material.set_shader_parameter("material_normal_strength", 1.45)
-	else:
-		material.set_shader_parameter("material_normal_mix", 0.0)
 	material.set_shader_parameter("world_origin_px", mask_origin_world)
 	material.set_shader_parameter("sample_step_px", mask_step_px)
 	# All mountain dressing knobs are authored data on the material set; the
 	# per-mask dynamic parameters (origin/step/top scale/clip/sun) stay code-set.
 	_apply_mountain_material_sampling_params(material)
+	if not has_mountain_material_normals:
+		# Keep mask/albedo-derived broad-form normals alive, but never sample an
+		# unbound texture when an imported normal asset is unavailable.
+		material.set_shader_parameter("material_normal_mix", 0.0)
+		material.set_shader_parameter("top_detail_normal_mix", 0.0)
+		material.set_shader_parameter("face_material_normal_mix", 0.0)
+		material.set_shader_parameter("face_detail_normal_mix", 0.0)
 	material.set_shader_parameter("top_texture_scale", top_texture_scale)
 	material.set_shader_parameter("roof_overlay_mode", 0.0)
 	material.set_shader_parameter("roof_component_reveal_enabled", 0.0)
@@ -1546,7 +1550,7 @@ func _upload_mountain_mask_texture(
 		mask_step_px,
 		MASK_UNDERLAY_CHUNK_OVERLAP_PX,
 	)
-	_apply_sun_lighting_to_mask_material(material, 1.0)
+	_apply_sun_lighting_to_mask_material(material, 1.0, false)
 	sprite.material = material
 	sprite.position = mask_origin_world - WorldRuntimeConstants.chunk_origin_px(chunk_coord)
 	sprite.scale = Vector2.ONE * mask_step_px
@@ -1601,16 +1605,18 @@ func _sync_mountain_closed_roof_visual(
 	)
 	if face_normal_texture == null:
 		face_normal_texture = top_normal_texture
-	if top_normal_texture != null and face_normal_texture != null:
+	var has_mountain_material_normals: bool = top_normal_texture != null and face_normal_texture != null
+	if has_mountain_material_normals:
 		material.set_shader_parameter("top_normal_texture", top_normal_texture)
 		material.set_shader_parameter("face_normal_texture", face_normal_texture)
-		material.set_shader_parameter("material_normal_mix", 1.0)
-		material.set_shader_parameter("material_normal_strength", 1.45)
-	else:
-		material.set_shader_parameter("material_normal_mix", 0.0)
 	material.set_shader_parameter("world_origin_px", _mountain_top_mask_origin_world)
 	material.set_shader_parameter("sample_step_px", _mountain_top_mask_step_px)
 	_apply_mountain_material_sampling_params(material)
+	if not has_mountain_material_normals:
+		material.set_shader_parameter("material_normal_mix", 0.0)
+		material.set_shader_parameter("top_detail_normal_mix", 0.0)
+		material.set_shader_parameter("face_material_normal_mix", 0.0)
+		material.set_shader_parameter("face_detail_normal_mix", 0.0)
 	material.set_shader_parameter("top_texture_scale", _mountain_top_mask_texture_scale)
 	material.set_shader_parameter("roof_overlay_mode", 1.0)
 	material.set_shader_parameter(
@@ -1640,8 +1646,7 @@ func _sync_mountain_closed_roof_visual(
 	)
 	# Keep the same daylight/rim grading as BASE, but suppress the duplicate
 	# long cast-shadow contribution from this second presentation-only pass.
-	_apply_sun_lighting_to_mask_material(material, 1.0)
-	material.set_shader_parameter("projected_shadow_draw_enabled", 0.0)
+	_apply_sun_lighting_to_mask_material(material, 1.0, false)
 	sprite.material = material
 	sprite.position = _mountain_top_mask_origin_world - WorldRuntimeConstants.chunk_origin_px(chunk_coord)
 	sprite.scale = Vector2.ONE * _mountain_top_mask_step_px
@@ -1931,7 +1936,11 @@ func clear_terrain_edge_mask() -> void:
 	_clear_grass_blob_overlay()
 
 
-func _apply_sun_lighting_to_mask_material(material: ShaderMaterial, shadow_opacity_scale: float) -> void:
+func _apply_sun_lighting_to_mask_material(
+		material: ShaderMaterial,
+		shadow_opacity_scale: float,
+		draw_projected_shadow: bool = true,
+) -> void:
 	if material == null:
 		return
 	material.set_shader_parameter("light_angle_deg", _sun_light_angle_deg)
@@ -1939,7 +1948,7 @@ func _apply_sun_lighting_to_mask_material(material: ShaderMaterial, shadow_opaci
 	material.set_shader_parameter("projected_shadow_length_px", _sun_shadow_length_px)
 	material.set_shader_parameter("projected_shadow_opacity", _sun_shadow_opacity * shadow_opacity_scale)
 	material.set_shader_parameter("projected_shadow_softness_px", _sun_shadow_softness_px)
-	material.set_shader_parameter("projected_shadow_draw_enabled", 1.0)
+	material.set_shader_parameter("projected_shadow_draw_enabled", 1.0 if draw_projected_shadow else 0.0)
 
 
 func _apply_sun_lighting_to_foothill_material(material: ShaderMaterial) -> void:
@@ -2691,6 +2700,9 @@ func _sync_mountain_rock_underlay_visual(
 	material.set_shader_parameter("outer_width_variation_px", MOUNTAIN_ROCK_UNDERLAY_OUTER_WIDTH_VARIATION_PX)
 	material.set_shader_parameter("inner_width_px", MOUNTAIN_ROCK_UNDERLAY_INNER_WIDTH_PX)
 	material.set_shader_parameter("foothill_alpha", MOUNTAIN_ROCK_UNDERLAY_ALPHA)
+	# This layer is only an opaque backing under fractional roof pixels. A visible
+	# edge band follows live excavation cuts and reads as a light painted outline.
+	material.set_shader_parameter("edge_band_strength", 0.0)
 	material.set_shader_parameter("footprint_fill_strength", MOUNTAIN_ROCK_UNDERLAY_FILL_STRENGTH)
 	material.set_shader_parameter("footprint_fill_alpha", MOUNTAIN_ROCK_UNDERLAY_FILL_ALPHA)
 	material.set_shader_parameter("max_alpha", MOUNTAIN_ROCK_UNDERLAY_MAX_ALPHA)
@@ -2830,6 +2842,7 @@ func _sync_mountain_foothill_overlay_visual(
 	material.set_shader_parameter("outer_width_variation_px", MOUNTAIN_FOOTHILL_OUTER_WIDTH_VARIATION_PX)
 	material.set_shader_parameter("inner_width_px", MOUNTAIN_FOOTHILL_INNER_WIDTH_PX)
 	material.set_shader_parameter("foothill_alpha", MOUNTAIN_FOOTHILL_ALPHA)
+	material.set_shader_parameter("edge_band_strength", 1.0)
 	material.set_shader_parameter("footprint_fill_strength", 0.0)
 	material.set_shader_parameter("footprint_fill_alpha", 0.78)
 	material.set_shader_parameter("max_alpha", 0.78)

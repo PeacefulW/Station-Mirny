@@ -73,7 +73,7 @@ const ATLAS_VARIANT_COUNT: int = 16
 const ATLAS_MARGIN_PX: int = 12
 ## Свет запекаемого шейдинга кроны/коры (фиксированный ключ сверху-слева;
 ## направление БРОСАЕМОЙ тени привязывается к солнцу отдельно, в рантайме).
-const BAKE_LIGHT_DIR: Vector2 = Vector2(-0.7, -0.72)
+const BAKE_LIGHT_DIR: Vector2 = Vector2(-0.70710678, -0.70710678)
 
 
 static func variant_params(index: int) -> Dictionary:

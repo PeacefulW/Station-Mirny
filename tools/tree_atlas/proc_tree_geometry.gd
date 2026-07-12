@@ -28,7 +28,7 @@ var p_lean: float = 0.0
 var p_bark: Color = Color8(86, 62, 40)
 var p_palette: Array[Color] = []
 var p_canopy_tint: Color = Color(1.0, 1.0, 1.0)
-var p_light_dir: Vector2 = Vector2(-0.7, -0.72)
+var p_light_dir: Vector2 = Vector2(-0.70710678, -0.70710678)
 var base_pos: Vector2 = Vector2.ZERO
 
 var _branches: Array = []

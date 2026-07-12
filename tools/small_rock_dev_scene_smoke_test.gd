@@ -22,6 +22,8 @@ func _init() -> void:
 		_assert(int(snapshot.get("instance_count", 0)) > 0, "small rock dev scene must build rock instances.")
 		_assert(int(layer_state.get("instance_count", 0)) > 0, "LayeredRockObjectLayer must create visual nodes.")
 		_assert(int(layer_state.get("shadow_instance_count", 0)) > 0, "LayeredRockObjectLayer must create shadow nodes.")
+		var shadow_direction: Vector2 = layer_state.get("shadow_direction", Vector2.ZERO) as Vector2
+		_assert(shadow_direction.x > 0.70 and shadow_direction.y > 0.70, "North-west sun must cast layered rock shadows south-east.")
 		_assert(not bool(layer_state.get("blocks_movement", true)), "small rock dev scene rocks must be collision-free.")
 		_assert(str(snapshot.get("settings_path", "")).ends_with("plains_small_rocks.tres"), "HUD must point at plains_small_rocks.tres.")
 		_assert(_first_shadow_is_below_first_rock(scene), "small rock shadow must draw below its rock visual.")

@@ -589,7 +589,7 @@ fn default_texture_color_overlay() -> bool {
 }
 
 fn default_light_angle_deg() -> f32 {
-    234.0
+    225.0
 }
 
 fn default_asset_name() -> String {
@@ -1166,6 +1166,7 @@ mod tests {
         assert_eq!(request.normal_detail_strength, 4.0);
         assert_eq!(request.shape_supersampling, 4);
         assert!(!request.bake_height_shading);
+        assert_eq!(request.light_angle_deg, 225.0);
     }
 
     #[test]
