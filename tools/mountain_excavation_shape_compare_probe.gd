@@ -3,9 +3,9 @@ extends SceneTree
 ## TEST/DEV ONLY.
 ##
 ## Produces a deterministic excavation-shape contact sheet. The first column is
-## the native hard gameplay cutout, the second is a visual-only reference
-## reconstructed from commit fbedb3b, and the third is the native hybrid visual
-## mask. No production state or runtime code is changed.
+## the native hard gameplay cutout, the second is the pre-M7 organic top-mask
+## reference, and the third is the native hybrid visual mask. No production
+## state or runtime code is changed.
 
 const OUTPUT_DIR: String = "res://artifacts/mountain_excavation_shape_compare"
 const CHUNK_SIZE: int = 16
@@ -21,7 +21,7 @@ const MASK_STEP_PX: float = float(TILE_SIZE_PX) / float(PIXELS_PER_TILE)
 const ROCK_COLOR: Color = Color(0.58, 0.45, 0.31, 1.0)
 const CAVE_COLOR: Color = Color(0.025, 0.018, 0.014, 1.0)
 const HARD_HEADER_COLOR: Color = Color(0.86, 0.27, 0.18, 1.0)
-const FBED_HEADER_COLOR: Color = Color(0.95, 0.68, 0.12, 1.0)
+const LEGACY_HEADER_COLOR: Color = Color(0.95, 0.68, 0.12, 1.0)
 const PRODUCTION_VISUAL_HEADER_COLOR: Color = Color(0.20, 0.75, 0.45, 1.0)
 
 var _failed: bool = false
@@ -47,8 +47,8 @@ func _run() -> void:
 	var scenarios: Array[Dictionary] = _build_scenarios()
 	var report: Dictionary = {
 		"probe": "mountain_excavation_shape_compare",
-		"reference_commit": "fbedb3b",
-		"columns": ["production_hard", "fbed_style_reference", "production_visual"],
+		"reference_commit": "18ce169",
+		"columns": ["production_hard", "pre_m7_organic_reference", "production_visual"],
 		"pixels_per_tile": PIXELS_PER_TILE,
 		"scenarios": [],
 	}
@@ -114,6 +114,11 @@ func _build_scenarios() -> Array[Dictionary]:
 			"retained_tiles": [],
 		},
 		{
+			"name": "diagonal_pair",
+			"tiles": [Vector2i(7, 7), Vector2i(8, 8)],
+			"retained_tiles": [],
+		},
+		{
 			"name": "t_room",
 			"tiles": t_room,
 			"retained_tiles": [],
@@ -165,20 +170,20 @@ func _run_scenario(core: Object, scenario: Dictionary) -> Dictionary:
 			or closed_mask.size() != MASK_SIDE * MASK_SIDE:
 		return {}
 
-	var fbed_style_mask: PackedByteArray = _build_fbed_style_visual_mask(closed_mask, dug_halo)
+	var legacy_organic_mask: PackedByteArray = _build_pre_m7_organic_visual_mask(closed_mask, dug_halo)
 	var hard_preview: Image = _build_preview(hard_gameplay_mask)
-	var fbed_preview: Image = _build_preview(fbed_style_mask)
+	var legacy_preview: Image = _build_preview(legacy_organic_mask)
 	var production_visual_preview: Image = _build_preview(production_visual_mask)
 
 	_save_core_mask("%s/%s_production_hard_mask.png" % [OUTPUT_DIR, scenario_name], hard_gameplay_mask)
-	_save_core_mask("%s/%s_fbed_style_reference_mask.png" % [OUTPUT_DIR, scenario_name], fbed_style_mask)
+	_save_core_mask("%s/%s_pre_m7_organic_reference_mask.png" % [OUTPUT_DIR, scenario_name], legacy_organic_mask)
 	_save_core_mask("%s/%s_production_visual_mask.png" % [OUTPUT_DIR, scenario_name], production_visual_mask)
 	hard_preview.save_png("%s/%s_production_hard_preview.png" % [OUTPUT_DIR, scenario_name])
-	fbed_preview.save_png("%s/%s_fbed_style_reference_preview.png" % [OUTPUT_DIR, scenario_name])
+	legacy_preview.save_png("%s/%s_pre_m7_organic_reference_preview.png" % [OUTPUT_DIR, scenario_name])
 	production_visual_preview.save_png("%s/%s_production_visual_preview.png" % [OUTPUT_DIR, scenario_name])
 
 	var hard_metrics: Dictionary = _measure_mask(hard_gameplay_mask, closed_mask, dug_tiles, retained_tiles)
-	var fbed_metrics: Dictionary = _measure_mask(fbed_style_mask, closed_mask, dug_tiles, retained_tiles)
+	var legacy_metrics: Dictionary = _measure_mask(legacy_organic_mask, closed_mask, dug_tiles, retained_tiles)
 	var production_visual_metrics: Dictionary = _measure_mask(
 		production_visual_mask,
 		closed_mask,
@@ -190,30 +195,35 @@ func _run_scenario(core: Object, scenario: Dictionary) -> Dictionary:
 		"%s hard gameplay mask must fully clear every dug source pixel" % scenario_name,
 	)
 	_assert_visual_is_bounded_by_closed(production_visual_mask, closed_mask, scenario_name)
+	if not bool(scenario.get("open_south", false)):
+		_assert(
+			float(production_visual_metrics.get("dug_fully_clear_fraction", 0.0)) > 0.999,
+			"%s production visual must fully clear every interior dug source pixel" % scenario_name,
+		)
 	if not retained_tiles.is_empty():
 		_assert(
-			float(fbed_metrics.get("retained_mean_solid", 0.0)) > 0.55,
-			"%s fbed-style visual must preserve the retaining island" % scenario_name,
+			float(legacy_metrics.get("retained_mean_solid", 0.0)) > 0.55,
+			"%s pre-M7 organic visual must preserve the retaining island" % scenario_name,
 		)
 		_assert(
 			float(production_visual_metrics.get("retained_mean_solid", 0.0)) >= 0.55,
 			"%s production visual must preserve the retaining island" % scenario_name,
 		)
 
-	print("EXCAVATION_SHAPE_COMPARE %s hard=%s fbed_reference=%s production_visual=%s" % [
+	print("EXCAVATION_SHAPE_COMPARE %s hard=%s pre_m7_reference=%s production_visual=%s" % [
 		scenario_name,
 		str(hard_metrics),
-		str(fbed_metrics),
+		str(legacy_metrics),
 		str(production_visual_metrics),
 	])
 	return {
-		"previews": [hard_preview, fbed_preview, production_visual_preview],
+		"previews": [hard_preview, legacy_preview, production_visual_preview],
 		"report": {
 			"name": scenario_name,
 			"dug_tile_count": dug_tiles.size(),
 			"retained_tile_count": retained_tiles.size(),
 			"production_hard": hard_metrics,
-			"fbed_style_reference": fbed_metrics,
+			"pre_m7_organic_reference": legacy_metrics,
 			"production_visual": production_visual_metrics,
 		},
 	}
@@ -240,164 +250,54 @@ func _build_dug_halo(dug_tiles: Array) -> PackedByteArray:
 	return result
 
 
-func _build_fbed_style_visual_mask(
+func _build_pre_m7_organic_visual_mask(
 	closed_mask: PackedByteArray,
 	dug_halo: PackedByteArray,
 ) -> PackedByteArray:
-	var cutout_field := PackedFloat32Array()
-	cutout_field.resize(MASK_SIDE * MASK_SIDE)
-	for py: int in range(MASK_SIDE):
-		var tile_y: int = py / PIXELS_PER_TILE
-		for px: int in range(MASK_SIDE):
-			var tile_x: int = px / PIXELS_PER_TILE
-			cutout_field[py * MASK_SIDE + px] = 1.0 \
-					if dug_halo[tile_y * HALO_SIDE + tile_x] != 0 else 0.0
-	var cutout_blurred: PackedFloat32Array = _box_blur_once(
-		cutout_field,
-		MASK_SIDE,
-		MASK_SIDE,
-		maxi(1, PIXELS_PER_TILE / 4),
-	)
-	var result := PackedByteArray()
-	result.resize(closed_mask.size())
-	for py: int in range(MASK_SIDE):
-		var tile_y: int = py / PIXELS_PER_TILE
-		var world_y: float = ORIGIN_WORLD.y + (float(py) + 0.5) * MASK_STEP_PX
-		for px: int in range(MASK_SIDE):
-			var index: int = py * MASK_SIDE + px
-			var world_x: float = ORIGIN_WORLD.x + (float(px) + 0.5) * MASK_STEP_PX
-			var disp_x: float = (
-				(_fbm_noise((world_x + 43.0) / 360.0, (world_y - 139.0) / 360.0) - 0.5)
-					* float(PIXELS_PER_TILE) * 1.15
-			) + (
-				(_fbm_noise((world_x - 211.0) / 170.0, (world_y + 79.0) / 170.0) - 0.5)
-					* float(PIXELS_PER_TILE) * 0.46
-			)
-			var disp_y: float = (
-				(_fbm_noise((world_x - 97.0) / 380.0, (world_y + 181.0) / 380.0) - 0.5)
-					* float(PIXELS_PER_TILE) * 1.15
-			) + (
-				(_fbm_noise((world_x + 157.0) / 176.0, (world_y - 223.0) / 176.0) - 0.5)
-					* float(PIXELS_PER_TILE) * 0.46
-			)
-			var cutout_value: float = _sample_bilinear(
-				cutout_blurred,
-				MASK_SIDE,
-				MASK_SIDE,
-				float(px) + disp_x * 0.32,
-				float(py) + disp_y * 0.32,
-			)
-			var cutout_alpha: float = _smooth_float((cutout_value - 0.28) / 0.44)
-			var tile_x: int = px / PIXELS_PER_TILE
-			if dug_halo[tile_y * HALO_SIDE + tile_x] != 0:
-				var local_x: float = fmod(float(px) + 0.5, float(PIXELS_PER_TILE))
-				var local_y: float = fmod(float(py) + 0.5, float(PIXELS_PER_TILE))
-				var core_min: float = float(PIXELS_PER_TILE) * 0.25
-				var core_max: float = float(PIXELS_PER_TILE) * 0.75
-				if local_x >= core_min and local_x <= core_max \
-						and local_y >= core_min and local_y <= core_max:
-					cutout_alpha = 1.0
-			result[index] = clampi(roundi(float(closed_mask[index]) * (1.0 - cutout_alpha)), 0, 255)
+	var result: PackedByteArray = closed_mask.duplicate()
+	var padding_steps: int = maxi(1, ceili(2.0 / MASK_STEP_PX))
+	var feather_px: float = maxf(MASK_STEP_PX * 2.0, 10.0)
+	for tile_y: int in range(HALO_SIDE):
+		for tile_x: int in range(HALO_SIDE):
+			if dug_halo[tile_y * HALO_SIDE + tile_x] == 0:
+				continue
+			var tile_min: Vector2 = ORIGIN_WORLD + Vector2(tile_x, tile_y) * float(TILE_SIZE_PX)
+			var tile_max: Vector2 = tile_min + Vector2.ONE * float(TILE_SIZE_PX)
+			var min_x: int = maxi(0, tile_x * PIXELS_PER_TILE - padding_steps)
+			var min_y: int = maxi(0, tile_y * PIXELS_PER_TILE - padding_steps)
+			var max_x: int = mini(MASK_SIDE - 1, (tile_x + 1) * PIXELS_PER_TILE + padding_steps)
+			var max_y: int = mini(MASK_SIDE - 1, (tile_y + 1) * PIXELS_PER_TILE + padding_steps)
+			for py: int in range(min_y, max_y + 1):
+				for px: int in range(min_x, max_x + 1):
+					var index: int = py * MASK_SIDE + px
+					var pixel_world: Vector2 = ORIGIN_WORLD + Vector2(float(px) + 0.5, float(py) + 0.5) * MASK_STEP_PX
+					var clear_strength: float = _pre_m7_organic_clear_strength(
+						pixel_world,
+						tile_min,
+						tile_max,
+						feather_px,
+					)
+					result[index] = clampi(roundi(float(result[index]) * (1.0 - clear_strength)), 0, 255)
 	return result
 
 
-func _box_blur_once(
-	source: PackedFloat32Array,
-	width: int,
-	height: int,
-	radius: int,
-) -> PackedFloat32Array:
-	var temp := PackedFloat32Array()
-	temp.resize(width * height)
-	var result := PackedFloat32Array()
-	result.resize(width * height)
-	var divisor: float = float(radius * 2 + 1)
-	for y: int in range(height):
-		var sum: float = 0.0
-		for sample_offset: int in range(-radius, radius + 1):
-			sum += source[y * width + clampi(sample_offset, 0, width - 1)]
-		for x: int in range(width):
-			temp[y * width + x] = sum / divisor
-			var remove_x: int = clampi(x - radius, 0, width - 1)
-			var add_x: int = clampi(x + radius + 1, 0, width - 1)
-			sum += source[y * width + add_x] - source[y * width + remove_x]
-	for x: int in range(width):
-		var sum: float = 0.0
-		for sample_offset: int in range(-radius, radius + 1):
-			sum += temp[clampi(sample_offset, 0, height - 1) * width + x]
-		for y: int in range(height):
-			result[y * width + x] = sum / divisor
-			var remove_y: int = clampi(y - radius, 0, height - 1)
-			var add_y: int = clampi(y + radius + 1, 0, height - 1)
-			sum += temp[add_y * width + x] - temp[remove_y * width + x]
-	return result
-
-
-func _sample_bilinear(
-	values: PackedFloat32Array,
-	width: int,
-	height: int,
-	x_value: float,
-	y_value: float,
+func _pre_m7_organic_clear_strength(
+	pixel_world: Vector2,
+	tile_min_world: Vector2,
+	tile_max_world: Vector2,
+	feather_px: float,
 ) -> float:
-	var sample_x: float = clampf(x_value, 0.0, float(width - 1))
-	var sample_y: float = clampf(y_value, 0.0, float(height - 1))
-	var x0: int = floori(sample_x)
-	var y0: int = floori(sample_y)
-	var x1: int = mini(width - 1, x0 + 1)
-	var y1: int = mini(height - 1, y0 + 1)
-	var tx: float = sample_x - float(x0)
-	var ty: float = sample_y - float(y0)
-	var a: float = values[y0 * width + x0]
-	var b: float = values[y0 * width + x1]
-	var c: float = values[y1 * width + x0]
-	var d: float = values[y1 * width + x1]
-	return lerpf(lerpf(a, b, tx), lerpf(c, d, tx), ty)
-
-
-func _smooth_float(value: float) -> float:
-	var t: float = clampf(value, 0.0, 1.0)
-	return t * t * (3.0 - 2.0 * t)
-
-
-func _hash_float(x_value: int, y_value: int) -> float:
-	var value: int = _u32(_u32(x_value) * 0x8da6b343)
-	value = _u32(value ^ _u32(_u32(y_value) * 0xd8163841))
-	value = _u32(value ^ (value >> 13))
-	value = _u32(value * 0x6c50b47c)
-	value = _u32(value ^ (value >> 16))
-	return float(value & 0x00ffffff) / float(0x00ffffff)
-
-
-func _u32(value: int) -> int:
-	return value & 0xffffffff
-
-
-func _value_noise(x_value: float, y_value: float) -> float:
-	var ix: int = floori(x_value)
-	var iy: int = floori(y_value)
-	var fx: float = x_value - float(ix)
-	var fy: float = y_value - float(iy)
-	var sx: float = _smooth_float(fx)
-	var sy: float = _smooth_float(fy)
-	return lerpf(
-		lerpf(_hash_float(ix, iy), _hash_float(ix + 1, iy), sx),
-		lerpf(_hash_float(ix, iy + 1), _hash_float(ix + 1, iy + 1), sx),
-		sy,
-	)
-
-
-func _fbm_noise(x_value: float, y_value: float) -> float:
-	var value: float = 0.0
-	var amplitude: float = 0.55
-	var frequency: float = 1.0
-	var total: float = 0.0
-	for _octave: int in range(4):
-		value += _value_noise(x_value * frequency, y_value * frequency) * amplitude
-		total += amplitude
-		amplitude *= 0.5
-		frequency *= 2.03
-	return value / total if total > 0.0 else 0.5
+	var center: Vector2 = (tile_min_world + tile_max_world) * 0.5
+	var half_extent: Vector2 = (tile_max_world - tile_min_world) * 0.5 + Vector2.ONE * (feather_px * 0.45)
+	var radius: float = minf(half_extent.x, half_extent.y) * 0.46
+	var q: Vector2 = (pixel_world - center).abs() - (half_extent - Vector2.ONE * radius)
+	var outside: Vector2 = Vector2(maxf(q.x, 0.0), maxf(q.y, 0.0))
+	var sdf: float = outside.length() + minf(maxf(q.x, q.y), 0.0) - radius
+	if sdf <= -feather_px:
+		return 1.0
+	if sdf >= feather_px:
+		return 0.0
+	return 1.0 - smoothstep(-feather_px, feather_px, sdf)
 
 
 func _measure_mask(
@@ -536,7 +436,7 @@ func _save_contact_sheet(rows: Array[Array]) -> void:
 	sheet.fill(Color(0.055, 0.047, 0.042, 1.0))
 	var headers: Array[Color] = [
 		HARD_HEADER_COLOR,
-		FBED_HEADER_COLOR,
+		LEGACY_HEADER_COLOR,
 		PRODUCTION_VISUAL_HEADER_COLOR,
 	]
 	for row_index: int in range(rows.size()):

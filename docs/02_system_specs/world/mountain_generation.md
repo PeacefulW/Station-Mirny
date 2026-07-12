@@ -4,7 +4,7 @@ doc_type: system_spec
 status: approved
 owner: engineering
 source_of_truth: true
-version: 1.11
+version: 1.15
 last_updated: 2026-07-12
 related_docs:
   - ../../README.md
@@ -366,26 +366,29 @@ Rules:
     diff application.
 - The broad blur/noise pass rasterizes `C_tiles` once into immutable closed
   organic roof mask `C`.
-- The visual excavation contour `V` is the retained `fbedb3b` room formula:
-  the dug tile field receives one box blur of `pixels_per_tile / 4`, samples the
-  mountain's broad displacement at `0.32` strength, and applies
-  `smooth((cutout_field - 0.28) / 0.44)` against `C`. This gives joined rooms,
-  corners and branches one continuous hand-cut contour instead of a grid of
-  full-tile rectangles.
-- Every dug tile additionally forces a central `25%..75%` topology core and a
-  half-tile arm toward each dug cardinal neighbour fully open in `V`. Arms meet
-  across tile seams, so straight, L, T and cross junctions cannot close at their
-  centres even when the organic contour is displaced.
-- A physical mouth is the deliberate non-organic exception in `V`: the outward
-  half of a dug tile next to exterior `C_tiles=0` is clamped to a straight
-  portal. Its one-tile lateral bounds are `12.5%..87.5%`; a same-direction mouth
-  in the adjacent tile extends that side to the seam. Thus a `2..N`-tile-wide
-  entrance is one uninterrupted span with jambs only at its outer ends.
+- The visual excavation contour `V` replays the pre-M7 organic top-mask patch
+  in the native worker. For each `D_tiles=1` source tile it multiplies the
+  rounded signed-distance clear against `C`: `half_extent = tile_size / 2 +
+  feather * 0.45`, `radius = half_extent * 0.46`, and
+  `feather = max(step_px * 2, 10)`. Only the former two-pixel padded raster
+  neighbourhood is touched. Overlapping clears multiply in a deterministic
+  order. The rounded result survives only in neighbouring retaining rock;
+  authoritative dug cells themselves remain square and fully empty.
+- There are no visual topology cores or forced cardinal arms in an interior
+  room. The rounded SDF may feather only into neighbouring retaining rock;
+  every pixel inside a mined source tile is hard-clear in `V`, matching `S`.
+  This prevents the rounded patch corners from becoming isolated, unmineable
+  L-shaped `BASE` facades. There is no source-cell shoulder exception.
+- A physical mouth follows square mining: a dug source tile next to exterior
+  `C_tiles=0` is fully clear in `V`, and the cardinally adjacent non-owned
+  exterior cell is also fully clear. No narrow jamb or shoulder is synthesized;
+  otherwise every contact with the organic mountain edge can become a detached,
+  undiggable L-shaped facade after a wider excavation.
 - The same native pass emits optional full-resolution L8
-  `physical_mouth_aperture_mask = A`. `A` is exactly `C - V`, gated to the
-  physical source tile's outward half and the single exterior cell needed to
-  clear `C`'s organic spill. Digging farther inward cannot change `A`; only
-  widening or creating a real surface mouth can change it.
+  `physical_mouth_aperture_mask = A`. `A` is exactly `C - V`, gated to the full
+  physical source tile and the single cardinal exterior cell needed to clear
+  `C`'s organic spill. Digging farther inward cannot change an existing mouth's
+  `A`; widening or creating another surface contact adds another full-tile cut.
 - Gameplay remaining mass `S` equals `V` on non-dug source tiles but hard-zeros
   every pixel of every `D_tiles=1` source tile. The organic fringe in adjacent
   retaining cells remains mineable/collidable, while no visual overhang can
@@ -403,12 +406,13 @@ Rules:
   - `ROOF(C,V_ref,M,R_displayed,b)` is visual-only and always computes top
     geometry, normals and colour from immutable `C`. `M` may choose which local
     `C` edge belongs to the vertical facade for N/E/S/W ownership, but it does
-    not remove top geometry. `V_ref` is a read-only reference used only to locate
-    the already-rendered internal `BASE(V)` structural facade. Final alpha uses:
-    `displayed_weight = max(component_floor, owned_base_facade)` and
-    `roof_alpha *= 1 - displayed_weight * b`. `owned_base_facade` is accepted
-    only when the point immediately beyond its organic `V` edge belongs exactly
-    to `R_displayed`.
+    not remove top geometry. `V_ref` is a read-only ownership reference used to
+    locate both the exact `C-V` cut and the already-rendered internal `BASE(V)`
+    structural facade. Final alpha uses:
+    `displayed_weight = max(component_floor, owned_cutout, owned_base_facade)`
+    and `roof_alpha *= 1 - displayed_weight * b`. `owned_cutout` accepts only
+    the same exact selector tile or one of its four cardinal neighbours; diagonal
+    and foreign-cavity ownership never reveal roof pixels.
 - `A` and directional mouth metadata never participate in component roof
   reveal. Outside, the roof mask remains byte-identical to `C`; the entrance is
   the missing `BASE` facade beneath `C`'s unchanged lower lip, not a hole cut
@@ -543,8 +547,8 @@ raycast is allowed on the hot path.
   visible cavity; diagonal-only contact does not
 - the immediate collision patch may clear gameplay `S` locally, but the queued
   native reconcile is authoritative for `S/V` separation: `S` must preserve a
-  fully open source cell for every `D_tiles=1`, while `V` may retain organic
-  corner overhang outside its guaranteed topology core/arms
+  fully open source cell for every `D_tiles=1`; `V` matches that full source-cell
+  clear while retaining the pre-M7 rounded-SDF fringe only in adjacent rock
 - facade collision remains authoritative on retaining rock. The only exterior
   exemption is a walkable apron tile cardinally adjacent to a true opening;
   this prevents the projected facade lip from pinching the player's footprint
@@ -786,13 +790,12 @@ contract.
 - [ ] adjacent mountains behave independently
 - [ ] narrow, wide, L/T-shaped and cross-chunk cavities do not show a cellular
       roof boundary
-- [ ] a one-tile mouth is a straight native facade break beneath the unchanged
-      `C` lip; a `2..N`-tile mouth has no internal posts and retains only its two
-      outer jambs
+- [ ] a one-tile mouth is a full square native facade break beneath the unchanged
+      `C` lip; a `2..N`-tile mouth has no internal or outer synthesized posts
 - [ ] outside, effective `ROOF` geometry is byte-equivalent to `C`; no orange
       floor or aperture appears in the upper roof surface
 - [ ] digging inward by `1`, `3`, or `10` tiles leaves `A` byte-identical;
-      widening the physical mouth changes only its lateral span
+      widening the physical mouth adds full source/exterior tile cuts
 - [ ] rapid exit/re-entry reverses from the current blend without a jump, and a
       different mountain closes before its selector is replaced
 - [ ] torch shadows inside those cavities follow the same native organic edge;
@@ -808,12 +811,18 @@ contract.
 - [ ] retaining wall cells stay solid, blocked and mineable
 - [ ] orthogonal excavation that joins two cavities makes them reveal as one
 - [ ] diagonal-only contact does not merge passability or visibility
+- [ ] an interior straight, L/T and diagonal excavation renders `V` with the
+      deterministic pre-M7 rounded-SDF feather only in adjacent retaining rock;
+      every dug source and cardinal exterior projection tile is fully clear and
+      leaves no isolated L-shaped facade
+- [ ] two diagonal-only dug tiles keep both cardinal bridge tiles solid and do
+      not create a connected passage or reveal component
 - [ ] `remaining_mass_mask <= closed_roof_mask` for every native output pixel
 - [ ] `remaining_mass_mask <= visual_remaining_mass_mask <= closed_roof_mask`
-      for every native output pixel; only gameplay `S` is required to be zero
-      across the whole dug source tile
+      for every native output pixel; both `S` and `V` are zero across every dug
+      source tile and its cardinal non-owned exterior projection
 - [ ] non-empty `physical_mouth_aperture_mask` equals gated `C - V` only in the
-      physical source half and its one-cell exterior projection
+      full physical source tile and its one-cell cardinal exterior projection
 - [ ] reveal never becomes the source of truth for wall geometry, collision or
       mining
 
@@ -1093,8 +1102,9 @@ construction model proven by the runtime prototype.
 
 Changes:
 - worker emits `C/S/V/A` masks from immutable ownership + diff
-- gameplay `S` hard-clears every dug tile while `V` keeps the organic fbed room
-  contour, topology core/arms, and straight continuation-aware physical mouths
+- gameplay `S` hard-clears every dug tile while `V` replays the pre-M7 organic
+  rounded-SDF contour in the worker, with straight continuation-aware physical
+  mouths as the only portal exception
 - `ChunkView` renders live `BASE(V,A)` plus independent visual
   `ROOF(C,V_ref,R_displayed,b)`; `V_ref` owns only internal-facade alpha while
   collision/mining keep sampling `S`
@@ -1141,3 +1151,22 @@ the roof selector component-only, and splits immediate target ownership from the
 retained displayed component used by the `150 ms` / `60+180 ms` alpha transition.
 `ROOF` may read `V` only as an auxiliary ownership mask so the active cavity's
 existing `BASE(V)` structural facade is not covered by the immutable cap.
+Version `1.12` removed forced cardinal arms from `V` but retained the native
+square-tile excavation field, so it did not restore the visual behaviour before
+M7.
+Version `1.13` moves the pre-M7 rounded-SDF top-mask clear into the native
+worker for `V`. `C`, `S`, `A`, component membership, roof entry/exit, packet
+shape and persistence remain unchanged; only the derived interior presentation
+and matching torch-occlusion contour change.
+Version `1.14` hard-clears `V` across every interior `D_tiles=1` source cell,
+while retaining the pre-M7 rounded feather only in neighbouring retaining rock
+and keeping physical mouth shoulders as the sole exception. This removes the
+small visual-mass islands that `BASE(V)` rendered as unmineable L-shaped facades.
+Square-tile mining, cardinal cavity connectivity, diagonal blocking, immutable
+roof `C`, physical aperture `A`, diff and persistence remain unchanged.
+Version `1.15` removes the physical-mouth shoulder exception. Every dug source
+tile and its cardinal non-owned exterior projection are fully clear in `S/V/A`.
+While inside, `ROOF(C)` yields the exact `C-V` cut only for the selected tile or
+one cardinally adjacent selected tile, so the duplicate CLOSED copy cannot leave
+the same detached L. Roof entry/exit, component topology, diagonal blocking,
+immutable `C`, diff and persistence remain unchanged.

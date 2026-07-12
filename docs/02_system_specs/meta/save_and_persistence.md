@@ -4,8 +4,8 @@ doc_type: system_spec
 status: approved
 owner: engineering+design
 source_of_truth: true
-version: 1.11
-last_updated: 2026-07-11
+version: 1.12
+last_updated: 2026-07-12
 related_docs:
   - multiplayer_and_modding.md
   - ../../05_adrs/0003-immutable-base-plus-runtime-diff.md
@@ -65,9 +65,10 @@ Current V0 runtime implementation:
 - Immutable closed roof ownership comes from regenerated
   `mountain_id_per_tile + mountain_flags`; live remaining mass comes from that
   ownership minus applied excavation diff.
-- `closed_roof_mask`, `remaining_mass_mask`, dug/reveal halos,
-  `MountainCavityCache`, active cover selection, GPU textures and numeric
-  `component_id` are transient derived state and must never be serialized.
+- `closed_roof_mask`, `remaining_mass_mask`, `visual_remaining_mass_mask`,
+  `physical_mouth_aperture_mask`, dug/reveal halos, `MountainCavityCache`, active
+  cover selection, GPU textures and numeric `component_id` are transient derived
+  state and must never be serialized.
 - During restore, base generation and chunk diff apply precede paired mask and
   cavity reconstruction. A player restored inside a dug mountain component is
   resolved against reconstructed membership; correctness depends on membership,

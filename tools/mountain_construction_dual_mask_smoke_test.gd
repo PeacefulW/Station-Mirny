@@ -16,6 +16,7 @@ func _init() -> void:
 	call_deferred("_run")
 
 func _run() -> void:
+	_assert_roof_shader_cardinal_cutout_contract()
 	var core := WorldCore.new()
 	_assert(
 		core.has_method("build_mountain_halo_mask"),
@@ -94,6 +95,12 @@ func _run() -> void:
 			"tiles": _build_dug_ring(Vector2i(8, 8), 2),
 			"retaining_tile": Vector2i(8, 8),
 		},
+		{
+			"name": "diagonal_pair",
+			"tiles": [Vector2i(7, 7), Vector2i(8, 8)],
+			"retaining_tile": Vector2i(8, 7),
+			"secondary_retaining_tile": Vector2i(7, 8),
+		},
 	]
 	for scenario: Dictionary in scenarios:
 		var scenario_closed_halo: PackedByteArray = closed_halo
@@ -106,6 +113,36 @@ func _run() -> void:
 	await _assert_threaded_backend(closed_halo, legacy_result)
 
 	_finish()
+
+
+func _assert_roof_shader_cardinal_cutout_contract() -> void:
+	var shader_resource: Shader = load(
+		"res://assets/shaders/mountain_top_mask_underlay.gdshader",
+	) as Shader
+	_assert(shader_resource != null, "ROOF shader resource must parse and load")
+	var shader_source: String = FileAccess.get_file_as_string(
+		"res://assets/shaders/mountain_top_mask_underlay.gdshader",
+	)
+	_assert(
+		shader_source.contains("sample_active_cutout_reveal_weight"),
+		"ROOF shader must reveal the active component's exact C-V cut",
+	)
+	_assert(
+		shader_source.contains("closed_here - visual_here"),
+		"ROOF cutout reveal must use the full-resolution native C-V difference",
+	)
+	_assert(
+		shader_source.contains("selector_uv + vec2(selector_texel.x, 0.0)") \
+			and shader_source.contains("selector_uv - vec2(selector_texel.x, 0.0)") \
+			and shader_source.contains("selector_uv + vec2(0.0, selector_texel.y)") \
+			and shader_source.contains("selector_uv - vec2(0.0, selector_texel.y)"),
+		"ROOF cutout ownership must accept all four cardinal active neighbours",
+	)
+	_assert(
+		not shader_source.contains("selector_texel.x, selector_texel.y"),
+		"ROOF cutout ownership must not create diagonal reveal",
+	)
+
 
 func _assert_dual_scenario(
 	core: Object,
@@ -163,17 +200,34 @@ func _assert_dual_scenario(
 	for tile_variant: Variant in dug_tiles:
 		var local_tile: Vector2i = tile_variant as Vector2i
 		_assert_dug_tile_is_fully_zero(remaining_mass_mask, local_tile, scenario_name)
-		_assert_visual_tile_topology_core_and_arms(
+		_assert_visual_tile_center_is_clear(
 			visual_remaining_mass_mask,
-			closed_halo,
-			dug_halo,
 			local_tile,
 			scenario_name,
+		)
+		_assert_dug_tile_is_fully_zero(
+			visual_remaining_mass_mask,
+			local_tile,
+			"%s visual" % scenario_name,
 		)
 
 	var retaining_tile: Vector2i = scenario.get("retaining_tile", Vector2i(12, 12)) as Vector2i
 	_assert(not dug_tiles.has(retaining_tile), "%s test fixture must retain its control tile" % scenario_name)
 	_assert_retaining_tile_is_solid(remaining_mass_mask, retaining_tile, scenario_name)
+	if scenario.has("secondary_retaining_tile"):
+		var secondary_retaining_tile: Vector2i = scenario.get(
+			"secondary_retaining_tile",
+			Vector2i.ZERO,
+		) as Vector2i
+		_assert(
+			not dug_tiles.has(secondary_retaining_tile),
+			"%s test fixture must retain its second cardinal bridge tile" % scenario_name,
+		)
+		_assert_retaining_tile_is_solid(
+			remaining_mass_mask,
+			secondary_retaining_tile,
+			"%s secondary bridge" % scenario_name,
+		)
 	if scenario.has("retaining_tile"):
 		_assert_visual_retaining_tile_is_substantially_solid(
 			visual_remaining_mass_mask,
@@ -186,12 +240,18 @@ func _assert_dual_scenario(
 			physical_mouth_aperture_mask.size() == MASK_SIDE * MASK_SIDE,
 			"%s physical mouth aperture must be a full L8 raster" % scenario_name,
 		)
-		_assert_visual_mouth_shoulders_remain(
+		var mouth_tile: Vector2i = scenario.get("mouth_tile", Vector2i.ZERO) as Vector2i
+		var mouth_direction: Vector2i = scenario.get("mouth_direction", Vector2i.ZERO) as Vector2i
+		var exterior_projection_tile: Vector2i = mouth_tile + mouth_direction
+		_assert_dug_tile_is_fully_zero(
+			remaining_mass_mask,
+			exterior_projection_tile,
+			"%s exterior projection gameplay" % scenario_name,
+		)
+		_assert_dug_tile_is_fully_zero(
 			visual_remaining_mass_mask,
-			closed_roof_mask,
-			scenario.get("mouth_tile", Vector2i.ZERO) as Vector2i,
-			scenario.get("mouth_direction", Vector2i.ZERO) as Vector2i,
-			scenario_name,
+			exterior_projection_tile,
+			"%s exterior projection visual" % scenario_name,
 		)
 	if scenario.has("wide_mouth_tiles"):
 		_assert(
@@ -203,6 +263,18 @@ func _assert_dual_scenario(
 			scenario.get("wide_mouth_tiles", []) as Array,
 			scenario_name,
 		)
+		for wide_mouth_variant: Variant in scenario.get("wide_mouth_tiles", []) as Array:
+			var wide_exterior_tile: Vector2i = (wide_mouth_variant as Vector2i) + Vector2i.DOWN
+			_assert_dug_tile_is_fully_zero(
+				remaining_mass_mask,
+				wide_exterior_tile,
+				"%s wide exterior projection gameplay" % scenario_name,
+			)
+			_assert_dug_tile_is_fully_zero(
+				visual_remaining_mass_mask,
+				wide_exterior_tile,
+				"%s wide exterior projection visual" % scenario_name,
+			)
 	if not scenario.has("mouth_tile") and not scenario.has("wide_mouth_tiles"):
 		_assert(
 			physical_mouth_aperture_mask.is_empty(),
@@ -428,27 +500,7 @@ func _is_pixel_in_physical_mouth_zone(
 ) -> bool:
 	var source_halo_tile: Vector2i = mouth_tile + Vector2i.ONE * HALO_RADIUS_TILES
 	var pixel_tile := Vector2i(pixel.x / PIXELS_PER_TILE, pixel.y / PIXELS_PER_TILE)
-	var local := Vector2i(pixel.x % PIXELS_PER_TILE, pixel.y % PIXELS_PER_TILE)
-	var lateral_open: bool
-	if direction.x == 0:
-		lateral_open = local.x >= PIXELS_PER_TILE / 8 \
-			and local.x < PIXELS_PER_TILE - PIXELS_PER_TILE / 8
-	else:
-		lateral_open = local.y >= PIXELS_PER_TILE / 8 \
-			and local.y < PIXELS_PER_TILE - PIXELS_PER_TILE / 8
-	if not lateral_open:
-		return false
-	if pixel_tile == source_halo_tile + direction:
-		return true
-	if pixel_tile != source_halo_tile:
-		return false
-	if direction == Vector2i.UP:
-		return local.y < PIXELS_PER_TILE / 2
-	if direction == Vector2i.RIGHT:
-		return local.x >= PIXELS_PER_TILE / 2
-	if direction == Vector2i.DOWN:
-		return local.y >= PIXELS_PER_TILE / 2
-	return local.x < PIXELS_PER_TILE / 2
+	return pixel_tile == source_halo_tile or pixel_tile == source_halo_tile + direction
 
 func _build_mask(
 	core: Object,
@@ -573,10 +625,8 @@ func _assert_retaining_tile_is_solid(
 		"%s must keep the undug retaining control tile solid" % scenario_name
 	)
 
-func _assert_visual_tile_topology_core_and_arms(
+func _assert_visual_tile_center_is_clear(
 	visual_mask: PackedByteArray,
-	closed_halo: PackedByteArray,
-	dug_halo: PackedByteArray,
 	local_tile: Vector2i,
 	scenario_name: String,
 ) -> void:
@@ -592,52 +642,8 @@ func _assert_visual_tile_topology_core_and_arms(
 			pixel_origin + Vector2i(core_min, core_min),
 			Vector2i(core_max - core_min, core_max - core_min),
 		),
-		"%s dug tile %s visual topology core" % [scenario_name, str(local_tile)],
+		"%s dug tile %s visual center" % [scenario_name, str(local_tile)],
 	)
-
-	var directions: Array[Vector2i] = [
-		Vector2i.LEFT,
-		Vector2i.RIGHT,
-		Vector2i.UP,
-		Vector2i.DOWN,
-	]
-	for direction: Vector2i in directions:
-		var neighbour: Vector2i = halo_tile + direction
-		if neighbour.x < 0 or neighbour.y < 0 \
-				or neighbour.x >= HALO_SIDE or neighbour.y >= HALO_SIDE:
-			continue
-		var neighbour_index: int = neighbour.y * HALO_SIDE + neighbour.x
-		var opens_to_neighbour: bool = dug_halo[neighbour_index] != 0 \
-				or closed_halo[neighbour_index] == 0
-		if not opens_to_neighbour:
-			continue
-		var arm_rect := Rect2i()
-		if direction == Vector2i.LEFT:
-			arm_rect = Rect2i(
-				pixel_origin + Vector2i(0, core_min),
-				Vector2i(core_min, core_max - core_min),
-			)
-		elif direction == Vector2i.RIGHT:
-			arm_rect = Rect2i(
-				pixel_origin + Vector2i(core_max, core_min),
-				Vector2i(PIXELS_PER_TILE - core_max, core_max - core_min),
-			)
-		elif direction == Vector2i.UP:
-			arm_rect = Rect2i(
-				pixel_origin + Vector2i(core_min, 0),
-				Vector2i(core_max - core_min, core_min),
-			)
-		else:
-			arm_rect = Rect2i(
-				pixel_origin + Vector2i(core_min, core_max),
-				Vector2i(core_max - core_min, PIXELS_PER_TILE - core_max),
-			)
-		_assert_visual_rect_is_clear(
-			visual_mask,
-			arm_rect,
-			"%s dug tile %s visual arm toward %s" \
-				% [scenario_name, str(local_tile), str(direction)],
-		)
 
 func _assert_visual_rect_is_clear(
 	visual_mask: PackedByteArray,
@@ -649,7 +655,6 @@ func _assert_visual_rect_is_clear(
 			if visual_mask[y * MASK_SIDE + x] != 0:
 				_assert(false, "%s must be fully clear at pixel (%d, %d)" % [label, x, y])
 				return
-
 func _assert_visual_retaining_tile_is_substantially_solid(
 	visual_mask: PackedByteArray,
 	closed_mask: PackedByteArray,
@@ -688,61 +693,6 @@ func _assert_visual_retaining_tile_is_substantially_solid(
 				and float(visual_mask[center_index]) / float(center_closed) >= 0.5,
 		"%s visual retaining island center must remain recognizably solid" % scenario_name,
 	)
-
-func _assert_visual_mouth_shoulders_remain(
-	visual_mask: PackedByteArray,
-	closed_mask: PackedByteArray,
-	local_tile: Vector2i,
-	direction: Vector2i,
-	scenario_name: String,
-) -> void:
-	if visual_mask.size() != MASK_SIDE * MASK_SIDE \
-			or closed_mask.size() != MASK_SIDE * MASK_SIDE:
-		return
-	_assert(direction in [Vector2i.LEFT, Vector2i.RIGHT, Vector2i.UP, Vector2i.DOWN], \
-		"%s mouth direction must be cardinal" % scenario_name)
-	var halo_tile: Vector2i = local_tile + Vector2i.ONE * HALO_RADIUS_TILES
-	var pixel_origin: Vector2i = halo_tile * PIXELS_PER_TILE
-	var core_min: int = PIXELS_PER_TILE / 4
-	var core_max: int = PIXELS_PER_TILE - core_min
-	var shoulder_points: Array[Vector2i] = []
-	for depth: int in range(core_max, PIXELS_PER_TILE):
-		for lateral: int in range(0, core_min):
-			if direction == Vector2i.DOWN:
-				shoulder_points.append(pixel_origin + Vector2i(lateral, depth))
-				shoulder_points.append(pixel_origin + Vector2i(PIXELS_PER_TILE - 1 - lateral, depth))
-			elif direction == Vector2i.UP:
-				shoulder_points.append(pixel_origin + Vector2i(lateral, PIXELS_PER_TILE - 1 - depth))
-				shoulder_points.append(pixel_origin + Vector2i(PIXELS_PER_TILE - 1 - lateral, PIXELS_PER_TILE - 1 - depth))
-			elif direction == Vector2i.RIGHT:
-				shoulder_points.append(pixel_origin + Vector2i(depth, lateral))
-				shoulder_points.append(pixel_origin + Vector2i(depth, PIXELS_PER_TILE - 1 - lateral))
-			else:
-				shoulder_points.append(pixel_origin + Vector2i(PIXELS_PER_TILE - 1 - depth, lateral))
-				shoulder_points.append(pixel_origin + Vector2i(PIXELS_PER_TILE - 1 - depth, PIXELS_PER_TILE - 1 - lateral))
-	var solidity_sum: float = 0.0
-	var sample_count: int = 0
-	var visibly_solid_count: int = 0
-	for point: Vector2i in shoulder_points:
-		var index: int = point.y * MASK_SIDE + point.x
-		var closed_value: int = int(closed_mask[index])
-		if closed_value < 8:
-			continue
-		var solidity: float = float(visual_mask[index]) / float(closed_value)
-		solidity_sum += solidity
-		sample_count += 1
-		if solidity >= 0.25:
-			visibly_solid_count += 1
-	_assert(sample_count > 0, "%s mouth shoulders must overlap the closed mask" % scenario_name)
-	if sample_count == 0:
-		return
-	var mean_solidity: float = solidity_sum / float(sample_count)
-	_assert(
-		mean_solidity >= 0.20 and visibly_solid_count >= maxi(2, sample_count / 4),
-		"%s mouth must retain side shoulders (mean %.3f, solid samples %d/%d)" \
-			% [scenario_name, mean_solidity, visibly_solid_count, sample_count],
-	)
-
 
 func _assert_visual_wide_mouth_has_no_inner_posts(
 	visual_mask: PackedByteArray,
@@ -850,10 +800,8 @@ func _assert_threaded_backend(
 			"threaded mountain result without a boundary mouth must preserve an empty aperture",
 		)
 		_assert_dug_tile_is_fully_zero(threaded_remaining, Vector2i(8, 6), "threaded_mountain")
-		_assert_visual_tile_topology_core_and_arms(
+		_assert_visual_tile_center_is_clear(
 			threaded_visual,
-			closed_halo,
-			dug_halo,
 			Vector2i(8, 6),
 			"threaded_mountain",
 		)

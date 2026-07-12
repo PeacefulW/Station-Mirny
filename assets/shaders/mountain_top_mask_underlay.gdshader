@@ -55,9 +55,10 @@ uniform float roof_overlay_mode = 0.0;
 // component therefore opens by fading this CLOSED contribution, never by
 // morphing CLOSED into V or cutting a second procedural mouth in the roof.
 uniform sampler2D closed_mask_texture : filter_linear;
-// Read-only BASE(V) reference for one purpose: while inside, ROOF must yield
-// the exact internal vertical facade already drawn underneath. It never feeds
-// roof colour, normals, silhouette or top geometry.
+// Read-only BASE(V) ownership reference: while inside, ROOF must yield both
+// the exact internal vertical facade already drawn underneath and the C-V cut
+// owned by the displayed component. It never feeds roof colour, normals,
+// silhouette or top geometry.
 uniform sampler2D base_visual_mask_texture : filter_linear, repeat_disable;
 uniform sampler2D active_floor_halo_texture : filter_nearest;
 uniform sampler2D active_floor_halo_soft_texture : filter_linear;
@@ -264,6 +265,28 @@ float sample_component_reveal_weight(vec2 uv) {
 	float active_soft = smoothstep(0.25, 0.75, texture(active_floor_halo_soft_texture, uv).r) * inside;
 	float foreign_cutout = step(0.5, texture(any_cutout_halo_texture, uv).r) * (1.0 - active_exact);
 	return clamp(max(active_exact, active_soft * (1.0 - foreign_cutout)), 0.0, 1.0);
+}
+
+float sample_active_cutout_reveal_weight(vec2 visual_mask_uv, vec2 selector_uv) {
+	if (roof_component_reveal_enabled < 0.5) {
+		return 0.0;
+	}
+	float closed_here = texture(closed_mask_texture, visual_mask_uv).r;
+	float visual_here = texture(base_visual_mask_texture, visual_mask_uv).r;
+	float excavation_cutout = smoothstep(0.01, 0.08, max(closed_here - visual_here, 0.0));
+	if (excavation_cutout <= 0.001) {
+		return 0.0;
+	}
+	// The native cut may remove CLOSED spill in the first non-owned exterior
+	// cell. Give that cell exact cardinal ownership from the active cavity, but
+	// never accept diagonal-only or foreign-cavity selectors.
+	vec2 selector_texel = 1.0 / vec2(textureSize(active_floor_halo_texture, 0));
+	float active_owner = sample_component_exact_weight(selector_uv);
+	active_owner = max(active_owner, sample_component_exact_weight(selector_uv + vec2(selector_texel.x, 0.0)));
+	active_owner = max(active_owner, sample_component_exact_weight(selector_uv - vec2(selector_texel.x, 0.0)));
+	active_owner = max(active_owner, sample_component_exact_weight(selector_uv + vec2(0.0, selector_texel.y)));
+	active_owner = max(active_owner, sample_component_exact_weight(selector_uv - vec2(0.0, selector_texel.y)));
+	return excavation_cutout * active_owner * uv_inside(visual_mask_uv);
 }
 
 float sample_physical_mouth_aperture_at(vec2 uv) {
@@ -939,9 +962,10 @@ void fragment() {
 	color = mix(color, inner_lip, inner_rim * lip_mix * top_here);
 	if (overlay_mode > 0.5 && roof_component_reveal_enabled > 0.5) {
 		// Component ownership is tile/cavity metadata and must not inherit the
-		// cosmetic crag warp. Besides the active floor, yield only the exact
-		// BASE(V) structural wall whose open side belongs to this component.
+		// cosmetic crag warp. Besides the active floor, yield the exact C-V cut
+		// and BASE(V) structural wall only when this component owns them.
 		float displayed_weight = sample_component_reveal_weight(UV);
+		float cutout_weight = sample_active_cutout_reveal_weight(warped_base_uv, UV);
 		float base_facade_weight = sample_displayed_base_facade_reveal_weight(
 			warped_base_uv,
 			UV,
@@ -949,6 +973,7 @@ void fragment() {
 			wall_texels,
 			body_area
 		);
+		displayed_weight = max(displayed_weight, cutout_weight);
 		displayed_weight = max(displayed_weight, base_facade_weight);
 		out_alpha *= 1.0 - clamp(displayed_weight * component_reveal_blend, 0.0, 1.0);
 	}

@@ -62,49 +62,6 @@ float sample_grid_bilinear(const std::vector<float> &p_values, int32_t p_width, 
 	return lerp_float(lerp_float(a, b, tx), lerp_float(c, d, tx), ty);
 }
 
-std::vector<float> box_blur_once(
-	const std::vector<float> &p_source,
-	int32_t p_width,
-	int32_t p_height,
-	int32_t p_radius
-) {
-	if (p_radius <= 0 || p_width <= 0 || p_height <= 0) {
-		return p_source;
-	}
-	std::vector<float> temp(static_cast<size_t>(p_width * p_height), 0.0f);
-	std::vector<float> result(static_cast<size_t>(p_width * p_height), 0.0f);
-	const float divisor = static_cast<float>(p_radius * 2 + 1);
-	for (int32_t y = 0; y < p_height; ++y) {
-		float sum = 0.0f;
-		for (int32_t x = -p_radius; x <= p_radius; ++x) {
-			const int32_t sample_x = std::max(0, std::min(p_width - 1, x));
-			sum += p_source[static_cast<size_t>(y * p_width + sample_x)];
-		}
-		for (int32_t x = 0; x < p_width; ++x) {
-			temp[static_cast<size_t>(y * p_width + x)] = sum / divisor;
-			const int32_t remove_x = std::max(0, std::min(p_width - 1, x - p_radius));
-			const int32_t add_x = std::max(0, std::min(p_width - 1, x + p_radius + 1));
-			sum += p_source[static_cast<size_t>(y * p_width + add_x)];
-			sum -= p_source[static_cast<size_t>(y * p_width + remove_x)];
-		}
-	}
-	for (int32_t x = 0; x < p_width; ++x) {
-		float sum = 0.0f;
-		for (int32_t y = -p_radius; y <= p_radius; ++y) {
-			const int32_t sample_y = std::max(0, std::min(p_height - 1, y));
-			sum += temp[static_cast<size_t>(sample_y * p_width + x)];
-		}
-		for (int32_t y = 0; y < p_height; ++y) {
-			result[static_cast<size_t>(y * p_width + x)] = sum / divisor;
-			const int32_t remove_y = std::max(0, std::min(p_height - 1, y - p_radius));
-			const int32_t add_y = std::max(0, std::min(p_height - 1, y + p_radius + 1));
-			sum += temp[static_cast<size_t>(add_y * p_width + x)];
-			sum -= temp[static_cast<size_t>(remove_y * p_width + x)];
-		}
-	}
-	return result;
-}
-
 float hash_float(int32_t p_x, int32_t p_y) {
 	uint32_t value = static_cast<uint32_t>(p_x) * 0x8da6b343U;
 	value ^= static_cast<uint32_t>(p_y) * 0xd8163841U;
@@ -154,6 +111,57 @@ float rounded_box_sdf(float p_x, float p_y, float p_half_extent, float p_radius)
 	const float outside = std::sqrt(outside_x * outside_x + outside_y * outside_y);
 	const float inside = std::min(std::max(qx, qy), 0.0f);
 	return outside + inside - p_radius;
+}
+
+// Replays the pre-M7 local top-mask patch in the native worker. Each mined
+// tile contributes one rounded signed-distance clear; overlapping clears use
+// the former Image-mask multiplication rule. Keep this in the worker so
+// interactive mining does not resume CPU texture composition.
+float legacy_organic_dig_visual_opacity(
+	const godot::PackedByteArray &p_dug_halo,
+	int32_t p_halo_side,
+	int32_t p_pixel_x,
+	int32_t p_pixel_y,
+	int32_t p_pixels_per_tile,
+	int32_t p_tile_size_px,
+	float p_step_px,
+	double p_origin_world_x,
+	double p_origin_world_y
+) {
+	const int32_t padding_steps = std::max(1, static_cast<int32_t>(std::ceil(2.0f / p_step_px)));
+	const float feather_px = std::max(p_step_px * 2.0f, 10.0f);
+	const float half_extent = static_cast<float>(p_tile_size_px) * 0.5f + feather_px * 0.45f;
+	const float radius = half_extent * 0.46f;
+	const int32_t center_tile_x = p_pixel_x / p_pixels_per_tile;
+	const int32_t center_tile_y = p_pixel_y / p_pixels_per_tile;
+	const float world_x = static_cast<float>(p_origin_world_x) + (static_cast<float>(p_pixel_x) + 0.5f) * p_step_px;
+	const float world_y = static_cast<float>(p_origin_world_y) + (static_cast<float>(p_pixel_y) + 0.5f) * p_step_px;
+	float opacity = 1.0f;
+
+	for (int32_t tile_y = std::max(0, center_tile_y - 1); tile_y <= std::min(p_halo_side - 1, center_tile_y + 1); ++tile_y) {
+		for (int32_t tile_x = std::max(0, center_tile_x - 1); tile_x <= std::min(p_halo_side - 1, center_tile_x + 1); ++tile_x) {
+			if (!read_solid(p_dug_halo, p_halo_side, tile_x, tile_y)) {
+				continue;
+			}
+			const int32_t min_x = tile_x * p_pixels_per_tile - padding_steps;
+			const int32_t min_y = tile_y * p_pixels_per_tile - padding_steps;
+			const int32_t max_x = (tile_x + 1) * p_pixels_per_tile + padding_steps;
+			const int32_t max_y = (tile_y + 1) * p_pixels_per_tile + padding_steps;
+			if (p_pixel_x < min_x || p_pixel_x > max_x || p_pixel_y < min_y || p_pixel_y > max_y) {
+				continue;
+			}
+			const float tile_center_x = static_cast<float>(p_origin_world_x)
+				+ (static_cast<float>(tile_x) + 0.5f) * static_cast<float>(p_tile_size_px);
+			const float tile_center_y = static_cast<float>(p_origin_world_y)
+				+ (static_cast<float>(tile_y) + 0.5f) * static_cast<float>(p_tile_size_px);
+			const float sdf = rounded_box_sdf(world_x - tile_center_x, world_y - tile_center_y, half_extent, radius);
+			const float clear_strength = sdf <= -feather_px
+				? 1.0f
+				: (sdf >= feather_px ? 0.0f : 1.0f - smooth_float((sdf + feather_px) / (feather_px * 2.0f)));
+			opacity *= 1.0f - clear_strength;
+		}
+	}
+	return std::max(0.0f, std::min(1.0f, opacity));
 }
 
 ContourPoint sample_point(int32_t p_x, int32_t p_y, int32_t p_tile_size_px) {
@@ -466,191 +474,55 @@ godot::Dictionary build_halo_mask(
 		uint8_t *physical_mouth_aperture_write = nullptr;
 		bool has_physical_mouth_aperture = false;
 
-		bool has_dug_samples = false;
-		for (int32_t index = 0; index < p_dug_halo.size(); ++index) {
-			if (p_dug_halo[index] != 0) {
-				has_dug_samples = true;
-				break;
-			}
-		}
-
-		std::vector<float> cutout_blurred;
-		if (has_dug_samples) {
-			std::vector<float> cutout_field(static_cast<size_t>(pixel_count), 0.0f);
-			for (int32_t py = 0; py < height; ++py) {
-				const int32_t tile_y = py / pixels_per_tile;
-				for (int32_t px = 0; px < width; ++px) {
-					const int32_t tile_x = px / pixels_per_tile;
-					cutout_field[static_cast<size_t>(py * width + px)] =
-						read_solid(p_dug_halo, halo_side, tile_x, tile_y) ? 1.0f : 0.0f;
-				}
-			}
-			cutout_blurred = box_blur_once(
-				cutout_field,
-				width,
-				height,
-				std::max(1, pixels_per_tile / 4)
-			);
-		}
-
 		for (int32_t py = 0; py < height; ++py) {
 			const int32_t tile_y = py / pixels_per_tile;
-			const float world_y = static_cast<float>(p_origin_world_y) + (static_cast<float>(py) + 0.5f) * step_px;
 			for (int32_t px = 0; px < width; ++px) {
 				const int32_t index = py * width + px;
 				const int32_t tile_x = px / pixels_per_tile;
 				const bool dug = read_solid(p_dug_halo, halo_side, tile_x, tile_y);
-				// A mined source tile is empty in its entirety. Outside it, gameplay
-				// follows the same organic contour as presentation so a visible
-				// cutout fringe never hides an invisible ledge.
+				// Gameplay remaining mass hard-clears the whole source tile. Outside
+				// the source tile it follows the same contour as presentation so a
+				// visible cutout fringe never hides an invisible ledge.
 				remaining_write[index] = dug ? 0 : closed_roof_mask[index];
-				if (cutout_blurred.empty()) {
-					visual_remaining_write[index] = closed_roof_mask[index];
-					continue;
-				}
-
-				const float world_x = static_cast<float>(p_origin_world_x) + (static_cast<float>(px) + 0.5f) * step_px;
-				// This is the excavation contour from fbedb3b, intentionally tied
-				// to the same broad displacement as the mountain silhouette. It
-				// gives joined rooms and turns one continuous, hand-cut outline.
-				const float disp_x = ((fbm_noise((world_x + 43.0f) / 360.0f, (world_y - 139.0f) / 360.0f) - 0.5f) * static_cast<float>(pixels_per_tile) * 1.15f)
-						+ ((fbm_noise((world_x - 211.0f) / 170.0f, (world_y + 79.0f) / 170.0f) - 0.5f) * static_cast<float>(pixels_per_tile) * 0.46f);
-				const float disp_y = ((fbm_noise((world_x - 97.0f) / 380.0f, (world_y + 181.0f) / 380.0f) - 0.5f) * static_cast<float>(pixels_per_tile) * 1.15f)
-						+ ((fbm_noise((world_x + 157.0f) / 176.0f, (world_y - 223.0f) / 176.0f) - 0.5f) * static_cast<float>(pixels_per_tile) * 0.46f);
-				const float cutout_field = sample_grid_bilinear(
-					cutout_blurred,
-					width,
-					height,
-					static_cast<float>(px) + disp_x * 0.32f,
-					static_cast<float>(py) + disp_y * 0.32f
+				float cutout_alpha = 1.0f - legacy_organic_dig_visual_opacity(
+					p_dug_halo,
+					halo_side,
+					px,
+					py,
+					pixels_per_tile,
+					p_tile_size_px,
+					step_px,
+					p_origin_world_x,
+					p_origin_world_y
 				);
-				float cutout_alpha = smooth_float((cutout_field - 0.28f) / 0.44f);
 				bool physical_mouth_aperture_pixel = false;
 
 				if (dug) {
-					const float local_x = std::fmod(static_cast<float>(px) + 0.5f, static_cast<float>(pixels_per_tile));
-					const float local_y = std::fmod(static_cast<float>(py) + 0.5f, static_cast<float>(pixels_per_tile));
-					const float core_min = static_cast<float>(pixels_per_tile) * 0.25f;
-					const float core_max = static_cast<float>(pixels_per_tile) * 0.75f;
-					const float core_mid = static_cast<float>(pixels_per_tile) * 0.50f;
-					const float mouth_min = static_cast<float>(pixels_per_tile) * 0.125f;
-					const float mouth_max = static_cast<float>(pixels_per_tile) * 0.875f;
-					const bool in_core_x = local_x >= core_min && local_x <= core_max;
-					const bool in_core_y = local_y >= core_min && local_y <= core_max;
-					const bool north_dug = read_solid(p_dug_halo, halo_side, tile_x, tile_y - 1);
-					const bool east_dug = read_solid(p_dug_halo, halo_side, tile_x + 1, tile_y);
-					const bool south_dug = read_solid(p_dug_halo, halo_side, tile_x, tile_y + 1);
-					const bool west_dug = read_solid(p_dug_halo, halo_side, tile_x - 1, tile_y);
 					const bool north_exterior = !read_solid(p_solid_halo, halo_side, tile_x, tile_y - 1);
 					const bool east_exterior = !read_solid(p_solid_halo, halo_side, tile_x + 1, tile_y);
 					const bool south_exterior = !read_solid(p_solid_halo, halo_side, tile_x, tile_y + 1);
 					const bool west_exterior = !read_solid(p_solid_halo, halo_side, tile_x - 1, tile_y);
-					const bool north_negative_continues = west_dug
-						&& !read_solid(p_solid_halo, halo_side, tile_x - 1, tile_y - 1);
-					const bool north_positive_continues = east_dug
-						&& !read_solid(p_solid_halo, halo_side, tile_x + 1, tile_y - 1);
-					const bool south_negative_continues = west_dug
-						&& !read_solid(p_solid_halo, halo_side, tile_x - 1, tile_y + 1);
-					const bool south_positive_continues = east_dug
-						&& !read_solid(p_solid_halo, halo_side, tile_x + 1, tile_y + 1);
-					const bool east_negative_continues = north_dug
-						&& !read_solid(p_solid_halo, halo_side, tile_x + 1, tile_y - 1);
-					const bool east_positive_continues = south_dug
-						&& !read_solid(p_solid_halo, halo_side, tile_x + 1, tile_y + 1);
-					const bool west_negative_continues = north_dug
-						&& !read_solid(p_solid_halo, halo_side, tile_x - 1, tile_y - 1);
-					const bool west_positive_continues = south_dug
-						&& !read_solid(p_solid_halo, halo_side, tile_x - 1, tile_y + 1);
-					const bool topology_core = in_core_x && in_core_y;
-					const bool topology_arm = (north_dug && in_core_x && local_y <= core_mid)
-						|| (east_dug && in_core_y && local_x >= core_mid)
-						|| (south_dug && in_core_x && local_y >= core_mid)
-						|| (west_dug && in_core_y && local_x <= core_mid);
-					// The outward half of a physical mouth is the one deliberately
-					// non-organic exception: clamp it to a straight modular portal.
-					// Same-direction neighbours extend the lateral bounds to the tile
-					// seam, so a 2..N-wide entrance has no internal stone posts.
-					const bool north_zone = north_exterior && local_y <= core_mid;
-					const bool east_zone = east_exterior && local_x >= core_mid;
-					const bool south_zone = south_exterior && local_y >= core_mid;
-					const bool west_zone = west_exterior && local_x <= core_mid;
-					const bool mouth_portal_zone = north_zone || east_zone || south_zone || west_zone;
-					const bool north_portal = north_zone
-						&& local_x >= (north_negative_continues ? 0.0f : mouth_min)
-						&& local_x <= (north_positive_continues ? static_cast<float>(pixels_per_tile) : mouth_max);
-					const bool south_portal = south_zone
-						&& local_x >= (south_negative_continues ? 0.0f : mouth_min)
-						&& local_x <= (south_positive_continues ? static_cast<float>(pixels_per_tile) : mouth_max);
-					const bool east_portal = east_zone
-						&& local_y >= (east_negative_continues ? 0.0f : mouth_min)
-						&& local_y <= (east_positive_continues ? static_cast<float>(pixels_per_tile) : mouth_max);
-					const bool west_portal = west_zone
-						&& local_y >= (west_negative_continues ? 0.0f : mouth_min)
-						&& local_y <= (west_positive_continues ? static_cast<float>(pixels_per_tile) : mouth_max);
-					const bool mouth_portal_open = north_portal || east_portal || south_portal || west_portal;
-					if (mouth_portal_zone) {
-						cutout_alpha = mouth_portal_open ? 1.0f : 0.0f;
-						physical_mouth_aperture_pixel = mouth_portal_open;
-					} else if (topology_core || topology_arm) {
-						cutout_alpha = 1.0f;
-					}
+					// Square mining owns the whole source tile, including every boundary
+					// exposure. Treating each dug-to-exterior contact as a narrow portal
+					// leaves detached shoulders after a wider excavation reaches the
+					// organic mountain edge. Roof entry/exit is component metadata and
+					// does not depend on those visual shoulders.
+					cutout_alpha = 1.0f;
+					physical_mouth_aperture_pixel = north_exterior || east_exterior || south_exterior || west_exterior;
 				} else if (!read_solid(p_solid_halo, halo_side, tile_x, tile_y)) {
 					// CLOSED's organic contour intentionally spills into the first
-					// exterior tile. Without carrying the mouth through that spill, the
-					// facade turns it into an undiggable rounded threshold. Project the
-					// same straight portal through this one outside cell; pixels where C
-					// is already zero are unchanged.
-					const float local_x = std::fmod(static_cast<float>(px) + 0.5f, static_cast<float>(pixels_per_tile));
-					const float local_y = std::fmod(static_cast<float>(py) + 0.5f, static_cast<float>(pixels_per_tile));
-					const float mouth_min = static_cast<float>(pixels_per_tile) * 0.125f;
-					const float mouth_max = static_cast<float>(pixels_per_tile) * 0.875f;
+					// exterior tile. Once a cardinally adjacent owned tile is dug, that
+					// spill has no mineable source tile and must be cleared completely.
+					// Keeping portal shoulders here creates detached, undiggable L-shaped
+					// BASE facades and matching gameplay/light occluders.
 					const bool source_north = read_solid(p_dug_halo, halo_side, tile_x, tile_y - 1);
 					const bool source_east = read_solid(p_dug_halo, halo_side, tile_x + 1, tile_y);
 					const bool source_south = read_solid(p_dug_halo, halo_side, tile_x, tile_y + 1);
 					const bool source_west = read_solid(p_dug_halo, halo_side, tile_x - 1, tile_y);
-					const bool south_negative_continues = source_north
-						&& read_solid(p_dug_halo, halo_side, tile_x - 1, tile_y - 1)
-						&& !read_solid(p_solid_halo, halo_side, tile_x - 1, tile_y);
-					const bool south_positive_continues = source_north
-						&& read_solid(p_dug_halo, halo_side, tile_x + 1, tile_y - 1)
-						&& !read_solid(p_solid_halo, halo_side, tile_x + 1, tile_y);
-					const bool north_negative_continues = source_south
-						&& read_solid(p_dug_halo, halo_side, tile_x - 1, tile_y + 1)
-						&& !read_solid(p_solid_halo, halo_side, tile_x - 1, tile_y);
-					const bool north_positive_continues = source_south
-						&& read_solid(p_dug_halo, halo_side, tile_x + 1, tile_y + 1)
-						&& !read_solid(p_solid_halo, halo_side, tile_x + 1, tile_y);
-					const bool east_negative_continues = source_west
-						&& read_solid(p_dug_halo, halo_side, tile_x - 1, tile_y - 1)
-						&& !read_solid(p_solid_halo, halo_side, tile_x, tile_y - 1);
-					const bool east_positive_continues = source_west
-						&& read_solid(p_dug_halo, halo_side, tile_x - 1, tile_y + 1)
-						&& !read_solid(p_solid_halo, halo_side, tile_x, tile_y + 1);
-					const bool west_negative_continues = source_east
-						&& read_solid(p_dug_halo, halo_side, tile_x + 1, tile_y - 1)
-						&& !read_solid(p_solid_halo, halo_side, tile_x, tile_y - 1);
-					const bool west_positive_continues = source_east
-						&& read_solid(p_dug_halo, halo_side, tile_x + 1, tile_y + 1)
-						&& !read_solid(p_solid_halo, halo_side, tile_x, tile_y + 1);
-					const bool south_projection = source_north
-						&& local_x >= (south_negative_continues ? 0.0f : mouth_min)
-						&& local_x <= (south_positive_continues ? static_cast<float>(pixels_per_tile) : mouth_max);
-					const bool north_projection = source_south
-						&& local_x >= (north_negative_continues ? 0.0f : mouth_min)
-						&& local_x <= (north_positive_continues ? static_cast<float>(pixels_per_tile) : mouth_max);
-					const bool east_projection = source_west
-						&& local_y >= (east_negative_continues ? 0.0f : mouth_min)
-						&& local_y <= (east_positive_continues ? static_cast<float>(pixels_per_tile) : mouth_max);
-					const bool west_projection = source_east
-						&& local_y >= (west_negative_continues ? 0.0f : mouth_min)
-						&& local_y <= (west_positive_continues ? static_cast<float>(pixels_per_tile) : mouth_max);
 					const bool has_projection_source = source_north || source_east || source_south || source_west;
 					if (has_projection_source) {
-						const bool projection_open = south_projection || north_projection || east_projection || west_projection;
-						cutout_alpha = projection_open
-							? 1.0f
-							: 0.0f;
-						physical_mouth_aperture_pixel = projection_open;
+						cutout_alpha = 1.0f;
+						physical_mouth_aperture_pixel = true;
 					}
 				}
 				const float remaining_alpha = static_cast<float>(closed_roof_mask[index])
@@ -663,8 +535,8 @@ godot::Dictionary build_halo_mask(
 				remaining_write[index] = dug ? 0 : visual_value;
 				if (physical_mouth_aperture_pixel) {
 					// The aperture is canonical geometry, not a second procedural
-					// approximation: record the exact CLOSED - VISUAL cut only in the
-					// physical source half and its single exterior projection. Deeper
+					// approximation: record the exact CLOSED - VISUAL cut in the full
+					// physical source tile and its single exterior projection. Deeper
 					// excavation can alter V elsewhere without moving this entrance.
 					const uint8_t aperture_value = static_cast<uint8_t>(std::max(
 						0,

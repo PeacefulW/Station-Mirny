@@ -4,8 +4,8 @@ doc_type: system_spec
 status: draft
 owner: engineering
 source_of_truth: true
-version: 1.7
-last_updated: 2026-07-11
+version: 1.10
+last_updated: 2026-07-12
 related_docs:
   - ../README.md
   - system_api.md
@@ -977,20 +977,22 @@ Current code notes:
   `solid_sample_count` counts remaining closed-minus-dug core source tiles
 - field meanings for construction mountain results are:
   - `closed_roof_mask = C`: immutable organic construction silhouette;
-  - `visual_remaining_mass_mask = V`: `C` cut by the fbed excavation field
-    (one `pixels_per_tile / 4` box blur, broad displacement sampled at `0.32`,
-    and `smooth((field - 0.28) / 0.44)`), plus a guaranteed `25%..75%` core and
-    half-tile arms toward dug cardinal neighbours;
+  - `visual_remaining_mass_mask = V`: `C` cut by the pre-M7 rounded-SDF
+    top-mask clear for every dug source tile (`half_extent = tile_size / 2 +
+    feather * 0.45`, `radius = half_extent * 0.46`,
+    `feather = max(step_px * 2, 10)`), multiplied across overlapping clears
+    within the former two-pixel padded neighbourhood; the source tile itself and
+    any cardinally adjacent non-owned exterior projection are then hard-clear so
+    rounded corners cannot survive as visual-mass islands;
   - `remaining_mass_mask = S`: gameplay mask equal to `V` on non-dug source
     tiles and hard-zero across every `dug_halo = 1` source tile;
   - `mask`: compatibility alias for gameplay `S`, not the rendered room mask
-- a dug tile adjacent to exterior closed ownership clamps the outward half of
-  `V` to a straight physical portal. Lateral bounds are `12.5%..87.5%` for an
-  isolated tile; same-direction adjacent mouths extend to their shared seam so
-  a wide mouth has no internal stone post
+- a dug tile adjacent to exterior closed ownership clears the complete source
+  tile and its single cardinal exterior projection in `V`; it does not synthesize
+  narrow portal shoulders or posts
 - required per-pixel invariant is `0 <= S <= V <= C`. Organic feather may extend
-  into neighbouring non-dug tiles; only `S`, not `V`, is required to be zero over
-  the whole dug source tile
+  only into mineable neighbouring retaining tiles; both `S` and `V` are zero over
+  every dug source tile and its cardinal non-owned exterior projection
 - empty `dug_halo` preserves the legacy single-mask result byte-for-byte. This
   is the `terrain_edge` contract and does not add the `C/S/V` mountain fields
 - `step_px = tile_size_px / pixels_per_tile`
