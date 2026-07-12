@@ -1,0 +1,170 @@
+{
+	"profile_id": "station_mirny_tree_clock_10_low_rear_fill_08_proof",
+	"version": 4,
+	"frame_size": 768,
+	"orientation": {
+		"default_yaw_degrees": 90.0
+	},
+	"planting": {
+		"root_embed_fraction": 0.011,
+		"max_root_embed_fraction": 0.22
+	},
+	"camera": {
+		"type": "ORTHO",
+		"initial_ortho_scale": 1.25,
+		"fit_width_fraction": 0.66,
+		"fit_height_fraction": 0.7,
+		"padding_scale": 1.1,
+		"location_y": -3.0,
+		"height_offset": 1.6,
+		"target_z_fraction": 0.42
+	},
+	"lighting": {
+		"sun_azimuth_degrees": 219.0,
+		"albedo_sun_elevation_degrees": 38.0,
+		"albedo_sun_angular_diameter_degrees": 4.0,
+		"shadow_sun_elevation_degrees": 42.0,
+		"albedo_sun_energy": 2.25,
+		"shadow_sun_energy": 3.5,
+		"fill_energy": 0.0,
+		"fill_size": 4.0,
+		"screen_sun_direction": "west_north_west_10_oclock",
+		"fixed_shadow_direction": "screen_east_south_east",
+		"fixed_shadow_direction_vector_screen": [
+			0.866025,
+			0.5
+		],
+		"ambient_fill": {
+			"enabled": false
+		},
+		"low_rear_kicker": {
+			"name": "LayeredTreeLowRearKicker",
+			"type": "SPOT",
+			"screen_side": "east_south_east_opposite_10_oclock_sun",
+			"placement": "low",
+			"aim": "upward_to_middle_lower_trunk",
+			"location": [
+				2.25,
+				-2.05,
+				0.069
+			],
+			"target": [
+				0.0,
+				0.0,
+				0.419001
+			],
+			"spot_size_degrees": 52.0,
+			"spot_blend": 0.8799999952316284,
+			"color": [
+				1.0,
+				0.9700000286102295,
+				0.9200000166893005
+			],
+			"use_shadow": false,
+			"target_lift_percent": 8.0,
+			"measured_trunk_lift_percent": 7.996082820830641,
+			"measured_dark_foliage_lift_percent": 4.587445956226266,
+			"spot_energy": 15.18355495106789
+		}
+	},
+	"render": {
+		"albedo_engine": "BLENDER_EEVEE",
+		"shadow_engine": "CYCLES",
+		"samples": 64,
+		"use_denoising": true,
+		"transparent_film": true,
+		"view_transform": "Filmic",
+		"look": "Medium High Contrast",
+		"exposure": 0.75,
+		"gamma": 1.0,
+		"color_mode": "RGBA"
+	},
+	"postprocess": {
+		"shadow_rgb": [
+			15,
+			11,
+			7
+		],
+		"fake_shadow_rgb": [
+			18,
+			13,
+			8
+		],
+		"processed_shadow_thresholds": [
+			6,
+			8,
+			10,
+			12
+		],
+		"snow_rgb": [
+			252,
+			253,
+			255
+		],
+		"normal_strength": 3.2,
+		"season": {
+			"leaf_drop_enabled": false
+		},
+		"snow": {
+			"foliage": {
+				"top_edge_weight": 1.2,
+				"top_occlusion_factor": 0.95,
+				"windward_weight": 0.12,
+				"windward_occlusion_factor": 0.96,
+				"depth_px": 30,
+				"strength": 1.08,
+				"cap_overhang_up_px": 5,
+				"cap_overhang_side_px": 3,
+				"cap_strength": 1.15,
+				"cap_blur_radius": 0.85
+			},
+			"trunk": {
+				"top_edge_weight": 1.45,
+				"top_occlusion_factor": 0.94,
+				"windward_weight": 0.08,
+				"windward_occlusion_factor": 0.97,
+				"depth_px": 14,
+				"strength": 1.35,
+				"cap_overhang_up_px": 3,
+				"cap_overhang_side_px": 1,
+				"cap_strength": 1.1,
+				"cap_blur_radius": 0.65
+			},
+			"windward_screen_direction": [
+				-1.0,
+				-1.0
+			],
+			"root_full_until_offset_px": -96,
+			"root_zero_from_offset_px": -48,
+			"noise_low": 108,
+			"noise_high": 255,
+			"mask_gain": 1.2,
+			"mask_blur_radius": 0.75,
+			"overlay_threshold": 10,
+			"overlay_alpha_gain": 1.45,
+			"overlay_max_alpha": 248,
+			"shadow_rgb": [
+				155,
+				184,
+				218
+			],
+			"light_vector_screen": [
+				-0.56,
+				-0.56,
+				0.61
+			],
+			"shade_base": 0.28,
+			"shade_normal_weight": 0.69,
+			"shade_height_weight": 0.08,
+			"shade_cavity_weight": 0.2,
+			"cavity_blur_radius": 4.0
+		}
+	},
+	"runtime": {
+		"normal_maps_generated": true,
+		"normal_maps_enabled": false,
+		"sun_shadow_mode": "baked_fixed_east_south_east_stretch_only",
+		"shadow_contact_lock_source_px": 48.0,
+		"dynamic_light_shadows": "runtime_fake"
+	}
+}

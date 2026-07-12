@@ -1,0 +1,43 @@
+{
+	"asset": "baseline_128_layered_glb",
+	"source_glb": "C:\\Users\\progi\\project-Mirniy\\tree glb\\1.glb",
+	"frame_width": 128,
+	"frame_height": 128,
+	"anchor": [
+		64,
+		90
+	],
+	"bake_profile": {
+		"profile_id": "station_peaceful_layered_asset_bake_v1",
+		"version": 1,
+		"frame_size": 128,
+		"sun_azimuth_degrees": 315.0,
+		"albedo_sun_elevation_degrees": 52.0,
+		"shadow_sun_elevation_degrees": 42.0,
+		"root_embed_fraction": 0.065
+	},
+	"sort_offset": 90,
+	"collision_radius": 18,
+	"plant_depth_px": 0,
+	"wind_strength": 0.45,
+	"snow_capacity": 0.8,
+	"layers": {
+		"albedo": "albedo.png",
+		"trunk": "trunk.png",
+		"foliage": "foliage.png",
+		"shadow": "shadow.png",
+		"wind_mask": "wind_mask.png",
+		"snow_mask": "snow_mask.png",
+		"snow_overlay": "snow_overlay.png",
+		"season_mask": "season_mask.png",
+		"height": "height.png",
+		"normal": "normal.png"
+	},
+	"alpha_bbox": [
+		49,
+		20,
+		29,
+		79
+	],
+	"notes": "Prototype layered tree asset from one GLB. Static trunk/foliage layers; runtime wind should use wind_mask and keep trunk/root pinned."
+}

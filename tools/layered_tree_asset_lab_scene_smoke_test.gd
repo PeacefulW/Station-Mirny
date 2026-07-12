@@ -22,7 +22,9 @@ func _run() -> void:
 	_assert(scene.has_method("get_debug_snapshot"), "Layered tree lab must expose debug snapshot.")
 	var snapshot: Dictionary = scene.call("get_debug_snapshot") as Dictionary
 	_assert(bool(snapshot.get("ready", false)), "Layered tree lab must load tree metadata.")
-	_assert(str(snapshot.get("asset", "")) == "tree_01_layered_glb", "Layered tree lab must use the generated GLB asset.")
+	_assert(str(snapshot.get("tree_dir", "")) == "res://assets/sprites/flora/layered_trees/tree_01", "Layered tree lab must open the selected production tree asset.")
+	_assert(str(snapshot.get("shadow_texture_override", "")).is_empty(), "Layered tree lab must default to its asset-local shadow texture.")
+	_assert(str(snapshot.get("asset", "")) == "tree_01_layered_glb", "Layered tree lab must use the current generated production asset.")
 	_assert(bool(snapshot.get("has_shadow", false)), "Layered tree lab must create shadow sprite.")
 	_assert(bool(snapshot.get("has_trunk", false)), "Layered tree lab must create trunk sprite.")
 	_assert(bool(snapshot.get("has_foliage", false)), "Layered tree lab must create foliage sprite.")
@@ -33,23 +35,44 @@ func _run() -> void:
 	_assert(float(snapshot.get("plant_depth_px", 999.0)) <= 4.0, "Tree root depth must come from Blender bake, not runtime sprite offset.")
 	_assert(snapshot.has("season_amount"), "Layered tree lab must expose season amount.")
 	_assert(absf(float(snapshot.get("season_amount", -1.0))) < 0.01, "Layered tree lab must start without winter accumulation.")
+	_assert(not snapshot.has("leaf_drop_strength"), "Layered tree lab must not expose the rejected leaf-drop axis.")
+	_assert(str(snapshot.get("shadow_direction_screen", "")) == "east_south_east", "Production asset must use its metadata-derived selected east-south-east shadow direction.")
+	_assert(absf(float(snapshot.get("shadow_contact_lock_source_px", 0.0)) - 48.0) < 0.01, "Proof shadow must keep a 48 px fixed contact band.")
 	_assert(snapshot.has("shadow_hour"), "Layered tree lab must expose baked shadow hour.")
 	_assert(absf(float(snapshot.get("shadow_hour", 0.0)) - 14.5) < 0.01, "Layered tree lab must start at the neutral baked shadow hour.")
 	_assert(snapshot.has("shadow_rotation_degrees"), "Layered tree lab must expose shadow rotation.")
-	var shadow_direction: Vector2 = snapshot.get("shadow_direction", Vector2.ZERO) as Vector2
-	_assert(shadow_direction.x > 0.70 and shadow_direction.y > 0.70, "North-west sun must cast the layered tree shadow south-east.")
-	_assert(absf(float(snapshot.get("shadow_rotation_degrees", 999.0)) - 72.4745) < 0.1, "Baked north-east shadow must rotate around the root to the south-east runtime axis.")
+	_assert(absf(float(snapshot.get("shadow_rotation_degrees", 999.0))) < 0.01, "Sun shadow direction must remain fixed south-east.")
 	_assert(absf(float(snapshot.get("shadow_length_scale", 0.0)) - 1.0) < 0.01, "Neutral sun shadow must keep baked length.")
 	_assert(absf(float(snapshot.get("shadow_width_scale", 0.0)) - 1.0) < 0.01, "Sun shadow width must stay baked.")
 	_assert(scene.has_method("set_debug_shadow_hour"), "Layered tree lab must expose debug shadow hour setter.")
+	_assert(scene.has_method("set_debug_winter_state"), "Layered tree lab must expose reversible full-foliage winter control.")
+	_assert(scene.has_method("set_debug_wind_strength_px"), "Layered tree lab must expose deterministic wind freeze for render probes.")
 	if scene.has_method("set_debug_shadow_hour"):
+		var neutral_points: Dictionary = snapshot.get("shadow_probe_local_points", {}) as Dictionary
 		scene.call("set_debug_shadow_hour", 13.0)
 		await process_frame
 		snapshot = scene.call("get_debug_snapshot") as Dictionary
 		_assert(float(snapshot.get("shadow_length_scale", 0.0)) > 1.45, "Sunrise shadow must stretch along its baked direction.")
 		_assert(absf(float(snapshot.get("shadow_width_scale", 0.0)) - 1.0) < 0.01, "Sunrise shadow must not get wider.")
 		_assert(absf(float(snapshot.get("shadow_backward_stretch_scale", 0.0)) - 1.0) < 0.01, "Sunrise shadow must not stretch back under the tree root.")
-		_assert(absf(float(snapshot.get("shadow_rotation_degrees", 999.0)) - 72.4745) < 0.1, "Shadow length changes must preserve the fixed south-east direction.")
+		_assert(absf(float(snapshot.get("shadow_rotation_degrees", 999.0))) < 0.01, "Sunrise shadow direction must remain fixed south-east.")
+		var dawn_points: Dictionary = snapshot.get("shadow_probe_local_points", {}) as Dictionary
+		for distance: String in ["0", "16", "32", "48"]:
+			var neutral_point: Array = neutral_points.get(distance, []) as Array
+			var dawn_point: Array = dawn_points.get(distance, []) as Array
+			_assert(neutral_point.size() == 2 and dawn_point.size() == 2, "Shadow contact probe points must be present.")
+			if neutral_point.size() == 2 and dawn_point.size() == 2:
+				_assert(Vector2(float(neutral_point[0]), float(neutral_point[1])).distance_to(Vector2(float(dawn_point[0]), float(dawn_point[1]))) < 0.001, "Shadow contact band must remain fixed while the far end stretches.")
+	if scene.has_method("set_debug_winter_state"):
+		scene.call("set_debug_winter_state", 1.0)
+		await process_frame
+		snapshot = scene.call("get_debug_snapshot") as Dictionary
+		_assert(absf(float(snapshot.get("season_amount", 0.0)) - 1.0) < 0.01, "Lab must accept full-winter accumulation independently.")
+		_assert(absf(float(snapshot.get("effective_wind_strength_px", -1.0))) < 0.01, "Full winter must freeze foliage wind together with the crown.")
+		scene.call("set_debug_winter_state", 0.0)
+		await process_frame
+		snapshot = scene.call("get_debug_snapshot") as Dictionary
+		_assert(absf(float(snapshot.get("season_amount", -1.0))) < 0.01, "Lab winter state must reverse to warm season without persistence.")
 	scene.queue_free()
 	await process_frame
 	if _failed:

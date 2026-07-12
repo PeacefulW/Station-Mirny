@@ -1,0 +1,9 @@
+{
+  "base_dir": "C:\\Users\\progi\\project-Mirniy\\Station-Mirny\\artifacts\\layered_tree_brightness_variants\\c_clock_10_exposure_075",
+  "layers_dir": "C:\\Users\\progi\\project-Mirniy\\Station-Mirny\\artifacts\\layered_tree_brightness_variants\\low_rear_fill_10_oclock\\runtime_08_layers",
+  "candidate_dir": "C:\\Users\\progi\\project-Mirniy\\Station-Mirny\\artifacts\\layered_tree_brightness_variants\\low_rear_fill_10_oclock\\candidate_08",
+  "target_lift_percent": 8.0,
+  "frame_and_anchor_preserved": true,
+  "masks_and_shadow_preserved_from_candidate_c": true,
+  "production_promoted": false
+}

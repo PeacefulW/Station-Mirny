@@ -1,0 +1,9 @@
+{
+  "sampled_interior_pixels": 3625,
+  "delta_mean_8bit": 1.8940689655172414,
+  "delta_max_8bit": 27,
+  "delta_ge_2_fraction": 0.2948965517241379,
+  "delta_ge_5_fraction": 0.1553103448275862,
+  "delta_ge_10_fraction": 0.05241379310344828,
+  "visualization_gain": 8
+}

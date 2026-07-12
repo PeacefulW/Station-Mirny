@@ -26,7 +26,7 @@ def load_profile(path: Path) -> dict:
 
 
 def bake_profile_summary(profile: dict, classification: dict, frame_size: int) -> dict:
-    return {
+    summary = {
         "profile_id": profile["profile_id"],
         "version": profile["version"],
         "frame_size": frame_size,
@@ -34,11 +34,32 @@ def bake_profile_summary(profile: dict, classification: dict, frame_size: int) -
             classification.get("sun_angle_degrees", profile["lighting"]["sun_azimuth_degrees"])
         ),
         "albedo_sun_elevation_degrees": profile["lighting"]["albedo_sun_elevation_degrees"],
+        "albedo_sun_angular_diameter_degrees": float(
+            profile["lighting"].get("albedo_sun_angular_diameter_degrees", 0.526)
+        ),
         "shadow_sun_elevation_degrees": profile["lighting"]["shadow_sun_elevation_degrees"],
         "root_embed_fraction": float(
             classification.get("root_embed_fraction", profile["planting"]["root_embed_fraction"])
         ),
     }
+    lighting = profile["lighting"]
+    if "screen_sun_direction" in lighting:
+        summary["screen_sun_direction"] = lighting["screen_sun_direction"]
+        summary["fixed_shadow_direction"] = lighting["fixed_shadow_direction"]
+        summary["fixed_shadow_direction_vector_screen"] = lighting["fixed_shadow_direction_vector_screen"]
+        summary["sun_shadow_mode"] = profile["runtime"]["sun_shadow_mode"]
+        summary["shadow_contact_lock_source_px"] = float(
+            profile["runtime"]["shadow_contact_lock_source_px"]
+        )
+    kicker = lighting.get("low_opposite_kicker")
+    if kicker is not None and bool(kicker.get("enabled", False)):
+        summary["low_opposite_kicker"] = kicker
+    if "yaw_degrees" in classification:
+        summary["yaw_degrees"] = float(classification["yaw_degrees"])
+    shadow_casters = profile.get("shadow_casters")
+    if shadow_casters is not None:
+        summary["suppress_root_parts_max_z"] = float(shadow_casters["suppress_root_parts_max_z"])
+    return summary
 
 
 def profile_or_default(profile: dict | None) -> dict:
@@ -135,6 +156,41 @@ def processed_shadow(
     )
 
 
+def suppress_shadow_under_root_footprint(
+    shadow: Image.Image,
+    trunk: Image.Image,
+    anchor: tuple[int, int],
+    profile: dict | None = None,
+) -> Image.Image:
+    profile = profile_or_default(profile)
+    footprint_profile = profile["postprocess"].get("root_shadow_footprint")
+    if footprint_profile is None or not bool(footprint_profile.get("enabled", False)):
+        return shadow
+
+    trunk_alpha = alpha_of(trunk)
+    anchor_y = int(anchor[1])
+    start_y = max(0, anchor_y + int(footprint_profile["band_start_offset_px"]))
+    end_y = min(trunk_alpha.height, anchor_y + int(footprint_profile["band_end_offset_px"]) + 1)
+    threshold = int(footprint_profile["alpha_threshold"])
+    margin = int(footprint_profile["horizontal_margin_px"])
+    footprint = Image.new("L", trunk_alpha.size, 0)
+    footprint_draw = ImageDraw.Draw(footprint)
+    source = trunk_alpha.load()
+    for y in range(start_y, end_y):
+        occupied = [x for x in range(trunk_alpha.width) if source[x, y] > threshold]
+        if not occupied:
+            continue
+        left = max(0, occupied[0] - margin)
+        right = min(trunk_alpha.width - 1, occupied[-1] + margin)
+        footprint_draw.line((left, y, right, y), fill=255, width=1)
+    footprint = footprint.filter(ImageFilter.GaussianBlur(float(footprint_profile["blur_radius"])))
+    strength = float(footprint_profile["strength"])
+    keep_mask = footprint.point(lambda value: max(0, 255 - int(value * strength)), "L")
+    suppressed_alpha = ImageChops.multiply(alpha_of(shadow), keep_mask)
+    red, green, blue, _old_alpha = shadow.split()
+    return Image.merge("RGBA", (red, green, blue, suppressed_alpha))
+
+
 def make_wind_mask(trunk: Image.Image, foliage: Image.Image) -> Image.Image:
     trunk_a = alpha_of(trunk)
     foliage_a = alpha_of(foliage)
@@ -195,7 +251,12 @@ def procedural_noise(size: tuple[int, int], *, low: int, high: int, phase: float
     return out.filter(ImageFilter.GaussianBlur(0.9))
 
 
-def exposed_top_edges(source_alpha: Image.Image, *, weight: float = 1.0) -> Image.Image:
+def exposed_top_edges(
+    source_alpha: Image.Image,
+    *,
+    weight: float = 1.0,
+    occlusion_factor: float = 0.58,
+) -> Image.Image:
     width, height = source_alpha.size
     src = source_alpha.load()
     edge = Image.new("L", source_alpha.size, 0)
@@ -211,12 +272,52 @@ def exposed_top_edges(source_alpha: Image.Image, *, weight: float = 1.0) -> Imag
                     continue
                 for sample_x in range(max(0, x - 3), min(width, x + 4)):
                     above = max(above, src[sample_x, sample_y])
-            exposure = max(0.0, current - above * 0.58) / 255.0
+            exposure = max(0.0, current - above * occlusion_factor) / 255.0
             if above <= 12:
                 exposure = max(exposure, 0.72 * current / 255.0)
             if exposure <= 0.05:
                 continue
             dst[x, y] = max(dst[x, y], min(255, int(255.0 * exposure * weight)))
+    return edge.filter(ImageFilter.MaxFilter(3)).filter(ImageFilter.GaussianBlur(0.65))
+
+
+def exposed_directional_edges(
+    source_alpha: Image.Image,
+    direction: tuple[float, float],
+    *,
+    weight: float,
+    occlusion_factor: float,
+) -> Image.Image:
+    width, height = source_alpha.size
+    direction_x, direction_y = direction
+    direction_length = math.sqrt(direction_x * direction_x + direction_y * direction_y)
+    if direction_length <= 0.000001 or weight <= 0.0:
+        return Image.new("L", source_alpha.size, 0)
+    direction_x /= direction_length
+    direction_y /= direction_length
+    perpendicular_x = -direction_y
+    perpendicular_y = direction_x
+    src = source_alpha.load()
+    edge = Image.new("L", source_alpha.size, 0)
+    dst = edge.load()
+    for y in range(height):
+        for x in range(width):
+            current = src[x, y]
+            if current <= 18:
+                continue
+            upstream = 0
+            for distance in (2, 4, 7):
+                for side in (-2, 0, 2):
+                    sample_x = int(round(x + direction_x * distance + perpendicular_x * side))
+                    sample_y = int(round(y + direction_y * distance + perpendicular_y * side))
+                    if 0 <= sample_x < width and 0 <= sample_y < height:
+                        upstream = max(upstream, src[sample_x, sample_y])
+            exposure = max(0.0, current - upstream * occlusion_factor) / 255.0
+            if upstream <= 12:
+                exposure = max(exposure, 0.72 * current / 255.0)
+            if exposure <= 0.05:
+                continue
+            dst[x, y] = min(255, int(255.0 * exposure * weight))
     return edge.filter(ImageFilter.MaxFilter(3)).filter(ImageFilter.GaussianBlur(0.65))
 
 
@@ -235,7 +336,28 @@ def spread_snow(edge: Image.Image, target_alpha: Image.Image, *, depth_px: int, 
     return ImageChops.multiply(accumulation, alpha_gate)
 
 
-def make_snow_mask(albedo: Image.Image, foliage: Image.Image, trunk: Image.Image) -> Image.Image:
+def supported_cap_overhang(
+    edge: Image.Image,
+    *,
+    up_px: int,
+    side_px: int,
+    strength: float,
+    blur_radius: float,
+) -> Image.Image:
+    cap = Image.new("L", edge.size, 0)
+    softened = edge.filter(ImageFilter.MaxFilter(3))
+    for up in range(1, max(0, up_px) + 1):
+        vertical_decay = 1.0 - (up - 1) / max(up_px, 1)
+        for side in range(-max(0, side_px), max(0, side_px) + 1):
+            lateral_decay = 1.0 - abs(side) / max(side_px + 1, 1)
+            gain = strength * vertical_decay * lateral_decay
+            shifted = shifted_luma(softened, side, -up)
+            band = shifted.point(lambda value, gain=gain: min(255, int(value * gain)), "L")
+            cap = ImageChops.lighter(cap, band)
+    return cap.filter(ImageFilter.GaussianBlur(max(0.0, blur_radius)))
+
+
+def legacy_snow_mask(albedo: Image.Image, foliage: Image.Image, trunk: Image.Image) -> Image.Image:
     alpha = union_alpha(albedo)
     foliage_alpha = alpha_of(foliage)
     trunk_alpha = alpha_of(trunk)
@@ -251,7 +373,150 @@ def make_snow_mask(albedo: Image.Image, foliage: Image.Image, trunk: Image.Image
     return Image.merge("RGBA", (gray, gray, gray, alpha))
 
 
-def make_season_mask(foliage: Image.Image, trunk: Image.Image, snow_mask: Image.Image) -> Image.Image:
+def apply_vertical_snow_fade(
+    mask: Image.Image,
+    *,
+    anchor_y: int,
+    full_until_offset_px: int,
+    zero_from_offset_px: int,
+) -> Image.Image:
+    full_y = anchor_y + full_until_offset_px
+    zero_y = anchor_y + zero_from_offset_px
+    if zero_y <= full_y:
+        raise ValueError("root snow zero boundary must be below its full-strength boundary")
+    faded = Image.new("L", mask.size, 0)
+    src = mask.load()
+    dst = faded.load()
+    for y in range(mask.height):
+        if y <= full_y:
+            factor = 1.0
+        elif y >= zero_y:
+            factor = 0.0
+        else:
+            factor = 1.0 - (y - full_y) / float(zero_y - full_y)
+        if factor <= 0.0:
+            continue
+        for x in range(mask.width):
+            dst[x, y] = int(src[x, y] * factor)
+    return faded
+
+
+def make_snow_mask(
+    albedo: Image.Image,
+    foliage: Image.Image,
+    trunk: Image.Image,
+    anchor: tuple[int, int] | None = None,
+    profile: dict | None = None,
+) -> Image.Image:
+    profile = profile_or_default(profile)
+    snow_profile = profile["postprocess"].get("snow")
+    if snow_profile is None:
+        return legacy_snow_mask(albedo, foliage, trunk)
+
+    alpha = alpha_of(albedo)
+    foliage_alpha = alpha_of(foliage)
+    trunk_alpha = alpha_of(trunk)
+    foliage_profile = snow_profile["foliage"]
+    trunk_profile = snow_profile["trunk"]
+    windward_direction = tuple(float(value) for value in snow_profile["windward_screen_direction"])
+
+    foliage_top = exposed_top_edges(
+        foliage_alpha,
+        weight=float(foliage_profile["top_edge_weight"]),
+        occlusion_factor=float(foliage_profile["top_occlusion_factor"]),
+    )
+    foliage_windward = exposed_directional_edges(
+        foliage_alpha,
+        windward_direction,
+        weight=float(foliage_profile["windward_weight"]),
+        occlusion_factor=float(foliage_profile["windward_occlusion_factor"]),
+    )
+    foliage_edges = ImageChops.lighter(foliage_top, foliage_windward)
+    foliage_snow = spread_snow(
+        foliage_edges,
+        foliage_alpha,
+        depth_px=int(foliage_profile["depth_px"]),
+        strength=float(foliage_profile["strength"]),
+    )
+    foliage_cap = supported_cap_overhang(
+        foliage_top,
+        up_px=int(foliage_profile["cap_overhang_up_px"]),
+        side_px=int(foliage_profile["cap_overhang_side_px"]),
+        strength=float(foliage_profile["cap_strength"]),
+        blur_radius=float(foliage_profile["cap_blur_radius"]),
+    )
+
+    trunk_top = exposed_top_edges(
+        trunk_alpha,
+        weight=float(trunk_profile["top_edge_weight"]),
+        occlusion_factor=float(trunk_profile["top_occlusion_factor"]),
+    )
+    trunk_windward = exposed_directional_edges(
+        trunk_alpha,
+        windward_direction,
+        weight=float(trunk_profile["windward_weight"]),
+        occlusion_factor=float(trunk_profile["windward_occlusion_factor"]),
+    )
+    trunk_edges = ImageChops.lighter(trunk_top, trunk_windward)
+    trunk_snow = spread_snow(
+        trunk_edges,
+        trunk_alpha,
+        depth_px=int(trunk_profile["depth_px"]),
+        strength=float(trunk_profile["strength"]),
+    )
+    trunk_cap = supported_cap_overhang(
+        trunk_top,
+        up_px=int(trunk_profile["cap_overhang_up_px"]),
+        side_px=int(trunk_profile["cap_overhang_side_px"]),
+        strength=float(trunk_profile["cap_strength"]),
+        blur_radius=float(trunk_profile["cap_blur_radius"]),
+    )
+    anchor_y = int(anchor[1] if anchor is not None else albedo.height * 0.88)
+    trunk_snow = apply_vertical_snow_fade(
+        trunk_snow,
+        anchor_y=anchor_y,
+        full_until_offset_px=int(snow_profile["root_full_until_offset_px"]),
+        zero_from_offset_px=int(snow_profile["root_zero_from_offset_px"]),
+    )
+    trunk_cap = apply_vertical_snow_fade(
+        trunk_cap,
+        anchor_y=anchor_y,
+        full_until_offset_px=int(snow_profile["root_full_until_offset_px"]),
+        zero_from_offset_px=int(snow_profile["root_zero_from_offset_px"]),
+    )
+
+    gray = ImageChops.lighter(foliage_snow, trunk_snow)
+    gray = ImageChops.lighter(gray, ImageChops.lighter(foliage_cap, trunk_cap))
+    noise = procedural_noise(
+        gray.size,
+        low=int(snow_profile["noise_low"]),
+        high=int(snow_profile["noise_high"]),
+        phase=0.4,
+    )
+    gray = ImageChops.multiply(gray, noise)
+    mask_gain = float(snow_profile["mask_gain"])
+    gray = gray.point(lambda value: 0 if value < 10 else min(255, int(value * mask_gain)), "L")
+    gray = gray.filter(ImageFilter.GaussianBlur(float(snow_profile["mask_blur_radius"])))
+    support_radius = max(
+        int(foliage_profile["cap_overhang_up_px"]) + int(foliage_profile["cap_overhang_side_px"]),
+        int(trunk_profile["cap_overhang_up_px"]) + int(trunk_profile["cap_overhang_side_px"]),
+    )
+    support_gate = alpha.filter(ImageFilter.MaxFilter(support_radius * 2 + 1))
+    support_gate = support_gate.point(lambda value: 255 if value > 4 else 0, "L")
+    gray = ImageChops.multiply(gray, support_gate)
+    return Image.merge("RGBA", (gray, gray, gray, alpha))
+
+
+def make_season_mask(
+    foliage: Image.Image,
+    trunk: Image.Image,
+    snow_mask: Image.Image,
+    profile: dict | None = None,
+) -> Image.Image:
+    profile = profile_or_default(profile)
+    leaf_drop_enabled = bool(
+        profile["postprocess"].get("season", {}).get("leaf_drop_enabled", True)
+    )
     foliage_alpha = alpha_of(foliage)
     trunk_alpha = alpha_of(trunk)
     snow = snow_mask.getchannel("R")
@@ -269,34 +534,97 @@ def make_season_mask(foliage: Image.Image, trunk: Image.Image, snow_mask: Image.
             f = foliage_px[x, y]
             if f <= 18:
                 continue
-            noise = (
-                0.50
-                + 0.24 * math.sin(x * 0.071 + y * 0.109)
-                + 0.18 * math.sin(x * 0.173 - y * 0.037)
-                + 0.10 * math.sin(x * 0.023 + y * 0.251)
-            )
-            branch_damp = 0.18 if trunk_px[x, y] > 24 else 0.0
-            order = max(0.0, min(1.0, noise * 0.82 + vertical * 0.12 + branch_damp))
-            drop_px[x, y] = int(order * 255.0)
+            if leaf_drop_enabled:
+                noise = (
+                    0.50
+                    + 0.24 * math.sin(x * 0.071 + y * 0.109)
+                    + 0.18 * math.sin(x * 0.173 - y * 0.037)
+                    + 0.10 * math.sin(x * 0.023 + y * 0.251)
+                )
+                branch_damp = 0.18 if trunk_px[x, y] > 24 else 0.0
+                order = max(0.0, min(1.0, noise * 0.82 + vertical * 0.12 + branch_damp))
+                drop_px[x, y] = int(order * 255.0)
             cold_px[x, y] = max(snow_px[x, y], int(255.0 * max(0.0, vertical - 0.28) * 0.42))
-    drop = drop.filter(ImageFilter.GaussianBlur(1.1))
+    if leaf_drop_enabled:
+        drop = drop.filter(ImageFilter.GaussianBlur(1.1))
     return Image.merge("RGBA", (snow, drop, cold, foliage_alpha))
 
 
-def make_snow_overlay(snow_mask: Image.Image, profile: dict | None = None) -> Image.Image:
+def make_snow_overlay(
+    snow_mask: Image.Image,
+    profile: dict | None = None,
+    *,
+    height: Image.Image | None = None,
+    normal: Image.Image | None = None,
+) -> Image.Image:
     profile = profile_or_default(profile)
     snow = snow_mask.getchannel("R")
-    alpha = snow.point(lambda value: 0 if value < 14 else min(int((value - 8) * 1.34), 242), "L")
-    snow_rgb = rgb_from_profile(profile, "snow_rgb")
-    return Image.merge(
-        "RGBA",
-        (
-            Image.new("L", snow.size, snow_rgb[0]),
-            Image.new("L", snow.size, snow_rgb[1]),
-            Image.new("L", snow.size, snow_rgb[2]),
-            alpha,
-        ),
+    snow_profile = profile["postprocess"].get("snow")
+    if snow_profile is None or height is None or normal is None:
+        alpha = snow.point(lambda value: 0 if value < 14 else min(int((value - 8) * 1.34), 242), "L")
+        snow_rgb = rgb_from_profile(profile, "snow_rgb")
+        return Image.merge(
+            "RGBA",
+            (
+                Image.new("L", snow.size, snow_rgb[0]),
+                Image.new("L", snow.size, snow_rgb[1]),
+                Image.new("L", snow.size, snow_rgb[2]),
+                alpha,
+            ),
+        )
+
+    overlay_threshold = int(snow_profile["overlay_threshold"])
+    overlay_alpha_gain = float(snow_profile["overlay_alpha_gain"])
+    overlay_max_alpha = int(snow_profile["overlay_max_alpha"])
+    alpha = snow.point(
+        lambda value: 0
+        if value < overlay_threshold
+        else min(int((value - overlay_threshold) * overlay_alpha_gain), overlay_max_alpha),
+        "L",
     )
+    height_luma = height.convert("L")
+    blurred_height = height_luma.filter(ImageFilter.GaussianBlur(float(snow_profile["cavity_blur_radius"])))
+    normal_rgba = normal.convert("RGBA")
+    snow_rgb = rgb_from_profile(profile, "snow_rgb")
+    shadow_rgb = tuple(int(value) for value in snow_profile["shadow_rgb"])
+    light = [float(value) for value in snow_profile["light_vector_screen"]]
+    light_length = math.sqrt(sum(value * value for value in light))
+    light = [value / max(light_length, 0.000001) for value in light]
+    out = Image.new("RGBA", snow.size, (0, 0, 0, 0))
+    out_px = out.load()
+    alpha_px = alpha.load()
+    height_px = height_luma.load()
+    blur_px = blurred_height.load()
+    normal_px = normal_rgba.load()
+    shade_base = float(snow_profile["shade_base"])
+    normal_weight = float(snow_profile["shade_normal_weight"])
+    height_weight = float(snow_profile["shade_height_weight"])
+    cavity_weight = float(snow_profile["shade_cavity_weight"])
+    for y in range(snow.height):
+        for x in range(snow.width):
+            pixel_alpha = alpha_px[x, y]
+            if pixel_alpha <= 0:
+                continue
+            red, green, blue, _normal_alpha = normal_px[x, y]
+            nx = red / 127.5 - 1.0
+            ny = green / 127.5 - 1.0
+            nz = blue / 127.5 - 1.0
+            ndotl = max(0.0, nx * light[0] + ny * light[1] + nz * light[2])
+            height_value = height_px[x, y] / 255.0
+            cavity = max(0.0, (blur_px[x, y] - height_px[x, y]) / 255.0)
+            shade = max(
+                0.0,
+                min(
+                    1.0,
+                    shade_base + normal_weight * ndotl + height_weight * height_value - cavity_weight * cavity,
+                ),
+            )
+            color = tuple(
+                int(round(shadow_rgb[channel] + (snow_rgb[channel] - shadow_rgb[channel]) * shade))
+                for channel in range(3)
+            )
+            out_px[x, y] = (color[0], color[1], color[2], pixel_alpha)
+    return out
 
 
 def make_height(albedo: Image.Image) -> Image.Image:
@@ -409,13 +737,14 @@ def save_outputs(asset_dir: Path, copy_to: Path | None = None, profile: dict | N
     anchor = (int(anchor_values[0]), int(anchor_values[1]))
 
     alpha = alpha_of(albedo)
-    shadow = processed_shadow(raw_shadow, alpha, anchor, profile)
-    wind_mask = make_wind_mask(trunk, foliage)
-    snow_mask = make_snow_mask(albedo, foliage, trunk)
-    snow_overlay = make_snow_overlay(snow_mask, profile)
-    season_mask = make_season_mask(foliage, trunk, snow_mask)
     height = make_height(albedo)
     normal = make_normal_from_height(height, float(profile["postprocess"]["normal_strength"]))
+    shadow = processed_shadow(raw_shadow, alpha, anchor, profile)
+    shadow = suppress_shadow_under_root_footprint(shadow, trunk, anchor, profile)
+    wind_mask = make_wind_mask(trunk, foliage)
+    snow_mask = make_snow_mask(albedo, foliage, trunk, anchor, profile)
+    snow_overlay = make_snow_overlay(snow_mask, profile, height=height, normal=normal)
+    season_mask = make_season_mask(foliage, trunk, snow_mask, profile)
 
     outputs = {
         "shadow.png": shadow,

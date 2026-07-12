@@ -1,0 +1,19 @@
+{
+  "source_glb": "C:\\Users\\progi\\project-Mirniy\\tree glb\\1.glb",
+  "profile": "C:\\Users\\progi\\project-Mirniy\\Station-Mirny\\tools\\tree_atlas\\layered_asset_bake_profile_v2_proof.json",
+  "frame_size": 384,
+  "yaw_degrees": 18.0,
+  "anchor": [
+    192,
+    281
+  ],
+  "sun_azimuth_degrees": 205.201124,
+  "sun_elevation_degrees": 44.0,
+  "sun_energy": 2.25,
+  "fill_energy": 42.0,
+  "fill_use_shadow": false,
+  "controlled_difference": "LayeredTreeSun.data.use_shadow",
+  "on_value": true,
+  "off_value": false,
+  "classification_count": 41
+}

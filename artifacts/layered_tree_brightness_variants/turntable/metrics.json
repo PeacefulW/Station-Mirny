@@ -1,0 +1,45 @@
+{
+  "candidate": "A",
+  "views": {
+    "south": {
+      "mean": 28.946241384837315,
+      "p10": 8.0,
+      "sample_count": 31195
+    },
+    "south_west": {
+      "mean": 39.759947914671976,
+      "p10": 9.0,
+      "sample_count": 26111
+    },
+    "west": {
+      "mean": 52.064309936080186,
+      "p10": 12.0,
+      "sample_count": 33323
+    },
+    "north_west": {
+      "mean": 59.62483644581896,
+      "p10": 23.0,
+      "sample_count": 33628
+    },
+    "north": {
+      "mean": 58.03261467226161,
+      "p10": 19.0,
+      "sample_count": 34555
+    },
+    "north_east": {
+      "mean": 49.75674577648373,
+      "p10": 11.0,
+      "sample_count": 29537
+    },
+    "east": {
+      "mean": 34.58750114991874,
+      "p10": 9.0,
+      "sample_count": 32611
+    },
+    "south_east": {
+      "mean": 28.287623329586612,
+      "p10": 8.0,
+      "sample_count": 32028
+    }
+  }
+}

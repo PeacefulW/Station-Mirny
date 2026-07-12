@@ -1,0 +1,56 @@
+{
+  "baseline": {
+    "asset_dir": "C:\\Users\\progi\\project-Mirniy\\Station-Mirny\\artifacts\\layered_tree_01",
+    "source_glb": "M:\\Downloads\\1.glb",
+    "sun_angle_degrees": 315.0,
+    "anchor": [
+      384,
+      539
+    ],
+    "shadow_centroid_delta": [
+      131.26856150015647,
+      -67.52215796868029
+    ],
+    "shadow_screen_angle_degrees": -27.220464825648982,
+    "visible_trunk_snow_alpha_mean": 0.3543784289123429,
+    "root_band_snow_alpha_mean": 0.3317788376611906,
+    "foliage_snow_alpha_mean": 0.7863207531247995,
+    "foliage_dark_gap_fraction": 0.0,
+    "foliage_covered_fraction": 0.9957537154989384,
+    "active_snow_pixel_count": 34891,
+    "active_snow_luma_stddev": 0.0,
+    "active_snow_luma_range": 0.0,
+    "north_west_sample_count": 3995,
+    "south_east_sample_count": 3825,
+    "north_west_luma_mean": 237.0,
+    "south_east_luma_mean": 237.0,
+    "north_west_minus_south_east_luma": 0.0
+  },
+  "candidate": {
+    "asset_dir": "C:\\Users\\progi\\project-Mirniy\\Station-Mirny\\artifacts\\layered_tree_01_nw_winter_proof\\candidate_v2_root_suppressed",
+    "source_glb": "C:\\Users\\progi\\project-Mirniy\\tree glb\\1.glb",
+    "sun_angle_degrees": 205.201124,
+    "anchor": [
+      384,
+      563
+    ],
+    "shadow_centroid_delta": [
+      101.14179671348808,
+      106.37522659341334
+    ],
+    "shadow_screen_angle_degrees": 46.44465207639698,
+    "visible_trunk_snow_alpha_mean": 0.048089468549826604,
+    "root_band_snow_alpha_mean": 0.0,
+    "foliage_snow_alpha_mean": 0.2772504238971081,
+    "foliage_dark_gap_fraction": 0.32730819991966487,
+    "foliage_covered_fraction": 0.4587708727836116,
+    "active_snow_pixel_count": 11680,
+    "active_snow_luma_stddev": 4.3957202286518955,
+    "active_snow_luma_range": 32.0,
+    "north_west_sample_count": 1410,
+    "south_east_sample_count": 719,
+    "north_west_luma_mean": 226.53687943262412,
+    "south_east_luma_mean": 210.28929068150208,
+    "north_west_minus_south_east_luma": 16.247588751122038
+  }
+}

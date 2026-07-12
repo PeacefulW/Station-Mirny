@@ -1,0 +1,153 @@
+{
+  "source_glb": "C:\\Users\\progi\\project-Mirniy\\tree glb\\1.glb",
+  "profile": "C:\\Users\\progi\\project-Mirniy\\Station-Mirny\\artifacts\\layered_tree_brightness_variants\\a_exposure_080\\profile.json",
+  "profile_id": "station_mirny_tree_brightness_proof_a_exposure_080",
+  "candidate": "A",
+  "tree_yaw_degrees": 90.0,
+  "tree_and_lights_fixed": true,
+  "camera_only_orbit": true,
+  "sun": {
+    "name": "LayeredTreeSun",
+    "azimuth_degrees": 205.201124,
+    "elevation_degrees": 38.0,
+    "energy": 2.25,
+    "use_shadow": true,
+    "screen_direction": "north_west"
+  },
+  "render": {
+    "exposure": 0.8,
+    "ambient_fill_enabled": false,
+    "fill_energy": 0.0,
+    "frame_size": 768
+  },
+  "views": [
+    {
+      "id": "south",
+      "label": "South",
+      "camera_compass_degrees": -90.0,
+      "camera_location": [
+        0.0,
+        -3.0,
+        2.009001
+      ],
+      "camera_ortho_scale": 1.54284191,
+      "anchor": [
+        384,
+        564
+      ],
+      "file": "south.png"
+    },
+    {
+      "id": "south_west",
+      "label": "South-West",
+      "camera_compass_degrees": -135.0,
+      "camera_location": [
+        -2.12132,
+        -2.12132,
+        2.009001
+      ],
+      "camera_ortho_scale": 1.56333089,
+      "anchor": [
+        384,
+        561
+      ],
+      "file": "south_west.png"
+    },
+    {
+      "id": "west",
+      "label": "West",
+      "camera_compass_degrees": 180.0,
+      "camera_location": [
+        -3.0,
+        0.0,
+        2.009001
+      ],
+      "camera_ortho_scale": 1.52380502,
+      "anchor": [
+        384,
+        566
+      ],
+      "file": "west.png"
+    },
+    {
+      "id": "north_west",
+      "label": "North-West",
+      "camera_compass_degrees": 135.0,
+      "camera_location": [
+        -2.12132,
+        2.12132,
+        2.009001
+      ],
+      "camera_ortho_scale": 1.54878283,
+      "anchor": [
+        384,
+        563
+      ],
+      "file": "north_west.png"
+    },
+    {
+      "id": "north",
+      "label": "North",
+      "camera_compass_degrees": 90.0,
+      "camera_location": [
+        0.0,
+        3.0,
+        2.009001
+      ],
+      "camera_ortho_scale": 1.51142466,
+      "anchor": [
+        384,
+        567
+      ],
+      "file": "north.png"
+    },
+    {
+      "id": "north_east",
+      "label": "North-East",
+      "camera_compass_degrees": 45.0,
+      "camera_location": [
+        2.12132,
+        2.12132,
+        2.009001
+      ],
+      "camera_ortho_scale": 1.54906094,
+      "anchor": [
+        384,
+        563
+      ],
+      "file": "north_east.png"
+    },
+    {
+      "id": "east",
+      "label": "East",
+      "camera_compass_degrees": 0.0,
+      "camera_location": [
+        3.0,
+        0.0,
+        2.009001
+      ],
+      "camera_ortho_scale": 1.53275216,
+      "anchor": [
+        384,
+        565
+      ],
+      "file": "east.png"
+    },
+    {
+      "id": "south_east",
+      "label": "South-East",
+      "camera_compass_degrees": -45.0,
+      "camera_location": [
+        2.12132,
+        -2.12132,
+        2.009001
+      ],
+      "camera_ortho_scale": 1.57871723,
+      "anchor": [
+        384,
+        560
+      ],
+      "file": "south_east.png"
+    }
+  ]
+}

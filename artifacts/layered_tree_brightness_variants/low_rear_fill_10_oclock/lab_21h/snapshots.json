@@ -1,0 +1,148 @@
+[
+	{
+		"ambient_color": [
+			0.0299999993294477,
+			0.0350000001490116,
+			0.0500000007450581,
+			1.0
+		],
+		"anchor": [
+			384.0,
+			564.0
+		],
+		"asset": "c_clock_10_exposure_075_layered_glb",
+		"capture": "baseline_00_at_21h",
+		"direct_sun_enabled": false,
+		"direct_sun_energy": 0.0,
+		"effective_wind_strength_px": 0.0,
+		"has_foliage": true,
+		"has_shadow": true,
+		"has_snow": true,
+		"has_trunk": true,
+		"has_trunk_season_material": true,
+		"lift_percent": 0.0,
+		"local_light_count": 0,
+		"max_wind_strength_px": 18.0,
+		"path": "C:/Users/progi/project-Mirniy/Station-Mirny/artifacts/layered_tree_brightness_variants/low_rear_fill_10_oclock/lab_21h/baseline_00_at_21h.png",
+		"plant_depth_px": 0.0,
+		"ready": true,
+		"season_amount": 0.0,
+		"shadow_backward_stretch_scale": 1.0,
+		"shadow_contact_lock_source_px": 48.0,
+		"shadow_direction_screen": "north_east",
+		"shadow_direction_vector_screen": [
+			0.866025328636169,
+			0.500000238418579
+		],
+		"shadow_hour": 14.5,
+		"shadow_length_scale": 1.0,
+		"shadow_probe_local_points": {
+			"0": [
+				0.0,
+				0.0
+			],
+			"16": [
+				11.9165172576904,
+				6.88000011444092
+			],
+			"303": [
+				225.668853759766,
+				130.290054321289
+			],
+			"32": [
+				23.8330078125,
+				13.7600002288818
+			],
+			"48": [
+				35.7495231628418,
+				20.6399993896484
+			],
+			"96": [
+				71.4990463256836,
+				41.2799987792969
+			]
+		},
+		"shadow_rotation_degrees": 0.0,
+		"shadow_texture_override": "",
+		"shadow_width_scale": 1.0,
+		"snow_enabled": false,
+		"sun_cast_shadow_visibility": 0.0,
+		"torch_enabled": false,
+		"tree_dir": "res://artifacts/layered_tree_brightness_variants/c_clock_10_exposure_075",
+		"wind_strength_px": 0.0,
+		"world_hour": 21.0
+	},
+	{
+		"ambient_color": [
+			0.0299999993294477,
+			0.0350000001490116,
+			0.0500000007450581,
+			1.0
+		],
+		"anchor": [
+			384.0,
+			564.0
+		],
+		"asset": "tree_01_clock_10_low_rear_fill_08_proof",
+		"capture": "candidate_08_at_21h",
+		"direct_sun_enabled": false,
+		"direct_sun_energy": 0.0,
+		"effective_wind_strength_px": 0.0,
+		"has_foliage": true,
+		"has_shadow": true,
+		"has_snow": true,
+		"has_trunk": true,
+		"has_trunk_season_material": true,
+		"lift_percent": 8.0,
+		"local_light_count": 0,
+		"max_wind_strength_px": 18.0,
+		"path": "C:/Users/progi/project-Mirniy/Station-Mirny/artifacts/layered_tree_brightness_variants/low_rear_fill_10_oclock/lab_21h/candidate_08_at_21h.png",
+		"plant_depth_px": 0.0,
+		"ready": true,
+		"season_amount": 0.0,
+		"shadow_backward_stretch_scale": 1.0,
+		"shadow_contact_lock_source_px": 48.0,
+		"shadow_direction_screen": "north_east",
+		"shadow_direction_vector_screen": [
+			0.866025328636169,
+			0.500000238418579
+		],
+		"shadow_hour": 14.5,
+		"shadow_length_scale": 1.0,
+		"shadow_probe_local_points": {
+			"0": [
+				0.0,
+				0.0
+			],
+			"16": [
+				11.9165172576904,
+				6.88000011444092
+			],
+			"303": [
+				225.668853759766,
+				130.290054321289
+			],
+			"32": [
+				23.8330078125,
+				13.7600002288818
+			],
+			"48": [
+				35.7495231628418,
+				20.6399993896484
+			],
+			"96": [
+				71.4990463256836,
+				41.2799987792969
+			]
+		},
+		"shadow_rotation_degrees": 0.0,
+		"shadow_texture_override": "",
+		"shadow_width_scale": 1.0,
+		"snow_enabled": false,
+		"sun_cast_shadow_visibility": 0.0,
+		"torch_enabled": false,
+		"tree_dir": "res://artifacts/layered_tree_brightness_variants/low_rear_fill_10_oclock/candidate_08",
+		"wind_strength_px": 0.0,
+		"world_hour": 21.0
+	}
+]

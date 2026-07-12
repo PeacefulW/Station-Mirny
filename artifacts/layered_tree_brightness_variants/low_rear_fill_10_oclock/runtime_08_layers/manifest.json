@@ -1,0 +1,16 @@
+{
+  "target_lift_percent": 8.0,
+  "spot_energy": 15.18355495106789,
+  "sun_use_shadow": true,
+  "kicker_use_shadow": false,
+  "anchor": [
+    384,
+    564
+  ],
+  "profile_id": "station_mirny_tree_brightness_proof_c_clock_10_exposure_075",
+  "layers": {
+    "albedo": "albedo.png",
+    "trunk": "trunk.png",
+    "foliage": "foliage.png"
+  }
+}

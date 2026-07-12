@@ -4,8 +4,8 @@ doc_type: system_spec
 status: approved
 source_of_truth: true
 owner: engineering+art
-version: 1.6
-last_updated: 2026-07-11
+version: 1.7
+last_updated: 2026-07-12
 related_docs:
   - ../../05_adrs/0005-light-is-gameplay-system.md
   - ../../05_adrs/0001-runtime-work-and-dirty-update-foundation.md
@@ -92,8 +92,14 @@ reads in a dark ambient, and `DirectionalLight2D` lights the ground. Captures in
   → moving pool of light + local normal relief at night.
 - Reconcile with the existing in-shader cosmetic ground shade (reduce/disable the
   baked directional term once the real sun does directional shading — avoid
-  double-darkening). Baked sprite shading (rocks/trees) stays as-is (they have no
-  NORMAL_MAP; lights modulate them flatly).
+  double-darkening). Layered tree v4 sprites use the selected offline screen
+  `10:00` Sun plus a low opposite shadowless Spot that lifts dark-trunk
+  readability by the measured `20%`; the physical Sun-only cast shadow remains
+  fixed east-south-east. Runtime time-of-day changes only tree-shadow
+  visibility/far-end length. This authored tree bake does not change the live
+  `DirectionalLight2D` owner or its canonical `225 degrees` angle. Tree/rock
+  sprites still have no `NORMAL_MAP`, so
+  engine lights modulate them flatly.
 - Depends on quality terrain normal maps (authored externally) for the relief payoff.
 
 ### Iteration 2 — Cast shadows
@@ -347,6 +353,12 @@ Two owners, deliberately split:
 Version `1.6` fixes the presentation sun azimuth at north-west (`225°`), so cast
 shadows consistently fall south-east. Time of day still owns sun energy, colour,
 visibility and shadow length; no gameplay-light authority or save boundary changes.
+
+Version `1.7` records the independently authored layered-tree v4 bake: screen
+`10:00` Sun, `20%` low shadowless albedo kicker, and fixed east-south-east
+physical tree shadow. The live presentation sun remains at north-west
+(`225 degrees`); this tree-asset promotion does not change its runtime owner,
+public API, gameplay-light authority, or save boundary.
 
 ## Required Updates
 - `docs/02_system_specs/README.md` — index entry (added with this draft).

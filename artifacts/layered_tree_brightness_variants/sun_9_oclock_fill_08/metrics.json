@@ -1,0 +1,63 @@
+{
+  "source_glb": "C:\\Users\\progi\\project-Mirniy\\tree glb\\1.glb",
+  "profile": "C:\\Users\\progi\\project-Mirniy\\Station-Mirny\\artifacts\\layered_tree_brightness_variants\\sun_9_oclock_fill_08\\profile.json",
+  "sun": {
+    "screen_direction": "west_9_oclock",
+    "azimuth_degrees": 270.0,
+    "elevation_degrees": 38.0,
+    "use_shadow": true
+  },
+  "cast_shadow_target": {
+    "screen_direction": "east",
+    "vector_screen": [
+      1.0,
+      0.0
+    ]
+  },
+  "kicker": {
+    "screen_side": "east_opposite_9_oclock_sun",
+    "placement": "low",
+    "aim": "upward_to_middle_lower_trunk",
+    "location": [
+      2.65,
+      0.0,
+      0.069
+    ],
+    "target": [
+      0.0,
+      0.0,
+      0.419001
+    ],
+    "spot_energy": 14.21484375,
+    "spot_size_degrees": 52.0,
+    "spot_blend": 0.8799999952316284,
+    "use_shadow": false
+  },
+  "calibration": {
+    "target_trunk_lift_percent": 8.0,
+    "measured_trunk_lift_percent": 7.998259455452139,
+    "measured_dark_foliage_lift_percent": 2.920667103221297,
+    "trunk_sample_pixels": 7739,
+    "dark_foliage_sample_pixels": 8727
+  },
+  "files": {
+    "fill_00": "sun_9_fill_00.png",
+    "fill_08": "sun_9_fill_08.png"
+  },
+  "physical_cast_shadow": {
+    "screen_angle_degrees": 1.7655926282973786,
+    "centroid_delta": [
+      197.921724619389,
+      6.100969286162126
+    ]
+  },
+  "self_shadow": {
+    "sampled_interior_pixels": 23105,
+    "delta_mean_8bit": 4.439385414412465,
+    "delta_max_8bit": 81,
+    "delta_ge_2_fraction": 0.3469811729062973,
+    "delta_ge_5_fraction": 0.23756762605496645,
+    "delta_ge_10_fraction": 0.15680588617182428,
+    "visualization_gain": 8
+  }
+}

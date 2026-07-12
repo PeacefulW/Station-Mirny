@@ -1,0 +1,121 @@
+{
+    "profile_id":  "tree_01_self_shadow_se_sun_only",
+    "version":  2,
+    "frame_size":  768,
+    "orientation":  {
+                        "default_yaw_degrees":  90.0
+                    },
+    "planting":  {
+                     "root_embed_fraction":  0.065,
+                     "max_root_embed_fraction":  0.22
+                 },
+    "camera":  {
+                   "type":  "ORTHO",
+                   "initial_ortho_scale":  1.25,
+                   "fit_width_fraction":  0.66,
+                   "fit_height_fraction":  0.70,
+                   "padding_scale":  1.10,
+                   "location_y":  -3.0,
+                   "height_offset":  1.6,
+                   "target_z_fraction":  0.42
+               },
+    "lighting":  {
+                     "sun_azimuth_degrees":  25.201124,
+                     "albedo_sun_elevation_degrees":  52.0,
+                     "shadow_sun_elevation_degrees":  42.0,
+                     "albedo_sun_energy":  2.25,
+                     "shadow_sun_energy":  3.5,
+                     "fill_energy":  0,
+                     "fill_size":  4.0,
+                     "screen_sun_direction":  "south_east",
+                     "fixed_shadow_direction":  "screen_north_west"
+                 },
+    "render":  {
+                   "albedo_engine":  "BLENDER_EEVEE",
+                   "shadow_engine":  "CYCLES",
+                   "samples":  8,
+                   "use_denoising":  true,
+                   "transparent_film":  true,
+                   "view_transform":  "Filmic",
+                   "look":  "Medium High Contrast",
+                   "exposure":  0.0,
+                   "gamma":  1.0,
+                   "color_mode":  "RGBA"
+               },
+    "postprocess":  {
+                        "shadow_rgb":  [
+                                           15,
+                                           11,
+                                           7
+                                       ],
+                        "fake_shadow_rgb":  [
+                                                18,
+                                                13,
+                                                8
+                                            ],
+                        "processed_shadow_thresholds":  [
+                                                            6,
+                                                            8,
+                                                            10,
+                                                            12
+                                                        ],
+                        "snow_rgb":  [
+                                         242,
+                                         237,
+                                         224
+                                     ],
+                        "normal_strength":  3.2,
+                        "snow":  {
+                                     "foliage":  {
+                                                     "top_edge_weight":  1.0,
+                                                     "top_occlusion_factor":  0.95,
+                                                     "windward_weight":  0.24,
+                                                     "windward_occlusion_factor":  0.96,
+                                                     "depth_px":  30,
+                                                     "strength":  1.05
+                                                 },
+                                     "trunk":  {
+                                                   "top_edge_weight":  0.62,
+                                                   "top_occlusion_factor":  0.94,
+                                                   "windward_weight":  0.10,
+                                                   "windward_occlusion_factor":  0.97,
+                                                   "depth_px":  18,
+                                                   "strength":  0.85
+                                               },
+                                     "windward_screen_direction":  [
+                                                                       -1.0,
+                                                                       -1.0
+                                                                   ],
+                                     "root_full_until_offset_px":  -32,
+                                     "root_zero_from_offset_px":  -8,
+                                     "noise_low":  108,
+                                     "noise_high":  255,
+                                     "mask_gain":  1.20,
+                                     "mask_blur_radius":  0.75,
+                                     "overlay_threshold":  12,
+                                     "overlay_alpha_gain":  1.08,
+                                     "overlay_max_alpha":  235,
+                                     "shadow_rgb":  [
+                                                        169,
+                                                        185,
+                                                        211
+                                                    ],
+                                     "light_vector_screen":  [
+                                                                 -0.56,
+                                                                 -0.56,
+                                                                 0.61
+                                                             ],
+                                     "shade_base":  0.20,
+                                     "shade_normal_weight":  0.74,
+                                     "shade_height_weight":  0.08,
+                                     "shade_cavity_weight":  0.22,
+                                     "cavity_blur_radius":  4.0
+                                 }
+                    },
+    "runtime":  {
+                    "normal_maps_generated":  true,
+                    "normal_maps_enabled":  false,
+                    "sun_shadow_mode":  "baked_fixed_south_east_stretch_only",
+                    "dynamic_light_shadows":  "runtime_fake"
+                }
+}

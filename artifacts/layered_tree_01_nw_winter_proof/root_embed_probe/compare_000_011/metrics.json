@@ -1,0 +1,56 @@
+{
+  "baseline": {
+    "asset_dir": "C:\\Users\\progi\\project-Mirniy\\Station-Mirny\\artifacts\\layered_tree_01_nw_winter_proof\\root_embed_probe\\embed_000_384",
+    "source_glb": "C:\\Users\\progi\\project-Mirniy\\tree glb\\1.glb",
+    "sun_angle_degrees": 205.201124,
+    "anchor": [
+      192,
+      284
+    ],
+    "shadow_centroid_delta": [
+      43.44153201242392,
+      46.015422185415844
+    ],
+    "shadow_screen_angle_degrees": 46.64808169655897,
+    "visible_trunk_snow_alpha_mean": 0.007887232135582171,
+    "root_band_snow_alpha_mean": 0.0,
+    "foliage_snow_alpha_mean": 0.2798726841425697,
+    "foliage_dark_gap_fraction": 0.23911616714066944,
+    "foliage_covered_fraction": 0.46991905491139796,
+    "active_snow_pixel_count": 3150,
+    "active_snow_luma_stddev": 4.392177257720834,
+    "active_snow_luma_range": 27.0,
+    "north_west_sample_count": 448,
+    "south_east_sample_count": 174,
+    "north_west_luma_mean": 226.58258928571428,
+    "south_east_luma_mean": 210.2183908045977,
+    "north_west_minus_south_east_luma": 16.364198481116574
+  },
+  "candidate": {
+    "asset_dir": "C:\\Users\\progi\\project-Mirniy\\Station-Mirny\\artifacts\\layered_tree_01_nw_winter_proof\\root_embed_probe\\embed_011_384",
+    "source_glb": "C:\\Users\\progi\\project-Mirniy\\tree glb\\1.glb",
+    "sun_angle_degrees": 205.201124,
+    "anchor": [
+      192,
+      281
+    ],
+    "shadow_centroid_delta": [
+      42.72412612644325,
+      45.874017882286694
+    ],
+    "shadow_screen_angle_degrees": 47.03615463628328,
+    "visible_trunk_snow_alpha_mean": 0.0078747705388682,
+    "root_band_snow_alpha_mean": 0.0,
+    "foliage_snow_alpha_mean": 0.2798752579132725,
+    "foliage_dark_gap_fraction": 0.23911616714066944,
+    "foliage_covered_fraction": 0.47013782542113325,
+    "active_snow_pixel_count": 3150,
+    "active_snow_luma_stddev": 4.385976828913278,
+    "active_snow_luma_range": 27.0,
+    "north_west_sample_count": 438,
+    "south_east_sample_count": 177,
+    "north_west_luma_mean": 226.65068493150685,
+    "south_east_luma_mean": 210.1638418079096,
+    "north_west_minus_south_east_luma": 16.486843123597254
+  }
+}

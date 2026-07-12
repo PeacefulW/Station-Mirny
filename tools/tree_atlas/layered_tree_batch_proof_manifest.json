@@ -1,0 +1,33 @@
+{
+	"profile": "tools/tree_atlas/layered_asset_bake_profile_v2_proof.json",
+	"output_root": "artifacts/layered_tree_nw_winter_batch_proof/candidates",
+	"orientation_sheet": "artifacts/layered_tree_nw_winter_batch_proof/orientation_sheet.png",
+	"trees": [
+		{
+			"tree_id": "tree_02",
+			"source_glb": "C:/Users/progi/project-Mirniy/tree glb/2.glb",
+			"yaw_degrees": 90.0
+		},
+		{
+			"tree_id": "tree_03",
+			"source_glb": "C:/Users/progi/project-Mirniy/tree glb/3.glb",
+			"yaw_degrees": 90.0
+		},
+		{
+			"tree_id": "tree_04",
+			"source_glb": "C:/Users/progi/project-Mirniy/tree glb/4.glb",
+			"yaw_degrees": 90.0
+		},
+		{
+			"tree_id": "tree_05",
+			"source_glb": "C:/Users/progi/project-Mirniy/tree glb/5.glb",
+			"yaw_degrees": 90.0
+		},
+		{
+			"tree_id": "tree_06",
+			"source_glb": "C:/Users/progi/project-Mirniy/tree glb/6.glb",
+			"yaw_degrees": 180.0,
+			"reason": "Single requested additional 90-degree exception; tree_06 is the only source without an existing production counterpart."
+		}
+	]
+}

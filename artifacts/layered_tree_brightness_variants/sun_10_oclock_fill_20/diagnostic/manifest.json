@@ -1,0 +1,47 @@
+{
+  "source_glb": "C:\\Users\\progi\\project-Mirniy\\tree glb\\1.glb",
+  "profile": "C:\\Users\\progi\\project-Mirniy\\Station-Mirny\\artifacts\\layered_tree_brightness_variants\\c_clock_10_exposure_075\\profile.json",
+  "sun": {
+    "screen_direction": "west_north_west_10_oclock",
+    "azimuth_degrees": 219.0,
+    "elevation_degrees": 38.0,
+    "use_shadow": true
+  },
+  "cast_shadow_target": {
+    "screen_direction": "screen_east_south_east",
+    "vector_screen": [
+      0.866025,
+      0.5
+    ]
+  },
+  "kicker": {
+    "screen_side": "east_south_east_opposite_10_oclock_sun",
+    "placement": "low",
+    "aim": "upward_to_middle_lower_trunk",
+    "location": [
+      2.25,
+      -2.05,
+      0.069
+    ],
+    "target": [
+      0.0,
+      0.0,
+      0.419001
+    ],
+    "spot_energy": 23.3515625,
+    "spot_size_degrees": 52.0,
+    "spot_blend": 0.8799999952316284,
+    "use_shadow": false
+  },
+  "calibration": {
+    "target_trunk_lift_percent": 20.0,
+    "measured_trunk_lift_percent": 19.992949495482428,
+    "measured_dark_foliage_lift_percent": 11.854665848006608,
+    "trunk_sample_pixels": 7775,
+    "dark_foliage_sample_pixels": 8728
+  },
+  "files": {
+    "fill_00": "sun_10_fill_00.png",
+    "fill_target": "sun_10_fill_20.png"
+  }
+}

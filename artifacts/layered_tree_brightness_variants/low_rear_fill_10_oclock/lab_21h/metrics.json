@@ -1,0 +1,26 @@
+{
+  "hour": 21.0,
+  "ambient_color": [
+    0.03,
+    0.035,
+    0.05,
+    1.0
+  ],
+  "direct_sun_energy": 0.0,
+  "sun_cast_shadow_visibility": 0.0,
+  "torch_enabled": false,
+  "baseline_00": {
+    "mean": 0.7742862907293453,
+    "p90": 1.0,
+    "max": 4,
+    "sample_count": 19826
+  },
+  "candidate_08": {
+    "mean": 0.7794310501361849,
+    "p90": 1.0,
+    "max": 4,
+    "sample_count": 19826
+  },
+  "mean_luminance_delta_8bit": 0.005144759406839561,
+  "analysis_gain": 16.0
+}

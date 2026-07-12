@@ -9,10 +9,8 @@ const SNOW_ACCUMULATION_SHADER: Shader = preload("res://assets/shaders/layered_t
 const TRUNK_SEASON_SHADER: Shader = preload("res://assets/shaders/layered_tree_trunk_season.gdshader")
 
 const LADDER_ANCHOR_UNSET: int = 1 << 30
-# Existing shadow atlases were authored north-east. Runtime rotates their
-# geometry around the planted anchor before applying the canonical sun stretch.
-const BAKED_SHADOW_DIRECTION: Vector2 = Vector2(0.887216, -0.461354)
-const DEFAULT_RUNTIME_SHADOW_DIRECTION: Vector2 = Vector2(0.70710678, 0.70710678)
+const SHADOW_DIRECTION_NORTH_EAST: Vector2 = Vector2(0.887216, -0.461354)
+const SHADOW_DIRECTION_SOUTH_EAST: Vector2 = Vector2(0.707107, 0.707107)
 const DEFAULT_ASSET_DIR: String = "res://assets/sprites/flora/layered_trees/tree_01"
 const BASE_WIND_STRENGTH_PX: float = 3.0
 const FIXED_TREE_FRAME_SCALE: float = 0.64
@@ -37,8 +35,6 @@ var _season_amount: float = 0.0
 var _shadow_length_scale: float = 1.0
 var _shadow_opacity: float = 0.0
 var _shadow_backward_stretch_scale: float = 1.0
-var _shadow_direction: Vector2 = DEFAULT_RUNTIME_SHADOW_DIRECTION
-var _shadow_rotation_rad: float = DEFAULT_RUNTIME_SHADOW_DIRECTION.angle() - BAKED_SHADOW_DIRECTION.angle()
 
 
 func set_asset_dir(asset_dir: String) -> void:
@@ -62,13 +58,11 @@ func set_world_origin_y(world_origin_y: float) -> void:
 
 
 func set_sun_lighting(
-		light_angle_deg: float,
+		_light_angle_deg: float,
 		shadow_length_px: float,
 		shadow_opacity: float,
 		_shadow_softness_px: float,
 ) -> void:
-	_shadow_direction = WorldVisualLightingProfile.shadow_direction_for_light_angle_deg(light_angle_deg)
-	_shadow_rotation_rad = _shadow_direction.angle() - BAKED_SHADOW_DIRECTION.angle()
 	var low_sun: float = clampf(
 		(shadow_length_px - WorldVisualLightingProfile.SHADOW_MIN_LENGTH_PX)
 				/ maxf(
@@ -144,8 +138,9 @@ func get_debug_state() -> Dictionary:
 		"snow_has_normal_texture": _material_has_texture(_snow_material, "tree_normal_texture"),
 		"shadow_length_scale": _shadow_length_scale,
 		"shadow_backward_stretch_scale": _shadow_backward_stretch_scale,
-		"shadow_direction": _shadow_direction,
-		"shadow_rotation_degrees": rad_to_deg(_shadow_rotation_rad),
+		"shadow_direction_vector_screen": _shadow_direction_for_asset(_primary_asset()),
+		"shadow_contact_lock_source_px": _shadow_contact_lock_for_asset(_primary_asset()),
+		"shadow_probe_local_points": _shadow_probe_local_points(_primary_asset()),
 		"season_amount": _season_amount,
 		"fixed_frame_scale": FIXED_TREE_FRAME_SCALE,
 		"uses_packet_tint": USE_PACKET_TINT,
@@ -199,6 +194,7 @@ func _load_asset(asset_dir: String) -> Dictionary:
 	var snow_material := ShaderMaterial.new()
 	snow_material.shader = SNOW_ACCUMULATION_SHADER
 	snow_material.set_shader_parameter("snow_mask_texture", textures.get("snow_mask"))
+	snow_material.set_shader_parameter("season_mask_texture", textures.get("season_mask"))
 	snow_material.set_shader_parameter("season_amount", _season_amount)
 	return {
 		"asset_dir": asset_dir,
@@ -344,8 +340,26 @@ func _rebuild_shadow_polygons_for(root: Node2D, asset: Dictionary, scale_factor:
 		Vector2(0.0, frame_size.y),
 	]
 	var anchor: Vector2 = _anchor(asset)
-	_set_shadow_polygon(back, _clip_shadow_polygon(rect_points, false, anchor), scale_factor, false, anchor)
-	_set_shadow_polygon(forward, _clip_shadow_polygon(rect_points, true, anchor), scale_factor, true, anchor)
+	var direction: Vector2 = _shadow_direction_for_asset(asset)
+	var contact_lock: float = _shadow_contact_lock_for_asset(asset)
+	_set_shadow_polygon(
+		back,
+		_clip_shadow_polygon(rect_points, false, anchor, direction, contact_lock),
+		scale_factor,
+		false,
+		anchor,
+		direction,
+		contact_lock,
+	)
+	_set_shadow_polygon(
+		forward,
+		_clip_shadow_polygon(rect_points, true, anchor, direction, contact_lock),
+		scale_factor,
+		true,
+		anchor,
+		direction,
+		contact_lock,
+	)
 
 
 func _set_shadow_polygon(
@@ -354,58 +368,149 @@ func _set_shadow_polygon(
 		scale_factor: float,
 		stretch_forward: bool,
 		anchor: Vector2,
+		direction: Vector2,
+		contact_lock: float,
 ) -> void:
 	var local_points: Array[Vector2] = []
 	for point: Vector2 in texture_points:
-		local_points.append(_shadow_texture_point_to_local(point, scale_factor, stretch_forward, anchor))
+		local_points.append(
+			_shadow_texture_point_to_local(
+				point,
+				scale_factor,
+				stretch_forward,
+				anchor,
+				direction,
+				contact_lock,
+			)
+		)
 	polygon.polygon = PackedVector2Array(local_points)
 	polygon.uv = PackedVector2Array(texture_points)
 
 
-func _shadow_texture_point_to_local(point: Vector2, scale_factor: float, stretch_forward: bool, anchor: Vector2) -> Vector2:
+func _shadow_texture_point_to_local(
+		point: Vector2,
+		scale_factor: float,
+		stretch_forward: bool,
+		anchor: Vector2,
+		direction: Vector2,
+		contact_lock: float,
+) -> Vector2:
 	var delta: Vector2 = point - anchor
 	if stretch_forward:
-		var forward_distance: float = maxf(delta.dot(BAKED_SHADOW_DIRECTION), 0.0)
-		delta += BAKED_SHADOW_DIRECTION * forward_distance * (_shadow_length_scale - 1.0)
-	return delta.rotated(_shadow_rotation_rad) * scale_factor
+		var forward_distance: float = maxf(delta.dot(direction) - contact_lock, 0.0)
+		delta += direction * forward_distance * (_shadow_length_scale - 1.0)
+	return delta * scale_factor
 
 
-func _clip_shadow_polygon(points: Array[Vector2], keep_forward: bool, anchor: Vector2) -> Array[Vector2]:
+func _clip_shadow_polygon(
+		points: Array[Vector2],
+		keep_forward: bool,
+		anchor: Vector2,
+		direction: Vector2,
+		contact_lock: float,
+) -> Array[Vector2]:
 	if points.is_empty():
 		return []
 	var clipped: Array[Vector2] = []
 	for index: int in range(points.size()):
 		var current: Vector2 = points[index]
 		var previous: Vector2 = points[(index + points.size() - 1) % points.size()]
-		var current_inside: bool = _shadow_point_inside(current, keep_forward, anchor)
-		var previous_inside: bool = _shadow_point_inside(previous, keep_forward, anchor)
+		var current_inside: bool = _shadow_point_inside(
+			current, keep_forward, anchor, direction, contact_lock
+		)
+		var previous_inside: bool = _shadow_point_inside(
+			previous, keep_forward, anchor, direction, contact_lock
+		)
 		if current_inside:
 			if not previous_inside:
-				clipped.append(_shadow_line_intersection(previous, current, anchor))
+				clipped.append(_shadow_line_intersection(previous, current, anchor, direction, contact_lock))
 			clipped.append(current)
 		elif previous_inside:
-			clipped.append(_shadow_line_intersection(previous, current, anchor))
+			clipped.append(_shadow_line_intersection(previous, current, anchor, direction, contact_lock))
 	return clipped
 
 
-func _shadow_point_inside(point: Vector2, keep_forward: bool, anchor: Vector2) -> bool:
-	var distance: float = _shadow_signed_distance(point, anchor)
+func _shadow_point_inside(
+		point: Vector2,
+		keep_forward: bool,
+		anchor: Vector2,
+		direction: Vector2,
+		contact_lock: float,
+) -> bool:
+	var distance: float = _shadow_signed_distance(point, anchor, direction, contact_lock)
 	return distance >= -0.01 if keep_forward else distance <= 0.01
 
 
-func _shadow_line_intersection(a: Vector2, b: Vector2, anchor: Vector2) -> Vector2:
-	var da: float = _shadow_signed_distance(a, anchor)
-	var db: float = _shadow_signed_distance(b, anchor)
+func _shadow_line_intersection(
+		a: Vector2,
+		b: Vector2,
+		anchor: Vector2,
+		direction: Vector2,
+		contact_lock: float,
+) -> Vector2:
+	var da: float = _shadow_signed_distance(a, anchor, direction, contact_lock)
+	var db: float = _shadow_signed_distance(b, anchor, direction, contact_lock)
 	var denominator: float = da - db
 	if absf(denominator) < 0.0001:
 		return a
 	return a.lerp(b, clampf(da / denominator, 0.0, 1.0))
 
 
-func _shadow_signed_distance(point: Vector2, anchor: Vector2) -> float:
-	# Clipping happens in texture space, so it follows the authored bake axis;
-	# the resulting polygons are rotated into runtime space around the anchor.
-	return (point - anchor).dot(BAKED_SHADOW_DIRECTION)
+func _shadow_signed_distance(
+		point: Vector2,
+		anchor: Vector2,
+		direction: Vector2,
+		contact_lock: float,
+) -> float:
+	return (point - anchor).dot(direction) - contact_lock
+
+
+func _primary_asset() -> Dictionary:
+	if not _asset_dir.is_empty() and _assets_by_dir.has(_asset_dir):
+		return _assets_by_dir[_asset_dir] as Dictionary
+	return {}
+
+
+func _shadow_direction_for_asset(asset: Dictionary) -> Vector2:
+	var meta: Dictionary = asset.get("meta", {}) as Dictionary
+	var bake_profile: Dictionary = meta.get("bake_profile", {}) as Dictionary
+	var direction: Vector2 = SHADOW_DIRECTION_NORTH_EAST
+	if str(bake_profile.get("fixed_shadow_direction", "")) == "screen_south_east":
+		direction = SHADOW_DIRECTION_SOUTH_EAST
+	var authored_value: Variant = bake_profile.get("fixed_shadow_direction_vector_screen", [])
+	if authored_value is Array and (authored_value as Array).size() >= 2:
+		var authored: Array = authored_value as Array
+		var candidate := Vector2(float(authored[0]), float(authored[1]))
+		if candidate.length_squared() > 0.0001:
+			direction = candidate.normalized()
+	return direction
+
+
+func _shadow_contact_lock_for_asset(asset: Dictionary) -> float:
+	var meta: Dictionary = asset.get("meta", {}) as Dictionary
+	var bake_profile: Dictionary = meta.get("bake_profile", {}) as Dictionary
+	return maxf(float(bake_profile.get("shadow_contact_lock_source_px", 0.0)), 0.0)
+
+
+func _shadow_probe_local_points(asset: Dictionary) -> Dictionary:
+	if asset.is_empty():
+		return {}
+	var anchor: Vector2 = _anchor(asset)
+	var direction: Vector2 = _shadow_direction_for_asset(asset)
+	var contact_lock: float = _shadow_contact_lock_for_asset(asset)
+	var points: Dictionary = {}
+	for distance: float in [0.0, 16.0, 32.0, 48.0, 96.0, 303.0]:
+		var source_point: Vector2 = anchor + direction * distance
+		var local_point: Vector2 = _shadow_texture_point_to_local(
+			source_point,
+			FIXED_TREE_FRAME_SCALE,
+			distance > contact_lock,
+			anchor,
+			direction,
+			contact_lock,
+		)
+		points[str(int(distance))] = local_point
+	return points
 
 
 func _scale_for_size(_size_px: float) -> float:

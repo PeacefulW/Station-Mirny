@@ -4,8 +4,8 @@ doc_type: docs_index
 status: approved
 owner: design+engineering
 source_of_truth: true
-version: 1.13
-last_updated: 2026-06-29
+version: 1.14
+last_updated: 2026-07-12
 related_docs:
   - 00_governance/WORKFLOW.md
   - 00_governance/ENGINEERING_STANDARDS.md
@@ -72,6 +72,7 @@ Templates for future docs.
 - [World Dynamic Lighting 2D - Sun, Torch, Ambient](02_system_specs/world/world_dynamic_lighting_2d.md)
 - [Wind Runtime V0 and Grass Scatter Presentation](02_system_specs/world/wind_and_grass_scatter_presentation.md)
 - [Plains Trees Presentation and Depth Layering V0](02_system_specs/world/plains_trees_presentation.md) (draft)
+- [Layered Tree Fixed Sun and Winter Bake Proof](02_system_specs/world/layered_tree_fixed_sun_winter_bake_proof.md)
 - [Weather Runtime V0](02_system_specs/world/weather_runtime.md)
 - [Cloud Occlusion & Overcast Darkness](02_system_specs/world/cloud_occlusion_lighting.md)
 - [Engineering Networks](02_system_specs/base/engineering_networks.md)

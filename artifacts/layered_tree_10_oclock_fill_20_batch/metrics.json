@@ -1,0 +1,170 @@
+{
+  "tree_01": {
+    "asset_dir": "C:\\Users\\progi\\project-Mirniy\\Station-Mirny\\artifacts\\layered_tree_10_oclock_fill_20_batch\\candidates\\tree_01",
+    "source_glb": "C:\\Users\\progi\\project-Mirniy\\tree glb\\1.glb",
+    "sun_angle_degrees": 219.0,
+    "anchor": [
+      384,
+      564
+    ],
+    "shadow_centroid_delta": [
+      149.29189172420206,
+      96.26468623695371
+    ],
+    "shadow_screen_angle_degrees": 32.81426833279532,
+    "visible_trunk_snow_alpha_mean": 0.06514635549415712,
+    "root_band_snow_alpha_mean": 0.0,
+    "root_zone_64_snow_alpha_mean": 0.0,
+    "foliage_snow_alpha_mean": 0.3970870927035434,
+    "foliage_dark_gap_fraction": 0.27793005152943756,
+    "foliage_covered_fraction": 0.5192413112597303,
+    "active_snow_pixel_count": 15024,
+    "active_snow_luma_stddev": 5.363238482398856,
+    "active_snow_luma_range": 40.0,
+    "north_west_sample_count": 1699,
+    "south_east_sample_count": 1041,
+    "north_west_luma_mean": 240.7928193054738,
+    "south_east_luma_mean": 220.2958693563881,
+    "north_west_minus_south_east_luma": 20.496949949085717
+  },
+  "tree_02": {
+    "asset_dir": "C:\\Users\\progi\\project-Mirniy\\Station-Mirny\\artifacts\\layered_tree_10_oclock_fill_20_batch\\candidates\\tree_02",
+    "source_glb": "C:\\Users\\progi\\project-Mirniy\\tree glb\\2.glb",
+    "sun_angle_degrees": 219.0,
+    "anchor": [
+      384,
+      555
+    ],
+    "shadow_centroid_delta": [
+      123.53670736539613,
+      81.88737221530687
+    ],
+    "shadow_screen_angle_degrees": 33.53875104797384,
+    "visible_trunk_snow_alpha_mean": 0.11367918227332717,
+    "root_band_snow_alpha_mean": 0.012430376307566908,
+    "root_zone_64_snow_alpha_mean": 0.02079485864113087,
+    "foliage_snow_alpha_mean": 0.3323625089319236,
+    "foliage_dark_gap_fraction": 0.4196829318509368,
+    "foliage_covered_fraction": 0.45690755610459133,
+    "active_snow_pixel_count": 21232,
+    "active_snow_luma_stddev": 4.534765897446498,
+    "active_snow_luma_range": 38.0,
+    "north_west_sample_count": 1906,
+    "south_east_sample_count": 847,
+    "north_west_luma_mean": 240.46852046169988,
+    "south_east_luma_mean": 221.19598583234946,
+    "north_west_minus_south_east_luma": 19.272534629350417
+  },
+  "tree_03": {
+    "asset_dir": "C:\\Users\\progi\\project-Mirniy\\Station-Mirny\\artifacts\\layered_tree_10_oclock_fill_20_batch\\candidates\\tree_03",
+    "source_glb": "C:\\Users\\progi\\project-Mirniy\\tree glb\\3.glb",
+    "sun_angle_degrees": 219.0,
+    "anchor": [
+      384,
+      563
+    ],
+    "shadow_centroid_delta": [
+      156.35199019345782,
+      90.68143003439695
+    ],
+    "shadow_screen_angle_degrees": 30.112986122039274,
+    "visible_trunk_snow_alpha_mean": 0.0732103566978842,
+    "root_band_snow_alpha_mean": 0.0,
+    "root_zone_64_snow_alpha_mean": 0.0,
+    "foliage_snow_alpha_mean": 0.36900036677093717,
+    "foliage_dark_gap_fraction": 0.3433062383703849,
+    "foliage_covered_fraction": 0.49921653119185194,
+    "active_snow_pixel_count": 16958,
+    "active_snow_luma_stddev": 5.234467244487657,
+    "active_snow_luma_range": 43.0,
+    "north_west_sample_count": 1787,
+    "south_east_sample_count": 986,
+    "north_west_luma_mean": 241.09625069949635,
+    "south_east_luma_mean": 220.05070993914808,
+    "north_west_minus_south_east_luma": 21.045540760348274
+  },
+  "tree_04": {
+    "asset_dir": "C:\\Users\\progi\\project-Mirniy\\Station-Mirny\\artifacts\\layered_tree_10_oclock_fill_20_batch\\candidates\\tree_04",
+    "source_glb": "C:\\Users\\progi\\project-Mirniy\\tree glb\\4.glb",
+    "sun_angle_degrees": 219.0,
+    "anchor": [
+      384,
+      564
+    ],
+    "shadow_centroid_delta": [
+      154.3065358146789,
+      95.86950686611783
+    ],
+    "shadow_screen_angle_degrees": 31.85237780956545,
+    "visible_trunk_snow_alpha_mean": 0.037241153203460456,
+    "root_band_snow_alpha_mean": 0.0,
+    "root_zone_64_snow_alpha_mean": 0.0,
+    "foliage_snow_alpha_mean": 0.23962780659040417,
+    "foliage_dark_gap_fraction": 0.4790806248877716,
+    "foliage_covered_fraction": 0.34368827437601007,
+    "active_snow_pixel_count": 13054,
+    "active_snow_luma_stddev": 5.5847239245963936,
+    "active_snow_luma_range": 42.0,
+    "north_west_sample_count": 1689,
+    "south_east_sample_count": 918,
+    "north_west_luma_mean": 241.01065719360568,
+    "south_east_luma_mean": 220.18409586056646,
+    "north_west_minus_south_east_luma": 20.826561333039223
+  },
+  "tree_05": {
+    "asset_dir": "C:\\Users\\progi\\project-Mirniy\\Station-Mirny\\artifacts\\layered_tree_10_oclock_fill_20_batch\\candidates\\tree_05",
+    "source_glb": "C:\\Users\\progi\\project-Mirniy\\tree glb\\5.glb",
+    "sun_angle_degrees": 219.0,
+    "anchor": [
+      384,
+      561
+    ],
+    "shadow_centroid_delta": [
+      140.9986021480372,
+      88.51981690204093
+    ],
+    "shadow_screen_angle_degrees": 32.12086286168414,
+    "visible_trunk_snow_alpha_mean": 0.05480951736747385,
+    "root_band_snow_alpha_mean": 0.0,
+    "root_zone_64_snow_alpha_mean": 0.004775916911879291,
+    "foliage_snow_alpha_mean": 0.2060461940702365,
+    "foliage_dark_gap_fraction": 0.6006840530141085,
+    "foliage_covered_fraction": 0.2919101230345352,
+    "active_snow_pixel_count": 11593,
+    "active_snow_luma_stddev": 4.854293597887029,
+    "active_snow_luma_range": 39.0,
+    "north_west_sample_count": 1192,
+    "south_east_sample_count": 543,
+    "north_west_luma_mean": 241.06711409395973,
+    "south_east_luma_mean": 220.22651933701658,
+    "north_west_minus_south_east_luma": 20.840594756943148
+  },
+  "tree_06": {
+    "asset_dir": "C:\\Users\\progi\\project-Mirniy\\Station-Mirny\\artifacts\\layered_tree_10_oclock_fill_20_batch\\candidates\\tree_06",
+    "source_glb": "C:\\Users\\progi\\project-Mirniy\\tree glb\\6.glb",
+    "sun_angle_degrees": 219.0,
+    "anchor": [
+      384,
+      566
+    ],
+    "shadow_centroid_delta": [
+      134.78053236016126,
+      90.77212680271487
+    ],
+    "shadow_screen_angle_degrees": 33.95951727654002,
+    "visible_trunk_snow_alpha_mean": 0.07181843787238652,
+    "root_band_snow_alpha_mean": 0.0,
+    "root_zone_64_snow_alpha_mean": 0.005285264439280073,
+    "foliage_snow_alpha_mean": 0.25520101749497714,
+    "foliage_dark_gap_fraction": 0.46154472206397007,
+    "foliage_covered_fraction": 0.3565557092862375,
+    "active_snow_pixel_count": 16341,
+    "active_snow_luma_stddev": 4.290222459012469,
+    "active_snow_luma_range": 31.0,
+    "north_west_sample_count": 1350,
+    "south_east_sample_count": 526,
+    "north_west_luma_mean": 239.88518518518518,
+    "south_east_luma_mean": 221.67110266159696,
+    "north_west_minus_south_east_luma": 18.214082523588218
+  }
+}

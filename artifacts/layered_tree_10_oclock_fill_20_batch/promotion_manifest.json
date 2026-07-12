@@ -1,0 +1,89 @@
+{
+  "profile": "C:\\Users\\progi\\project-Mirniy\\Station-Mirny\\tools\\tree_atlas\\layered_tree_bake_profile_10_oclock_fill_20.json",
+  "promoted": {
+    "tree_01": {
+      "albedo.png": "868fb5a2416f0638b9a0f4871a343d15ae38d5de3b346e218f62d1c763ab7d82",
+      "trunk.png": "61b9226567050437331caf6edfefde04166a7101d75c37a794d5e263ef3bcfa4",
+      "foliage.png": "6af7f025a9fdc7e3c780c7a47b70e68db54868a248f07de2eb2d5787d0fe9605",
+      "shadow.png": "793b6037715ce048c45f0346fac263c34dbea17b13f16c8bf7bdc151f51625d5",
+      "wind_mask.png": "fb6b61be02e19337beb22a0561a9f6b497999f7265651f20926c2e535824f8da",
+      "snow_mask.png": "b8ac9d160e29d922f7276713462a5445a21aeb1596889717eeffbb5889005ef6",
+      "snow_overlay.png": "e864154f5b1a770b767ad1e4d606ccdf9525ddedc6f6fc13d7c5f0d40f3f421f",
+      "season_mask.png": "20c6e7444093ef68ed5f9df77437987735d866acc506f8b3dceb4363dc1603cb",
+      "height.png": "dea228829d666291e7f9336616f89e49601a30a1376fba53599aff02ef80d6d4",
+      "normal.png": "3ba99a6e1b763e3d0ee8d7d3c1b1196a6f3853963130fa8fd4e4691e218abb24",
+      "meta.json": "0d32dc8e985fcc228f3d8ca241288850089a9ca6021507e6446ee89bbf773b02",
+      "preview_panel.png": "ad667fb3f4654470b16e13a8626d8954ebbd25e1830c17a9ce28c1b0c1079ed6"
+    },
+    "tree_02": {
+      "albedo.png": "9cc1b9da99ee08aeaffa37a778bbe63ebc7a4275bb4056f9b2a31809ace9ea37",
+      "trunk.png": "2e9a60cc6b86cfe89e20d88508b26d4ecd837b011db46484064b9fb7fa7ecbff",
+      "foliage.png": "37cb2599eff9e3146e05f38647327be54e73124cf0c6018ac8940c7a2c995163",
+      "shadow.png": "c4a060f2e91eb11867ce7739976c0ceea2f445561408fb97282e6dd1cac45433",
+      "wind_mask.png": "fc5f30ba79b9bb8d59d4707a9ff13a47f75a4df49093e272b17e4ea2d9cdd353",
+      "snow_mask.png": "529839f917db1a49d5fd3eacb3e1843509482386bb110952a6bcf358af7190ca",
+      "snow_overlay.png": "5db8b2cf5b642206b06e5c79e2419c58eed22aa2177eec596239347066a90bc2",
+      "season_mask.png": "1de2218ec5e34cc84638c36d0c2a3b450a5a1b1e9e5a00cd6f7ab8c42a2730a8",
+      "height.png": "612e4e758660655b1534e9aa0d4c2b128d5585c68cf9d82c1fee9cd650fcf0d1",
+      "normal.png": "066889cac5ee98e04ddc1a7c07a2d2fce74814b603d0f36f865a496f9a345034",
+      "meta.json": "889c44ecec440aff8cd3777bbb62566413258c9b30c247319efcbe558ed90815",
+      "preview_panel.png": "2a59e12603af12827c4db26e195624514fefc8b1ce6e1ca32919e9023e2e9d08"
+    },
+    "tree_03": {
+      "albedo.png": "3aefb783b64f8ba9a35590a5a266a7f677f664323a2b826ccdd28e3c74423f1f",
+      "trunk.png": "9bc541aebb1a52c352ddd2ab177f552307ae4393289a421653847bdb6c6a7b82",
+      "foliage.png": "dab361c7f97e1f2086f225360515bbdd02f29db24af6fb538216fa122f6be31a",
+      "shadow.png": "15e7b9c71e171f63711bfb604f3140dc3c35f743172de15c74f3c3e228d5784e",
+      "wind_mask.png": "cd62448dfb206b7950d5e46c954130d0d487e59b58668243fe1bd14a424543ab",
+      "snow_mask.png": "ebf2da3cda50f49e329e1d3837513427d1f100e42d4d8c38a68a96749e6e1a5b",
+      "snow_overlay.png": "a337c7f932316f55f383812da64961f2e7384038c38177b3c5d5e3701f7356de",
+      "season_mask.png": "8a76e488e4ad25f2c16c96d23f133db5a478c30c5631f4a81cd361a84d489c16",
+      "height.png": "2af52f90e52b670710a2349c9fa7aaa67805e83ed7b1f45e1054bbbb5f033321",
+      "normal.png": "cd8f1aff1555ca240db7c51c7c0504eff550473a317b38fe181894bfa7b594f9",
+      "meta.json": "9306282192c1fb0f3d0ef1aadb1ec81179c8a6d6646794ac50fbb3d3df34c201",
+      "preview_panel.png": "df18e7042aa4f7281cf239c68d75696d463f049e90e874ba9b674497d6499357"
+    },
+    "tree_04": {
+      "albedo.png": "54bfcd49d7f2bd8d6ef84564fedd0afc01c00f9d644f493db3ae10780c301a96",
+      "trunk.png": "5babd6a2914afa2704e7c8095bedafd699056887c42f8bce1ff0921e28922550",
+      "foliage.png": "69ee1b19e272717ab5fe8a23db529438afe4e0a4bf415f9adcad60fd7960e9a7",
+      "shadow.png": "f07dec9ab3cb3f9d9b2133b6b6a3a0a6c73b1a1673ac520f87c9f7c5a42cb450",
+      "wind_mask.png": "ebdf9bfa96791b01c83b8898761e55e9292675bc5b988c2caa3bc5c1e7d9a057",
+      "snow_mask.png": "2a9376b1daa8f14bbf99d4782665b65266d67315cadc5d446ad6de3002b20bc3",
+      "snow_overlay.png": "5c2a7e72fac4cf98da57a87bd6ddd7e29db6e645df8ca64851d2ad6752e5fe22",
+      "season_mask.png": "816190a4d94b44a7de4ed5b4b5ea0208fdc7a092a7ad638617ae27cff336cd1f",
+      "height.png": "291c71b33c583054f1c380443381ae28b2538b1f2d0be423a5ade76eb28163c4",
+      "normal.png": "2e770b2fe9c84d81f9f3fe68785577eab6a1cc8a02e83c698f0e10b9dc86db9b",
+      "meta.json": "1d4da334f413506892bdd73d1ba8445052c77f107f55a9e05fe71aad97f56ebc",
+      "preview_panel.png": "4de1496143a0bbfd56bc8bcee016ca65803372a37ba40db68a958b7078bdfdd9"
+    },
+    "tree_05": {
+      "albedo.png": "389b6018e5aaca4eca5e7d5e15c120e0652f087b1e82621168dedb7dea1bc88d",
+      "trunk.png": "e2495915d73289e60a365a965c759fff576d7b7e93145ad5a6e7e31d338d45c8",
+      "foliage.png": "1f560d937850a444f30a0e8e58d000a07c77d45c5263986768630e70dd82418d",
+      "shadow.png": "99f46eefd63b93a607e2ea371c327a8f2401b59aeeef343fb64e04feb0553364",
+      "wind_mask.png": "1f65f19a6724e97a591cea6f836ccc1832a9923a3a01c2a2f96a929519a1411f",
+      "snow_mask.png": "6511539ec52b99d41c357d5fe943cf4ce8d0955e5bca178a17ecebda06b7f48c",
+      "snow_overlay.png": "15710907095db7c16a73c971b7274b06472f9064a6d66c7068ae6d61c47ca314",
+      "season_mask.png": "0604e807ccfbbd214f95bfb2e9a50b5a97b63d9df21b4c19bd3865c77b6b0cc0",
+      "height.png": "58c045a059d13ec01686043a5e7f43030c0d21e47956fa5273a0edc943207371",
+      "normal.png": "9bb81bef8c62c2c5721fc4f9acd927b751332409f7202eef01a4a6b3de8fb165",
+      "meta.json": "b9b19788046caac6d4972881d53fd23c9b1d9bb988b0ea7bddb6ab3667a15827",
+      "preview_panel.png": "41c2c4dc6c96965a9035947ca9c59e634c71d8b8b8678ce9275bc273b3e033dd"
+    },
+    "tree_06": {
+      "albedo.png": "445a87bf24d4628e1e052136c65aa86acecb4aaec1b16e5fc48cf8de4f521fe4",
+      "trunk.png": "4f01ace3635cb4568ba4505ca2637edc019e33eb1ad38d49b2cda05989db9bd3",
+      "foliage.png": "249780a5c301a69327faa5626bbab83eb5fa72b0f43ae67c40ef840ae927e85c",
+      "shadow.png": "94e0ff7fa9ac9f4d932cee49767368467a3c7dafe324b4d14c959571b5093f80",
+      "wind_mask.png": "1920cf67c3a6b527a766666b4624efe2d6378cea8ed03d24d8db1aa7b422bfe4",
+      "snow_mask.png": "bdd32192f47582ffe69d0cca0dd74d5d01d782639a0ea68a59dd9ee6eda64c9f",
+      "snow_overlay.png": "a8312504094364e99c424b405dc36b67b8b00c324ffd3f650eb27e1cbe7a4964",
+      "season_mask.png": "291bd60dae3c886e3bbe96c59d014094d90250c4f54e0f6030537ed03eb91cc1",
+      "height.png": "03fd662b1e5990627370f257bd2099c089d2c524211cf228ff0ad191b307abf9",
+      "normal.png": "af540bf3be88e44836e69ac331c17e32dd3262d0de303773b2e00c9e2fcaa5ce",
+      "meta.json": "fb4f6dedb304a2c4e7f81351b8943f6551965a65c59f739f4275919d9abd7d42",
+      "preview_panel.png": "8212c7813151530ad7a8b1278c09da62d26fad4ea2bb0f51de00aa3b4f634466"
+    }
+  }
+}

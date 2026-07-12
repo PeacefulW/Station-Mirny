@@ -1,0 +1,22 @@
+{
+  "source_glb": "C:\\Users\\progi\\project-Mirniy\\tree glb\\4.glb",
+  "profile": "C:\\Users\\progi\\project-Mirniy\\Station-Mirny\\tools\\tree_atlas\\layered_asset_bake_profile_v2_proof.json",
+  "captures": [
+    {
+      "yaw_degrees": 90.0,
+      "file": "yaw_090.png",
+      "anchor": [
+        192,
+        282
+      ]
+    },
+    {
+      "yaw_degrees": 180.0,
+      "file": "yaw_180.png",
+      "anchor": [
+        192,
+        281
+      ]
+    }
+  ]
+}

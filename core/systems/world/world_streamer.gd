@@ -93,6 +93,7 @@ const PLAINS_LAYERED_TREE_ASSET_DIRS: Array[String] = [
 	"res://assets/sprites/flora/layered_trees/tree_03",
 	"res://assets/sprites/flora/layered_trees/tree_04",
 	"res://assets/sprites/flora/layered_trees/tree_05",
+	"res://assets/sprites/flora/layered_trees/tree_06",
 ]
 const PLAINS_SMALL_ROCK_ENABLED: bool = true
 const PLAINS_LAYERED_SMALL_ROCK_ASSET_DIRS: Array[String] = [

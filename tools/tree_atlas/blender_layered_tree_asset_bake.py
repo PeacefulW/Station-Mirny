@@ -54,15 +54,37 @@ def load_profile(path: Path) -> dict:
 
 
 def bake_profile_summary(profile: dict, frame_size: int, sun_angle_degrees: float, root_embed_fraction: float) -> dict:
-    return {
+    summary = {
         "profile_id": profile["profile_id"],
         "version": profile["version"],
         "frame_size": frame_size,
         "sun_azimuth_degrees": sun_angle_degrees,
         "albedo_sun_elevation_degrees": profile["lighting"]["albedo_sun_elevation_degrees"],
+        "albedo_sun_angular_diameter_degrees": float(
+            profile["lighting"].get("albedo_sun_angular_diameter_degrees", 0.526)
+        ),
         "shadow_sun_elevation_degrees": profile["lighting"]["shadow_sun_elevation_degrees"],
         "root_embed_fraction": root_embed_fraction,
     }
+    lighting = profile["lighting"]
+    if "screen_sun_direction" in lighting:
+        summary["screen_sun_direction"] = lighting["screen_sun_direction"]
+        summary["fixed_shadow_direction"] = lighting["fixed_shadow_direction"]
+        summary["fixed_shadow_direction_vector_screen"] = lighting["fixed_shadow_direction_vector_screen"]
+        summary["sun_shadow_mode"] = profile["runtime"]["sun_shadow_mode"]
+        summary["shadow_contact_lock_source_px"] = float(
+            profile["runtime"]["shadow_contact_lock_source_px"]
+        )
+    ambient_fill = lighting.get("ambient_fill")
+    if ambient_fill is not None:
+        summary["ambient_fill"] = ambient_fill
+    kicker = lighting.get("low_opposite_kicker")
+    if kicker is not None and bool(kicker.get("enabled", False)):
+        summary["low_opposite_kicker"] = kicker
+    shadow_casters = profile.get("shadow_casters")
+    if shadow_casters is not None:
+        summary["suppress_root_parts_max_z"] = float(shadow_casters["suppress_root_parts_max_z"])
+    return summary
 
 
 def clear_scene() -> None:
@@ -215,6 +237,74 @@ def look_at(camera: bpy.types.Object, target: Vector) -> None:
     camera.rotation_euler = direction.to_track_quat("-Z", "Y").to_euler()
 
 
+def add_symmetric_ambient_rig(target_z: float, lighting_profile: dict) -> None:
+    ambient = lighting_profile.get("ambient_fill", {})
+    if not bool(ambient.get("enabled", False)):
+        return
+    total_energy = max(float(ambient.get("total_energy", 0.0)), 0.0)
+    light_count = max(int(ambient.get("light_count", 4)), 1)
+    if total_energy <= 0.0:
+        return
+    radius = max(float(ambient.get("radius", 3.0)), 0.1)
+    height = float(ambient.get("height", 2.4))
+    size = max(float(ambient.get("size", 5.0)), 0.1)
+    color_values = ambient.get("color", [1.0, 1.0, 1.0])
+    color = (
+        float(color_values[0]),
+        float(color_values[1]),
+        float(color_values[2]),
+    )
+    for index in range(light_count):
+        angle = math.tau * float(index) / float(light_count)
+        light_data = bpy.data.lights.new(f"LayeredTreeAmbient{index}", "AREA")
+        light = bpy.data.objects.new(f"LayeredTreeAmbient{index}", light_data)
+        bpy.context.collection.objects.link(light)
+        light.location = Vector(
+            (
+                math.cos(angle) * radius,
+                math.sin(angle) * radius,
+                target_z + height,
+            )
+        )
+        light.data.energy = total_energy / float(light_count)
+        light.data.size = size
+        light.data.color = color
+        light.data.use_shadow = False
+        look_at(light, Vector((0.0, 0.0, target_z)))
+
+
+def add_profile_low_opposite_kicker(
+    min_z: float,
+    max_z: float,
+    profile: dict,
+) -> bpy.types.Object | None:
+    kicker_profile = profile["lighting"].get("low_opposite_kicker")
+    if not kicker_profile or not bool(kicker_profile.get("enabled", False)):
+        return None
+    tree_height = max(max_z - min_z, 0.001)
+    spot_data = bpy.data.lights.new("LayeredTreeLowOppositeKicker", "SPOT")
+    spot = bpy.data.objects.new("LayeredTreeLowOppositeKicker", spot_data)
+    bpy.context.collection.objects.link(spot)
+    spot.location = Vector((
+        float(kicker_profile["position_x"]),
+        float(kicker_profile["position_y"]),
+        min_z + tree_height * float(kicker_profile["height_fraction"]),
+    ))
+    target = Vector((
+        0.0,
+        0.0,
+        min_z + tree_height * float(kicker_profile["target_height_fraction"]),
+    ))
+    look_at(spot, target)
+    spot.data.energy = float(kicker_profile["energy"])
+    color = kicker_profile["color"]
+    spot.data.color = (float(color[0]), float(color[1]), float(color[2]))
+    spot.data.spot_size = math.radians(float(kicker_profile["spot_size_degrees"]))
+    spot.data.spot_blend = float(kicker_profile["spot_blend"])
+    spot.data.use_shadow = bool(kicker_profile["use_shadow"])
+    return spot
+
+
 def setup_render(
     frame_size: int,
     target_z: float,
@@ -257,6 +347,7 @@ def setup_render(
     sun = bpy.data.objects.new("LayeredTreeSun", sun_data)
     bpy.context.collection.objects.link(sun)
     sun.data.energy = float(lighting_profile["albedo_sun_energy"])
+    sun.data.angle = math.radians(float(lighting_profile.get("albedo_sun_angular_diameter_degrees", 0.526)))
     sun.rotation_euler = (
         math.radians(float(lighting_profile["albedo_sun_elevation_degrees"])),
         0.0,
@@ -269,6 +360,7 @@ def setup_render(
     fill.location = Vector((0.0, -2.0, 1.0))
     fill.data.energy = float(lighting_profile["fill_energy"])
     fill.data.size = float(lighting_profile["fill_size"])
+    add_symmetric_ambient_rig(target_z, lighting_profile)
     return camera, sun
 
 
@@ -316,7 +408,12 @@ def render_png(path: Path) -> None:
     bpy.ops.render.render(write_still=True)
 
 
-def setup_shadow_scene(objects: list[bpy.types.Object], sun_angle_degrees: float, profile: dict) -> bpy.types.Object:
+def setup_shadow_scene(
+    objects: list[bpy.types.Object],
+    classification: dict[str, dict],
+    sun_angle_degrees: float,
+    profile: dict,
+) -> tuple[bpy.types.Object, list[str]]:
     scene = bpy.context.scene
     render_profile = profile["render"]
     lighting_profile = profile["lighting"]
@@ -325,11 +422,25 @@ def setup_shadow_scene(objects: list[bpy.types.Object], sun_angle_degrees: float
     scene.cycles.use_denoising = bool(render_profile["use_denoising"])
     scene.render.film_transparent = bool(render_profile["transparent_film"])
 
+    suppressed_shadow_casters: list[str] = []
+    caster_profile = profile.get("shadow_casters")
+    root_part_max_z = (
+        float(caster_profile["suppress_root_parts_max_z"])
+        if caster_profile is not None
+        else None
+    )
     for obj in objects:
         obj.hide_render = False
         obj.hide_viewport = False
         obj.visible_camera = False
-        obj.visible_shadow = True
+        suppress_root_shadow = (
+            root_part_max_z is not None
+            and classification[obj.name]["layer"] == "trunk"
+            and float(classification[obj.name]["max_z"]) <= root_part_max_z
+        )
+        obj.visible_shadow = not suppress_root_shadow
+        if suppress_root_shadow:
+            suppressed_shadow_casters.append(obj.name)
 
     plane_mesh = bpy.data.meshes.new("ShadowCatcherPlaneMesh")
     size = 2.8
@@ -348,7 +459,11 @@ def setup_shadow_scene(objects: list[bpy.types.Object], sun_angle_degrees: float
                 math.radians(sun_angle_degrees),
             )
             obj.data.energy = float(lighting_profile["shadow_sun_energy"])
-    return plane
+        elif obj.type == "LIGHT" and obj.name.startswith("LayeredTreeLowOppositeKicker"):
+            # The selected kicker affects albedo only. Ground projection stays
+            # a physical Sun-only Cycles shadow.
+            obj.hide_render = True
+    return plane, suppressed_shadow_casters
 
 
 def main() -> None:
@@ -382,6 +497,7 @@ def main() -> None:
     max_z = max(c.z for c in corners)
     camera_target_z = min_z + (max_z - min_z) * float(profile["camera"]["target_z_fraction"])
     camera, _sun = setup_render(frame_size, camera_target_z, sun_angle_degrees, profile)
+    add_profile_low_opposite_kicker(min_z, max_z, profile)
     anchor = fit_camera_to_objects(camera, objects, profile)
 
     out_dir = args.out_dir.resolve()
@@ -395,7 +511,12 @@ def main() -> None:
         render_png(out_dir / file_name)
 
     set_layer_visibility(objects, classification, "all")
-    setup_shadow_scene(objects, sun_angle_degrees, profile)
+    _shadow_plane, suppressed_shadow_casters = setup_shadow_scene(
+        objects,
+        classification,
+        sun_angle_degrees,
+        profile,
+    )
     render_png(out_dir / "shadow_raw.png")
 
     metadata = {
@@ -409,6 +530,7 @@ def main() -> None:
         "bake_profile": bake_profile_summary(profile, frame_size, sun_angle_degrees, root_embed_fraction),
         "runtime_plant_depth_px": 0,
         "classification": classification,
+        "suppressed_shadow_casters": suppressed_shadow_casters,
         "layers": {
             "albedo": "albedo.png",
             "trunk": "trunk.png",

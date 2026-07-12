@@ -1,0 +1,60 @@
+{
+	"asset": "tree_01_clock_10_low_rear_fill_08_proof",
+	"source_glb": "C:\\Users\\progi\\project-Mirniy\\tree glb\\1.glb",
+	"frame_width": 768,
+	"frame_height": 768,
+	"anchor": [
+		384,
+		564
+	],
+	"bake_profile": {
+		"profile_id": "station_mirny_tree_brightness_proof_c_clock_10_exposure_075",
+		"version": 3,
+		"frame_size": 768,
+		"sun_azimuth_degrees": 219.0,
+		"albedo_sun_elevation_degrees": 38.0,
+		"albedo_sun_angular_diameter_degrees": 4.0,
+		"shadow_sun_elevation_degrees": 42.0,
+		"root_embed_fraction": 0.011,
+		"screen_sun_direction": "west_north_west_10_oclock",
+		"fixed_shadow_direction": "screen_east_south_east",
+		"fixed_shadow_direction_vector_screen": [
+			0.866025,
+			0.5
+		],
+		"sun_shadow_mode": "baked_fixed_east_south_east_stretch_only",
+		"shadow_contact_lock_source_px": 48.0,
+		"yaw_degrees": 90.0,
+		"low_rear_kicker": {
+			"target_dark_trunk_lift_percent": 8.0,
+			"measured_dark_trunk_lift_percent": 7.996082820830641,
+			"measured_dark_foliage_lift_percent": 4.587445956226266,
+			"spot_energy": 15.18355495106789,
+			"use_shadow": false
+		}
+	},
+	"sort_offset": 564,
+	"collision_radius": 18,
+	"plant_depth_px": 0,
+	"wind_strength": 0.45,
+	"snow_capacity": 0.8,
+	"layers": {
+		"albedo": "albedo.png",
+		"trunk": "trunk.png",
+		"foliage": "foliage.png",
+		"shadow": "shadow.png",
+		"wind_mask": "wind_mask.png",
+		"snow_mask": "snow_mask.png",
+		"snow_overlay": "snow_overlay.png",
+		"season_mask": "season_mask.png",
+		"height": "height.png",
+		"normal": "normal.png"
+	},
+	"alpha_bbox": [
+		306,
+		122,
+		156,
+		477
+	],
+	"notes": "Isolated candidate C with calibrated 8% low rear kicker; production not promoted."
+}

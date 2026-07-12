@@ -1,0 +1,70 @@
+{
+  "primary_target_percent": 2.0,
+  "variants": [
+    {
+      "target_lift_percent": 0.0,
+      "measured_trunk_lift_percent": 0.0,
+      "measured_dark_foliage_lift_percent": 0.0,
+      "spot_energy": 0.0,
+      "file": "lift_00.png",
+      "primary": false
+    },
+    {
+      "target_lift_percent": 2.0,
+      "measured_trunk_lift_percent": 1.996502998866112,
+      "measured_dark_foliage_lift_percent": 1.1129178840189713,
+      "spot_energy": 11.5390625,
+      "file": "lift_02.png",
+      "primary": true
+    },
+    {
+      "target_lift_percent": 4.0,
+      "measured_trunk_lift_percent": 4.002880642909945,
+      "measured_dark_foliage_lift_percent": 2.2610140533797507,
+      "spot_energy": 12.818050384521484,
+      "file": "lift_04.png",
+      "primary": false
+    },
+    {
+      "target_lift_percent": 6.0,
+      "measured_trunk_lift_percent": 5.995206916467177,
+      "measured_dark_foliage_lift_percent": 3.4399143346551364,
+      "spot_energy": 14.013483794406056,
+      "file": "lift_06.png",
+      "primary": false
+    },
+    {
+      "target_lift_percent": 8.0,
+      "measured_trunk_lift_percent": 7.996082820830641,
+      "measured_dark_foliage_lift_percent": 4.587445956226266,
+      "spot_energy": 15.18355495106789,
+      "file": "lift_08.png",
+      "primary": false
+    }
+  ],
+  "kicker": {
+    "name": "LayeredTreeLowRearKicker",
+    "type": "SPOT",
+    "screen_side": "east_south_east_opposite_10_oclock_sun",
+    "placement": "low",
+    "aim": "upward_to_middle_lower_trunk",
+    "location": [
+      2.25,
+      -2.05,
+      0.069
+    ],
+    "target": [
+      0.0,
+      0.0,
+      0.419001
+    ],
+    "spot_size_degrees": 52.0,
+    "spot_blend": 0.8799999952316284,
+    "color": [
+      1.0,
+      0.9700000286102295,
+      0.9200000166893005
+    ],
+    "use_shadow": false
+  }
+}

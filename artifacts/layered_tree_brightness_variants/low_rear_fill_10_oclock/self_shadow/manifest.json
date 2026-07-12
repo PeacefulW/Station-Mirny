@@ -1,0 +1,8 @@
+{
+  "controlled_difference": "LayeredTreeSun.data.use_shadow",
+  "candidate_lift_percent": 2.0,
+  "kicker_fixed": true,
+  "camera_fixed": true,
+  "materials_fixed": true,
+  "exposure_fixed": true
+}

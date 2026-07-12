@@ -1,0 +1,142 @@
+{
+  "tree_02": {
+    "asset_dir": "C:\\Users\\progi\\project-Mirniy\\Station-Mirny\\artifacts\\layered_tree_nw_winter_batch_proof\\candidates\\tree_02",
+    "source_glb": "C:\\Users\\progi\\project-Mirniy\\tree glb\\2.glb",
+    "sun_angle_degrees": 205.201124,
+    "anchor": [
+      384,
+      555
+    ],
+    "shadow_centroid_delta": [
+      79.88453041379967,
+      96.15796945718273
+    ],
+    "shadow_screen_angle_degrees": 50.28143519588728,
+    "visible_trunk_snow_alpha_mean": 0.11364428060052359,
+    "root_band_snow_alpha_mean": 0.012403206086129602,
+    "root_zone_64_snow_alpha_mean": 0.020794714882440803,
+    "foliage_snow_alpha_mean": 0.3322606295595763,
+    "foliage_dark_gap_fraction": 0.41994318415743753,
+    "foliage_covered_fraction": 0.4565441146197867,
+    "active_snow_pixel_count": 21233,
+    "active_snow_luma_stddev": 4.220893446322929,
+    "active_snow_luma_range": 37.0,
+    "north_west_sample_count": 1582,
+    "south_east_sample_count": 705,
+    "north_west_luma_mean": 239.96902654867256,
+    "south_east_luma_mean": 221.23829787234044,
+    "north_west_minus_south_east_luma": 18.73072867633212
+  },
+  "tree_03": {
+    "asset_dir": "C:\\Users\\progi\\project-Mirniy\\Station-Mirny\\artifacts\\layered_tree_nw_winter_batch_proof\\candidates\\tree_03",
+    "source_glb": "C:\\Users\\progi\\project-Mirniy\\tree glb\\3.glb",
+    "sun_angle_degrees": 205.201124,
+    "anchor": [
+      384,
+      563
+    ],
+    "shadow_centroid_delta": [
+      105.94322711227744,
+      104.39360947778584
+    ],
+    "shadow_screen_angle_degrees": 44.577891607377715,
+    "visible_trunk_snow_alpha_mean": 0.0730995237211604,
+    "root_band_snow_alpha_mean": 0.0,
+    "root_zone_64_snow_alpha_mean": 0.0,
+    "foliage_snow_alpha_mean": 0.36890184365378137,
+    "foliage_dark_gap_fraction": 0.3433873573911766,
+    "foliage_covered_fraction": 0.4989962297409783,
+    "active_snow_pixel_count": 16959,
+    "active_snow_luma_stddev": 4.965293271550244,
+    "active_snow_luma_range": 40.0,
+    "north_west_sample_count": 1566,
+    "south_east_sample_count": 895,
+    "north_west_luma_mean": 240.8927203065134,
+    "south_east_luma_mean": 219.863687150838,
+    "north_west_minus_south_east_luma": 21.02903315567542
+  },
+  "tree_04": {
+    "asset_dir": "C:\\Users\\progi\\project-Mirniy\\Station-Mirny\\artifacts\\layered_tree_nw_winter_batch_proof\\candidates\\tree_04",
+    "source_glb": "C:\\Users\\progi\\project-Mirniy\\tree glb\\4.glb",
+    "sun_angle_degrees": 205.201124,
+    "anchor": [
+      384,
+      564
+    ],
+    "shadow_centroid_delta": [
+      101.39725912297206,
+      108.0761578034469
+    ],
+    "shadow_screen_angle_degrees": 46.82621315528402,
+    "visible_trunk_snow_alpha_mean": 0.03725049570389954,
+    "root_band_snow_alpha_mean": 0.0,
+    "root_zone_64_snow_alpha_mean": 0.0,
+    "foliage_snow_alpha_mean": 0.23947531703556235,
+    "foliage_dark_gap_fraction": 0.47924054041922887,
+    "foliage_covered_fraction": 0.3432380268414202,
+    "active_snow_pixel_count": 13055,
+    "active_snow_luma_stddev": 5.289882007836392,
+    "active_snow_luma_range": 40.0,
+    "north_west_sample_count": 1510,
+    "south_east_sample_count": 832,
+    "north_west_luma_mean": 240.66092715231787,
+    "south_east_luma_mean": 220.18028846153845,
+    "north_west_minus_south_east_luma": 20.480638690779415
+  },
+  "tree_05": {
+    "asset_dir": "C:\\Users\\progi\\project-Mirniy\\Station-Mirny\\artifacts\\layered_tree_nw_winter_batch_proof\\candidates\\tree_05",
+    "source_glb": "C:\\Users\\progi\\project-Mirniy\\tree glb\\5.glb",
+    "sun_angle_degrees": 205.201124,
+    "anchor": [
+      384,
+      561
+    ],
+    "shadow_centroid_delta": [
+      98.89686646634772,
+      103.70757558411242
+    ],
+    "shadow_screen_angle_degrees": 46.360194986458026,
+    "visible_trunk_snow_alpha_mean": 0.054803783218195026,
+    "root_band_snow_alpha_mean": 0.0,
+    "root_zone_64_snow_alpha_mean": 0.004741903773312527,
+    "foliage_snow_alpha_mean": 0.20594922749643274,
+    "foliage_dark_gap_fraction": 0.6007980239407182,
+    "foliage_covered_fraction": 0.29184875546266387,
+    "active_snow_pixel_count": 11588,
+    "active_snow_luma_stddev": 4.713442348474085,
+    "active_snow_luma_range": 38.0,
+    "north_west_sample_count": 1085,
+    "south_east_sample_count": 540,
+    "north_west_luma_mean": 240.6562211981567,
+    "south_east_luma_mean": 220.1037037037037,
+    "north_west_minus_south_east_luma": 20.552517494452985
+  },
+  "tree_06": {
+    "asset_dir": "C:\\Users\\progi\\project-Mirniy\\Station-Mirny\\artifacts\\layered_tree_nw_winter_batch_proof\\candidates\\tree_06",
+    "source_glb": "C:\\Users\\progi\\project-Mirniy\\tree glb\\6.glb",
+    "sun_angle_degrees": 205.201124,
+    "anchor": [
+      384,
+      566
+    ],
+    "shadow_centroid_delta": [
+      85.47694037303347,
+      100.54746567110692
+    ],
+    "shadow_screen_angle_degrees": 49.63162793071758,
+    "visible_trunk_snow_alpha_mean": 0.07180522153612827,
+    "root_band_snow_alpha_mean": 0.0,
+    "root_zone_64_snow_alpha_mean": 0.005285264439280073,
+    "foliage_snow_alpha_mean": 0.25515216503267973,
+    "foliage_dark_gap_fraction": 0.4615478515625,
+    "foliage_covered_fraction": 0.356201171875,
+    "active_snow_pixel_count": 16336,
+    "active_snow_luma_stddev": 3.9877528718506725,
+    "active_snow_luma_range": 29.0,
+    "north_west_sample_count": 984,
+    "south_east_sample_count": 451,
+    "north_west_luma_mean": 239.47154471544715,
+    "south_east_luma_mean": 221.7139689578714,
+    "north_west_minus_south_east_luma": 17.75757575757575
+  }
+}

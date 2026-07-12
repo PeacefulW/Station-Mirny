@@ -1,0 +1,2 @@
+# Generated proof and diagnostic artifacts are read as raw files by probes.
+# Keep the Godot editor importer out to avoid duplicate UID/import-cache state.

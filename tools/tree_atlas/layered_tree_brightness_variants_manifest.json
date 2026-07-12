@@ -1,0 +1,53 @@
+{
+	"base_profile": "tools/tree_atlas/layered_tree_bake_profile.json",
+	"source_glb": "C:/Users/progi/project-Mirniy/tree glb/1.glb",
+	"yaw_degrees": 90.0,
+	"output_root": "artifacts/layered_tree_brightness_variants",
+	"variants": [
+		{
+			"id": "a_exposure_080",
+			"label": "A - NW 10:30 / exposure 0.80",
+			"overrides": {
+				"render": {"exposure": 0.8},
+				"lighting": {
+					"ambient_fill": {"enabled": false}
+				}
+			}
+		},
+		{
+			"id": "b_ambient_070",
+			"label": "B - NW 10:30 / exposure 0.70 / ambient",
+			"overrides": {
+				"render": {"exposure": 0.7},
+				"lighting": {
+					"ambient_fill": {
+						"enabled": true,
+						"total_energy": 128.0,
+						"light_count": 4,
+						"radius": 3.0,
+						"height": 2.4,
+						"size": 5.0,
+						"color": [0.92, 0.95, 1.0]
+					}
+				}
+			}
+		},
+		{
+			"id": "c_clock_10_exposure_075",
+			"label": "C - WNW 10:00 / exposure 0.75",
+			"overrides": {
+				"render": {"exposure": 0.75},
+				"lighting": {
+					"sun_azimuth_degrees": 219.0,
+					"screen_sun_direction": "west_north_west_10_oclock",
+					"fixed_shadow_direction": "screen_east_south_east",
+					"fixed_shadow_direction_vector_screen": [0.866025, 0.5],
+					"ambient_fill": {"enabled": false}
+				},
+				"runtime": {
+					"sun_shadow_mode": "baked_fixed_east_south_east_stretch_only"
+				}
+			}
+		}
+	]
+}

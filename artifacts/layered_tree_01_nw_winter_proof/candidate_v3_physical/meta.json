@@ -1,0 +1,52 @@
+{
+	"asset": "candidate_v3_physical_layered_glb",
+	"source_glb": "C:\\Users\\progi\\project-Mirniy\\tree glb\\1.glb",
+	"frame_width": 768,
+	"frame_height": 768,
+	"anchor": [
+		384,
+		564
+	],
+	"bake_profile": {
+		"profile_id": "station_mirny_layered_tree_fixed_nw_winter_proof_v2",
+		"version": 2,
+		"frame_size": 768,
+		"sun_azimuth_degrees": 205.201124,
+		"albedo_sun_elevation_degrees": 38.0,
+		"albedo_sun_angular_diameter_degrees": 4.0,
+		"shadow_sun_elevation_degrees": 42.0,
+		"root_embed_fraction": 0.011,
+		"screen_sun_direction": "north_west",
+		"fixed_shadow_direction": "screen_south_east",
+		"fixed_shadow_direction_vector_screen": [
+			0.707107,
+			0.707107
+		],
+		"sun_shadow_mode": "baked_fixed_south_east_stretch_only",
+		"shadow_contact_lock_source_px": 48.0
+	},
+	"sort_offset": 564,
+	"collision_radius": 18,
+	"plant_depth_px": 0,
+	"wind_strength": 0.45,
+	"snow_capacity": 0.8,
+	"layers": {
+		"albedo": "albedo.png",
+		"trunk": "trunk.png",
+		"foliage": "foliage.png",
+		"shadow": "shadow.png",
+		"wind_mask": "wind_mask.png",
+		"snow_mask": "snow_mask.png",
+		"snow_overlay": "snow_overlay.png",
+		"season_mask": "season_mask.png",
+		"height": "height.png",
+		"normal": "normal.png"
+	},
+	"alpha_bbox": [
+		306,
+		122,
+		156,
+		477
+	],
+	"notes": "Prototype layered tree asset from one GLB. Static trunk/foliage layers; runtime wind should use wind_mask and keep trunk/root pinned."
+}

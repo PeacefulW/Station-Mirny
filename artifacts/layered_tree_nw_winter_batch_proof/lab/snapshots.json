@@ -1,0 +1,622 @@
+[
+	{
+		"anchor": [
+			384.0,
+			555.0
+		],
+		"asset": "tree_02_layered_glb",
+		"capture": "tree_02_summer",
+		"effective_wind_strength_px": 0.0,
+		"has_foliage": true,
+		"has_shadow": true,
+		"has_snow": true,
+		"has_trunk": true,
+		"has_trunk_season_material": true,
+		"max_wind_strength_px": 18.0,
+		"path": "C:/Users/progi/project-Mirniy/Station-Mirny/artifacts/layered_tree_nw_winter_batch_proof/lab/tree_02_summer.png",
+		"plant_depth_px": 0.0,
+		"ready": true,
+		"season_amount": 0.0,
+		"shadow_backward_stretch_scale": 1.0,
+		"shadow_contact_lock_source_px": 48.0,
+		"shadow_direction_screen": "south_east",
+		"shadow_direction_vector_screen": [
+			0.707106828689575,
+			0.707106828689575
+		],
+		"shadow_hour": 14.5,
+		"shadow_length_scale": 1.0,
+		"shadow_probe_local_points": {
+			"0": [
+				0.0,
+				0.0
+			],
+			"16": [
+				9.7298002243042,
+				9.7298002243042
+			],
+			"303": [
+				184.257888793945,
+				184.257888793945
+			],
+			"32": [
+				19.4595737457275,
+				19.4596004486084
+			],
+			"48": [
+				29.1893730163574,
+				29.1893482208252
+			],
+			"96": [
+				58.3787460327148,
+				58.3787460327148
+			]
+		},
+		"shadow_rotation_degrees": 0.0,
+		"shadow_texture_override": "",
+		"shadow_width_scale": 1.0,
+		"snow_enabled": false,
+		"state": "summer",
+		"tree_dir": "res://artifacts/layered_tree_nw_winter_batch_proof/candidates/tree_02",
+		"tree_id": "tree_02",
+		"wind_strength_px": 0.0
+	},
+	{
+		"anchor": [
+			384.0,
+			555.0
+		],
+		"asset": "tree_02_layered_glb",
+		"capture": "tree_02_winter",
+		"effective_wind_strength_px": 0.0,
+		"has_foliage": true,
+		"has_shadow": true,
+		"has_snow": true,
+		"has_trunk": true,
+		"has_trunk_season_material": true,
+		"max_wind_strength_px": 18.0,
+		"path": "C:/Users/progi/project-Mirniy/Station-Mirny/artifacts/layered_tree_nw_winter_batch_proof/lab/tree_02_winter.png",
+		"plant_depth_px": 0.0,
+		"ready": true,
+		"season_amount": 1.0,
+		"shadow_backward_stretch_scale": 1.0,
+		"shadow_contact_lock_source_px": 48.0,
+		"shadow_direction_screen": "south_east",
+		"shadow_direction_vector_screen": [
+			0.707106828689575,
+			0.707106828689575
+		],
+		"shadow_hour": 14.5,
+		"shadow_length_scale": 1.0,
+		"shadow_probe_local_points": {
+			"0": [
+				0.0,
+				0.0
+			],
+			"16": [
+				9.7298002243042,
+				9.7298002243042
+			],
+			"303": [
+				184.257888793945,
+				184.257888793945
+			],
+			"32": [
+				19.4595737457275,
+				19.4596004486084
+			],
+			"48": [
+				29.1893730163574,
+				29.1893482208252
+			],
+			"96": [
+				58.3787460327148,
+				58.3787460327148
+			]
+		},
+		"shadow_rotation_degrees": 0.0,
+		"shadow_texture_override": "",
+		"shadow_width_scale": 1.0,
+		"snow_enabled": true,
+		"state": "winter",
+		"tree_dir": "res://artifacts/layered_tree_nw_winter_batch_proof/candidates/tree_02",
+		"tree_id": "tree_02",
+		"wind_strength_px": 0.0
+	},
+	{
+		"anchor": [
+			384.0,
+			563.0
+		],
+		"asset": "tree_03_layered_glb",
+		"capture": "tree_03_summer",
+		"effective_wind_strength_px": 0.0,
+		"has_foliage": true,
+		"has_shadow": true,
+		"has_snow": true,
+		"has_trunk": true,
+		"has_trunk_season_material": true,
+		"max_wind_strength_px": 18.0,
+		"path": "C:/Users/progi/project-Mirniy/Station-Mirny/artifacts/layered_tree_nw_winter_batch_proof/lab/tree_03_summer.png",
+		"plant_depth_px": 0.0,
+		"ready": true,
+		"season_amount": 0.0,
+		"shadow_backward_stretch_scale": 1.0,
+		"shadow_contact_lock_source_px": 48.0,
+		"shadow_direction_screen": "south_east",
+		"shadow_direction_vector_screen": [
+			0.707106828689575,
+			0.707106828689575
+		],
+		"shadow_hour": 14.5,
+		"shadow_length_scale": 1.0,
+		"shadow_probe_local_points": {
+			"0": [
+				0.0,
+				0.0
+			],
+			"16": [
+				9.7298002243042,
+				9.7298002243042
+			],
+			"303": [
+				184.257888793945,
+				184.257888793945
+			],
+			"32": [
+				19.4595737457275,
+				19.4596004486084
+			],
+			"48": [
+				29.1893730163574,
+				29.1893482208252
+			],
+			"96": [
+				58.3787460327148,
+				58.3787460327148
+			]
+		},
+		"shadow_rotation_degrees": 0.0,
+		"shadow_texture_override": "",
+		"shadow_width_scale": 1.0,
+		"snow_enabled": false,
+		"state": "summer",
+		"tree_dir": "res://artifacts/layered_tree_nw_winter_batch_proof/candidates/tree_03",
+		"tree_id": "tree_03",
+		"wind_strength_px": 0.0
+	},
+	{
+		"anchor": [
+			384.0,
+			563.0
+		],
+		"asset": "tree_03_layered_glb",
+		"capture": "tree_03_winter",
+		"effective_wind_strength_px": 0.0,
+		"has_foliage": true,
+		"has_shadow": true,
+		"has_snow": true,
+		"has_trunk": true,
+		"has_trunk_season_material": true,
+		"max_wind_strength_px": 18.0,
+		"path": "C:/Users/progi/project-Mirniy/Station-Mirny/artifacts/layered_tree_nw_winter_batch_proof/lab/tree_03_winter.png",
+		"plant_depth_px": 0.0,
+		"ready": true,
+		"season_amount": 1.0,
+		"shadow_backward_stretch_scale": 1.0,
+		"shadow_contact_lock_source_px": 48.0,
+		"shadow_direction_screen": "south_east",
+		"shadow_direction_vector_screen": [
+			0.707106828689575,
+			0.707106828689575
+		],
+		"shadow_hour": 14.5,
+		"shadow_length_scale": 1.0,
+		"shadow_probe_local_points": {
+			"0": [
+				0.0,
+				0.0
+			],
+			"16": [
+				9.7298002243042,
+				9.7298002243042
+			],
+			"303": [
+				184.257888793945,
+				184.257888793945
+			],
+			"32": [
+				19.4595737457275,
+				19.4596004486084
+			],
+			"48": [
+				29.1893730163574,
+				29.1893482208252
+			],
+			"96": [
+				58.3787460327148,
+				58.3787460327148
+			]
+		},
+		"shadow_rotation_degrees": 0.0,
+		"shadow_texture_override": "",
+		"shadow_width_scale": 1.0,
+		"snow_enabled": true,
+		"state": "winter",
+		"tree_dir": "res://artifacts/layered_tree_nw_winter_batch_proof/candidates/tree_03",
+		"tree_id": "tree_03",
+		"wind_strength_px": 0.0
+	},
+	{
+		"anchor": [
+			384.0,
+			564.0
+		],
+		"asset": "tree_04_layered_glb",
+		"capture": "tree_04_summer",
+		"effective_wind_strength_px": 0.0,
+		"has_foliage": true,
+		"has_shadow": true,
+		"has_snow": true,
+		"has_trunk": true,
+		"has_trunk_season_material": true,
+		"max_wind_strength_px": 18.0,
+		"path": "C:/Users/progi/project-Mirniy/Station-Mirny/artifacts/layered_tree_nw_winter_batch_proof/lab/tree_04_summer.png",
+		"plant_depth_px": 0.0,
+		"ready": true,
+		"season_amount": 0.0,
+		"shadow_backward_stretch_scale": 1.0,
+		"shadow_contact_lock_source_px": 48.0,
+		"shadow_direction_screen": "south_east",
+		"shadow_direction_vector_screen": [
+			0.707106828689575,
+			0.707106828689575
+		],
+		"shadow_hour": 14.5,
+		"shadow_length_scale": 1.0,
+		"shadow_probe_local_points": {
+			"0": [
+				0.0,
+				0.0
+			],
+			"16": [
+				9.7298002243042,
+				9.7298002243042
+			],
+			"303": [
+				184.257888793945,
+				184.257888793945
+			],
+			"32": [
+				19.4595737457275,
+				19.4596004486084
+			],
+			"48": [
+				29.1893730163574,
+				29.1893482208252
+			],
+			"96": [
+				58.3787460327148,
+				58.3787460327148
+			]
+		},
+		"shadow_rotation_degrees": 0.0,
+		"shadow_texture_override": "",
+		"shadow_width_scale": 1.0,
+		"snow_enabled": false,
+		"state": "summer",
+		"tree_dir": "res://artifacts/layered_tree_nw_winter_batch_proof/candidates/tree_04",
+		"tree_id": "tree_04",
+		"wind_strength_px": 0.0
+	},
+	{
+		"anchor": [
+			384.0,
+			564.0
+		],
+		"asset": "tree_04_layered_glb",
+		"capture": "tree_04_winter",
+		"effective_wind_strength_px": 0.0,
+		"has_foliage": true,
+		"has_shadow": true,
+		"has_snow": true,
+		"has_trunk": true,
+		"has_trunk_season_material": true,
+		"max_wind_strength_px": 18.0,
+		"path": "C:/Users/progi/project-Mirniy/Station-Mirny/artifacts/layered_tree_nw_winter_batch_proof/lab/tree_04_winter.png",
+		"plant_depth_px": 0.0,
+		"ready": true,
+		"season_amount": 1.0,
+		"shadow_backward_stretch_scale": 1.0,
+		"shadow_contact_lock_source_px": 48.0,
+		"shadow_direction_screen": "south_east",
+		"shadow_direction_vector_screen": [
+			0.707106828689575,
+			0.707106828689575
+		],
+		"shadow_hour": 14.5,
+		"shadow_length_scale": 1.0,
+		"shadow_probe_local_points": {
+			"0": [
+				0.0,
+				0.0
+			],
+			"16": [
+				9.7298002243042,
+				9.7298002243042
+			],
+			"303": [
+				184.257888793945,
+				184.257888793945
+			],
+			"32": [
+				19.4595737457275,
+				19.4596004486084
+			],
+			"48": [
+				29.1893730163574,
+				29.1893482208252
+			],
+			"96": [
+				58.3787460327148,
+				58.3787460327148
+			]
+		},
+		"shadow_rotation_degrees": 0.0,
+		"shadow_texture_override": "",
+		"shadow_width_scale": 1.0,
+		"snow_enabled": true,
+		"state": "winter",
+		"tree_dir": "res://artifacts/layered_tree_nw_winter_batch_proof/candidates/tree_04",
+		"tree_id": "tree_04",
+		"wind_strength_px": 0.0
+	},
+	{
+		"anchor": [
+			384.0,
+			561.0
+		],
+		"asset": "tree_05_layered_glb",
+		"capture": "tree_05_summer",
+		"effective_wind_strength_px": 0.0,
+		"has_foliage": true,
+		"has_shadow": true,
+		"has_snow": true,
+		"has_trunk": true,
+		"has_trunk_season_material": true,
+		"max_wind_strength_px": 18.0,
+		"path": "C:/Users/progi/project-Mirniy/Station-Mirny/artifacts/layered_tree_nw_winter_batch_proof/lab/tree_05_summer.png",
+		"plant_depth_px": 0.0,
+		"ready": true,
+		"season_amount": 0.0,
+		"shadow_backward_stretch_scale": 1.0,
+		"shadow_contact_lock_source_px": 48.0,
+		"shadow_direction_screen": "south_east",
+		"shadow_direction_vector_screen": [
+			0.707106828689575,
+			0.707106828689575
+		],
+		"shadow_hour": 14.5,
+		"shadow_length_scale": 1.0,
+		"shadow_probe_local_points": {
+			"0": [
+				0.0,
+				0.0
+			],
+			"16": [
+				9.7298002243042,
+				9.7298002243042
+			],
+			"303": [
+				184.257888793945,
+				184.257888793945
+			],
+			"32": [
+				19.4595737457275,
+				19.4596004486084
+			],
+			"48": [
+				29.1893730163574,
+				29.1893482208252
+			],
+			"96": [
+				58.3787460327148,
+				58.3787460327148
+			]
+		},
+		"shadow_rotation_degrees": 0.0,
+		"shadow_texture_override": "",
+		"shadow_width_scale": 1.0,
+		"snow_enabled": false,
+		"state": "summer",
+		"tree_dir": "res://artifacts/layered_tree_nw_winter_batch_proof/candidates/tree_05",
+		"tree_id": "tree_05",
+		"wind_strength_px": 0.0
+	},
+	{
+		"anchor": [
+			384.0,
+			561.0
+		],
+		"asset": "tree_05_layered_glb",
+		"capture": "tree_05_winter",
+		"effective_wind_strength_px": 0.0,
+		"has_foliage": true,
+		"has_shadow": true,
+		"has_snow": true,
+		"has_trunk": true,
+		"has_trunk_season_material": true,
+		"max_wind_strength_px": 18.0,
+		"path": "C:/Users/progi/project-Mirniy/Station-Mirny/artifacts/layered_tree_nw_winter_batch_proof/lab/tree_05_winter.png",
+		"plant_depth_px": 0.0,
+		"ready": true,
+		"season_amount": 1.0,
+		"shadow_backward_stretch_scale": 1.0,
+		"shadow_contact_lock_source_px": 48.0,
+		"shadow_direction_screen": "south_east",
+		"shadow_direction_vector_screen": [
+			0.707106828689575,
+			0.707106828689575
+		],
+		"shadow_hour": 14.5,
+		"shadow_length_scale": 1.0,
+		"shadow_probe_local_points": {
+			"0": [
+				0.0,
+				0.0
+			],
+			"16": [
+				9.7298002243042,
+				9.7298002243042
+			],
+			"303": [
+				184.257888793945,
+				184.257888793945
+			],
+			"32": [
+				19.4595737457275,
+				19.4596004486084
+			],
+			"48": [
+				29.1893730163574,
+				29.1893482208252
+			],
+			"96": [
+				58.3787460327148,
+				58.3787460327148
+			]
+		},
+		"shadow_rotation_degrees": 0.0,
+		"shadow_texture_override": "",
+		"shadow_width_scale": 1.0,
+		"snow_enabled": true,
+		"state": "winter",
+		"tree_dir": "res://artifacts/layered_tree_nw_winter_batch_proof/candidates/tree_05",
+		"tree_id": "tree_05",
+		"wind_strength_px": 0.0
+	},
+	{
+		"anchor": [
+			384.0,
+			566.0
+		],
+		"asset": "tree_06_layered_glb",
+		"capture": "tree_06_summer",
+		"effective_wind_strength_px": 0.0,
+		"has_foliage": true,
+		"has_shadow": true,
+		"has_snow": true,
+		"has_trunk": true,
+		"has_trunk_season_material": true,
+		"max_wind_strength_px": 18.0,
+		"path": "C:/Users/progi/project-Mirniy/Station-Mirny/artifacts/layered_tree_nw_winter_batch_proof/lab/tree_06_summer.png",
+		"plant_depth_px": 0.0,
+		"ready": true,
+		"season_amount": 0.0,
+		"shadow_backward_stretch_scale": 1.0,
+		"shadow_contact_lock_source_px": 48.0,
+		"shadow_direction_screen": "south_east",
+		"shadow_direction_vector_screen": [
+			0.707106828689575,
+			0.707106828689575
+		],
+		"shadow_hour": 14.5,
+		"shadow_length_scale": 1.0,
+		"shadow_probe_local_points": {
+			"0": [
+				0.0,
+				0.0
+			],
+			"16": [
+				9.7298002243042,
+				9.7298002243042
+			],
+			"303": [
+				184.257888793945,
+				184.257888793945
+			],
+			"32": [
+				19.4595737457275,
+				19.4596004486084
+			],
+			"48": [
+				29.1893730163574,
+				29.1893482208252
+			],
+			"96": [
+				58.3787460327148,
+				58.3787460327148
+			]
+		},
+		"shadow_rotation_degrees": 0.0,
+		"shadow_texture_override": "",
+		"shadow_width_scale": 1.0,
+		"snow_enabled": false,
+		"state": "summer",
+		"tree_dir": "res://artifacts/layered_tree_nw_winter_batch_proof/candidates/tree_06",
+		"tree_id": "tree_06",
+		"wind_strength_px": 0.0
+	},
+	{
+		"anchor": [
+			384.0,
+			566.0
+		],
+		"asset": "tree_06_layered_glb",
+		"capture": "tree_06_winter",
+		"effective_wind_strength_px": 0.0,
+		"has_foliage": true,
+		"has_shadow": true,
+		"has_snow": true,
+		"has_trunk": true,
+		"has_trunk_season_material": true,
+		"max_wind_strength_px": 18.0,
+		"path": "C:/Users/progi/project-Mirniy/Station-Mirny/artifacts/layered_tree_nw_winter_batch_proof/lab/tree_06_winter.png",
+		"plant_depth_px": 0.0,
+		"ready": true,
+		"season_amount": 1.0,
+		"shadow_backward_stretch_scale": 1.0,
+		"shadow_contact_lock_source_px": 48.0,
+		"shadow_direction_screen": "south_east",
+		"shadow_direction_vector_screen": [
+			0.707106828689575,
+			0.707106828689575
+		],
+		"shadow_hour": 14.5,
+		"shadow_length_scale": 1.0,
+		"shadow_probe_local_points": {
+			"0": [
+				0.0,
+				0.0
+			],
+			"16": [
+				9.7298002243042,
+				9.7298002243042
+			],
+			"303": [
+				184.257888793945,
+				184.257888793945
+			],
+			"32": [
+				19.4595737457275,
+				19.4596004486084
+			],
+			"48": [
+				29.1893730163574,
+				29.1893482208252
+			],
+			"96": [
+				58.3787460327148,
+				58.3787460327148
+			]
+		},
+		"shadow_rotation_degrees": 0.0,
+		"shadow_texture_override": "",
+		"shadow_width_scale": 1.0,
+		"snow_enabled": true,
+		"state": "winter",
+		"tree_dir": "res://artifacts/layered_tree_nw_winter_batch_proof/candidates/tree_06",
+		"tree_id": "tree_06",
+		"wind_strength_px": 0.0
+	}
+]
