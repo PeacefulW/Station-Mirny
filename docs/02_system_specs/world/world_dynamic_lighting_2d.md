@@ -113,12 +113,16 @@ Two owners, deliberately split:
   contribution, so the visible FACADE catches warm torch light while the top/roof
   stays dark. The runtime mountain visual mask is kept at 8 samples/tile
   (`step_px = 8 px`); 4 samples/tile exposed the mask texel grid as stair steps.
-  Excavated BASE and construction-roof reveal sample visual remaining mass `V`,
-  not gameplay `mask`/`S`: `V` preserves the organic room contour and its
-  straight continuation-aware physical mouths while `S` may be fully clear over
-  a mined source tile. A separate tiny physical-mouth selector keeps the same
-  aperture SDF when active-floor value `255` replaces direction bits in the
-  combined roof selector.
+  Excavated `BASE` samples visual remaining mass `V`, not gameplay `mask`/`S`:
+  `V` preserves the organic room contour and its straight continuation-aware
+  physical mouths while `S` may be fully clear over a mined source tile. The
+  native full-resolution facade aperture `A` only suppresses cosmetic crag warp
+  around that exact `BASE` cut. Construction `ROOF` always samples immutable
+  closed geometry `C`; a displayed-component-only selector and scalar blend
+  change its final alpha, while directional mouth metadata never cuts the roof.
+  `ROOF` may additionally read `V` as a non-geometric reference solely to yield
+  alpha over the active cavity's existing internal `BASE(V)` facade; roof top,
+  colour and normals remain `C`.
   This owner draws the facade-vs-roof look and base facade lighting; it is **not**
   changed by the redesign. It does **not** know occlusion, so a facade the torch cannot
   see (around a corner / behind a spur) is still drawn lit here — the field below
@@ -353,6 +357,11 @@ Two owners, deliberately split:
 Version `1.6` fixes the presentation sun azimuth at north-west (`225°`), so cast
 shadows consistently fall south-east. Time of day still owns sun energy, colour,
 visibility and shadow length; no gameplay-light authority or save boundary changes.
+Version `1.7` aligns mountain sprite-lighting terminology with the facade-aperture
+roof contract: `BASE` owns `V/A`, `ROOF` keeps immutable `C`, and only the
+displayed component plus reveal blend affects roof alpha. The read-only `V`
+facade reference prevents `C` from repainting active internal walls. Torch-shadow
+field selection remains `C` outside and `V` for the active lighting component.
 
 Version `1.7` records the independently authored layered-tree v4 bake: screen
 `10:00` Sun, `20%` low shadowless albedo kicker, and fixed east-south-east

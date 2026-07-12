@@ -38,6 +38,10 @@ func _run() -> void:
 		"the legacy call and the optional empty dug-halo call must be byte-identical"
 	)
 	_assert(
+		(legacy_result.get("physical_mouth_aperture_mask", PackedByteArray()) as PackedByteArray).is_empty(),
+		"a legacy closed mask must not allocate a physical mouth aperture",
+	)
+	_assert(
 		int(legacy_result.get("solid_sample_count", -1)) == CORE_SAMPLE_COUNT,
 		"the fully closed 16x16 core must report 256 solid samples"
 	)
@@ -98,6 +102,7 @@ func _run() -> void:
 			scenario_closed_halo = _build_closed_halo(true)
 			scenario_legacy_result = _build_legacy_mask(core, scenario_closed_halo)
 		_assert_dual_scenario(core, scenario_closed_halo, scenario_legacy_result, scenario)
+	_assert_physical_mouth_aperture_cardinals_and_stability(core)
 	await _assert_threaded_backend(closed_halo, legacy_result)
 
 	_finish()
@@ -119,6 +124,10 @@ func _assert_dual_scenario(
 	var remaining_mass_mask: PackedByteArray = dual_result.get("remaining_mass_mask", PackedByteArray()) as PackedByteArray
 	var visual_remaining_mass_mask: PackedByteArray = dual_result.get(
 		"visual_remaining_mass_mask",
+		PackedByteArray(),
+	) as PackedByteArray
+	var physical_mouth_aperture_mask: PackedByteArray = dual_result.get(
+		"physical_mouth_aperture_mask",
 		PackedByteArray(),
 	) as PackedByteArray
 	var primary_mask: PackedByteArray = dual_result.get("mask", PackedByteArray()) as PackedByteArray
@@ -173,6 +182,10 @@ func _assert_dual_scenario(
 			scenario_name,
 		)
 	if scenario.has("mouth_tile"):
+		_assert(
+			physical_mouth_aperture_mask.size() == MASK_SIDE * MASK_SIDE,
+			"%s physical mouth aperture must be a full L8 raster" % scenario_name,
+		)
 		_assert_visual_mouth_shoulders_remain(
 			visual_remaining_mass_mask,
 			closed_roof_mask,
@@ -181,11 +194,261 @@ func _assert_dual_scenario(
 			scenario_name,
 		)
 	if scenario.has("wide_mouth_tiles"):
+		_assert(
+			physical_mouth_aperture_mask.size() == MASK_SIDE * MASK_SIDE,
+			"%s wide physical mouth aperture must be a full L8 raster" % scenario_name,
+		)
 		_assert_visual_wide_mouth_has_no_inner_posts(
 			visual_remaining_mass_mask,
 			scenario.get("wide_mouth_tiles", []) as Array,
 			scenario_name,
 		)
+	if not scenario.has("mouth_tile") and not scenario.has("wide_mouth_tiles"):
+		_assert(
+			physical_mouth_aperture_mask.is_empty(),
+			"%s without a physical boundary mouth must return an empty aperture" % scenario_name,
+		)
+
+func _assert_physical_mouth_aperture_cardinals_and_stability(core: Object) -> void:
+	var fixtures: Array[Dictionary] = [
+		{"direction": Vector2i.UP, "mouth_tile": Vector2i(8, 0)},
+		{"direction": Vector2i.RIGHT, "mouth_tile": Vector2i(15, 8)},
+		{"direction": Vector2i.DOWN, "mouth_tile": Vector2i(8, 15)},
+		{"direction": Vector2i.LEFT, "mouth_tile": Vector2i(0, 8)},
+	]
+	for fixture: Dictionary in fixtures:
+		var direction: Vector2i = fixture.get("direction", Vector2i.ZERO) as Vector2i
+		var mouth_tile: Vector2i = fixture.get("mouth_tile", Vector2i.ZERO) as Vector2i
+		var label: String = "physical_mouth_%s" % str(direction)
+		var directional_closed: PackedByteArray = _build_closed_halo_for_direction(direction)
+		var baseline_dug: PackedByteArray = _build_dug_halo([mouth_tile])
+		var baseline: Dictionary = _build_mask(core, directional_closed, baseline_dug)
+		_assert_physical_mouth_aperture_matches_exact_cut(
+			baseline,
+			mouth_tile,
+			direction,
+			label,
+		)
+		var baseline_aperture: PackedByteArray = baseline.get(
+			"physical_mouth_aperture_mask",
+			PackedByteArray(),
+		) as PackedByteArray
+		for tested_depth: int in [1, 3, 10]:
+			var deep_tiles: Array[Vector2i] = [mouth_tile]
+			for depth: int in range(1, tested_depth + 1):
+				deep_tiles.append(mouth_tile - direction * depth)
+			var deep_result: Dictionary = _build_mask(
+				core,
+				directional_closed,
+				_build_dug_halo(deep_tiles),
+			)
+			var deep_aperture: PackedByteArray = deep_result.get(
+				"physical_mouth_aperture_mask",
+				PackedByteArray(),
+			) as PackedByteArray
+			_assert(
+				deep_aperture == baseline_aperture,
+				"%s aperture must remain byte-identical after digging %d tiles inward" \
+						% [label, tested_depth],
+			)
+
+	_assert_physical_mouth_aperture_widths(core)
+	_assert_corner_physical_mouth_aperture(core)
+	_assert_two_nearby_physical_mouths(core)
+
+func _assert_physical_mouth_aperture_widths(core: Object) -> void:
+	var direction := Vector2i.DOWN
+	var directional_closed: PackedByteArray = _build_closed_halo_for_direction(direction)
+	for width: int in [1, 2, 3, 8]:
+		var first_x: int = 8 - floori(float(width) * 0.5)
+		var mouth_tiles: Array[Vector2i] = []
+		for offset: int in range(width):
+			mouth_tiles.append(Vector2i(first_x + offset, CHUNK_SIZE - 1))
+		var result: Dictionary = _build_mask(
+			core,
+			directional_closed,
+			_build_dug_halo(mouth_tiles),
+		)
+		var aperture: PackedByteArray = result.get(
+			"physical_mouth_aperture_mask",
+			PackedByteArray(),
+		) as PackedByteArray
+		_assert(
+			aperture.size() == MASK_SIDE * MASK_SIDE,
+			"width-%d physical mouth must return a full aperture raster" % width,
+		)
+		_assert_each_mouth_source_half_has_aperture(
+			aperture,
+			mouth_tiles,
+			direction,
+			"width_%d" % width,
+		)
+		_assert_visual_wide_mouth_has_no_inner_posts(
+			result.get("visual_remaining_mass_mask", PackedByteArray()) as PackedByteArray,
+			mouth_tiles,
+			"width_%d" % width,
+		)
+
+func _assert_corner_physical_mouth_aperture(core: Object) -> void:
+	var corner_tile := Vector2i.ZERO
+	var corner_directions: Array[Vector2i] = [
+		Vector2i.UP,
+		Vector2i.LEFT,
+	]
+	var closed_halo: PackedByteArray = _build_closed_halo_for_directions(corner_directions)
+	var corner_tiles: Array[Vector2i] = [corner_tile]
+	var result: Dictionary = _build_mask(
+		core,
+		closed_halo,
+		_build_dug_halo(corner_tiles),
+	)
+	var aperture: PackedByteArray = result.get(
+		"physical_mouth_aperture_mask",
+		PackedByteArray(),
+	) as PackedByteArray
+	_assert_each_mouth_source_half_has_aperture(
+		aperture,
+		corner_tiles,
+		Vector2i.UP,
+		"north_west_corner_north_half",
+	)
+	_assert_each_mouth_source_half_has_aperture(
+		aperture,
+		corner_tiles,
+		Vector2i.LEFT,
+		"north_west_corner_west_half",
+	)
+
+func _assert_two_nearby_physical_mouths(core: Object) -> void:
+	var direction := Vector2i.DOWN
+	var mouth_tiles: Array[Vector2i] = [Vector2i(6, 15), Vector2i(8, 15)]
+	var result: Dictionary = _build_mask(
+		core,
+		_build_closed_halo_for_direction(direction),
+		_build_dug_halo(mouth_tiles),
+	)
+	var aperture: PackedByteArray = result.get(
+		"physical_mouth_aperture_mask",
+		PackedByteArray(),
+	) as PackedByteArray
+	_assert_each_mouth_source_half_has_aperture(
+		aperture,
+		mouth_tiles,
+		direction,
+		"two_nearby_mouths",
+	)
+	var gap_tile := Vector2i(7, 15) + Vector2i.ONE * HALO_RADIUS_TILES
+	var gap_origin: Vector2i = gap_tile * PIXELS_PER_TILE
+	for y: int in range(gap_origin.y, gap_origin.y + PIXELS_PER_TILE):
+		for x: int in range(gap_origin.x, gap_origin.x + PIXELS_PER_TILE):
+			_assert(
+				aperture[y * MASK_SIDE + x] == 0,
+				"two nearby mouths must not merge through their retained middle tile",
+			)
+
+func _assert_each_mouth_source_half_has_aperture(
+	aperture: PackedByteArray,
+	mouth_tiles: Array[Vector2i],
+	direction: Vector2i,
+	label: String,
+) -> void:
+	_assert(aperture.size() == MASK_SIDE * MASK_SIDE, "%s aperture shape" % label)
+	if aperture.size() != MASK_SIDE * MASK_SIDE:
+		return
+	for mouth_tile: Vector2i in mouth_tiles:
+		var pixel_origin: Vector2i = (
+			mouth_tile + Vector2i.ONE * HALO_RADIUS_TILES
+		) * PIXELS_PER_TILE
+		var nonzero_count: int = 0
+		for local_y: int in range(PIXELS_PER_TILE):
+			for local_x: int in range(PIXELS_PER_TILE):
+				var in_outward_half: bool = (
+					(direction == Vector2i.UP and local_y < PIXELS_PER_TILE / 2)
+					or (direction == Vector2i.RIGHT and local_x >= PIXELS_PER_TILE / 2)
+					or (direction == Vector2i.DOWN and local_y >= PIXELS_PER_TILE / 2)
+					or (direction == Vector2i.LEFT and local_x < PIXELS_PER_TILE / 2)
+				)
+				if not in_outward_half:
+					continue
+				var pixel: Vector2i = pixel_origin + Vector2i(local_x, local_y)
+				if aperture[pixel.y * MASK_SIDE + pixel.x] != 0:
+					nonzero_count += 1
+		_assert(
+			nonzero_count > 0,
+			"%s mouth tile %s must cut its outward source half" % [label, str(mouth_tile)],
+		)
+
+func _assert_physical_mouth_aperture_matches_exact_cut(
+	result: Dictionary,
+	mouth_tile: Vector2i,
+	direction: Vector2i,
+	label: String,
+) -> void:
+	var aperture: PackedByteArray = result.get(
+		"physical_mouth_aperture_mask",
+		PackedByteArray(),
+	) as PackedByteArray
+	var closed: PackedByteArray = result.get("closed_roof_mask", PackedByteArray()) as PackedByteArray
+	var visual: PackedByteArray = result.get(
+		"visual_remaining_mass_mask",
+		PackedByteArray(),
+	) as PackedByteArray
+	_assert(aperture.size() == MASK_SIDE * MASK_SIDE, "%s aperture shape" % label)
+	if aperture.size() != MASK_SIDE * MASK_SIDE \
+			or closed.size() != MASK_SIDE * MASK_SIDE \
+			or visual.size() != MASK_SIDE * MASK_SIDE:
+		return
+	var aperture_nonzero_count: int = 0
+	for y: int in range(MASK_SIDE):
+		for x: int in range(MASK_SIDE):
+			var pixel := Vector2i(x, y)
+			var in_physical_zone: bool = _is_pixel_in_physical_mouth_zone(
+				pixel,
+				mouth_tile,
+				direction,
+			)
+			var index: int = y * MASK_SIDE + x
+			var expected: int = (
+				maxi(0, int(closed[index]) - int(visual[index]))
+				if in_physical_zone
+				else 0
+			)
+			_assert(
+				int(aperture[index]) == expected,
+				"%s aperture must equal gated CLOSED-VISUAL at pixel %s" % [label, str(pixel)],
+			)
+			if aperture[index] != 0:
+				aperture_nonzero_count += 1
+	_assert(aperture_nonzero_count > 0, "%s aperture must remove visible closed mass" % label)
+
+func _is_pixel_in_physical_mouth_zone(
+	pixel: Vector2i,
+	mouth_tile: Vector2i,
+	direction: Vector2i,
+) -> bool:
+	var source_halo_tile: Vector2i = mouth_tile + Vector2i.ONE * HALO_RADIUS_TILES
+	var pixel_tile := Vector2i(pixel.x / PIXELS_PER_TILE, pixel.y / PIXELS_PER_TILE)
+	var local := Vector2i(pixel.x % PIXELS_PER_TILE, pixel.y % PIXELS_PER_TILE)
+	var lateral_open: bool
+	if direction.x == 0:
+		lateral_open = local.x >= PIXELS_PER_TILE / 8 \
+			and local.x < PIXELS_PER_TILE - PIXELS_PER_TILE / 8
+	else:
+		lateral_open = local.y >= PIXELS_PER_TILE / 8 \
+			and local.y < PIXELS_PER_TILE - PIXELS_PER_TILE / 8
+	if not lateral_open:
+		return false
+	if pixel_tile == source_halo_tile + direction:
+		return true
+	if pixel_tile != source_halo_tile:
+		return false
+	if direction == Vector2i.UP:
+		return local.y < PIXELS_PER_TILE / 2
+	if direction == Vector2i.RIGHT:
+		return local.x >= PIXELS_PER_TILE / 2
+	if direction == Vector2i.DOWN:
+		return local.y >= PIXELS_PER_TILE / 2
+	return local.x < PIXELS_PER_TILE / 2
 
 func _build_mask(
 	core: Object,
@@ -221,6 +484,28 @@ func _build_closed_halo(open_south: bool) -> PackedByteArray:
 	if open_south:
 		for y: int in range(HALO_RADIUS_TILES + CHUNK_SIZE, HALO_SIDE):
 			for x: int in range(HALO_SIDE):
+				closed_halo[y * HALO_SIDE + x] = 0
+	return closed_halo
+
+func _build_closed_halo_for_direction(direction: Vector2i) -> PackedByteArray:
+	var directions: Array[Vector2i] = [direction]
+	return _build_closed_halo_for_directions(directions)
+
+func _build_closed_halo_for_directions(directions: Array[Vector2i]) -> PackedByteArray:
+	var closed_halo := PackedByteArray()
+	closed_halo.resize(HALO_SIDE * HALO_SIDE)
+	closed_halo.fill(1)
+	for y: int in range(HALO_SIDE):
+		for x: int in range(HALO_SIDE):
+			var is_exterior: bool = false
+			for direction: Vector2i in directions:
+				is_exterior = is_exterior or (
+					(direction == Vector2i.UP and y < HALO_RADIUS_TILES)
+					or (direction == Vector2i.RIGHT and x >= HALO_RADIUS_TILES + CHUNK_SIZE)
+					or (direction == Vector2i.DOWN and y >= HALO_RADIUS_TILES + CHUNK_SIZE)
+					or (direction == Vector2i.LEFT and x < HALO_RADIUS_TILES)
+				)
+			if is_exterior:
 				closed_halo[y * HALO_SIDE + x] = 0
 	return closed_halo
 
@@ -556,6 +841,13 @@ func _assert_threaded_backend(
 		_assert(
 			threaded_visual.size() == MASK_SIDE * MASK_SIDE,
 			"threaded mountain result must preserve the full visual remaining-mass mask",
+		)
+		_assert(
+			(mountain_result.get(
+				"physical_mouth_aperture_mask",
+				PackedByteArray(),
+			) as PackedByteArray).is_empty(),
+			"threaded mountain result without a boundary mouth must preserve an empty aperture",
 		)
 		_assert_dug_tile_is_fully_zero(threaded_remaining, Vector2i(8, 6), "threaded_mountain")
 		_assert_visual_tile_topology_core_and_arms(

@@ -519,9 +519,15 @@ func _process_mountain_halo_mask_request(worker_world_core: Object, request: Dic
 					"closed_roof_mask",
 					PackedByteArray(),
 				) as PackedByteArray
+				var physical_mouth_aperture_mask: PackedByteArray = result.get(
+					"physical_mouth_aperture_mask",
+					PackedByteArray(),
+				) as PackedByteArray
 				output_valid = remaining_mask.size() == expected_byte_count \
 					and visual_remaining_mask.size() == expected_byte_count \
 					and closed_mask.size() == expected_byte_count \
+					and (physical_mouth_aperture_mask.is_empty() \
+						or physical_mouth_aperture_mask.size() == expected_byte_count) \
 					and mask == remaining_mask
 				if not output_valid:
 					result["message"] = "Native mountain construction-mask output is malformed."

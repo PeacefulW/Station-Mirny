@@ -56,7 +56,10 @@ func _run() -> void:
 	dug[mouth_index] = 1
 	remaining = closed.duplicate()
 	remaining[mouth_index] = 0
-	dual_result = _dual_result(width, remaining, closed, dug)
+	var aperture := PackedByteArray()
+	aperture.resize(width * width)
+	aperture[mouth_index] = 255
+	dual_result = _dual_result(width, remaining, closed, dug, aperture)
 	_assert(
 		view.apply_mountain_native_mask_data(dual_result, Vector2.ZERO, 1.0),
 		"Excavated paired native mask must apply.",
@@ -78,8 +81,20 @@ func _run() -> void:
 	_assert(bool(outside_debug.get("reveal_texture_ready", false)), "Reveal texture must exist after dig.")
 	_assert(bool(outside_debug.get("dug_texture_ready", false)), "Dug guard texture must exist after dig.")
 	_assert(
-		view._mountain_active_floor_halo_image.get_data()[mouth_index] == 4,
-		"Outside selector must preserve south direction bits, not reveal the full tile.",
+		bool(outside_debug.get("physical_mouth_aperture_texture_ready", false)),
+		"Canonical full-resolution aperture must upload for BASE.",
+	)
+	_assert(
+		view._mountain_physical_mouth_aperture_image.get_data() == aperture,
+		"BASE aperture texture must preserve the native L8 raster byte-for-byte.",
+	)
+	_assert(
+		view._mountain_active_floor_halo_image.get_data()[mouth_index] == 0,
+		"Outside combined roof selector must remain zero despite mouth metadata.",
+	)
+	_assert(
+		_all_zero(view.call("_build_mountain_roof_reveal_mask") as PackedByteArray),
+		"Outside roof reveal mask must be exactly empty so ROOF remains CLOSED.",
 	)
 	var physical_mouth_bytes: PackedByteArray = view._mountain_outside_mouth_halo_image.get_data()
 	_assert(
@@ -98,6 +113,61 @@ func _run() -> void:
 		physical_mouth_bytes[mouth_index - 64] == 0,
 		"Physical selector must stay empty two cells behind the source mouth.",
 	)
+	var base_material: ShaderMaterial = view._mountain_top_mask_sprite.material as ShaderMaterial
+	var roof_material: ShaderMaterial = view._mountain_closed_roof_mask_material
+	_assert(base_material != null, "BASE material must exist after upload.")
+	_assert(roof_material != null, "ROOF material must exist after upload.")
+	if base_material != null:
+		_assert(
+			base_material.get_shader_parameter("base_visual_mask_texture") \
+					== view._mountain_top_mask_texture,
+			"BASE must bind its current V texture as the facade reference.",
+		)
+		_assert(
+			float(base_material.get_shader_parameter("physical_mouth_aperture_enabled")) > 0.5,
+			"Only BASE must enable native aperture unwarp.",
+		)
+		_assert(
+			float(base_material.get_shader_parameter("physical_mouth_direction_enabled")) > 0.5,
+			"BASE must receive N/E/S/W metadata for local facade ownership.",
+		)
+		_assert(
+			is_zero_approx(float(base_material.get_shader_parameter("component_reveal_blend"))),
+			"BASE must never receive roof reveal blending.",
+		)
+	if roof_material != null:
+		_assert(
+			roof_material.get_shader_parameter("base_visual_mask_texture") \
+					== view._mountain_top_mask_texture,
+			"ROOF must read V only as auxiliary internal-facade ownership.",
+		)
+		_assert(
+			roof_material.get_shader_parameter("closed_mask_texture") \
+					== view._mountain_closed_roof_mask_texture,
+			"ROOF geometry must still bind immutable CLOSED independently from V.",
+		)
+		_assert(
+			is_zero_approx(float(roof_material.get_shader_parameter("physical_mouth_aperture_enabled"))),
+			"ROOF must ignore the physical aperture.",
+		)
+		_assert(
+			float(roof_material.get_shader_parameter("physical_mouth_direction_enabled")) > 0.5,
+			"ROOF may use direction metadata only to relinquish the matching facade band.",
+		)
+		_assert(
+			is_zero_approx(float(roof_material.get_shader_parameter("component_reveal_blend"))),
+			"Outside ROOF starts fully CLOSED at blend zero.",
+		)
+	view.set_mountain_roof_reveal_blend(1.0)
+	if roof_material != null:
+		_assert(
+			is_equal_approx(float(roof_material.get_shader_parameter("component_reveal_blend")), 1.0),
+			"ChunkView must update only the ROOF blend uniform without rebuilding masks.",
+		)
+	_assert(
+		_all_zero(view.call("_build_mountain_roof_reveal_mask") as PackedByteArray),
+		"Blend one with an outside zero selector must still leave ROOF fully CLOSED.",
+	)
 
 	var active: PackedByteArray = zero_halo.duplicate()
 	active[mouth_index] = 1
@@ -108,7 +178,11 @@ func _run() -> void:
 	_assert(view.apply_pending_mountain_native_mask_visual(texture), "Inside selector must upload.")
 	_assert(
 		view._mountain_active_floor_halo_image.get_data()[mouth_index] == 255,
-		"Active cavity ownership must override the shallow outside aperture.",
+		"Active cavity ownership must be binary and independent from mouth metadata.",
+	)
+	_assert(
+		(view.call("_build_mountain_roof_reveal_mask") as PackedByteArray)[mouth_index] == 255,
+		"Inside roof selector must contain only the displayed connected component.",
 	)
 
 	view.queue_free()
@@ -123,12 +197,14 @@ func _dual_result(
 		remaining: PackedByteArray,
 		closed: PackedByteArray,
 		dug: PackedByteArray,
+		aperture: PackedByteArray = PackedByteArray(),
 ) -> Dictionary:
 	return {
 		"mask": remaining,
 		"remaining_mass_mask": remaining,
 		"visual_remaining_mass_mask": remaining,
 		"closed_roof_mask": closed,
+		"physical_mouth_aperture_mask": aperture,
 		"dug_halo": dug,
 		"width": width,
 		"height": width,
@@ -138,6 +214,13 @@ func _dual_result(
 		"closed_sample_count": 1,
 		"dug_sample_count": 1 if dug[mouth_index_or_zero(dug)] != 0 else 0,
 	}
+
+
+func _all_zero(bytes: PackedByteArray) -> bool:
+	for value: int in bytes:
+		if value != 0:
+			return false
+	return true
 
 
 func mouth_index_or_zero(bytes: PackedByteArray) -> int:

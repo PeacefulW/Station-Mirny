@@ -131,16 +131,23 @@ var _mountain_top_mask_texture_scale: float = 0.70
 var _mountain_top_mask_visual_dirty: bool = false
 # The construction roof is a second, presentation-only copy of the immutable
 # closed mountain silhouette. Collision and mining keep reading the hard
-# `_mountain_top_mask_bytes`; BASE/facade/roof sample the visual remaining mask.
+# `_mountain_top_mask_bytes`; BASE/facade sample V while ROOF keeps CLOSED and
+# fades its final contribution over the displayed connected component.
 var _mountain_closed_roof_mask_sprite: Sprite2D = null
 var _mountain_closed_roof_mask_texture: ImageTexture = null
 var _mountain_closed_roof_mask_image: Image = null
 var _mountain_closed_roof_mask_bytes: PackedByteArray = PackedByteArray()
 var _mountain_closed_roof_mask_material: ShaderMaterial = null
 var _mountain_closed_roof_mask_visual_dirty: bool = false
+var _mountain_physical_mouth_aperture_bytes: PackedByteArray = PackedByteArray()
+var _mountain_physical_mouth_aperture_image: Image = null
+var _mountain_physical_mouth_aperture_texture: ImageTexture = null
+var _mountain_physical_mouth_aperture_visual_dirty: bool = false
+var _mountain_roof_reveal_blend: float = 0.0
 # CPU tile-halo fields share the native mask's UV extent. Before upload they
-# are expanded into one native-resolution selector so the active excavation
-# follows the organic C-S contour and a surface mouth can be sub-tile deep.
+# are expanded into one native-resolution selector so the displayed connected
+# excavation follows the organic C-S contour. Physical mouths remain separate
+# metadata and never cut the immutable CLOSED roof.
 var _mountain_active_floor_halo_bytes: PackedByteArray = PackedByteArray()
 var _mountain_active_floor_halo_image: Image = null
 var _mountain_active_floor_halo_texture: ImageTexture = null
@@ -988,6 +995,10 @@ func apply_mountain_native_mask_data(
 		"visual_remaining_mass_mask",
 		PackedByteArray(),
 	) as PackedByteArray
+	var physical_mouth_aperture_bytes: PackedByteArray = mask_result.get(
+		"physical_mouth_aperture_mask",
+		PackedByteArray(),
+	) as PackedByteArray
 	if visual_mask_bytes.is_empty() and not has_any_dual_field:
 		visual_mask_bytes = mask_bytes
 	var dug_halo_side: int = _square_l8_mask_side(dug_halo)
@@ -995,6 +1006,10 @@ func apply_mountain_native_mask_data(
 			and (
 				closed_mask_bytes.size() != expected_mask_bytes \
 						or visual_mask_bytes.size() != expected_mask_bytes \
+						or (
+							not physical_mouth_aperture_bytes.is_empty() \
+									and physical_mouth_aperture_bytes.size() != expected_mask_bytes
+						) \
 						or dug_halo_side <= 0
 			):
 		return false
@@ -1030,6 +1045,13 @@ func apply_mountain_native_mask_data(
 			# construction, not to the excavated remaining-mass mask.
 			_clear_mountain_foothill_mask()
 
+		var aperture_changed: bool = mask_geometry_changed \
+				or _mountain_physical_mouth_aperture_bytes != physical_mouth_aperture_bytes
+		if aperture_changed:
+			_mountain_physical_mouth_aperture_bytes = physical_mouth_aperture_bytes.duplicate()
+			_mountain_physical_mouth_aperture_image = null
+			_mountain_physical_mouth_aperture_visual_dirty = true
+
 		var normalized_dug_halo: PackedByteArray = _normalize_binary_l8_mask(dug_halo)
 		if _mountain_dug_halo_side != dug_halo_side \
 				or _mountain_dug_halo_bytes != normalized_dug_halo:
@@ -1059,7 +1081,8 @@ func apply_mountain_native_mask_data(
 			_mountain_outside_mouth_halo_image = null
 			_mountain_outside_mouth_halo_texture = null
 			_mountain_outside_mouth_halo_visual_dirty = true
-			# Active floor and the physical outside mouth share one GPU selector.
+			# Recreate the component texture when halo geometry changes. Physical
+			# mouth metadata stays in its own selector and never enters roof reveal.
 			_mountain_active_floor_halo_image = null
 			_mountain_active_floor_halo_visual_dirty = true
 	elif not _mountain_closed_roof_mask_bytes.is_empty() \
@@ -1090,10 +1113,23 @@ func apply_mountain_native_mask_data(
 		"solid_sample_count": int(mask_result.get("solid_sample_count", 0)),
 		"closed_sample_count": int(mask_result.get("closed_sample_count", 0)),
 		"dug_sample_count": int(mask_result.get("dug_sample_count", 0)),
+		"physical_mouth_aperture_pixel_count": _count_nonzero_mask_bytes(
+			physical_mouth_aperture_bytes,
+		),
 		"dual_roof_mask": has_any_dual_field,
 		"pixels_per_tile": int(mask_result.get("pixels_per_tile", 0)),
 	}
 	return true
+
+
+func set_mountain_roof_reveal_blend(value: float) -> void:
+	_mountain_roof_reveal_blend = clampf(value, 0.0, 1.0)
+	if _mountain_closed_roof_mask_material != null:
+		_mountain_closed_roof_mask_material.set_shader_parameter(
+			"component_reveal_blend",
+			_mountain_roof_reveal_blend,
+		)
+	_mountain_page_debug["roof_reveal_blend"] = _mountain_roof_reveal_blend
 
 
 ## Publish the resolver-selected connected cavity as a tile halo. This is a
@@ -1141,8 +1177,6 @@ func apply_mountain_roof_reveal_halo(
 		_mountain_outside_mouth_halo_side = halo_side
 		_mountain_outside_mouth_halo_image = null
 		_mountain_outside_mouth_halo_visual_dirty = true
-		_mountain_active_floor_halo_image = null
-		_mountain_active_floor_halo_visual_dirty = true
 		changed = true
 	if not changed:
 		return false
@@ -1160,6 +1194,7 @@ func apply_pending_mountain_native_mask_visual(
 ) -> bool:
 	var any_visual_dirty: bool = _mountain_top_mask_visual_dirty \
 			or _mountain_closed_roof_mask_visual_dirty \
+			or _mountain_physical_mouth_aperture_visual_dirty \
 			or _mountain_active_floor_halo_visual_dirty \
 			or _mountain_outside_mouth_halo_visual_dirty \
 			or _mountain_dug_halo_visual_dirty
@@ -1183,6 +1218,7 @@ func apply_pending_mountain_native_mask_visual(
 			and _count_nonzero_mask_bytes(_mountain_dug_halo_bytes) > 0
 	if not construction_roof_needed:
 		_mountain_closed_roof_mask_visual_dirty = false
+		_mountain_physical_mouth_aperture_visual_dirty = false
 		_mountain_dug_halo_visual_dirty = false
 		_mountain_active_floor_halo_visual_dirty = false
 		_mountain_outside_mouth_halo_visual_dirty = false
@@ -1223,6 +1259,31 @@ func apply_pending_mountain_native_mask_visual(
 		)
 
 	if construction_roof_needed and (
+		_mountain_physical_mouth_aperture_visual_dirty \
+				or (
+					not _mountain_physical_mouth_aperture_bytes.is_empty() \
+							and _mountain_physical_mouth_aperture_texture == null
+				)
+	):
+		if _mountain_physical_mouth_aperture_bytes.is_empty():
+			_mountain_physical_mouth_aperture_image = null
+			_mountain_physical_mouth_aperture_texture = null
+		else:
+			_mountain_physical_mouth_aperture_image = Image.create_from_data(
+				_mountain_top_mask_width,
+				_mountain_top_mask_height,
+				false,
+				Image.FORMAT_L8,
+				_mountain_physical_mouth_aperture_bytes,
+			)
+			_mountain_physical_mouth_aperture_texture = _update_or_create_l8_texture(
+				_mountain_physical_mouth_aperture_texture,
+				_mountain_physical_mouth_aperture_image,
+			)
+		_mountain_physical_mouth_aperture_visual_dirty = false
+		_sync_mountain_facade_mouth_material_parameters()
+
+	if construction_roof_needed and (
 		_mountain_dug_halo_visual_dirty or _mountain_dug_halo_texture == null
 	):
 		_mountain_dug_halo_image = Image.create_from_data(
@@ -1237,10 +1298,9 @@ func apply_pending_mountain_native_mask_visual(
 			_mountain_dug_halo_image,
 		)
 
-	# Keep the physical mouth directions in their own tiny texture. The combined
-	# reveal selector turns an active floor into 255 and intentionally loses its
-	# direction bits; the separate field lets the stone jamb/header remain while
-	# the player is inside and lets adjacent mouth cells stitch as one span.
+	# Keep physical mouth directions in their own tiny metadata texture. They do
+	# not reveal ROOF; both passes use them only to assign the local N/E/S/W
+	# facade band, while native A remains the sole aperture geometry.
 	if construction_roof_needed and (
 		_mountain_outside_mouth_halo_visual_dirty \
 				or _mountain_outside_mouth_halo_texture == null
@@ -1257,6 +1317,7 @@ func apply_pending_mountain_native_mask_visual(
 			_mountain_outside_mouth_halo_image,
 		)
 		_mountain_outside_mouth_halo_visual_dirty = false
+		_sync_mountain_facade_mouth_material_parameters()
 
 	if construction_roof_needed and (
 		_mountain_active_floor_halo_visual_dirty \
@@ -1490,6 +1551,7 @@ func _upload_mountain_mask_texture(
 	var sprite: Sprite2D = _ensure_mountain_top_mask_sprite()
 	var material: ShaderMaterial = _ensure_mountain_top_mask_material()
 	material.set_shader_parameter("closed_mask_texture", _mountain_top_mask_texture)
+	material.set_shader_parameter("base_visual_mask_texture", _mountain_top_mask_texture)
 	_mountain_top_mask_origin_world = mask_origin_world
 	_mountain_top_mask_step_px = mask_step_px
 	_mountain_top_mask_texture_scale = top_texture_scale
@@ -1533,13 +1595,29 @@ func _upload_mountain_mask_texture(
 	material.set_shader_parameter("top_texture_scale", top_texture_scale)
 	material.set_shader_parameter("roof_overlay_mode", 0.0)
 	material.set_shader_parameter("roof_component_reveal_enabled", 0.0)
+	material.set_shader_parameter("component_reveal_blend", 0.0)
 	material.set_shader_parameter(
-		"physical_mouth_enabled",
-		1.0 if _count_nonzero_mask_bytes(_mountain_outside_mouth_halo_bytes) > 0 else 0.0,
+		"physical_mouth_aperture_enabled",
+		1.0 if (
+			_mountain_physical_mouth_aperture_texture != null \
+					and _count_nonzero_mask_bytes(_mountain_physical_mouth_aperture_bytes) > 0
+		) else 0.0,
+	)
+	if _mountain_physical_mouth_aperture_texture != null:
+		material.set_shader_parameter(
+			"physical_mouth_aperture_texture",
+			_mountain_physical_mouth_aperture_texture,
+		)
+	material.set_shader_parameter(
+		"physical_mouth_direction_enabled",
+		1.0 if (
+			_mountain_outside_mouth_halo_texture != null \
+					and _count_nonzero_mask_bytes(_mountain_outside_mouth_halo_bytes) > 0
+		) else 0.0,
 	)
 	if _mountain_outside_mouth_halo_texture != null:
 		material.set_shader_parameter(
-			"physical_mouth_halo_texture",
+			"physical_mouth_direction_texture",
 			_mountain_outside_mouth_halo_texture,
 		)
 	_set_mask_shader_chunk_clip(
@@ -1619,22 +1697,28 @@ func _sync_mountain_closed_roof_visual(
 		material.set_shader_parameter("face_detail_normal_mix", 0.0)
 	material.set_shader_parameter("top_texture_scale", _mountain_top_mask_texture_scale)
 	material.set_shader_parameter("roof_overlay_mode", 1.0)
+	material.set_shader_parameter("physical_mouth_aperture_enabled", 0.0)
 	material.set_shader_parameter(
-		"physical_mouth_enabled",
-		1.0 if _count_nonzero_mask_bytes(_mountain_outside_mouth_halo_bytes) > 0 else 0.0,
-	)
-	material.set_shader_parameter(
-		"roof_component_reveal_enabled",
+		"physical_mouth_direction_enabled",
 		1.0 if (
-			_count_nonzero_mask_bytes(_mountain_active_floor_halo_bytes) > 0 \
-					or _count_nonzero_mask_bytes(_mountain_outside_mouth_halo_bytes) > 0
+			_mountain_outside_mouth_halo_texture != null \
+					and _count_nonzero_mask_bytes(_mountain_outside_mouth_halo_bytes) > 0
 		) else 0.0,
 	)
+	if _mountain_outside_mouth_halo_texture != null:
+		material.set_shader_parameter(
+			"physical_mouth_direction_texture",
+			_mountain_outside_mouth_halo_texture,
+		)
+	material.set_shader_parameter("component_reveal_blend", _mountain_roof_reveal_blend)
+	material.set_shader_parameter(
+		"roof_component_reveal_enabled",
+		1.0 if _count_nonzero_mask_bytes(_mountain_active_floor_halo_bytes) > 0 else 0.0,
+	)
 	material.set_shader_parameter("closed_mask_texture", _mountain_closed_roof_mask_texture)
-	material.set_shader_parameter("remaining_mask_texture", _mountain_top_mask_texture)
+	material.set_shader_parameter("base_visual_mask_texture", _mountain_top_mask_texture)
 	material.set_shader_parameter("active_floor_halo_texture", _mountain_active_floor_halo_texture)
 	material.set_shader_parameter("active_floor_halo_soft_texture", _mountain_active_floor_halo_texture)
-	material.set_shader_parameter("physical_mouth_halo_texture", _mountain_outside_mouth_halo_texture)
 	material.set_shader_parameter("any_cutout_halo_texture", _mountain_dug_halo_texture)
 	_set_mask_shader_chunk_clip(
 		material,
@@ -1664,6 +1748,51 @@ func _sync_mountain_closed_roof_visual(
 			move_child(sprite, desired_index)
 
 
+func _sync_mountain_facade_mouth_material_parameters() -> void:
+	var direction_enabled: float = 1.0 if (
+		_mountain_outside_mouth_halo_texture != null \
+				and _count_nonzero_mask_bytes(_mountain_outside_mouth_halo_bytes) > 0
+	) else 0.0
+	if _mountain_top_mask_material != null:
+		_mountain_top_mask_material.set_shader_parameter(
+			"physical_mouth_aperture_enabled",
+			1.0 if (
+				_mountain_physical_mouth_aperture_texture != null \
+						and _count_nonzero_mask_bytes(
+							_mountain_physical_mouth_aperture_bytes
+						) > 0
+			) else 0.0,
+		)
+		if _mountain_physical_mouth_aperture_texture != null:
+			_mountain_top_mask_material.set_shader_parameter(
+				"physical_mouth_aperture_texture",
+				_mountain_physical_mouth_aperture_texture,
+			)
+		_mountain_top_mask_material.set_shader_parameter(
+			"physical_mouth_direction_enabled",
+			direction_enabled,
+		)
+		if _mountain_outside_mouth_halo_texture != null:
+			_mountain_top_mask_material.set_shader_parameter(
+				"physical_mouth_direction_texture",
+				_mountain_outside_mouth_halo_texture,
+			)
+	if _mountain_closed_roof_mask_material != null:
+		_mountain_closed_roof_mask_material.set_shader_parameter(
+			"physical_mouth_aperture_enabled",
+			0.0,
+		)
+		_mountain_closed_roof_mask_material.set_shader_parameter(
+			"physical_mouth_direction_enabled",
+			direction_enabled,
+		)
+		if _mountain_outside_mouth_halo_texture != null:
+			_mountain_closed_roof_mask_material.set_shader_parameter(
+				"physical_mouth_direction_texture",
+				_mountain_outside_mouth_halo_texture,
+			)
+
+
 func _square_l8_mask_side(mask_bytes: PackedByteArray) -> int:
 	if mask_bytes.is_empty():
 		return 0
@@ -1682,21 +1811,11 @@ func _normalize_binary_l8_mask(mask_bytes: PackedByteArray) -> PackedByteArray:
 func _build_mountain_roof_reveal_mask() -> PackedByteArray:
 	var side: int = _mountain_active_floor_halo_side
 	if side <= 0 \
-			or side != _mountain_outside_mouth_halo_side \
-			or _mountain_active_floor_halo_bytes.size() != side * side \
-			or _mountain_outside_mouth_halo_bytes.size() != side * side:
+			or _mountain_active_floor_halo_bytes.size() != side * side:
 		return PackedByteArray()
-	var reveal := PackedByteArray()
-	reveal.resize(side * side)
-	for tile_index: int in range(side * side):
-		if int(_mountain_active_floor_halo_bytes[tile_index]) != 0:
-			reveal[tile_index] = 255
-		else:
-			# Direction bits stay below the active threshold; the shader turns
-			# source/exterior codes into the straight shallow aperture.
-			var mouth_code: int = int(_mountain_outside_mouth_halo_bytes[tile_index])
-			reveal[tile_index] = mouth_code & 63
-	return reveal
+	# Roof ownership is component-only. The physical mouth is a facade cut and
+	# must never punch a presentation aperture through immutable CLOSED.
+	return _mountain_active_floor_halo_bytes.duplicate()
 
 
 func _build_projected_physical_mouth_halo(
@@ -1775,6 +1894,7 @@ func _upload_terrain_edge_mask_texture(
 	var sprite: Sprite2D = _ensure_terrain_edge_mask_sprite()
 	var material: ShaderMaterial = _ensure_terrain_edge_mask_material()
 	material.set_shader_parameter("closed_mask_texture", _terrain_edge_mask_texture)
+	material.set_shader_parameter("base_visual_mask_texture", _terrain_edge_mask_texture)
 	if face_texture == null:
 		face_texture = top_texture
 	if face_normal_texture == null:
@@ -1899,6 +2019,10 @@ func _clear_mountain_closed_roof_state() -> void:
 	_mountain_closed_roof_mask_bytes = PackedByteArray()
 	_mountain_closed_roof_mask_material = null
 	_mountain_closed_roof_mask_visual_dirty = false
+	_mountain_physical_mouth_aperture_bytes = PackedByteArray()
+	_mountain_physical_mouth_aperture_image = null
+	_mountain_physical_mouth_aperture_texture = null
+	_mountain_physical_mouth_aperture_visual_dirty = false
 	_mountain_active_floor_halo_bytes = PackedByteArray()
 	_mountain_active_floor_halo_image = null
 	_mountain_active_floor_halo_texture = null
@@ -2255,6 +2379,13 @@ func get_mountain_native_mask_debug_state() -> Dictionary:
 	debug["closed_roof_mask_solid_count"] = _count_nonzero_mask_bytes(
 		_mountain_closed_roof_mask_bytes,
 	)
+	debug["physical_mouth_aperture_byte_count"] = _mountain_physical_mouth_aperture_bytes.size()
+	debug["physical_mouth_aperture_pixel_count"] = _count_nonzero_mask_bytes(
+		_mountain_physical_mouth_aperture_bytes,
+	)
+	debug["physical_mouth_aperture_texture_ready"] = (
+		_mountain_physical_mouth_aperture_texture != null
+	)
 	debug["dug_halo_byte_count"] = _mountain_dug_halo_bytes.size()
 	debug["dug_halo_tile_count"] = _count_nonzero_mask_bytes(_mountain_dug_halo_bytes)
 	debug["active_floor_halo_byte_count"] = _mountain_active_floor_halo_bytes.size()
@@ -2268,7 +2399,8 @@ func get_mountain_native_mask_debug_state() -> Dictionary:
 	debug["outside_mouth_texture_ready"] = _mountain_outside_mouth_halo_texture != null
 	debug["roof_reveal_active"] = _count_nonzero_mask_bytes(
 		_mountain_active_floor_halo_bytes,
-	) > 0 or _count_nonzero_mask_bytes(_mountain_outside_mouth_halo_bytes) > 0
+	) > 0
+	debug["roof_reveal_blend"] = _mountain_roof_reveal_blend
 	debug["roof_overlay_visible"] = _mountain_closed_roof_mask_sprite != null \
 			and is_instance_valid(_mountain_closed_roof_mask_sprite) \
 			and _mountain_closed_roof_mask_sprite.visible
@@ -2280,6 +2412,7 @@ func get_mountain_native_mask_debug_state() -> Dictionary:
 	debug["outside_mouth_halo_side"] = _mountain_outside_mouth_halo_side
 	debug["dug_halo_side"] = _mountain_dug_halo_side
 	var roof_visual_pending: bool = _mountain_closed_roof_mask_visual_dirty \
+			or _mountain_physical_mouth_aperture_visual_dirty \
 			or _mountain_active_floor_halo_visual_dirty \
 			or _mountain_outside_mouth_halo_visual_dirty \
 			or _mountain_dug_halo_visual_dirty

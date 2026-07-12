@@ -5,21 +5,16 @@ extends SceneTree
 const WorldRuntimeConstants = preload("res://core/systems/world/world_runtime_constants.gd")
 
 const DEV_SCENE_PATH: String = "res://scenes/dev/mountain_runtime_dig_dev_scene.tscn"
-const OUTPUT_DIR: String = "res://artifacts/mountain_runtime_dig_dev_scene"
+const OUTPUT_DIR: String = "res://artifacts/mountain_mouth_facade_probe"
 const MAX_READY_FRAMES: int = 3000
 const MAX_SETTLE_FRAMES: int = 3000
 const MAX_PROTOTYPE_FRAMES: int = 1800
 const MAX_SELECTOR_FRAMES: int = 360
 const EVIDENCE_FILES: PackedStringArray = [
-	"artifacts/mountain_runtime_dig_dev_scene/production_outside_closed.png",
-	"artifacts/mountain_runtime_dig_dev_scene/production_inside_open.png",
-	"artifacts/mountain_runtime_dig_dev_scene/production_outside_restored.png",
-	"artifacts/mountain_runtime_dig_dev_scene/production_inside_torch_organic.png",
-]
-const LEGACY_PROTOTYPE_FILES: PackedStringArray = [
-	"artifacts/mountain_runtime_dig_dev_scene/prototype_outside_closed.png",
-	"artifacts/mountain_runtime_dig_dev_scene/prototype_inside_open.png",
-	"artifacts/mountain_runtime_dig_dev_scene/prototype_outside_restored.png",
+	"artifacts/mountain_mouth_facade_probe/production_outside_closed.png",
+	"artifacts/mountain_mouth_facade_probe/production_inside_open.png",
+	"artifacts/mountain_mouth_facade_probe/production_outside_restored.png",
+	"artifacts/mountain_mouth_facade_probe/production_inside_torch_organic.png",
 ]
 
 var _failed: bool = false
@@ -136,7 +131,8 @@ func _run() -> void:
 	_assert((int(outside.get("outside_mouth_direction_or", 0)) & 4) != 0, "OUTSIDE render must carry SOUTH mouth direction.")
 	var mouth_selector: Dictionary = scene.call("debug_get_prototype_mouth_aperture_state") as Dictionary
 	_assert(int(mouth_selector.get("direction_code", 0)) == 4, "Rendered fixture mouth selector must be SOUTH=4.")
-	_assert(int(mouth_selector.get("active_value", 255)) != 255, "OUTSIDE rendered mouth must not be a full active-floor tile.")
+	_assert(int(mouth_selector.get("active_value", 255)) == 0, "OUTSIDE roof selector must stay zero at the physical mouth.")
+	_assert(int(mouth_selector.get("aperture_nonzero_count", 0)) > 0, "Production BASE must receive the native full-resolution facade aperture.")
 	_capture("%s/production_outside_closed.png" % OUTPUT_DIR)
 	var outside_crop: Image = await _capture_entrance_crop_without_player(scene, outside_snapshot)
 	_assert_crop_has_visual_information(outside_crop, "OUTSIDE")
@@ -146,8 +142,9 @@ func _run() -> void:
 	var remaining_hash: int = int(outside.get("remaining_mask_hash", 0))
 	var closed_hash: int = int(outside.get("closed_mask_hash", 0))
 
-	# INSIDE: only Player position changes. Resolver selects the connected T and
-	# the production shader composes CLOSED -> remaining mass over that floor.
+	# INSIDE: only Player position changes. Resolver selects the connected T;
+	# ROOF keeps CLOSED geometry and fades its final alpha over that component,
+	# exposing the already-rendered organic BASE(V) underneath.
 	_assert(bool(scene.call("debug_place_player_for_prototype", true)), "Player must enter the T junction.")
 	var inside_snapshot: Dictionary = await _wait_selector(scene, true)
 	var inside: Dictionary = inside_snapshot.get("prototype", { }) as Dictionary
@@ -161,6 +158,32 @@ func _run() -> void:
 	_capture("%s/production_inside_open.png" % OUTPUT_DIR)
 	var inside_crop: Image = await _capture_entrance_crop_without_player(scene, inside_snapshot)
 	_assert_crop_has_visual_information(inside_crop, "INSIDE")
+	var facade_visibility: Dictionary = await _probe_inside_facade_visibility(
+		scene,
+		inside_snapshot,
+	)
+	var facade_wall_pixels: int = int(facade_visibility.get("wall_pixels", 0))
+	var facade_matching_pixels: int = int(facade_visibility.get("matching_pixels", 0))
+	var facade_match_ratio: float = float(facade_visibility.get("match_ratio", 0.0))
+	_assert(
+		facade_wall_pixels >= 512,
+		"INSIDE facade reference must contain enough real BASE wall pixels (got %d)." \
+				% facade_wall_pixels,
+	)
+	_assert(
+		facade_match_ratio >= 0.98,
+		"INSIDE composite must expose BASE(V) facade, not CLOSED top " \
+				+ "(matched %d/%d, %.2f%%)." % [
+					facade_matching_pixels,
+					facade_wall_pixels,
+					facade_match_ratio * 100.0,
+				],
+	)
+	print("ROOF_PROBE inner_facade wall_pixels=%d matching_pixels=%d match_ratio=%.5f" % [
+		facade_wall_pixels,
+		facade_matching_pixels,
+		facade_match_ratio,
+	])
 	print("ROOF_PROBE stage=production_inside_captured")
 
 	# Restore OUTSIDE through the resolver and demand exact pixels in the fixed
@@ -201,7 +224,7 @@ func _run() -> void:
 
 	# Final visual proof for the reported regression: at night the torch field
 	# must consume active remaining mass S, while the construction roof keeps its
-	# original floor-only reveal semantics. This capture deliberately happens
+	# component-owned floor + inner-facade reveal semantics. This capture happens
 	# after the byte-exact OUTSIDE restore proof.
 	_assert(bool(scene.call("debug_place_player_for_prototype", true)), "Player must re-enter for torch proof.")
 	await _wait_selector(scene, true)
@@ -244,11 +267,8 @@ func _cleanup_stale_evidence() -> void:
 	var dir: DirAccess = DirAccess.open("res://")
 	if dir == null:
 		return
-	dir.make_dir_recursive("artifacts/mountain_runtime_dig_dev_scene")
+	dir.make_dir_recursive("artifacts/mountain_mouth_facade_probe")
 	for relative_path: String in EVIDENCE_FILES:
-		if dir.file_exists(relative_path):
-			dir.remove(relative_path)
-	for relative_path: String in LEGACY_PROTOTYPE_FILES:
 		if dir.file_exists(relative_path):
 			dir.remove(relative_path)
 
@@ -265,9 +285,17 @@ func _wait_target_native_settled(scene: Node) -> Dictionary:
 
 func _wait_selector(scene: Node, expected_inside: bool) -> Dictionary:
 	var snapshot: Dictionary = { }
+	var streamer: Node = scene.get_node_or_null("WorldRuntimeV0/WorldStreamer")
 	for _frame: int in range(MAX_SELECTOR_FRAMES):
 		await physics_frame
 		await process_frame
+		# The probe freezes Engine.time_scale so first/restored OUTSIDE pixels are
+		# byte-identical. Advance only the presentation FSM with a deterministic
+		# frame step; native uploads and resolver ownership remain fully production.
+		if Engine.time_scale == 0.0 \
+				and streamer != null \
+				and streamer.has_method("_advance_mountain_roof_reveal_transition"):
+			streamer.call("_advance_mountain_roof_reveal_transition", 1.0 / 60.0)
 		snapshot = scene.call("get_debug_snapshot") as Dictionary
 		var state: Dictionary = snapshot.get("prototype", { }) as Dictionary
 		var settled: bool = bool(state.get("inside", false)) == expected_inside
@@ -282,12 +310,32 @@ func _wait_selector(scene: Node, expected_inside: bool) -> Dictionary:
 				and not bool(state.get("active_floor_reveal_active", true)) \
 				and int(state.get("active_floor_halo_tile_count", -1)) == 0 \
 				and int(state.get("outside_mouth_halo_tile_count", 0)) > 0
+		settled = settled and _roof_presentation_is_settled(streamer, expected_inside)
 		if settled and _target_native_is_settled(snapshot):
 			for _settle: int in range(8):
 				await process_frame
 			return scene.call("get_debug_snapshot") as Dictionary
 	_assert(false, "Production selector did not settle to %s: %s" % ["INSIDE" if expected_inside else "OUTSIDE", str(snapshot.get("prototype", { }))])
 	return snapshot
+
+
+func _roof_presentation_is_settled(streamer: Node, expected_inside: bool) -> bool:
+	if streamer == null or not streamer.has_method("get_mountain_mask_runtime_debug_state"):
+		return false
+	var debug: Dictionary = streamer.call("get_mountain_mask_runtime_debug_state") as Dictionary
+	var blend: float = float(debug.get("mountain_roof_reveal_blend", -1.0))
+	var state: StringName = debug.get(
+		"mountain_roof_reveal_transition_state",
+		&"UNKNOWN",
+	) as StringName
+	if expected_inside:
+		return state == &"OPEN" \
+			and blend >= 0.999 \
+			and int(debug.get("mountain_roof_displayed_component_id", 0)) \
+				== int(debug.get("mountain_roof_target_component_id", -1))
+	return state == &"CLOSED" \
+		and blend <= 0.001 \
+		and int(debug.get("mountain_roof_displayed_component_id", -1)) == 0
 
 
 func _target_native_is_settled(snapshot: Dictionary) -> bool:
@@ -357,6 +405,122 @@ func _capture_entrance_crop_without_player(scene: Node, snapshot: Dictionary) ->
 	return crop
 
 
+func _probe_inside_facade_visibility(scene: Node, snapshot: Dictionary) -> Dictionary:
+	var chunk_view: ChunkView = scene.call("_target_chunk_view") as ChunkView
+	_assert(chunk_view != null, "INSIDE facade probe requires the target ChunkView.")
+	if chunk_view == null:
+		return { }
+	var base: Sprite2D = chunk_view.get_node_or_null("MountainTopMaskUnderlay") as Sprite2D
+	var roof: Sprite2D = chunk_view.get_node_or_null("MountainClosedRoofOverlay") as Sprite2D
+	_assert(base != null and roof != null, "INSIDE facade probe requires production BASE and ROOF sprites.")
+	if base == null or roof == null:
+		return { }
+	var base_material: ShaderMaterial = base.material as ShaderMaterial
+	_assert(base_material != null, "INSIDE facade probe requires the production BASE ShaderMaterial.")
+	if base_material == null:
+		return { }
+	var no_wall_material: ShaderMaterial = base_material.duplicate(true) as ShaderMaterial
+	_assert(no_wall_material != null, "INSIDE facade probe must duplicate the BASE material.")
+	if no_wall_material == null:
+		return { }
+	no_wall_material.set_shader_parameter("wall_surface_alpha", 0.0)
+
+	var player: CanvasItem = scene.get_node_or_null("WorldRuntimeV0/Player") as CanvasItem
+	var player_was_visible: bool = player.visible if player != null else false
+	var roof_was_visible: bool = roof.visible
+	var previous_process_mode := scene.process_mode
+	# The dev scene validates that ROOF stays visible. Pause only its gameplay
+	# logic while the probe temporarily isolates the already-rendered layers;
+	# CanvasItems continue drawing and every state is restored before resuming.
+	scene.process_mode = Node.PROCESS_MODE_DISABLED
+	if player != null:
+		player.visible = false
+	await process_frame
+	var composite: Image = await _capture_internal_facade_world_crop(snapshot)
+
+	roof.visible = false
+	await process_frame
+	var base_full: Image = await _capture_internal_facade_world_crop(snapshot)
+
+	base.material = no_wall_material
+	await process_frame
+	var base_without_wall: Image = await _capture_internal_facade_world_crop(snapshot)
+
+	base.material = base_material
+	roof.visible = roof_was_visible
+	if player != null:
+		player.visible = player_was_visible
+	await process_frame
+	scene.process_mode = previous_process_mode
+
+	_assert(
+		composite.get_size() == base_full.get_size() \
+				and composite.get_size() == base_without_wall.get_size(),
+		"INSIDE facade isolation crops must have identical dimensions.",
+	)
+	return _measure_inside_facade_visibility(composite, base_full, base_without_wall)
+
+
+func _capture_internal_facade_world_crop(snapshot: Dictionary) -> Image:
+	await RenderingServer.frame_post_draw
+	var viewport_image: Image = root.get_texture().get_image()
+	if viewport_image == null or viewport_image.is_empty():
+		return Image.new()
+	var mouth: Vector2i = snapshot.get("mountain_tile", Vector2i.ZERO) as Vector2i
+	var tile_size: float = float(WorldRuntimeConstants.TILE_SIZE_PX)
+	# The deterministic fixture digs its T crossbar at mouth.y - 3. These three
+	# retaining tiles are the north wall directly above it: BASE(V) renders its
+	# south-facing facade here while CLOSED would otherwise paint roof stone.
+	var world_min := Vector2(
+		float(mouth.x - 1) * tile_size,
+		float(mouth.y - 4) * tile_size,
+	)
+	var world_max := Vector2(
+		float(mouth.x + 2) * tile_size,
+		float(mouth.y - 3) * tile_size,
+	)
+	return _extract_world_crop(viewport_image, world_min, world_max)
+
+
+func _measure_inside_facade_visibility(
+		composite: Image,
+		base_full: Image,
+		base_without_wall: Image,
+) -> Dictionary:
+	if composite == null or base_full == null or base_without_wall == null \
+			or composite.is_empty() or base_full.is_empty() or base_without_wall.is_empty() \
+			or composite.get_size() != base_full.get_size() \
+			or composite.get_size() != base_without_wall.get_size():
+		return { }
+	# A two-byte threshold rejects subpixel/noise churn and keeps only pixels
+	# whose color is genuinely owned by the BASE facade. On that derived mask,
+	# the production composite must reproduce BASE within the same tolerance.
+	var byte_tolerance: float = 2.0 / 255.0
+	var wall_pixels: int = 0
+	var matching_pixels: int = 0
+	for y: int in range(composite.get_height()):
+		for x: int in range(composite.get_width()):
+			var base_pixel: Color = base_full.get_pixel(x, y)
+			var no_wall_pixel: Color = base_without_wall.get_pixel(x, y)
+			if _max_rgb_delta(base_pixel, no_wall_pixel) <= byte_tolerance:
+				continue
+			wall_pixels += 1
+			if _max_rgb_delta(composite.get_pixel(x, y), base_pixel) <= byte_tolerance:
+				matching_pixels += 1
+	return {
+		"wall_pixels": wall_pixels,
+		"matching_pixels": matching_pixels,
+		"match_ratio": float(matching_pixels) / float(maxi(1, wall_pixels)),
+	}
+
+
+func _max_rgb_delta(first: Color, second: Color) -> float:
+	return maxf(
+		absf(first.r - second.r),
+		maxf(absf(first.g - second.g), absf(first.b - second.b)),
+	)
+
+
 func _extract_entrance_world_crop(viewport_image: Image, snapshot: Dictionary) -> Image:
 	if viewport_image == null or viewport_image.is_empty():
 		return Image.new()
@@ -364,6 +528,12 @@ func _extract_entrance_world_crop(viewport_image: Image, snapshot: Dictionary) -
 	var tile_size: float = float(WorldRuntimeConstants.TILE_SIZE_PX)
 	var world_min := Vector2(float(mouth.x - 2) * tile_size, float(mouth.y - 5) * tile_size)
 	var world_max := Vector2(float(mouth.x + 3) * tile_size, float(mouth.y + 1) * tile_size)
+	return _extract_world_crop(viewport_image, world_min, world_max)
+
+
+func _extract_world_crop(viewport_image: Image, world_min: Vector2, world_max: Vector2) -> Image:
+	if viewport_image == null or viewport_image.is_empty():
+		return Image.new()
 	var canvas_transform: Transform2D = root.get_canvas_transform()
 	var screen_a: Vector2 = canvas_transform * world_min
 	var screen_b: Vector2 = canvas_transform * world_max

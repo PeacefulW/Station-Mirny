@@ -111,8 +111,8 @@ func _run() -> void:
 	_assert(bool(mouth_aperture.get("ready", false)), "CPU mouth selector debug must be ready OUTSIDE.")
 	_assert(int(mouth_aperture.get("direction_code", 0)) == 4, "South mouth tile must carry exact SOUTH=4 direction code.")
 	_assert(
-		int(mouth_aperture.get("active_value", 255)) != 255,
-		"OUTSIDE mouth must not be encoded as a fully active floor tile.",
+		int(mouth_aperture.get("active_value", 255)) == 0,
+		"OUTSIDE roof selector must stay zero at the physical mouth.",
 	)
 	_assert(
 		int(mouth_aperture.get("mouth_nonzero_count", 0)) \
@@ -121,7 +121,11 @@ func _run() -> void:
 	)
 	_assert(
 		int(mouth_aperture.get("active_nonzero_count", -1)) == 0,
-		"OUTSIDE active-floor selector must remain empty; shader owns sub-tile aperture.",
+		"OUTSIDE active-floor selector must remain component-only and empty.",
+	)
+	_assert(
+		int(mouth_aperture.get("aperture_nonzero_count", 0)) > 0,
+		"Native full-resolution aperture must own the BASE facade break.",
 	)
 
 	var initial_base_hash: int = int(outside.get("initial_base_mask_hash", 0))

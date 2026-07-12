@@ -521,8 +521,8 @@ func debug_find_prototype_organic_fringe_candidate() -> Dictionary:
 	}
 
 
-## CPU proof that OUTSIDE publishes a direction code, not a full active-floor
-## selector byte. The shader turns this code into the sub-tile aperture.
+## CPU proof that OUTSIDE keeps direction metadata separate from both the
+## component-only roof selector and the full-resolution native BASE aperture.
 func debug_get_prototype_mouth_aperture_state() -> Dictionary:
 	var chunk_view: ChunkView = _target_chunk_view()
 	if chunk_view == null:
@@ -544,12 +544,17 @@ func debug_get_prototype_mouth_aperture_state() -> Dictionary:
 	for value: int in chunk_view._mountain_active_floor_halo_bytes:
 		if value > 0:
 			active_nonzero_count += 1
+	var aperture_nonzero_count: int = 0
+	for value: int in chunk_view._mountain_physical_mouth_aperture_bytes:
+		if value > 0:
+			aperture_nonzero_count += 1
 	return {
 		"ready": true,
 		"direction_code": direction_code,
 		"active_value": active_value,
 		"mouth_nonzero_count": mouth_nonzero_count,
 		"active_nonzero_count": active_nonzero_count,
+		"aperture_nonzero_count": aperture_nonzero_count,
 	}
 
 

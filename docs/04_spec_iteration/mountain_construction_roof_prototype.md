@@ -159,8 +159,9 @@ The visual hypothesis was accepted and promoted into canonical
 - production roof reveal is the floor-only active orthogonal cavity selected by
   the existing `MountainResolver`; a bounded `C solid / S open` fallback keeps
   that component active in real organic corner space beside its source tile
-- outside mouths carry cardinal direction bits and cut a rounded sub-tile
-  aperture; they do not remove the complete first roof tile
+- superseded by the facade contract: outside mouths keep cardinal direction
+  metadata, while native full-resolution `A = C-V` cuts the BASE facade only;
+  ROOF geometry remains immutable `C` and no rounded shader aperture exists
 - all paired masks and component ids remain transient and rebuild from immutable
   base + runtime diff
 

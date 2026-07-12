@@ -335,6 +335,7 @@ godot::Dictionary build_halo_mask(
 ) {
 	godot::Dictionary result;
 	result["mask"] = godot::PackedByteArray();
+	result["physical_mouth_aperture_mask"] = godot::PackedByteArray();
 	result["width"] = 0;
 	result["height"] = 0;
 	result["step_px"] = 0.0;
@@ -461,6 +462,9 @@ godot::Dictionary build_halo_mask(
 		godot::PackedByteArray visual_remaining_mass_mask;
 		visual_remaining_mass_mask.resize(pixel_count);
 		uint8_t *visual_remaining_write = visual_remaining_mass_mask.ptrw();
+		godot::PackedByteArray physical_mouth_aperture_mask;
+		uint8_t *physical_mouth_aperture_write = nullptr;
+		bool has_physical_mouth_aperture = false;
 
 		bool has_dug_samples = false;
 		for (int32_t index = 0; index < p_dug_halo.size(); ++index) {
@@ -521,6 +525,7 @@ godot::Dictionary build_halo_mask(
 					static_cast<float>(py) + disp_y * 0.32f
 				);
 				float cutout_alpha = smooth_float((cutout_field - 0.28f) / 0.44f);
+				bool physical_mouth_aperture_pixel = false;
 
 				if (dug) {
 					const float local_x = std::fmod(static_cast<float>(px) + 0.5f, static_cast<float>(pixels_per_tile));
@@ -585,6 +590,7 @@ godot::Dictionary build_halo_mask(
 					const bool mouth_portal_open = north_portal || east_portal || south_portal || west_portal;
 					if (mouth_portal_zone) {
 						cutout_alpha = mouth_portal_open ? 1.0f : 0.0f;
+						physical_mouth_aperture_pixel = mouth_portal_open;
 					} else if (topology_core || topology_arm) {
 						cutout_alpha = 1.0f;
 					}
@@ -640,9 +646,11 @@ godot::Dictionary build_halo_mask(
 						&& local_y <= (west_positive_continues ? static_cast<float>(pixels_per_tile) : mouth_max);
 					const bool has_projection_source = source_north || source_east || source_south || source_west;
 					if (has_projection_source) {
-						cutout_alpha = (south_projection || north_projection || east_projection || west_projection)
+						const bool projection_open = south_projection || north_projection || east_projection || west_projection;
+						cutout_alpha = projection_open
 							? 1.0f
 							: 0.0f;
+						physical_mouth_aperture_pixel = projection_open;
 					}
 				}
 				const float remaining_alpha = static_cast<float>(closed_roof_mask[index])
@@ -653,6 +661,29 @@ godot::Dictionary build_halo_mask(
 				));
 				visual_remaining_write[index] = visual_value;
 				remaining_write[index] = dug ? 0 : visual_value;
+				if (physical_mouth_aperture_pixel) {
+					// The aperture is canonical geometry, not a second procedural
+					// approximation: record the exact CLOSED - VISUAL cut only in the
+					// physical source half and its single exterior projection. Deeper
+					// excavation can alter V elsewhere without moving this entrance.
+					const uint8_t aperture_value = static_cast<uint8_t>(std::max(
+						0,
+						static_cast<int32_t>(closed_roof_mask[index]) - static_cast<int32_t>(visual_value)
+					));
+					if (aperture_value != 0) {
+						if (!has_physical_mouth_aperture) {
+							physical_mouth_aperture_mask.resize(pixel_count);
+							physical_mouth_aperture_write = physical_mouth_aperture_mask.ptrw();
+							std::fill(
+								physical_mouth_aperture_write,
+								physical_mouth_aperture_write + pixel_count,
+								static_cast<uint8_t>(0)
+							);
+							has_physical_mouth_aperture = true;
+						}
+						physical_mouth_aperture_write[index] = aperture_value;
+					}
+				}
 			}
 		}
 
@@ -660,6 +691,9 @@ godot::Dictionary build_halo_mask(
 		result["closed_roof_mask"] = closed_roof_mask;
 		result["remaining_mass_mask"] = remaining_mass_mask;
 		result["visual_remaining_mass_mask"] = visual_remaining_mass_mask;
+		if (has_physical_mouth_aperture) {
+			result["physical_mouth_aperture_mask"] = physical_mouth_aperture_mask;
+		}
 		result["closed_sample_count"] = closed_sample_count;
 		result["dug_sample_count"] = dug_sample_count;
 	}

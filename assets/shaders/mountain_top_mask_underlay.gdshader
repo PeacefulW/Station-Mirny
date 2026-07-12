@@ -50,30 +50,30 @@ uniform float wall_surface_alpha = 1.0;
 // of the native mask into roof-only composition: the current live mask keeps
 // owning facade, floor reveal, collision, and mining.
 uniform float roof_overlay_mode = 0.0;
-// Production construction roof. TEXTURE is the immutable closed silhouette;
-// the live remaining-mass texture is revealed only where the resolver-selected
-// connected cavity owns the native C-S cutout. CPU expands tile ownership into
-// a native-resolution selector, including a shallow directional mouth aperture;
-// the shader samples it nearest + linear for an authored one-sample soft edge.
+// Production construction roof. TEXTURE/closed_mask_texture are the immutable
+// closed silhouette. BASE(V) is already underneath; the resolver-selected
+// component therefore opens by fading this CLOSED contribution, never by
+// morphing CLOSED into V or cutting a second procedural mouth in the roof.
 uniform sampler2D closed_mask_texture : filter_linear;
-uniform sampler2D remaining_mask_texture : filter_linear;
+// Read-only BASE(V) reference for one purpose: while inside, ROOF must yield
+// the exact internal vertical facade already drawn underneath. It never feeds
+// roof colour, normals, silhouette or top geometry.
+uniform sampler2D base_visual_mask_texture : filter_linear, repeat_disable;
 uniform sampler2D active_floor_halo_texture : filter_nearest;
 uniform sampler2D active_floor_halo_soft_texture : filter_linear;
-// Physical mouth directions stay separate from the active-floor selector.
-// Active cells become 255 and lose direction bits; this field keeps the
-// modular jamb/header stable both outside and inside a cavity.
-uniform sampler2D physical_mouth_halo_texture : filter_nearest;
-// Uniform gate keeps the mouth SDF and its neighbour texture reads off the
-// untouched-mountain / terrain-edge hot path. ChunkView enables it only when
-// the tiny selector actually contains a physical surface mouth.
-uniform float physical_mouth_enabled = 0.0;
 uniform sampler2D any_cutout_halo_texture : filter_nearest;
 uniform float roof_component_reveal_enabled = 0.0;
-uniform float mouth_portal_half_width = 0.375;
-uniform float mouth_portal_depth = 0.27;
-uniform float mouth_portal_corner_chamfer = 0.0625;
-uniform float mouth_portal_corner_depth = 0.0625;
-uniform float mouth_portal_edge_softness = 0.018;
+uniform float component_reveal_blend = 0.0;
+// Canonical full-resolution native mouth aperture. It never reveals ROOF; BASE
+// uses a narrow dilation only to suppress its cosmetic crag warp at the exact
+// physical facade cut, so digging farther inward cannot move the entrance.
+uniform sampler2D physical_mouth_aperture_texture : filter_linear, repeat_disable;
+uniform float physical_mouth_aperture_enabled = 0.0;
+// Tiny N/E/S/W selector remains metadata only. It chooses which CLOSED edge
+// belongs to the local vertical facade; it never defines aperture geometry and
+// never enters the component reveal selector.
+uniform sampler2D physical_mouth_direction_texture : filter_nearest, repeat_disable;
+uniform float physical_mouth_direction_enabled = 0.0;
 // Hard dark contact line at the wall base; 0 removes it (mountains), the
 // shoreline keeps it for a crisp waterline.
 uniform float base_outline_strength = 0.92;
@@ -241,146 +241,207 @@ float uv_rect_inside(vec2 uv, vec2 min_uv, vec2 max_uv) {
 	return step(min_uv.x, uv.x) * step(min_uv.y, uv.y) * step(uv.x, max_uv.x) * step(uv.y, max_uv.y);
 }
 
-float selector_has_bit(float code, float bit_value) {
-	return step(0.5, mod(floor(code / bit_value), 2.0));
-}
-
-float mouth_direction_signed_distance(
-		float inward,
-		float lateral,
-		float negative_continues,
-		float positive_continues
-) {
-	float negative_open = step(0.5, negative_continues);
-	float positive_open = step(0.5, positive_continues);
-	float half_width = clamp(mouth_portal_half_width, 0.12, 0.50);
-	float left_edge = 0.5 - half_width;
-	float right_edge = 0.5 + half_width;
-	float chamfer = max(mouth_portal_corner_chamfer, 0.001);
-	float left_loss = clamp(left_edge + chamfer - lateral, 0.0, chamfer)
-		* (1.0 - negative_open);
-	float right_loss = clamp(lateral - (right_edge - chamfer), 0.0, chamfer)
-		* (1.0 - positive_open);
-	float cap_loss = max(left_loss, right_loss)
-		* (mouth_portal_corner_depth / chamfer);
-	float header_sd = inward - (mouth_portal_depth - cap_loss);
-	// Continuation removes the corresponding side constraint entirely. Moving
-	// it merely to the tile seam would leave a post inside a multi-tile mouth.
-	float left_sd = mix(left_edge - lateral, -2.0, negative_open);
-	float right_sd = mix(lateral - right_edge, -2.0, positive_open);
-	return max(header_sd, max(left_sd, right_sd));
-}
-
-float sample_physical_mouth_direction_code(vec2 selector_uv) {
-	return floor(texture(physical_mouth_halo_texture, selector_uv).r * 255.0 + 0.5);
-}
-
-float sample_mouth_signed_distance_for_cell(
-		float selector_code,
-		vec2 source_selector_uv,
-		vec2 cell_uv
-) {
-	// Codes 1/2/4/8 are N/E/S/W. Active component cells use 255 and skip
-	// this path. fract() gives a stable sub-tile coordinate at any halo size.
-	vec2 selector_size = vec2(textureSize(physical_mouth_halo_texture, 0));
-	float negative_continues = selector_has_bit(selector_code, 16.0);
-	float positive_continues = selector_has_bit(selector_code, 32.0);
-	float north_bit = selector_has_bit(selector_code, 1.0);
-	float east_bit = selector_has_bit(selector_code, 2.0);
-	float south_bit = selector_has_bit(selector_code, 4.0);
-	float west_bit = selector_has_bit(selector_code, 8.0);
-	float direction_count = north_bit + east_bit + south_bit + west_bit;
-	if (direction_count < 0.5) {
-		return 2.0;
-	}
-	// Bit 64 marks the one exterior cell carrying a projected copy of the
-	// source mouth. Subtracting one tile from inward distance extends the same
-	// straight aperture through CLOSED's organic fringe without neighbour
-	// searches in every effective-mask probe.
-	float exterior_projection = selector_has_bit(selector_code, 64.0);
-	float north_negative = negative_continues;
-	float north_positive = positive_continues;
-	float east_negative = negative_continues;
-	float east_positive = positive_continues;
-	float south_negative = negative_continues;
-	float south_positive = positive_continues;
-	float west_negative = negative_continues;
-	float west_positive = positive_continues;
-	if (direction_count > 1.5) {
-		// Mixed organic corner: CPU intentionally stored no shared continuation
-		// bits. Resolve lateral neighbours per direction only in this rare mouth
-		// fragment, so SOUTH continuity cannot deepen EAST (or vice versa).
-		vec2 selector_texel = 1.0 / selector_size;
-		vec2 left_uv = source_selector_uv - vec2(selector_texel.x, 0.0);
-		vec2 right_uv = source_selector_uv + vec2(selector_texel.x, 0.0);
-		vec2 up_uv = source_selector_uv - vec2(0.0, selector_texel.y);
-		vec2 down_uv = source_selector_uv + vec2(0.0, selector_texel.y);
-		float left_code = sample_physical_mouth_direction_code(left_uv) * uv_inside(left_uv);
-		float right_code = sample_physical_mouth_direction_code(right_uv) * uv_inside(right_uv);
-		float up_code = sample_physical_mouth_direction_code(up_uv) * uv_inside(up_uv);
-		float down_code = sample_physical_mouth_direction_code(down_uv) * uv_inside(down_uv);
-		north_negative = selector_has_bit(left_code, 1.0);
-		north_positive = selector_has_bit(right_code, 1.0);
-		south_negative = selector_has_bit(left_code, 4.0);
-		south_positive = selector_has_bit(right_code, 4.0);
-		east_negative = selector_has_bit(up_code, 2.0);
-		east_positive = selector_has_bit(down_code, 2.0);
-		west_negative = selector_has_bit(up_code, 8.0);
-		west_positive = selector_has_bit(down_code, 8.0);
-	}
-	float inactive_sd = 2.0;
-	float north = mix(inactive_sd, mouth_direction_signed_distance(
-		cell_uv.y - exterior_projection, cell_uv.x, north_negative, north_positive
-	), north_bit);
-	float east = mix(inactive_sd, mouth_direction_signed_distance(
-		1.0 - cell_uv.x - exterior_projection, cell_uv.y, east_negative, east_positive
-	), east_bit);
-	float south = mix(inactive_sd, mouth_direction_signed_distance(
-		1.0 - cell_uv.y - exterior_projection, cell_uv.x, south_negative, south_positive
-	), south_bit);
-	float west = mix(inactive_sd, mouth_direction_signed_distance(
-		cell_uv.x - exterior_projection, cell_uv.y, west_negative, west_positive
-	), west_bit);
-	return min(min(north, east), min(south, west));
-}
-
-float sample_physical_mouth_signed_distance(vec2 selector_uv) {
-	float inside = uv_inside(selector_uv);
-	if (inside < 0.5) {
-		return 2.0;
-	}
-	vec2 selector_size = vec2(textureSize(physical_mouth_halo_texture, 0));
-	vec2 cell_uv = fract(selector_uv * selector_size);
-	float selector_code = sample_physical_mouth_direction_code(selector_uv);
-	return sample_mouth_signed_distance_for_cell(selector_code, selector_uv, cell_uv);
-}
-
-float sample_physical_mouth_shape(vec2 selector_uv) {
-	float mouth_sd = sample_physical_mouth_signed_distance(selector_uv);
-	float edge_soft = max(mouth_portal_edge_softness, 0.002);
-	return 1.0 - smoothstep(-edge_soft, edge_soft, mouth_sd);
-}
-
 float sample_effective_mountain_mask(vec2 uv) {
-	float closed_mask = texture(closed_mask_texture, uv).r;
+	return texture(closed_mask_texture, uv).r;
+}
+
+float sample_component_exact_weight(vec2 uv) {
 	if (roof_component_reveal_enabled < 0.5) {
-		return closed_mask;
+		return 0.0;
 	}
 	float inside = uv_inside(uv);
 	float selector_raw = texture(active_floor_halo_texture, uv).r;
 	float selector_code = floor(selector_raw * 255.0 + 0.5);
-	float active_exact = step(127.5, selector_code) * inside;
-	// Direction codes are <= 63/255 and therefore cannot pollute this binary
-	// component feather even though both fields share one tiny L8 texture.
-	float active_soft = smoothstep(0.25, 0.75, texture(active_floor_halo_soft_texture, uv).r) * inside;
-	float mouth_reveal = 0.0;
-	if (physical_mouth_enabled > 0.5) {
-		mouth_reveal = sample_physical_mouth_shape(uv);
+	return step(127.5, selector_code) * inside;
+}
+
+float sample_component_reveal_weight(vec2 uv) {
+	if (roof_component_reveal_enabled < 0.5) {
+		return 0.0;
 	}
+	float inside = uv_inside(uv);
+	float active_exact = sample_component_exact_weight(uv);
+	float active_soft = smoothstep(0.25, 0.75, texture(active_floor_halo_soft_texture, uv).r) * inside;
 	float foreign_cutout = step(0.5, texture(any_cutout_halo_texture, uv).r) * (1.0 - active_exact);
-	float reveal = max(max(active_exact, mouth_reveal), active_soft * (1.0 - foreign_cutout));
-	float remaining_mask = texture(remaining_mask_texture, uv).r;
-	return mix(closed_mask, remaining_mask, clamp(reveal, 0.0, 1.0));
+	return clamp(max(active_exact, active_soft * (1.0 - foreign_cutout)), 0.0, 1.0);
+}
+
+float sample_physical_mouth_aperture_at(vec2 uv) {
+	return texture(physical_mouth_aperture_texture, uv).r * uv_inside(uv);
+}
+
+float sample_physical_mouth_unwarp(vec2 uv) {
+	if (physical_mouth_aperture_enabled < 0.5) {
+		return 0.0;
+	}
+	// The full-resolution dilation is needed only inside the source/exterior
+	// mouth cells. A coarse metadata gate avoids seventeen aperture reads over
+	// the rest of an otherwise very large mountain mask sprite.
+	float coarse_direction_code = physical_mouth_direction_enabled > 0.5
+		? floor(texture(physical_mouth_direction_texture, uv).r * 255.0 + 0.5)
+			* uv_inside(uv)
+		: 0.0;
+	if (mod(coarse_direction_code, 16.0) < 0.5) {
+		return 0.0;
+	}
+	vec2 aperture_texel = 1.0 / vec2(textureSize(physical_mouth_aperture_texture, 0));
+	vec2 immediate_diagonal = aperture_texel;
+	vec2 cardinal = aperture_texel * 2.0;
+	vec2 diagonal = aperture_texel * 1.4142;
+	float aperture = sample_physical_mouth_aperture_at(uv);
+	// Immediate 8-neighbour ring keeps thin antialiased tips attached to the
+	// exact native cut; the second ring covers the maximum cosmetic crag warp.
+	aperture = max(aperture, sample_physical_mouth_aperture_at(uv + vec2(aperture_texel.x, 0.0)));
+	aperture = max(aperture, sample_physical_mouth_aperture_at(uv - vec2(aperture_texel.x, 0.0)));
+	aperture = max(aperture, sample_physical_mouth_aperture_at(uv + vec2(0.0, aperture_texel.y)));
+	aperture = max(aperture, sample_physical_mouth_aperture_at(uv - vec2(0.0, aperture_texel.y)));
+	aperture = max(aperture, sample_physical_mouth_aperture_at(uv + immediate_diagonal));
+	aperture = max(aperture, sample_physical_mouth_aperture_at(uv - immediate_diagonal));
+	aperture = max(aperture, sample_physical_mouth_aperture_at(uv + vec2(immediate_diagonal.x, -immediate_diagonal.y)));
+	aperture = max(aperture, sample_physical_mouth_aperture_at(uv + vec2(-immediate_diagonal.x, immediate_diagonal.y)));
+	aperture = max(aperture, sample_physical_mouth_aperture_at(uv + vec2(cardinal.x, 0.0)));
+	aperture = max(aperture, sample_physical_mouth_aperture_at(uv - vec2(cardinal.x, 0.0)));
+	aperture = max(aperture, sample_physical_mouth_aperture_at(uv + vec2(0.0, cardinal.y)));
+	aperture = max(aperture, sample_physical_mouth_aperture_at(uv - vec2(0.0, cardinal.y)));
+	aperture = max(aperture, sample_physical_mouth_aperture_at(uv + diagonal));
+	aperture = max(aperture, sample_physical_mouth_aperture_at(uv - diagonal));
+	aperture = max(aperture, sample_physical_mouth_aperture_at(uv + vec2(diagonal.x, -diagonal.y)));
+	aperture = max(aperture, sample_physical_mouth_aperture_at(uv + vec2(-diagonal.x, diagonal.y)));
+	return smoothstep(0.015, 0.42, aperture);
+}
+
+float selector_has_bit(float code, float bit_value) {
+	return step(0.5, mod(floor(code / bit_value), 2.0));
+}
+
+float sample_physical_mouth_direction_code(vec2 uv) {
+	if (physical_mouth_direction_enabled < 0.5) {
+		return 0.0;
+	}
+	return floor(texture(physical_mouth_direction_texture, uv).r * 255.0 + 0.5)
+		* uv_inside(uv);
+}
+
+float find_outward_edge_distance(
+		vec2 mask_uv,
+		vec2 probe_step_uv,
+		float solid_here,
+		float max_probe_texels
+) {
+	if (solid_here < 0.5) {
+		return -1.0;
+	}
+	float previous = solid_here;
+	int steps = int(min(max_probe_texels + 2.0, 96.0));
+	for (int distance_index = 1; distance_index <= 96; distance_index++) {
+		if (distance_index > steps) {
+			break;
+		}
+		float current = mask_to_top(sample_effective_mountain_mask(
+			mask_uv + probe_step_uv * float(distance_index)
+		));
+		if (current < 0.5 && previous >= 0.5) {
+			float crossing = (previous - 0.5) / max(previous - current, 0.0001);
+			return float(distance_index) - 1.0 + crossing;
+		}
+		previous = current;
+	}
+	return -1.0;
+}
+
+float structural_wall_band(
+		float edge_distance,
+		float solid_here,
+		float wall_texels,
+		float body_area
+) {
+	float valid = step(0.0, edge_distance);
+	float solid_mask = smoothstep(0.38, 0.66, solid_here);
+	float base_fade = smoothstep(-0.50, 0.15, edge_distance);
+	float top_fade = 1.0 - smoothstep(wall_texels - 1.65, wall_texels + 1.65, edge_distance);
+	return body_area * valid * solid_mask * base_fade * top_fade;
+}
+
+float find_base_visual_south_edge_distance(
+		vec2 mask_uv,
+		vec2 probe_step_uv,
+		float solid_here,
+		float max_probe_texels
+) {
+	if (solid_here < 0.5) {
+		return -1.0;
+	}
+	float previous = solid_here;
+	int steps = int(min(max_probe_texels + 2.0, 96.0));
+	for (int distance_index = 1; distance_index <= 96; distance_index++) {
+		if (distance_index > steps) {
+			break;
+		}
+		float current = mask_to_top(texture(
+			base_visual_mask_texture,
+			mask_uv + probe_step_uv * float(distance_index)
+		).r);
+		if (current < 0.5 && previous >= 0.5) {
+			float crossing = (previous - 0.5) / max(previous - current, 0.0001);
+			return float(distance_index) - 1.0 + crossing;
+		}
+		previous = current;
+	}
+	return -1.0;
+}
+
+float sample_displayed_base_facade_reveal_weight(
+		vec2 visual_mask_uv,
+		vec2 selector_uv,
+		vec2 mask_texel,
+		float wall_texels,
+		float body_area
+) {
+	// Internal structural facades are SOUTH-facing in this projection. A cheap
+	// two-tile selector look-ahead avoids the V edge scan over the rest of the
+	// mountain while still covering the 72 px wall band at 64 px/tile.
+	vec2 selector_texel = 1.0 / vec2(textureSize(active_floor_halo_texture, 0));
+	float nearby_active = sample_component_exact_weight(selector_uv);
+	nearby_active = max(
+		nearby_active,
+		sample_component_exact_weight(selector_uv + vec2(0.0, selector_texel.y))
+	);
+	nearby_active = max(
+		nearby_active,
+		sample_component_exact_weight(selector_uv + vec2(0.0, selector_texel.y * 2.0))
+	);
+	if (nearby_active < 0.5) {
+		return 0.0;
+	}
+	float visual_top_here = mask_to_top(texture(base_visual_mask_texture, visual_mask_uv).r);
+	float visual_edge = find_base_visual_south_edge_distance(
+		visual_mask_uv,
+		vec2(0.0, mask_texel.y),
+		visual_top_here,
+		wall_texels
+	);
+	float visual_wall = structural_wall_band(
+		visual_edge,
+		visual_top_here,
+		wall_texels,
+		body_area
+	);
+	if (visual_wall <= 0.001 || visual_edge < 0.0) {
+		return 0.0;
+	}
+	// Ownership is sampled just beyond the organic V edge in RAW selector UV.
+	// Multiple tiny probes tolerate AA/warp crossing without soft-selector leaks.
+	vec2 open_step = vec2(0.0, mask_texel.y);
+	float active_owner = sample_component_exact_weight(
+		selector_uv + open_step * (visual_edge + 0.75)
+	);
+	active_owner = max(active_owner, sample_component_exact_weight(
+		selector_uv + open_step * (visual_edge + 1.50)
+	));
+	active_owner = max(active_owner, sample_component_exact_weight(
+		selector_uv + open_step * (visual_edge + 2.25)
+	));
+	return visual_wall * active_owner;
 }
 
 float shadow_axis_owner_weight(float value, float min_value, float max_value, float texel_size, float blend_texels) {
@@ -449,14 +510,9 @@ void fragment() {
 	vec2 texel = 1.0 / tex_size;
 	vec2 world_px = world_origin_px + UV * tex_size * sample_step_px;
 	vec2 warped_base_uv = visual_mask_uv(UV, texel, world_px);
-	// Preserve the authored straight portal through the global crag warp. The
-	// blend is SDF-local (not tile-local), so it cannot expose a square seam in
-	// the surrounding roof while the threshold/jambs stay geometrically flat.
-	float raw_mouth_sd = 2.0;
-	if (physical_mouth_enabled > 0.5) {
-		raw_mouth_sd = sample_physical_mouth_signed_distance(UV);
-	}
-	float mouth_unwarp = 1.0 - smoothstep(0.30, 0.48, abs(raw_mouth_sd));
+	// Preserve only the canonical native facade cut through the cosmetic warp.
+	// ROOF deliberately ignores the aperture and stays the immutable CLOSED cap.
+	float mouth_unwarp = sample_physical_mouth_unwarp(UV) * (1.0 - overlay_mode);
 	vec2 base_uv = mix(warped_base_uv, UV, mouth_unwarp);
 	float top_here = mask_to_top(sample_effective_mountain_mask(base_uv));
 	float top_l = mask_to_top(sample_effective_mountain_mask(base_uv - vec2(texel.x, 0.0)));
@@ -467,29 +523,59 @@ void fragment() {
 	float wall_texels = max(1.0, facade_height_px / sample_step_px);
 	float overhang_texels = max(1.0, overhang_px / sample_step_px);
 
-	// SOLID pixel: continuous distance DOWN (south) to the open silhouette edge.
-	float edge_below = -1.0;
-	if (top_here >= 0.5) {
-		float prev = top_here;
-		int steps = int(min(wall_texels + 2.0, 96.0));
-		for (int d = 1; d <= steps; d++) {
-			float cur = mask_to_top(sample_effective_mountain_mask(base_uv + vec2(0.0, texel.y * float(d))));
-			if (cur < 0.5 && prev >= 0.5) {
-				float t = (prev - 0.5) / max(prev - cur, 0.0001);
-				edge_below = float(d) - 1.0 + t;
-				break;
-			}
-			prev = cur;
+	// The general mountain facade remains SOUTH-facing. At a physical mouth the
+	// tiny direction selector transfers facade ownership to the matching CLOSED
+	// edge, so N/E/W entrances are real facade breaks too. The selector chooses
+	// only orientation; native C-V remains the sole aperture geometry.
+	float edge_below = find_outward_edge_distance(
+		base_uv,
+		vec2(0.0, texel.y),
+		top_here,
+		wall_texels
+	);
+	float structural_wall_mask = structural_wall_band(
+		edge_below,
+		top_here,
+		wall_texels,
+		body_area
+	);
+	float wall_edge_distance = edge_below;
+	float mouth_direction_code = sample_physical_mouth_direction_code(UV);
+	vec2 mouth_probe_steps[4] = {
+		vec2(0.0, -texel.y),
+		vec2(texel.x, 0.0),
+		vec2(0.0, texel.y),
+		vec2(-texel.x, 0.0)
+	};
+	float mouth_direction_bits[4] = {1.0, 2.0, 4.0, 8.0};
+	for (int direction_index = 0; direction_index < 4; direction_index++) {
+		float direction_gate = selector_has_bit(
+			mouth_direction_code,
+			mouth_direction_bits[direction_index]
+		);
+		if (direction_gate < 0.5) {
+			continue;
 		}
+		float directional_edge = find_outward_edge_distance(
+			base_uv,
+			mouth_probe_steps[direction_index],
+			top_here,
+			wall_texels
+		);
+		float directional_wall = structural_wall_band(
+			directional_edge,
+			top_here,
+			wall_texels,
+			body_area
+		) * direction_gate;
+		if (directional_wall > structural_wall_mask) {
+			wall_edge_distance = directional_edge;
+		}
+		structural_wall_mask = max(structural_wall_mask, directional_wall);
 	}
-	float wall_valid = step(0.0, edge_below);
-	float wall_solid_mask = smoothstep(0.38, 0.66, top_here);
-	float wall_base_fade = smoothstep(-0.50, 0.15, edge_below);
-	float wall_top_fade = 1.0 - smoothstep(wall_texels - 1.65, wall_texels + 1.65, edge_below);
-	float structural_wall_mask = body_area * wall_valid * wall_solid_mask * wall_base_fade * wall_top_fade;
-	// A frozen roof copy must not repaint the structural south facade. Removing
-	// the same band from its top surface lets the excavated live BASE show the
-	// real mouth while the deeper cavity remains covered by the closed roof.
+	// A frozen roof copy never repaints a structural facade. Removing exactly
+	// the direction-owned wall band exposes BASE(V)'s native break while all
+	// actual top geometry remains immutable CLOSED.
 	float roof_surface_mask = top_here * body_area * (1.0 - structural_wall_mask * overlay_mode);
 	float wall_mask = structural_wall_mask * (1.0 - overlay_mode);
 	bool is_wall = wall_mask > 0.02;
@@ -768,7 +854,7 @@ void fragment() {
 		float face_breakup = 0.96 + (broad_layer - 0.5) * 0.10 + (small_mottle - 0.5) * 0.05;
 		vec3 wall_color = facade_color * face_breakup;
 		// Vertical read: 0 at the crest (roof junction), 1 at the open base.
-		float wall_h = clamp(edge_below / max(wall_texels, 1.0), 0.0, 1.0);
+		float wall_h = clamp(wall_edge_distance / max(wall_texels, 1.0), 0.0, 1.0);
 		float shade_depth = 1.0 - wall_h;
 		if (wall_streak_strength > 0.001) {
 			// Rain-wash streaks: fine across, long down -> vertical tone drift.
@@ -803,7 +889,7 @@ void fragment() {
 			vec3 crest_color = wall_color * mix(1.05, crest_day_brightness, crest_daylight) * crest_warm;
 			wall_color = mix(wall_color, crest_color, crest_band * crest_light_strength * crest_breakup);
 		}
-		float base_outline = 1.0 - smoothstep(0.0, 1.0 / max(sample_step_px, 1.0), edge_below);
+		float base_outline = 1.0 - smoothstep(0.0, 1.0 / max(sample_step_px, 1.0), wall_edge_distance);
 		wall_color = mix(wall_color, vec3(0.0, 0.0, 0.0), clamp(base_outline, 0.0, 1.0) * base_outline_strength);
 		// Resolve RGB ownership with the same coverage that writes alpha. Using
 		// wall_mask directly left the bright roof RGB inside a fractional wall
@@ -851,6 +937,21 @@ void fragment() {
 		lip_mix += lip_bio_gate * 0.20;
 	}
 	color = mix(color, inner_lip, inner_rim * lip_mix * top_here);
+	if (overlay_mode > 0.5 && roof_component_reveal_enabled > 0.5) {
+		// Component ownership is tile/cavity metadata and must not inherit the
+		// cosmetic crag warp. Besides the active floor, yield only the exact
+		// BASE(V) structural wall whose open side belongs to this component.
+		float displayed_weight = sample_component_reveal_weight(UV);
+		float base_facade_weight = sample_displayed_base_facade_reveal_weight(
+			warped_base_uv,
+			UV,
+			texel,
+			wall_texels,
+			body_area
+		);
+		displayed_weight = max(displayed_weight, base_facade_weight);
+		out_alpha *= 1.0 - clamp(displayed_weight * component_reveal_blend, 0.0, 1.0);
+	}
 
 	point_light_facade_accept = wall_mask;
 	COLOR = vec4(color, out_alpha);

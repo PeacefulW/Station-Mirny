@@ -1,0 +1,79 @@
+{
+	"contract": "CLOSED roof + component alpha blend; aperture on BASE only; N/E/S/W facade ownership from direction metadata",
+	"direction_texture_material_bindings": 40,
+	"probe": "mountain_modular_mouth_render_probe",
+	"production_shader": "res://assets/shaders/mountain_top_mask_underlay.gdshader",
+	"renderer": "D3D12",
+	"scenarios": [
+		{
+			"aperture_hash": 2017128734,
+			"aperture_nonzero_pixels": 30,
+			"closed_mask_hash": 2556162811,
+			"direction": "NORTH",
+			"direction_bit": 1,
+			"inside_open_pixel_differences_from_outside": 38917,
+			"mouth_width_tiles": 1,
+			"name": "north_one_tile",
+			"outside_blend_pixel_differences": 0,
+			"outside_opening_pixel_differences_from_solid": 3318,
+			"outside_selector_nonzero": 0,
+			"physical_metadata_nonzero": 2
+		},
+		{
+			"aperture_hash": 1390997859,
+			"aperture_nonzero_pixels": 42,
+			"closed_mask_hash": 3602706384,
+			"direction": "EAST",
+			"direction_bit": 2,
+			"inside_open_pixel_differences_from_outside": 87156,
+			"mouth_width_tiles": 1,
+			"name": "east_one_tile",
+			"outside_blend_pixel_differences": 0,
+			"outside_opening_pixel_differences_from_solid": 4350,
+			"outside_selector_nonzero": 0,
+			"physical_metadata_nonzero": 2
+		},
+		{
+			"aperture_hash": 2410654142,
+			"aperture_nonzero_pixels": 36,
+			"closed_mask_hash": 1826650928,
+			"direction": "SOUTH",
+			"direction_bit": 4,
+			"inside_open_pixel_differences_from_outside": 42410,
+			"mouth_width_tiles": 1,
+			"name": "south_one_tile",
+			"outside_blend_pixel_differences": 0,
+			"outside_opening_pixel_differences_from_solid": 5031,
+			"outside_selector_nonzero": 0,
+			"physical_metadata_nonzero": 2
+		},
+		{
+			"aperture_hash": 2434424503,
+			"aperture_nonzero_pixels": 131,
+			"closed_mask_hash": 1826650928,
+			"direction": "SOUTH",
+			"direction_bit": 4,
+			"inside_open_pixel_differences_from_outside": 124396,
+			"mouth_width_tiles": 3,
+			"name": "south_three_tile",
+			"outside_blend_pixel_differences": 0,
+			"outside_opening_pixel_differences_from_solid": 15801,
+			"outside_selector_nonzero": 0,
+			"physical_metadata_nonzero": 6
+		},
+		{
+			"aperture_hash": 919903979,
+			"aperture_nonzero_pixels": 24,
+			"closed_mask_hash": 1988275520,
+			"direction": "WEST",
+			"direction_bit": 8,
+			"inside_open_pixel_differences_from_outside": 85939,
+			"mouth_width_tiles": 1,
+			"name": "west_one_tile",
+			"outside_blend_pixel_differences": 0,
+			"outside_opening_pixel_differences_from_solid": 2992,
+			"outside_selector_nonzero": 0,
+			"physical_metadata_nonzero": 2
+		}
+	]
+}

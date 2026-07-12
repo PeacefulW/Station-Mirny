@@ -69,9 +69,9 @@ func build_chunk_component_floor_mask(
 	return mask
 
 
-## Physical surface mouths are a separate selector from the active cavity.
-## They punch only the real boundary cell through the closed construction roof
-## and therefore work for north/east/west as well as the tall south facade.
+## Physical surface mouths are metadata separate from the active cavity. The
+## native full-resolution C-V aperture owns the actual BASE facade break; this
+## tile mask supplies only N/E/S/W orientation and wide-mouth continuity.
 func build_chunk_opening_floor_mask(chunk_coord: Vector2i) -> PackedByteArray:
 	chunk_coord = _canonicalize_chunk(chunk_coord)
 	var mask := PackedByteArray()
