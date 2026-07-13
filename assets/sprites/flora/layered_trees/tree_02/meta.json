@@ -5,17 +5,24 @@
 	"frame_height": 768,
 	"anchor": [
 		384,
-		555
+		557
 	],
 	"bake_profile": {
-		"profile_id": "station_mirny_layered_tree_10_oclock_fill_20_v4",
-		"version": 4,
+		"profile_id": "station_mirny_layered_tree_10_oclock_lamp100_root7_v5",
+		"version": 5,
 		"frame_size": 768,
 		"sun_azimuth_degrees": 219.0,
 		"albedo_sun_elevation_degrees": 38.0,
 		"albedo_sun_angular_diameter_degrees": 4.0,
 		"shadow_sun_elevation_degrees": 42.0,
-		"root_embed_fraction": 0.011,
+		"root_embed_fraction": 0.07,
+		"ground_clip": {
+			"enabled": true,
+			"mode": "physical_mesh_bisect",
+			"plane_z": 0.0,
+			"bisect_distance": 1e-05,
+			"max_remaining_below_plane": 1e-05
+		},
 		"screen_sun_direction": "west_north_west_10_oclock",
 		"fixed_shadow_direction": "screen_east_south_east",
 		"fixed_shadow_direction_vector_screen": [
@@ -31,7 +38,7 @@
 			"position_y": -2.05,
 			"height_fraction": 0.08,
 			"target_height_fraction": 0.43,
-			"energy": 23.3515625,
+			"energy": 100.0,
 			"color": [
 				1.0,
 				0.97,
@@ -44,7 +51,7 @@
 		},
 		"yaw_degrees": 90.0
 	},
-	"sort_offset": 555,
+	"sort_offset": 557,
 	"collision_radius": 18,
 	"plant_depth_px": 0,
 	"wind_strength": 0.45,
@@ -62,10 +69,10 @@
 		"normal": "normal.png"
 	},
 	"alpha_bbox": [
-		257,
-		139,
-		254,
-		455
+		249,
+		142,
+		270,
+		453
 	],
 	"notes": "Prototype layered tree asset from one GLB. Static trunk/foliage layers; runtime wind should use wind_mask and keep trunk/root pinned."
 }

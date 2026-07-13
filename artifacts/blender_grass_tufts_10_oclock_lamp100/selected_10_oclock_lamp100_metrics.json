@@ -1,0 +1,62 @@
+{
+  "frame_00": {
+    "compared_pixels": 766,
+    "shadowed_fraction_delta_ge_2": 0.050913838120104436,
+    "max_luminance_delta": 6,
+    "authored_shadow_direction": [
+      0.866025,
+      0.5
+    ],
+    "shadow_centroid_from_authored_root": [
+      -4.888029465930025,
+      7.376243093922653
+    ],
+    "max_forward_extent_from_authored_root": 44.76202,
+    "below_root_alpha_fraction": 0.8899079189686925
+  },
+  "frame_02": {
+    "compared_pixels": 1342,
+    "shadowed_fraction_delta_ge_2": 0.07973174366616989,
+    "max_luminance_delta": 14,
+    "authored_shadow_direction": [
+      0.866025,
+      0.5
+    ],
+    "shadow_centroid_from_authored_root": [
+      18.656087927185297,
+      22.140820882706507
+    ],
+    "max_forward_extent_from_authored_root": 42.503695,
+    "below_root_alpha_fraction": 1.0
+  },
+  "frame_16": {
+    "compared_pixels": 1048,
+    "shadowed_fraction_delta_ge_2": 0.07061068702290077,
+    "max_luminance_delta": 14,
+    "authored_shadow_direction": [
+      0.866025,
+      0.5
+    ],
+    "shadow_centroid_from_authored_root": [
+      21.979763605663067,
+      20.520846863228996
+    ],
+    "max_forward_extent_from_authored_root": 45.235745,
+    "below_root_alpha_fraction": 1.0
+  },
+  "frame_20": {
+    "compared_pixels": 812,
+    "shadowed_fraction_delta_ge_2": 0.014778325123152709,
+    "max_luminance_delta": 4,
+    "authored_shadow_direction": [
+      0.866025,
+      0.5
+    ],
+    "shadow_centroid_from_authored_root": [
+      -0.392612137203173,
+      25.2203166226913
+    ],
+    "max_forward_extent_from_authored_root": 16.790895,
+    "below_root_alpha_fraction": 1.0
+  }
+}

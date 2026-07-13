@@ -1,4 +1,4 @@
-"""Production-promotion checks for the selected 10:00 / 20% six-tree batch."""
+"""Production checks for the selected lamp-100/root-7% six-tree batch."""
 
 from __future__ import annotations
 
@@ -40,7 +40,19 @@ class LayeredTreeSelected10OclockFill20BatchTest(unittest.TestCase):
         profile = json.loads(PROFILE.read_text(encoding="utf-8"))
         lighting = profile["lighting"]
         kicker = lighting["low_opposite_kicker"]
-        self.assertEqual(profile["profile_id"], "station_mirny_layered_tree_10_oclock_fill_20_v4")
+        self.assertEqual(profile["profile_id"], "station_mirny_layered_tree_10_oclock_lamp100_root7_v5")
+        self.assertEqual(profile["version"], 5)
+        self.assertEqual(profile["planting"]["root_embed_fraction"], 0.07)
+        self.assertEqual(
+            profile["planting"]["ground_clip"],
+            {
+                "enabled": True,
+                "mode": "physical_mesh_bisect",
+                "plane_z": 0.0,
+                "bisect_distance": 0.00001,
+                "max_remaining_below_plane": 0.00001,
+            },
+        )
         self.assertEqual(lighting["sun_azimuth_degrees"], 219.0)
         self.assertEqual(profile["render"]["exposure"], 0.75)
         self.assertEqual(lighting["fixed_shadow_direction_vector_screen"], [0.866025, 0.5])
@@ -49,7 +61,7 @@ class LayeredTreeSelected10OclockFill20BatchTest(unittest.TestCase):
         self.assertEqual(kicker["position_y"], -2.05)
         self.assertEqual(kicker["height_fraction"], 0.08)
         self.assertEqual(kicker["target_height_fraction"], 0.43)
-        self.assertEqual(kicker["energy"], 23.3515625)
+        self.assertEqual(kicker["energy"], 100.0)
         self.assertEqual(kicker["spot_size_degrees"], 52.0)
         self.assertEqual(kicker["spot_blend"], 0.88)
         self.assertFalse(kicker["use_shadow"])
@@ -63,6 +75,7 @@ class LayeredTreeSelected10OclockFill20BatchTest(unittest.TestCase):
         self.assertEqual(yaws["tree_06"], 180.0)
 
     def test_candidates_have_complete_physical_layers_and_metadata(self) -> None:
+        profile = json.loads(PROFILE.read_text(encoding="utf-8"))
         manifest = json.loads(MANIFEST.read_text(encoding="utf-8"))
         yaws = {item["tree_id"]: float(item["yaw_degrees"]) for item in manifest["trees"]}
         for tree_id in TREE_IDS:
@@ -70,9 +83,15 @@ class LayeredTreeSelected10OclockFill20BatchTest(unittest.TestCase):
             classification = json.loads((candidate / "classification.json").read_text(encoding="utf-8"))
             meta = json.loads((candidate / "meta.json").read_text(encoding="utf-8"))
             self.assertEqual(classification.get("suppressed_shadow_casters", []), [], tree_id)
+            ground_clip = classification["ground_clip"]
+            self.assertEqual(ground_clip["mode"], "physical_mesh_bisect", tree_id)
+            self.assertGreater(ground_clip["clipped_objects"], 0, tree_id)
+            self.assertGreaterEqual(float(ground_clip["remaining_min_z"]), -0.00001, tree_id)
             self.assertEqual(float(classification["yaw_degrees"]), yaws[tree_id], tree_id)
-            self.assertEqual(meta["bake_profile"]["profile_id"], "station_mirny_layered_tree_10_oclock_fill_20_v4")
-            self.assertEqual(meta["bake_profile"]["low_opposite_kicker"]["energy"], 23.3515625)
+            self.assertEqual(meta["bake_profile"]["profile_id"], "station_mirny_layered_tree_10_oclock_lamp100_root7_v5")
+            self.assertEqual(meta["bake_profile"]["root_embed_fraction"], 0.07)
+            self.assertEqual(meta["bake_profile"]["ground_clip"], profile["planting"]["ground_clip"])
+            self.assertEqual(meta["bake_profile"]["low_opposite_kicker"]["energy"], 100.0)
             self.assertFalse(meta["bake_profile"]["low_opposite_kicker"]["use_shadow"])
             self.assertEqual(meta["bake_profile"]["shadow_contact_lock_source_px"], 48.0)
             self.assertEqual(meta["bake_profile"]["fixed_shadow_direction_vector_screen"], [0.866025, 0.5])

@@ -1,4 +1,4 @@
-"""Build six-tree selected-lighting summer/winter review and metrics."""
+"""Build the six-tree lamp-100/root-7% summer/winter review and metrics."""
 
 from __future__ import annotations
 
@@ -35,7 +35,10 @@ def main() -> None:
     for tree_index in range(1, 7):
         tree_id = f"tree_{tree_index:02d}"
         rows.append((
-            labelled_capture(lab / f"{tree_id}_summer.png", f"{tree_id} | 10:00 + 20% | PHYSICAL SHADOW"),
+            labelled_capture(
+                lab / f"{tree_id}_summer.png",
+                f"{tree_id} | 10:00 | LAMP 100 | ROOT 7% | VISIBLE-ROOT SHADOW",
+            ),
             labelled_capture(lab / f"{tree_id}_winter.png", f"{tree_id} | FULL-FOLIAGE WINTER"),
         ))
         metrics[tree_id] = collect_metrics(candidates / tree_id)

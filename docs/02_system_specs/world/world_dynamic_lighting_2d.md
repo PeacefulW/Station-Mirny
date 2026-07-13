@@ -4,8 +4,8 @@ doc_type: system_spec
 status: approved
 source_of_truth: true
 owner: engineering+art
-version: 1.8
-last_updated: 2026-07-12
+version: 1.10
+last_updated: 2026-07-13
 related_docs:
   - ../../05_adrs/0005-light-is-gameplay-system.md
   - ../../05_adrs/0001-runtime-work-and-dirty-update-foundation.md
@@ -92,14 +92,20 @@ reads in a dark ambient, and `DirectionalLight2D` lights the ground. Captures in
   → moving pool of light + local normal relief at night.
 - Reconcile with the existing in-shader cosmetic ground shade (reduce/disable the
   baked directional term once the real sun does directional shading — avoid
-  double-darkening). Layered tree v4 sprites use the selected offline screen
-  `10:00` Sun plus a low opposite shadowless Spot that lifts dark-trunk
-  readability by the measured `20%`; the physical Sun-only cast shadow remains
-  fixed east-south-east. Runtime time-of-day changes only tree-shadow
+  double-darkening). Layered tree v5 sprites use the selected offline screen
+  `10:00` Sun plus a low opposite shadowless Spot at energy `100`. Trees are
+  planted by `7%` and bisected at the bake ground plane, so their physical
+  Sun-only cast shadow comes from visible above-ground geometry and remains fixed
+  east-south-east. Runtime time-of-day changes only tree-shadow
   visibility/far-end length. This authored tree bake does not change the live
   `DirectionalLight2D` owner or its canonical `225 degrees` angle. Tree/rock
   sprites still have no `NORMAL_MAP`, so
   engine lights modulate them flatly.
+- Grass v3 uses the same offline screen `10:00` Sun, exposure `0.75`, and low
+  shadowless albedo Spot energy `100`, but keeps its own unchanged tuft geometry
+  and planting range. Its separate complete Sun-only Cycles ground-shadow atlas
+  stays fixed east-south-east and does not stretch with time of day. This
+  texture-only promotion does not alter the live `DirectionalLight2D` owner.
 - Depends on quality terrain normal maps (authored externally) for the relief payoff.
 
 ### Iteration 2 — Cast shadows
@@ -376,6 +382,23 @@ length does not follow time of day; wind moves the tuft while the baked root and
 shadow remain fixed. This is presentation data only and does not change live
 light ownership, gameplay-light authority, public API, save/load, placement, or
 runtime work classes.
+
+Version `1.9` replaces only the layered-tree authored bake with the accepted
+screen `10:00` Sun, low shadowless albedo Spot energy `100`, `7%` root planting,
+and a deterministic ground-plane mesh bisect. The fixed east-south-east physical
+shadow is cast by every visible above-ground root/crown surface and no buried
+source geometry. The live presentation sun, runtime light owner, public API,
+gameplay-light authority, save/load, placement and runtime work classes remain
+unchanged.
+
+Version `1.10` replaces only the paired grass albedo/physical-shadow atlases
+with grass profile v3: screen `10:00` Sun, exposure `0.75`, and the low
+shadowless albedo Spot at energy `100`. Grass keeps its independent authored
+root-height range and receives no tree-style root embed, downward translation
+or ground-plane clip. Real Cycles blade self-shadow and the complete Sun-only
+fixed east-south-east ground shadow remain. Live light ownership, public API,
+gameplay-light authority, save/load, placement and runtime work classes are
+unchanged.
 
 ## Required Updates
 - `docs/02_system_specs/README.md` — index entry (added with this draft).

@@ -2,7 +2,7 @@
 	{
 		"anchor": [
 			384.0,
-			564.0
+			570.0
 		],
 		"asset": "tree_01_layered_glb",
 		"capture": "tree_01_summer",
@@ -64,7 +64,7 @@
 	{
 		"anchor": [
 			384.0,
-			564.0
+			570.0
 		],
 		"asset": "tree_01_layered_glb",
 		"capture": "tree_01_winter",
@@ -126,7 +126,7 @@
 	{
 		"anchor": [
 			384.0,
-			555.0
+			557.0
 		],
 		"asset": "tree_02_layered_glb",
 		"capture": "tree_02_summer",
@@ -188,7 +188,7 @@
 	{
 		"anchor": [
 			384.0,
-			555.0
+			557.0
 		],
 		"asset": "tree_02_layered_glb",
 		"capture": "tree_02_winter",
@@ -250,7 +250,7 @@
 	{
 		"anchor": [
 			384.0,
-			563.0
+			568.0
 		],
 		"asset": "tree_03_layered_glb",
 		"capture": "tree_03_summer",
@@ -312,7 +312,7 @@
 	{
 		"anchor": [
 			384.0,
-			563.0
+			568.0
 		],
 		"asset": "tree_03_layered_glb",
 		"capture": "tree_03_winter",
@@ -374,7 +374,7 @@
 	{
 		"anchor": [
 			384.0,
-			564.0
+			570.0
 		],
 		"asset": "tree_04_layered_glb",
 		"capture": "tree_04_summer",
@@ -436,7 +436,7 @@
 	{
 		"anchor": [
 			384.0,
-			564.0
+			570.0
 		],
 		"asset": "tree_04_layered_glb",
 		"capture": "tree_04_winter",
@@ -498,7 +498,7 @@
 	{
 		"anchor": [
 			384.0,
-			561.0
+			567.0
 		],
 		"asset": "tree_05_layered_glb",
 		"capture": "tree_05_summer",
@@ -560,7 +560,7 @@
 	{
 		"anchor": [
 			384.0,
-			561.0
+			567.0
 		],
 		"asset": "tree_05_layered_glb",
 		"capture": "tree_05_winter",

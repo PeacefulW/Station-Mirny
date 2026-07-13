@@ -4,8 +4,8 @@ doc_type: system_spec
 status: approved
 owner: art+engineering
 source_of_truth: true
-version: 2.9
-last_updated: 2026-07-12
+version: 3.0
+last_updated: 2026-07-13
 related_docs:
   - ../../00_governance/WORKFLOW.md
   - ../../00_governance/ENGINEERING_STANDARDS.md
@@ -148,6 +148,22 @@ assets, the selected production bake profile, focused offline tooling/tests, and
 the governing tree presentation docs may change. Runtime code, worldgen,
 placement, saves, player shadows, rocks and the canonical visual-light owner
 remain unchanged.
+
+Iteration 5 is the explicitly authorized replacement of that production bake
+with the visually accepted `10:00 / lamp 100 / root embed 7%` profile across
+`1.glb` through `6.glb`. The Sun, camera, exposure and physical Cycles shadow
+stay fixed; the low opposite Spot remains shadowless and albedo-only but uses
+energy `100`. After the normalized tree is planted by `7%` of its height, bake
+geometry below the authored ground plane is removed by a deterministic mesh
+bisect before every output pass. Therefore the physical shadow is cast by all
+and only the geometry visible above ground, including the visible root stubs;
+this is not a painted, erased, synthetic or postprocessed contact shadow.
+Production yaw remains `90/90/90/90/90/180`. Only the selected production bake
+profile/tooling, the six layered-tree asset directories, proof artifacts and
+governing presentation docs may change. Runtime code, public API, worldgen,
+placement, save/load, rocks, visual-light ownership and `world_version` remain
+unchanged because the existing runtime already consumes these metadata-driven
+assets.
 
 ## Out of Scope
 
@@ -301,6 +317,9 @@ shared data-driven bake contract rather than per-asset hardcoded lighting.
   test under `tools/tree_atlas/`;
 - a selected `10:00 / 20%` production bake profile, six-tree batch promotion
   runner/review/test under `tools/tree_atlas/`, and isolated batch artifacts;
+- a selected `10:00 / lamp 100 / root embed 7%` production bake profile,
+  six-tree promotion runner/review/test under `tools/tree_atlas/`, and isolated
+  batch artifacts;
 - `artifacts/layered_tree_brightness_variants/**`;
 - `assets/sprites/flora/layered_trees/tree_01/**` through `tree_06/**`;
 - `assets/shaders/layered_tree_foliage_wind.gdshader`;
@@ -341,6 +360,9 @@ shared data-driven bake contract rather than per-asset hardcoded lighting.
   through `tree_06/**`, the selected bake profile/tooling, proof artifacts and
   governing presentation docs are writable; production runtime code remains
   read-only because it already consumes six metadata-driven variants.
+- during Iteration 5, only `assets/sprites/flora/layered_trees/tree_01/**`
+  through `tree_06/**`, the selected bake profile/tooling, proof artifacts and
+  governing presentation docs are writable; all runtime code remains read-only.
 
 ## Acceptance Criteria
 
@@ -512,6 +534,26 @@ shared data-driven bake contract rather than per-asset hardcoded lighting.
 - [x] Runtime smoke instantiates all six promoted variants and their physical
       shadows; project boot, focused batch tests and the full layered suite pass
       without a `world_version`, save/load, placement or public API change.
+- [x] Iteration 5 bakes `tree_01` through `tree_06` with the accepted screen
+      `10:00` Sun, exposure `0.75`, low opposite Spot energy `100`, cone
+      `52 degrees`, blend `0.88`, `use_shadow=false`, and albedo-only effect.
+- [x] All six normalized source meshes use root embed fraction `0.07` and are
+      deterministically bisected at ground `Z=0` before albedo, masks, winter
+      and physical-shadow passes; resulting vertices may be no lower than
+      `-0.00001` Blender units.
+- [x] The physical Cycles shadow uses `64` samples, denoising and Sun angular
+      diameter `4 degrees`; it is cast by every visible above-ground trunk,
+      crown and root surface and by no buried source geometry. The suppressed-
+      caster list remains empty and no synthetic/postprocessed shadow is added.
+- [x] All six outputs retain the complete layered pass set, full-foliage winter
+      contract, contact lock `48 px`, and yaws `90/90/90/90/90/180`; candidate
+      and promoted normalized content hashes and anchors match.
+- [x] A labelled six-tree review records the accepted non-square physical
+      shadows and visible-root contact before promotion (manual human visual
+      acceptance already provided 2026-07-13).
+- [x] Focused promotion checks, the full layered suite, Godot import/lab/runtime
+      smoke and project boot pass without runtime code, public API, save/load,
+      placement, rock asset or `world_version` changes.
 
 ## Failure Cases / Risks
 
@@ -762,6 +804,29 @@ layer. Focused promotion checks pass `4/4`, the full layered suite passes
 cleanly after headless boot. No runtime owner, world placement, save/load
 contract, public API, rock asset, or `world_version` changed.
 
+### Iteration 5 - Promote lamp 100, seven-percent planting, visible-root shadow (current)
+
+- keep the proven physical screen `10:00` Sun, camera and exposure;
+- set the low opposite shadowless albedo-only Spot energy to `100`;
+- plant every normalized tree by `7%` of its height;
+- bisect bake geometry at the ground plane before every pass so buried roots
+  are absent from both the visible sprite and the physical shadow caster;
+- batch-bake `1.glb` through `6.glb` using yaws `90/90/90/90/90/180`;
+- review and promote only the six production layered-tree asset directories;
+- retain the existing metadata-driven runtime path and run offline, Godot
+  runtime and boot verification.
+
+Status: completed 2026-07-13 after manual visual acceptance of the isolated
+six-tree review. All six candidates were baked with profile
+`station_mirny_layered_tree_10_oclock_lamp100_root7_v5` and promoted with
+candidate-to-production content equality. Ground-clip reports record
+`11/20/14/17/13/18` clipped mesh objects and remaining minimum `Z` no lower than
+`-0.000009925`; suppressed-caster lists are empty. The focused promotion suite
+passes `4/4`, the full layered suite passes `62/62`, Godot import, lab capture,
+lab smoke, runtime smoke and a `120`-frame headless project boot all exit cleanly.
+The production guard passes. Runtime code, public API, world placement,
+save/load, rocks and `world_version` remain unchanged.
+
 Clarification: the user's `21:00` wording meant the screen-clock direction
 `9 o'clock`, not gameplay nighttime. This completed night proof remains valid
 evidence that an `8%` baked lift does not become emissive, but Iteration 3D is
@@ -866,3 +931,8 @@ production hash guard passes. No candidate has been promoted.
   `plains_trees_presentation.md`, and `world_dynamic_lighting_2d.md` with the
   selected `10:00 / 20%` production rig; recheck `system_api.md` and update it
   only if a public runtime surface changes.
+- Iteration 5: update `docs/art/layered_asset_bake_contract.md`,
+  `plains_trees_presentation.md`, and `world_dynamic_lighting_2d.md` with the
+  selected `10:00 / lamp 100 / root embed 7% / visible-root physical shadow`
+  production profile; recheck `system_api.md` and update it only if a public
+  runtime surface changes.

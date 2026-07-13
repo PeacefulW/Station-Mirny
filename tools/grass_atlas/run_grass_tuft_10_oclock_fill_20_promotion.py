@@ -1,4 +1,4 @@
-"""Bake, review, promote, and verify the selected fixed-length grass lighting."""
+"""Bake, review, promote, and verify the lamp-100 fixed-length grass lighting."""
 
 from __future__ import annotations
 
@@ -17,7 +17,7 @@ PROFILE = Path(__file__).with_name("grass_tuft_bake_profile.json")
 BAKE = Path(__file__).with_name("blender_grass_tuft_bake.py")
 POSTPROCESS = Path(__file__).with_name("postprocess_grass_tuft_atlas.py")
 REVIEW = Path(__file__).with_name("build_grass_tuft_10_oclock_fill_20_review.py")
-OUTPUT_ROOT = ROOT / "artifacts" / "blender_grass_tufts_10_oclock_fill_20"
+OUTPUT_ROOT = ROOT / "artifacts" / "blender_grass_tufts_10_oclock_lamp100"
 FRAMES = OUTPUT_ROOT / "frames"
 RUNTIME_DIR = ROOT / "assets" / "textures" / "world" / "biomes" / "plains" / "flora"
 FORBIDDEN_PATHS = (
@@ -27,6 +27,11 @@ FORBIDDEN_PATHS = (
     "core/autoloads/wind_runtime.gd",
     "core/autoloads/weather_runtime.gd",
     "core/systems/world/world_runtime_constants.gd",
+    "core/systems/world/world_streamer.gd",
+    "core/systems/world/chunk_view.gd",
+    "assets/shaders/grass_scatter_batch.gdshader",
+    "data/terrain/material_sets/grass_scatter_material_set.tres",
+    "scenes/world/world_runtime_v0.tscn",
     "assets/sprites/flora/layered_trees",
     "assets/sprites/decor/plains/layered_small_rocks",
     "project.godot",

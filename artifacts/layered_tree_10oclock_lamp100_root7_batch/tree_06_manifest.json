@@ -1,0 +1,40 @@
+{
+  "source_glb": "C:\\Users\\progi\\project-Mirniy\\tree glb\\6.glb",
+  "source_profile": "C:\\Users\\progi\\project-Mirniy\\Station-Mirny\\tools\\tree_atlas\\layered_tree_bake_profile_10_oclock_fill_20.json",
+  "tree": "tree_06",
+  "yaw_degrees": 180.0,
+  "screen_sun_direction": "10:00",
+  "sun_azimuth_degrees": 219.0,
+  "lamp_type": "SPOT",
+  "lamp_energy": 100.0,
+  "lamp_use_shadow": false,
+  "root_embed_fraction": 0.07,
+  "buried_geometry_min_z_before_clip": -0.06999987363815308,
+  "geometry_min_z_after_clip": -9.924173355102539e-06,
+  "geometry_max_z": 0.929998517036438,
+  "ground_z": 0.0,
+  "shadow_caster_clip": {
+    "mode": "physical_mesh_bisect",
+    "clip_plane_z": 0.0,
+    "before_vertices": 1098921,
+    "after_vertices": 1078845,
+    "clipped_objects": 18,
+    "remaining_min_z": -9.924173355102539e-06
+  },
+  "sun_shadow": {
+    "renderer": "CYCLES",
+    "samples": 64,
+    "use_denoising": true,
+    "angular_diameter_degrees": 4.0,
+    "caster_geometry": "visible_above_ground_only"
+  },
+  "anchor": [
+    512,
+    721
+  ],
+  "frame_size": 1024,
+  "render_engine": "CYCLES",
+  "blender_version": "5.1.2",
+  "output": "C:\\Users\\progi\\project-Mirniy\\Station-Mirny\\artifacts\\layered_tree_10oclock_lamp100_root7_batch\\tree_06_sun10_lamp100_root7_visible_root_shadow_cycles.png",
+  "production_assets_changed": false
+}

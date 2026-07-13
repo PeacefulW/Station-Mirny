@@ -4,8 +4,8 @@ doc_type: system_spec
 status: approved
 owner: engineering+design
 source_of_truth: true
-version: 1.3
-last_updated: 2026-07-12
+version: 1.4
+last_updated: 2026-07-13
 related_docs:
   - ../../00_governance/ENGINEERING_STANDARDS.md
   - ../../00_governance/WORKFLOW.md
@@ -825,6 +825,104 @@ fixed authored/runtime direction `[0.866025, 0.5]`, and a passing promotion
 guard. The shader/material contract zeros all shadow wind amplitudes and exposes
 no time-of-day shadow length input.
 
+### Iteration 7 — Lamp-100 grass rebake with unchanged planting — COMPLETED
+
+User-authorized production replacement that brings grass albedo lighting to the
+accepted layered-tree v5 brightness while preserving the grass-specific planting
+contract. This is a presentation-only authored-asset iteration.
+
+Design intent:
+
+- keep the existing screen `10:00` Sun direction, exposure, camera, geometry,
+  dry/biofield banks and `4 x 8` frame order;
+- set the normalized low opposite shadowless albedo-only Spot energy to `100`;
+- preserve the existing authored per-blade root-height variation exactly; grass
+  has no normalized `root_embed_fraction` stage, no global downward translation
+  and no ground-plane mesh bisect;
+- preserve real Cycles blade-to-blade self-shadow in the albedo frames;
+- bake the complete Sun-only physical ground shadow toward screen
+  east-south-east and keep the Spot absent from the shadow-catcher pass;
+- replace the existing production albedo/shadow atlases without changing their
+  paths, frame layout, runtime material contract, wind deformation or root/shadow
+  contact semantics.
+
+Law 0 / performance classification:
+
+- layer: presentation-only authored assets; canonical terrain, placement and
+  gameplay are unchanged;
+- save/load, determinism, unloaded-chunk semantics and `world_version`: unchanged;
+- runtime work class: existing boot/preload texture consumption only; no new
+  interactive or background work;
+- source of truth / single write owner: the versioned grass bake profile and
+  `tools/grass_atlas` offline Blender pipeline;
+- derived data: 32 source frames, packed albedo/shadow atlases, review and
+  metrics artifacts;
+- dirty unit: one offline grass atlas batch; the runtime dirty unit remains one
+  chunk scatter buffer and is not invalidated by this texture-only replacement;
+- target scale: thousands of tufts per chunk and dozens of loaded chunks remain
+  one shared texture/material path;
+- escalation path: keep lighting and shadow complexity in the offline bake; any
+  new runtime-lighting or per-instance shadow behavior requires a separate spec.
+
+Allowed files:
+
+- this spec;
+- `tools/grass_atlas/**` only for the selected profile, offline bake, pack,
+  review, promotion guard and focused tests;
+- `artifacts/blender_grass_tufts_10_oclock_lamp100/**`;
+- `artifacts/grass_runtime_probe/**` and `artifacts/grass_wind_dir_probe/**`
+  only as regenerated proof output from the required existing runtime probes;
+- `assets/textures/world/biomes/plains/flora/grass_tuft_atlas.png`;
+- `assets/textures/world/biomes/plains/flora/grass_tuft_shadow_atlas.png`;
+- `docs/art/layered_asset_bake_contract.md` and
+  `docs/02_system_specs/world/world_dynamic_lighting_2d.md`.
+
+Forbidden files and behavior:
+
+- tree/rock assets or tools, terrain assets, native scatter code, placement,
+  density, frame selection, mountain clearance and instance buffers;
+- grass runtime shader/material/scene code, `WorldStreamer`, `ChunkView`,
+  `WindRuntime`, `WeatherRuntime`, `TimeManager`, save/load, packets, events,
+  commands, public API and `world_version`;
+- any new root embedding, global downward translation, ground clipping, mesh
+  bisect or postprocess erasure of the grass base/shadow contact; the existing
+  authored `tuft.root_z_min/root_z_max` variation remains unchanged;
+- runtime shadow stretching, rotation, translation or a second instance buffer.
+
+Acceptance criteria:
+
+- [x] the selected profile records Spot energy `100`, `use_shadow=false`,
+      albedo-only effect, screen `10:00` Sun, exposure `0.75`, Cycles physical
+      shadow, and contains no normalized root-embed or ground-clip stage;
+- [x] all geometry-related profile values and Blender generation code remain
+      unchanged, including the existing authored root-height range; all 32
+      frames retain their ground-root position, geometry/order and dry/biofield
+      bank identity with no new downward transform;
+- [x] real Cycles blade-to-blade self-shadow remains nonzero in the strict
+      diagnostic and every paired physical ground-shadow frame is nonempty;
+- [x] the shadowless Spot contributes zero shadow-catcher pixels and the
+      physical shadow remains east-south-east with root contact fixed;
+- [x] candidate and production atlas pixels match after promotion, while a
+      guard proves tree/rock/world/runtime files remain byte-unchanged;
+- [x] focused grass bake tests, existing grass runtime smoke/probes, Godot
+      import and project boot pass; final aesthetic judgment remains a manual
+      in-world check.
+
+Status: completed 2026-07-13.
+
+Iteration 7 proof (2026-07-13): Blender `5.1.2` rendered all `32/32` albedo,
+no-self-shadow reference and Sun-only Cycles ground-shadow frames. All `32`
+physical shadow frames are nonempty; selected dry/biofield diagnostics retain
+measurable real self-shadow with `0.0148..0.0797` affected-pixel fraction and
+maximum luminance delta `4..14`. The fixed authored direction remains
+`[0.866025, 0.5]`; the expanded production guard passed and candidate/runtime
+albedo and shadow pixels match. Focused Python contracts: `14/14` passed.
+Godot `4.7` import exited `0`; `world_streamer_visual_patch_smoke_test: OK`;
+windowed `grass_runtime_probe: DONE` with `73,308` instances across `25` grass
+chunks; `grass_wind_dir_probe: ALL CHECKS PASSED` with strong-wind motion
+`0.0069` and calm motion `0.0001`; headless project boot exited `0`. Final
+aesthetic judgment remains a manual in-world check.
+
 ## Required Updates
 
 - `docs/README.md` and `docs/02_system_specs/README.md`: link this spec (done
@@ -842,3 +940,10 @@ no time-of-day shadow length input.
   design expects zero boundary changes. Rechecked 2026-07-12: no public API,
   packet, event or command behavior changed; `layered_asset_bake_contract.md`
   and `world_dynamic_lighting_2d.md` were updated for the promoted grass profile.
+- Iteration 7: update this spec, `layered_asset_bake_contract.md`, and
+  `world_dynamic_lighting_2d.md`; recheck `system_api.md`, `packet_schemas.md`,
+  `event_contracts.md`, and `commands.md`. Update boundary docs only if public
+  behavior changes; the authorized texture-only promotion expects zero boundary
+  changes. Rechecked 2026-07-13: no public API, packet, event or command behavior
+  changed; `layered_asset_bake_contract.md` and
+  `world_dynamic_lighting_2d.md` were updated for grass profile v3.

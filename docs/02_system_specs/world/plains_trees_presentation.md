@@ -4,8 +4,8 @@ doc_type: system_spec
 status: draft
 owner: engineering+design
 source_of_truth: true
-version: 0.3
-last_updated: 2026-07-12
+version: 0.4
+last_updated: 2026-07-13
 related_docs:
   - ../../00_governance/ENGINEERING_STANDARDS.md
   - ../../00_governance/WORKFLOW.md
@@ -88,8 +88,9 @@ in the world:
   + `update_mid_ladder_z` re-assignment). Trees carry no independent z.
 - **Wind** response: the shared wind global uniforms drive a tree wind material
   (canopy sways, base planted), no new wind owner.
-- **Fixed-direction physical cast shadow**: full GLB geometry is baked with the
-  selected screen `10:00` Sun and the cast shadow at east-south-east. Runtime reads the
+- **Fixed-direction physical cast shadow**: visible above-ground GLB geometry is
+  baked with the selected screen `10:00` Sun and the cast shadow at
+  east-south-east. Runtime reads the
   authored direction/contact lock from metadata and uses the canonical sun
   model only for visibility and length, as a derived layer below grass.
 - **Deterministic per-instance variation** (atlas variant, scale tier, tint,
@@ -197,18 +198,22 @@ broadcast.
 
 ### Fixed physical shadow, root-pinned and stretch-only
 
-The cast shadow is the complete physical Cycles shadow baked from the GLB under
-the selected screen `10:00` Sun. Its screen direction is fixed east-south-east
-at `[0.866025, 0.5]`. A low opposite shadowless Spot is an offline albedo-bake
-aid only: it lifts the dark trunk side by the selected measured `20%` and does
-not contribute to the physical shadow pass. Runtime
+The cast shadow is the complete physical Cycles shadow baked from all visible
+above-ground GLB geometry under the selected screen `10:00` Sun. Every tree is
+normalized with `root_embed_fraction: 0.07`, then the production bake performs a
+deterministic `physical_mesh_bisect` at ground `Z=0` before every pass. Buried
+root geometry is absent from both the visible sprite and shadow caster, while
+every visible root surface remains a physical caster. Its screen direction is
+fixed east-south-east at `[0.866025, 0.5]`. A low opposite shadowless Spot with
+energy `100` is an offline albedo-bake aid only and does not contribute to the
+physical shadow pass. Runtime
 reads `fixed_shadow_direction_vector_screen` and
 `shadow_contact_lock_source_px` from asset metadata, keeps the tree anchor and
 the first `48 px` of the shadow invariant, and stretches only the farther end
 from `get_shadow_length_factor()`. The derived layer remains **below** the grass
 stripes so grass can overdraw it on the ground. Runtime never rebuilds shadow
-geometry per object, rotates the shadow through the day, erases root casters, or
-adds a synthetic contact silhouette.
+geometry per object, rotates the shadow through the day, erases visible root
+casters, or adds a synthetic contact silhouette.
 
 ### Procedural atlas, generator-first; palette is data
 

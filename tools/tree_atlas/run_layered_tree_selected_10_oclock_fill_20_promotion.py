@@ -1,4 +1,4 @@
-"""Bake, review, promote, and verify the selected 10:00 / 20% tree rig."""
+"""Bake, review, promote, and verify the selected lamp-100/root-7% tree rig."""
 
 from __future__ import annotations
 
@@ -130,7 +130,7 @@ def main() -> None:
 
     run([sys.executable, "-B", "-m", "unittest", FOCUSED_TEST])
     run([str(args.godot), "--headless", "--path", str(ROOT), "--script", RUNTIME_SMOKE])
-    print(f"Promoted selected 10:00 / 20% lighting to {production_root}")
+    print(f"Promoted selected 10:00 / lamp 100 / root embed 7% profile to {production_root}")
 
 
 if __name__ == "__main__":

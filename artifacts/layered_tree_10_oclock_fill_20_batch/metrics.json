@@ -5,27 +5,27 @@
     "sun_angle_degrees": 219.0,
     "anchor": [
       384,
-      564
+      570
     ],
     "shadow_centroid_delta": [
-      149.29189172420206,
-      96.26468623695371
+      151.8557334030579,
+      93.77208039168192
     ],
-    "shadow_screen_angle_degrees": 32.81426833279532,
-    "visible_trunk_snow_alpha_mean": 0.06514635549415712,
+    "shadow_screen_angle_degrees": 31.695648379111674,
+    "visible_trunk_snow_alpha_mean": 0.06905983183236761,
     "root_band_snow_alpha_mean": 0.0,
     "root_zone_64_snow_alpha_mean": 0.0,
-    "foliage_snow_alpha_mean": 0.3970870927035434,
-    "foliage_dark_gap_fraction": 0.27793005152943756,
-    "foliage_covered_fraction": 0.5192413112597303,
-    "active_snow_pixel_count": 15024,
-    "active_snow_luma_stddev": 5.363238482398856,
-    "active_snow_luma_range": 40.0,
-    "north_west_sample_count": 1699,
-    "south_east_sample_count": 1041,
-    "north_west_luma_mean": 240.7928193054738,
-    "south_east_luma_mean": 220.2958693563881,
-    "north_west_minus_south_east_luma": 20.496949949085717
+    "foliage_snow_alpha_mean": 0.3754224287165792,
+    "foliage_dark_gap_fraction": 0.2941668992464415,
+    "foliage_covered_fraction": 0.49581356405247,
+    "active_snow_pixel_count": 16848,
+    "active_snow_luma_stddev": 4.850696685265775,
+    "active_snow_luma_range": 35.0,
+    "north_west_sample_count": 1654,
+    "south_east_sample_count": 731,
+    "north_west_luma_mean": 240.85187424425635,
+    "south_east_luma_mean": 221.35841313269495,
+    "north_west_minus_south_east_luma": 19.493461111561402
   },
   "tree_02": {
     "asset_dir": "C:\\Users\\progi\\project-Mirniy\\Station-Mirny\\artifacts\\layered_tree_10_oclock_fill_20_batch\\candidates\\tree_02",
@@ -33,27 +33,27 @@
     "sun_angle_degrees": 219.0,
     "anchor": [
       384,
-      555
+      557
     ],
     "shadow_centroid_delta": [
-      123.53670736539613,
-      81.88737221530687
+      117.24632190716693,
+      74.33339156686748
     ],
-    "shadow_screen_angle_degrees": 33.53875104797384,
-    "visible_trunk_snow_alpha_mean": 0.11367918227332717,
-    "root_band_snow_alpha_mean": 0.012430376307566908,
-    "root_zone_64_snow_alpha_mean": 0.02079485864113087,
-    "foliage_snow_alpha_mean": 0.3323625089319236,
-    "foliage_dark_gap_fraction": 0.4196829318509368,
-    "foliage_covered_fraction": 0.45690755610459133,
-    "active_snow_pixel_count": 21232,
-    "active_snow_luma_stddev": 4.534765897446498,
-    "active_snow_luma_range": 38.0,
-    "north_west_sample_count": 1906,
-    "south_east_sample_count": 847,
-    "north_west_luma_mean": 240.46852046169988,
-    "south_east_luma_mean": 221.19598583234946,
-    "north_west_minus_south_east_luma": 19.272534629350417
+    "shadow_screen_angle_degrees": 32.374426679889694,
+    "visible_trunk_snow_alpha_mean": 0.10588878784953829,
+    "root_band_snow_alpha_mean": 0.0,
+    "root_zone_64_snow_alpha_mean": 0.0,
+    "foliage_snow_alpha_mean": 0.31103413543624325,
+    "foliage_dark_gap_fraction": 0.44647529203670266,
+    "foliage_covered_fraction": 0.428087113535026,
+    "active_snow_pixel_count": 22292,
+    "active_snow_luma_stddev": 4.4890460304122675,
+    "active_snow_luma_range": 37.0,
+    "north_west_sample_count": 2077,
+    "south_east_sample_count": 657,
+    "north_west_luma_mean": 240.57005296100144,
+    "south_east_luma_mean": 220.4779299847793,
+    "north_west_minus_south_east_luma": 20.09212297622213
   },
   "tree_03": {
     "asset_dir": "C:\\Users\\progi\\project-Mirniy\\Station-Mirny\\artifacts\\layered_tree_10_oclock_fill_20_batch\\candidates\\tree_03",
@@ -61,27 +61,27 @@
     "sun_angle_degrees": 219.0,
     "anchor": [
       384,
-      563
+      568
     ],
     "shadow_centroid_delta": [
-      156.35199019345782,
-      90.68143003439695
+      159.67824117364353,
+      87.64872603988715
     ],
-    "shadow_screen_angle_degrees": 30.112986122039274,
-    "visible_trunk_snow_alpha_mean": 0.0732103566978842,
+    "shadow_screen_angle_degrees": 28.762752621404854,
+    "visible_trunk_snow_alpha_mean": 0.07392572448073806,
     "root_band_snow_alpha_mean": 0.0,
     "root_zone_64_snow_alpha_mean": 0.0,
-    "foliage_snow_alpha_mean": 0.36900036677093717,
-    "foliage_dark_gap_fraction": 0.3433062383703849,
-    "foliage_covered_fraction": 0.49921653119185194,
-    "active_snow_pixel_count": 16958,
-    "active_snow_luma_stddev": 5.234467244487657,
-    "active_snow_luma_range": 43.0,
-    "north_west_sample_count": 1787,
-    "south_east_sample_count": 986,
-    "north_west_luma_mean": 241.09625069949635,
-    "south_east_luma_mean": 220.05070993914808,
-    "north_west_minus_south_east_luma": 21.045540760348274
+    "foliage_snow_alpha_mean": 0.3491847351871059,
+    "foliage_dark_gap_fraction": 0.3453820319059614,
+    "foliage_covered_fraction": 0.47825356842989086,
+    "active_snow_pixel_count": 19050,
+    "active_snow_luma_stddev": 4.8817604501260226,
+    "active_snow_luma_range": 42.0,
+    "north_west_sample_count": 1808,
+    "south_east_sample_count": 836,
+    "north_west_luma_mean": 241.0420353982301,
+    "south_east_luma_mean": 221.10406698564594,
+    "north_west_minus_south_east_luma": 19.937968412584155
   },
   "tree_04": {
     "asset_dir": "C:\\Users\\progi\\project-Mirniy\\Station-Mirny\\artifacts\\layered_tree_10_oclock_fill_20_batch\\candidates\\tree_04",
@@ -89,27 +89,27 @@
     "sun_angle_degrees": 219.0,
     "anchor": [
       384,
-      564
+      570
     ],
     "shadow_centroid_delta": [
-      154.3065358146789,
-      95.86950686611783
+      158.5524970007034,
+      93.133594548666
     ],
-    "shadow_screen_angle_degrees": 31.85237780956545,
-    "visible_trunk_snow_alpha_mean": 0.037241153203460456,
+    "shadow_screen_angle_degrees": 30.429937951284167,
+    "visible_trunk_snow_alpha_mean": 0.04422034736350436,
     "root_band_snow_alpha_mean": 0.0,
     "root_zone_64_snow_alpha_mean": 0.0,
-    "foliage_snow_alpha_mean": 0.23962780659040417,
-    "foliage_dark_gap_fraction": 0.4790806248877716,
-    "foliage_covered_fraction": 0.34368827437601007,
-    "active_snow_pixel_count": 13054,
-    "active_snow_luma_stddev": 5.5847239245963936,
-    "active_snow_luma_range": 42.0,
-    "north_west_sample_count": 1689,
-    "south_east_sample_count": 918,
-    "north_west_luma_mean": 241.01065719360568,
-    "south_east_luma_mean": 220.18409586056646,
-    "north_west_minus_south_east_luma": 20.826561333039223
+    "foliage_snow_alpha_mean": 0.23615677811127536,
+    "foliage_dark_gap_fraction": 0.512216741174657,
+    "foliage_covered_fraction": 0.3274626175427779,
+    "active_snow_pixel_count": 14396,
+    "active_snow_luma_stddev": 5.181794993186667,
+    "active_snow_luma_range": 41.0,
+    "north_west_sample_count": 1651,
+    "south_east_sample_count": 714,
+    "north_west_luma_mean": 241.1350696547547,
+    "south_east_luma_mean": 220.50140056022408,
+    "north_west_minus_south_east_luma": 20.633669094530603
   },
   "tree_05": {
     "asset_dir": "C:\\Users\\progi\\project-Mirniy\\Station-Mirny\\artifacts\\layered_tree_10_oclock_fill_20_batch\\candidates\\tree_05",
@@ -117,27 +117,27 @@
     "sun_angle_degrees": 219.0,
     "anchor": [
       384,
-      561
+      567
     ],
     "shadow_centroid_delta": [
-      140.9986021480372,
-      88.51981690204093
+      139.48682396726497,
+      82.80091847911785
     ],
-    "shadow_screen_angle_degrees": 32.12086286168414,
-    "visible_trunk_snow_alpha_mean": 0.05480951736747385,
+    "shadow_screen_angle_degrees": 30.693835568219573,
+    "visible_trunk_snow_alpha_mean": 0.05142287784374529,
     "root_band_snow_alpha_mean": 0.0,
-    "root_zone_64_snow_alpha_mean": 0.004775916911879291,
-    "foliage_snow_alpha_mean": 0.2060461940702365,
-    "foliage_dark_gap_fraction": 0.6006840530141085,
-    "foliage_covered_fraction": 0.2919101230345352,
-    "active_snow_pixel_count": 11593,
-    "active_snow_luma_stddev": 4.854293597887029,
-    "active_snow_luma_range": 39.0,
-    "north_west_sample_count": 1192,
-    "south_east_sample_count": 543,
-    "north_west_luma_mean": 241.06711409395973,
-    "south_east_luma_mean": 220.22651933701658,
-    "north_west_minus_south_east_luma": 20.840594756943148
+    "root_zone_64_snow_alpha_mean": 0.0,
+    "foliage_snow_alpha_mean": 0.19794789760880738,
+    "foliage_dark_gap_fraction": 0.6187103077674646,
+    "foliage_covered_fraction": 0.2815095261358085,
+    "active_snow_pixel_count": 12543,
+    "active_snow_luma_stddev": 4.953704099628745,
+    "active_snow_luma_range": 40.0,
+    "north_west_sample_count": 1284,
+    "south_east_sample_count": 556,
+    "north_west_luma_mean": 241.0880062305296,
+    "south_east_luma_mean": 220.13309352517985,
+    "north_west_minus_south_east_luma": 20.954912705349756
   },
   "tree_06": {
     "asset_dir": "C:\\Users\\progi\\project-Mirniy\\Station-Mirny\\artifacts\\layered_tree_10_oclock_fill_20_batch\\candidates\\tree_06",
@@ -148,23 +148,23 @@
       566
     ],
     "shadow_centroid_delta": [
-      134.78053236016126,
-      90.77212680271487
+      124.6808002139478,
+      79.90000362727585
     ],
-    "shadow_screen_angle_degrees": 33.95951727654002,
-    "visible_trunk_snow_alpha_mean": 0.07181843787238652,
+    "shadow_screen_angle_degrees": 32.653229933933574,
+    "visible_trunk_snow_alpha_mean": 0.053537946019529305,
     "root_band_snow_alpha_mean": 0.0,
-    "root_zone_64_snow_alpha_mean": 0.005285264439280073,
-    "foliage_snow_alpha_mean": 0.25520101749497714,
-    "foliage_dark_gap_fraction": 0.46154472206397007,
-    "foliage_covered_fraction": 0.3565557092862375,
-    "active_snow_pixel_count": 16341,
-    "active_snow_luma_stddev": 4.290222459012469,
+    "root_zone_64_snow_alpha_mean": 0.002268830757650882,
+    "foliage_snow_alpha_mean": 0.25322099748990506,
+    "foliage_dark_gap_fraction": 0.47369202226345086,
+    "foliage_covered_fraction": 0.34782931354359925,
+    "active_snow_pixel_count": 16501,
+    "active_snow_luma_stddev": 4.111887310613067,
     "active_snow_luma_range": 31.0,
-    "north_west_sample_count": 1350,
-    "south_east_sample_count": 526,
-    "north_west_luma_mean": 239.88518518518518,
-    "south_east_luma_mean": 221.67110266159696,
-    "north_west_minus_south_east_luma": 18.214082523588218
+    "north_west_sample_count": 1356,
+    "south_east_sample_count": 358,
+    "north_west_luma_mean": 240.13716814159292,
+    "south_east_luma_mean": 221.66480446927375,
+    "north_west_minus_south_east_luma": 18.472363672319176
   }
 }

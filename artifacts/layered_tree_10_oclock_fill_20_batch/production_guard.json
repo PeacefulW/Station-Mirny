@@ -3,7 +3,7 @@
   "before": {
     "tools/tree_atlas/layered_asset_bake_profile.json": "557ff163e60f4da929d5ed643c887a79b815c5f8b19a0c0d5e6ec6c62db342ef",
     "core/systems/world/layered_tree_object_layer.gd": "2459d7104033ceedfba6eea0b2a02e009d802788a0382720f6b60cc7ef96b30f",
-    "core/systems/world/world_streamer.gd": "0085714c87e07c2fbe160a55bc6cdbe786a2a8704c386ef8a78274b518babd96",
+    "core/systems/world/world_streamer.gd": "c9825da0a9ecbfca5b02f3275ba33774a9261c9f0d589db7fc7ae035784209a4",
     "core/systems/world/world_visual_lighting_profile.gd": "0983ae6d82673761c527f0831e72135d3237e82c4b7470d0e3a57a179c8edc04",
     "core/systems/world/world_runtime_constants.gd": "217e8314875513aed2e750a790d922dba77109ea1c598de56c08cdb1d0714614",
     "data/world_objects/placement_groups/plains_trees.tres": "000bf2a58eed617969a539a07b3034d33f598304ee789096da838adc78627a45",
@@ -162,7 +162,7 @@
   "after": {
     "tools/tree_atlas/layered_asset_bake_profile.json": "557ff163e60f4da929d5ed643c887a79b815c5f8b19a0c0d5e6ec6c62db342ef",
     "core/systems/world/layered_tree_object_layer.gd": "2459d7104033ceedfba6eea0b2a02e009d802788a0382720f6b60cc7ef96b30f",
-    "core/systems/world/world_streamer.gd": "0085714c87e07c2fbe160a55bc6cdbe786a2a8704c386ef8a78274b518babd96",
+    "core/systems/world/world_streamer.gd": "c9825da0a9ecbfca5b02f3275ba33774a9261c9f0d589db7fc7ae035784209a4",
     "core/systems/world/world_visual_lighting_profile.gd": "0983ae6d82673761c527f0831e72135d3237e82c4b7470d0e3a57a179c8edc04",
     "core/systems/world/world_runtime_constants.gd": "217e8314875513aed2e750a790d922dba77109ea1c598de56c08cdb1d0714614",
     "data/world_objects/placement_groups/plains_trees.tres": "000bf2a58eed617969a539a07b3034d33f598304ee789096da838adc78627a45",

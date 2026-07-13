@@ -1,13 +1,20 @@
 {
-  "profile_id": "station_mirny_layered_tree_10_oclock_fill_20_v4",
-  "version": 4,
+  "profile_id": "station_mirny_layered_tree_10_oclock_lamp100_root7_v5",
+  "version": 5,
   "frame_size": 768,
   "orientation": {
     "default_yaw_degrees": 90.0
   },
   "planting": {
-    "root_embed_fraction": 0.011,
-    "max_root_embed_fraction": 0.22
+    "root_embed_fraction": 0.07,
+    "max_root_embed_fraction": 0.22,
+    "ground_clip": {
+      "enabled": true,
+      "mode": "physical_mesh_bisect",
+      "plane_z": 0.0,
+      "bisect_distance": 0.00001,
+      "max_remaining_below_plane": 0.00001
+    }
   },
   "camera": {
     "type": "ORTHO",
@@ -41,7 +48,7 @@
       "position_y": -2.05,
       "height_fraction": 0.08,
       "target_height_fraction": 0.43,
-      "energy": 23.3515625,
+      "energy": 100.0,
       "color": [1.0, 0.97, 0.92],
       "spot_size_degrees": 52.0,
       "spot_blend": 0.88,

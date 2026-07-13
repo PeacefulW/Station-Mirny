@@ -42,6 +42,9 @@ def bake_profile_summary(profile: dict, classification: dict, frame_size: int) -
             classification.get("root_embed_fraction", profile["planting"]["root_embed_fraction"])
         ),
     }
+    ground_clip = profile["planting"].get("ground_clip")
+    if ground_clip is not None and bool(ground_clip.get("enabled", False)):
+        summary["ground_clip"] = ground_clip
     lighting = profile["lighting"]
     if "screen_sun_direction" in lighting:
         summary["screen_sun_direction"] = lighting["screen_sun_direction"]

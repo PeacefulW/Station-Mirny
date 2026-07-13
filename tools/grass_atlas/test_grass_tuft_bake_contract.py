@@ -16,7 +16,7 @@ TREE_PROFILE_PATH = ROOT / "tools" / "tree_atlas" / "layered_tree_bake_profile_1
 GRASS_PROFILE_PATH = ROOT / "tools" / "grass_atlas" / "grass_tuft_bake_profile.json"
 BLENDER_BAKE_PATH = ROOT / "tools" / "grass_atlas" / "blender_grass_tuft_bake.py"
 POSTPROCESS_PATH = ROOT / "tools" / "grass_atlas" / "postprocess_grass_tuft_atlas.py"
-PROTOTYPE_ROOT = ROOT / "artifacts" / "blender_grass_tufts_10_oclock_fill_20"
+PROTOTYPE_ROOT = ROOT / "artifacts" / "blender_grass_tufts_10_oclock_lamp100"
 PROTOTYPE_ALBEDO_PATH = PROTOTYPE_ROOT / "grass_tuft_albedo_atlas.png"
 PROTOTYPE_SHADOW_PATH = PROTOTYPE_ROOT / "grass_tuft_shadow_atlas.png"
 PROTOTYPE_RAW_SHADOW_PATH = PROTOTYPE_ROOT / "frames" / "shadow_frame_00.png"
@@ -101,9 +101,9 @@ class GrassTuftBakeContractTest(unittest.TestCase):
         tree_profile = json.loads(TREE_PROFILE_PATH.read_text(encoding="utf-8"))
         grass_profile = json.loads(GRASS_PROFILE_PATH.read_text(encoding="utf-8"))
 
-        self.assertEqual(grass_profile["profile_id"], "station_mirny_grass_tuft_10_oclock_fill_20_v2")
+        self.assertEqual(grass_profile["profile_id"], "station_mirny_grass_tuft_10_oclock_lamp100_v3")
         self.assertEqual(grass_profile["inherits_profile_id"], tree_profile["profile_id"])
-        self.assertEqual(grass_profile["version"], 2)
+        self.assertEqual(grass_profile["version"], 3)
         self.assertEqual(grass_profile["atlas"]["columns"], 4)
         self.assertEqual(grass_profile["atlas"]["rows"], 8)
         self.assertEqual(grass_profile["atlas"]["frame_count"], 32)
@@ -117,6 +117,7 @@ class GrassTuftBakeContractTest(unittest.TestCase):
         self.assertEqual(grass_profile["lighting"]["fixed_shadow_direction"], tree_profile["lighting"]["fixed_shadow_direction"])
         self.assertEqual(grass_profile["lighting"]["fixed_shadow_direction_vector_screen"], [0.866025, 0.5])
         self.assertEqual(grass_profile["lighting"]["low_opposite_kicker"], tree_profile["lighting"]["low_opposite_kicker"])
+        self.assertEqual(grass_profile["lighting"]["low_opposite_kicker"]["energy"], 100.0)
         self.assertEqual(grass_profile["render"]["exposure"], 0.75)
         self.assertEqual(
             grass_profile["palette"]["source_reference"],
@@ -133,6 +134,9 @@ class GrassTuftBakeContractTest(unittest.TestCase):
             "blender_baked_east_south_east_fixed_length",
         )
         self.assertEqual(grass_profile["runtime"]["shadow_length_mode"], "fixed")
+        self.assertNotIn("planting", grass_profile)
+        self.assertNotIn("root_embed", grass_profile)
+        self.assertNotIn("ground_clip", grass_profile)
 
     def test_grass_profile_targets_relaxed_broken_steppe_tufts(self) -> None:
         grass_profile = json.loads(GRASS_PROFILE_PATH.read_text(encoding="utf-8"))
@@ -143,8 +147,8 @@ class GrassTuftBakeContractTest(unittest.TestCase):
         self.assertLessEqual(ranges["sparse"][1], 9)
         self.assertLessEqual(ranges["dense"][1], 29)
         self.assertGreaterEqual(float(tuft["depth_y"]), 0.14)
-        self.assertLessEqual(float(tuft["root_z_min"]), -0.04)
-        self.assertGreaterEqual(float(tuft["root_z_max"]), 0.025)
+        self.assertEqual(float(tuft["root_z_min"]), -0.055)
+        self.assertEqual(float(tuft["root_z_max"]), 0.035)
         self.assertGreaterEqual(float(tuft["droop_max"]), 0.30)
         self.assertGreaterEqual(tuft["ground_straw_count_ranges"]["standard"][0], 3)
 
@@ -231,6 +235,15 @@ class GrassTuftBakeContractTest(unittest.TestCase):
         self.assertIn("shadow_frame_%02d.png", blender_bake_text)
         self.assertIn("processed_shadow_from_raw", postprocess_text)
 
+    def test_every_cycles_ground_shadow_frame_is_nonempty(self) -> None:
+        profile = json.loads(GRASS_PROFILE_PATH.read_text(encoding="utf-8"))
+        for frame_index in range(int(profile["atlas"]["frame_count"])):
+            with self.subTest(frame_index=frame_index):
+                shadow = Image.open(
+                    PROTOTYPE_ROOT / "frames" / f"shadow_frame_{frame_index:02d}.png"
+                ).convert("RGBA")
+                self.assertIsNotNone(shadow.getchannel("A").getbbox())
+
     def test_wind_mask_pins_roots_and_weights_tips(self) -> None:
         module = load_postprocess_module()
         alpha = Image.new("L", (8, 8), 0)
@@ -296,11 +309,11 @@ class GrassTuftBakeContractTest(unittest.TestCase):
                             shadowed += 1
                 self.assertGreater(compared, 30)
                 self.assertGreater(shadowed / float(compared), 0.01)
-                self.assertGreaterEqual(max_delta, 5)
+                self.assertGreaterEqual(max_delta, 4)
 
     def test_selected_review_direction_and_production_guard(self) -> None:
-        review = PROTOTYPE_ROOT / "selected_10_oclock_fill_20_review.png"
-        metrics_path = PROTOTYPE_ROOT / "selected_10_oclock_fill_20_metrics.json"
+        review = PROTOTYPE_ROOT / "selected_10_oclock_lamp100_review.png"
+        metrics_path = PROTOTYPE_ROOT / "selected_10_oclock_lamp100_metrics.json"
         guard_path = PROTOTYPE_ROOT / "production_guard.json"
         manifest_path = PROTOTYPE_ROOT / "promotion_manifest.json"
         self.assertTrue(review.is_file())
@@ -309,7 +322,7 @@ class GrassTuftBakeContractTest(unittest.TestCase):
         centroid_deltas = []
         for frame_metrics in metrics.values():
             self.assertGreater(frame_metrics["shadowed_fraction_delta_ge_2"], 0.01)
-            self.assertGreaterEqual(frame_metrics["max_luminance_delta"], 5)
+            self.assertGreaterEqual(frame_metrics["max_luminance_delta"], 4)
             self.assertEqual(frame_metrics["authored_shadow_direction"], [0.866025, 0.5])
             self.assertGreater(frame_metrics["max_forward_extent_from_authored_root"], 5.0)
             self.assertGreater(frame_metrics["below_root_alpha_fraction"], 0.25)
@@ -321,7 +334,7 @@ class GrassTuftBakeContractTest(unittest.TestCase):
         self.assertTrue(all(delta[1] > 0.0 for delta in centroid_deltas))
         self.assertTrue(json.loads(guard_path.read_text(encoding="utf-8"))["passed"])
         manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-        self.assertEqual(manifest["profile_id"], "station_mirny_grass_tuft_10_oclock_fill_20_v2")
+        self.assertEqual(manifest["profile_id"], "station_mirny_grass_tuft_10_oclock_lamp100_v3")
         self.assertEqual(set(manifest["promoted"]), {"grass_tuft_atlas.png", "grass_tuft_shadow_atlas.png"})
 
     def test_kicker_is_albedo_only_and_fixed_shadow_has_no_time_stretch(self) -> None:

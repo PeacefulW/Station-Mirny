@@ -9,6 +9,7 @@ The companion postprocess script derives wind/snow masks and preview panels.
 from __future__ import annotations
 
 import argparse
+import bmesh
 import json
 import math
 import sys
@@ -66,6 +67,9 @@ def bake_profile_summary(profile: dict, frame_size: int, sun_angle_degrees: floa
         "shadow_sun_elevation_degrees": profile["lighting"]["shadow_sun_elevation_degrees"],
         "root_embed_fraction": root_embed_fraction,
     }
+    ground_clip = profile["planting"].get("ground_clip")
+    if ground_clip is not None and bool(ground_clip.get("enabled", False)):
+        summary["ground_clip"] = ground_clip
     lighting = profile["lighting"]
     if "screen_sun_direction" in lighting:
         summary["screen_sun_direction"] = lighting["screen_sun_direction"]
@@ -146,6 +150,84 @@ def normalize_tree(
         obj.parent = root
         obj.location -= center
     bpy.context.view_layer.update()
+
+
+def clip_objects_below_ground(objects: list[bpy.types.Object], profile: dict) -> dict:
+    """Bisect planted meshes so only visible above-ground geometry is baked."""
+    clip_profile = profile["planting"].get("ground_clip", {})
+    if not bool(clip_profile.get("enabled", False)):
+        corners = all_world_corners(objects)
+        return {
+            "enabled": False,
+            "mode": "none",
+            "remaining_min_z": min(c.z for c in corners),
+        }
+
+    plane_z = float(clip_profile["plane_z"])
+    bisect_distance = float(clip_profile["bisect_distance"])
+    max_remaining_below_plane = float(clip_profile["max_remaining_below_plane"])
+    world_plane_point = Vector((0.0, 0.0, plane_z))
+    world_plane_normal = Vector((0.0, 0.0, 1.0))
+    before_vertices = 0
+    after_vertices = 0
+    clipped_objects = 0
+    empty_objects: list[bpy.types.Object] = []
+
+    for obj in objects:
+        if obj.data.users > 1:
+            obj.data = obj.data.copy()
+        mesh = obj.data
+        object_vertices_before = len(mesh.vertices)
+        before_vertices += object_vertices_before
+        matrix_world = obj.matrix_world.copy()
+        plane_co_local = matrix_world.inverted() @ world_plane_point
+        plane_no_local = (matrix_world.to_3x3().transposed() @ world_plane_normal).normalized()
+
+        bm = bmesh.new()
+        bm.from_mesh(mesh)
+        geometry = list(bm.verts) + list(bm.edges) + list(bm.faces)
+        bmesh.ops.bisect_plane(
+            bm,
+            geom=geometry,
+            dist=bisect_distance,
+            plane_co=plane_co_local,
+            plane_no=plane_no_local,
+            clear_inner=True,
+            clear_outer=False,
+        )
+        bm.to_mesh(mesh)
+        bm.free()
+        mesh.update()
+        after_vertices += len(mesh.vertices)
+        if len(mesh.vertices) != object_vertices_before:
+            clipped_objects += 1
+        if len(mesh.vertices) == 0:
+            empty_objects.append(obj)
+
+    for obj in empty_objects:
+        objects.remove(obj)
+        bpy.data.objects.remove(obj, do_unlink=True)
+    if not objects:
+        raise RuntimeError("Ground clipping removed every imported mesh")
+
+    bpy.context.view_layer.update()
+    remaining_min_z = min(c.z for c in all_world_corners(objects))
+    if remaining_min_z < plane_z - max_remaining_below_plane:
+        raise RuntimeError(
+            f"Buried bake geometry remains below ground: {remaining_min_z} < "
+            f"{plane_z - max_remaining_below_plane}"
+        )
+    return {
+        "enabled": True,
+        "mode": "physical_mesh_bisect",
+        "plane_z": plane_z,
+        "bisect_distance": bisect_distance,
+        "max_remaining_below_plane": max_remaining_below_plane,
+        "before_vertices": before_vertices,
+        "after_vertices": after_vertices,
+        "clipped_objects": clipped_objects,
+        "remaining_min_z": remaining_min_z,
+    }
 
 
 def image_average_rgb(image: bpy.types.Image) -> tuple[float, float, float] | None:
@@ -442,9 +524,11 @@ def setup_shadow_scene(
         if suppress_root_shadow:
             suppressed_shadow_casters.append(obj.name)
 
+    ground_clip = profile["planting"].get("ground_clip", {})
+    receiver_z = float(ground_clip.get("plane_z", -0.012)) if bool(ground_clip.get("enabled", False)) else -0.012
     plane_mesh = bpy.data.meshes.new("ShadowCatcherPlaneMesh")
     size = 2.8
-    verts = [(-size, -size, -0.012), (size, -size, -0.012), (size, size, -0.012), (-size, size, -0.012)]
+    verts = [(-size, -size, receiver_z), (size, -size, receiver_z), (size, size, receiver_z), (-size, size, receiver_z)]
     plane_mesh.from_pydata(verts, [], [(0, 1, 2, 3)])
     plane_mesh.update()
     plane = bpy.data.objects.new("ShadowCatcherPlane", plane_mesh)
@@ -491,6 +575,7 @@ def main() -> None:
         root_embed_fraction,
         float(profile["planting"]["max_root_embed_fraction"]),
     )
+    ground_clip = clip_objects_below_ground(objects, profile)
     classification = classify_objects(objects)
     corners = all_world_corners(objects)
     min_z = min(c.z for c in corners)
@@ -527,6 +612,7 @@ def main() -> None:
         "yaw_degrees": yaw_degrees,
         "sun_angle_degrees": sun_angle_degrees,
         "root_embed_fraction": root_embed_fraction,
+        "ground_clip": ground_clip,
         "bake_profile": bake_profile_summary(profile, frame_size, sun_angle_degrees, root_embed_fraction),
         "runtime_plant_depth_px": 0,
         "classification": classification,

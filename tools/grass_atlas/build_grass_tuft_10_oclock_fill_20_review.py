@@ -127,7 +127,7 @@ def main() -> None:
         report[f"frame_{index:02d}"] = metrics
         row = Image.new("RGBA", (1280, 270), (20, 18, 15, 255))
         for column, tile in enumerate((
-            labelled(full, f"{index:02d} | SUN + SELF-SHADOW"),
+            labelled(full, f"{index:02d} | SUN 10:00 + LAMP 100 + SELF-SHADOW"),
             labelled(reference, "SUN SHADOW DISABLED"),
             labelled(delta, "SELF-SHADOW DELTA x5"),
             labelled(shadow, "SUN-ONLY GROUND SHADOW"),
@@ -137,8 +137,8 @@ def main() -> None:
     sheet = Image.new("RGBA", (1280, len(rows) * 270), (18, 16, 14, 255))
     for row_index, row in enumerate(rows):
         sheet.alpha_composite(row, (0, row_index * 270))
-    sheet.save(root / "selected_10_oclock_fill_20_review.png")
-    (root / "selected_10_oclock_fill_20_metrics.json").write_text(
+    sheet.save(root / "selected_10_oclock_lamp100_review.png")
+    (root / "selected_10_oclock_lamp100_metrics.json").write_text(
         json.dumps(report, indent=2), encoding="utf-8"
     )
     print(f"Wrote selected grass review to {root}")
