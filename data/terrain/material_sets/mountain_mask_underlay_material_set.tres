@@ -86,5 +86,12 @@ sampling_params = {
 	"silhouette_lit_strength": 0.0,
 	"silhouette_shadow_strength": 0.0,
 	"rim_lip_lit_strength": 0.0,
-	"rim_lip_shadow_strength": 0.0
+	"rim_lip_shadow_strength": 0.0,
+	"mouth_maw_strength": 0.92,
+	"mouth_maw_color": Color(0.045, 0.032, 0.022, 1),
+	"mouth_maw_depth_px": 84.0,
+	"mouth_jamb_shade_strength": 0.55,
+	"mouth_jamb_shade_px": 15.0,
+	"mouth_roof_lip_strength": 0.6,
+	"mouth_roof_lip_px": 8.0
 }

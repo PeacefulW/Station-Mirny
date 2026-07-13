@@ -19,6 +19,10 @@ const SHADOW_DUSK_FADE_END_HOUR: float = 21.0
 const SHADOW_DAWN_FADE_START_HOUR: float = 4.0
 const SHADOW_DAWN_FADE_END_HOUR: float = 7.0
 const TERRAIN_EDGE_SHADOW_OPACITY_SCALE: float = 0.30
+# Mountains cast the projected SE sun shadow from the immutable CLOSED
+# silhouette (BASE samples it as the sun occluder); slightly under full
+# opacity so the massif shadow stays below hard black at low sun.
+const MOUNTAIN_SHADOW_OPACITY_SCALE: float = 0.85
 
 const LIGHT_ANGLE_EPSILON_DEG: float = 0.05
 const SHADOW_LENGTH_EPSILON_PX: float = 0.05

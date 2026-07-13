@@ -655,10 +655,24 @@ func apply_sun_lighting(
 	_sun_shadow_length_px = shadow_length_px
 	_sun_shadow_opacity = shadow_opacity
 	_sun_shadow_softness_px = shadow_softness_px
-	_apply_sun_lighting_to_mask_material(_mountain_top_mask_material, 1.0, false)
-	# The closed construction roof is co-located with BASE. Letting it cast the
-	# same projected shadow would double-darken the massif and its chunk seams.
-	_apply_sun_lighting_to_mask_material(_mountain_closed_roof_mask_material, 0.0, false)
+	# BASE casts the massif's projected SE sun shadow, sampling the immutable
+	# CLOSED mask as occluder (see sun_occluder_mask_* in the shader), so the
+	# roof lip over a physical mouth shades its own threshold too.
+	_apply_sun_lighting_to_mask_material(
+		_mountain_top_mask_material,
+		WorldVisualLightingProfile.MOUNTAIN_SHADOW_OPACITY_SCALE,
+		true,
+	)
+	# The closed construction roof is co-located with BASE. Its projected shadow
+	# stays draw-disabled (a second pass would double-darken the massif and its
+	# chunk seams), but it keeps the real opacity value: the shader uses
+	# projected_shadow_opacity as the shared daylight gate for crest/rim/mouth
+	# lip shading.
+	_apply_sun_lighting_to_mask_material(
+		_mountain_closed_roof_mask_material,
+		WorldVisualLightingProfile.MOUNTAIN_SHADOW_OPACITY_SCALE,
+		false,
+	)
 	_apply_sun_lighting_to_foothill_material(_mountain_rock_underlay_material)
 	_apply_sun_lighting_to_foothill_material(_mountain_foothill_overlay_material)
 	_apply_sun_lighting_to_rock_patch_material(_rock_patch_overlay_material)
@@ -1129,6 +1143,13 @@ func set_mountain_roof_reveal_blend(value: float) -> void:
 			"component_reveal_blend",
 			_mountain_roof_reveal_blend,
 		)
+	if _mountain_top_mask_material != null:
+		# Mirror the reveal blend so the BASE mouth dressing (maw/jamb shade)
+		# softens while the player stands inside and the roof is faded.
+		_mountain_top_mask_material.set_shader_parameter(
+			"mouth_reveal_fade",
+			_mountain_roof_reveal_blend,
+		)
 	_mountain_page_debug["roof_reveal_blend"] = _mountain_roof_reveal_blend
 
 
@@ -1250,6 +1271,7 @@ func apply_pending_mountain_native_mask_visual(
 		)
 		WorldPerfProbe.end("ChunkView.mountain_roof_visual.upload_closed_texture", closed_upload_started)
 		_mountain_closed_roof_mask_visual_dirty = false
+		_sync_mountain_base_sun_occluder()
 	elif _mountain_closed_roof_mask_image != null \
 			and not _mountain_closed_roof_mask_image.is_empty():
 		_capture_mountain_foothill_mask_if_needed(
@@ -1620,6 +1642,7 @@ func _upload_mountain_mask_texture(
 			"physical_mouth_direction_texture",
 			_mountain_outside_mouth_halo_texture,
 		)
+	_sync_mountain_base_sun_occluder(material)
 	_set_mask_shader_chunk_clip(
 		material,
 		mask_origin_world,
@@ -1628,7 +1651,11 @@ func _upload_mountain_mask_texture(
 		mask_step_px,
 		MASK_UNDERLAY_CHUNK_OVERLAP_PX,
 	)
-	_apply_sun_lighting_to_mask_material(material, 1.0, false)
+	_apply_sun_lighting_to_mask_material(
+		material,
+		WorldVisualLightingProfile.MOUNTAIN_SHADOW_OPACITY_SCALE,
+		true,
+	)
 	sprite.material = material
 	sprite.position = mask_origin_world - WorldRuntimeConstants.chunk_origin_px(chunk_coord)
 	sprite.scale = Vector2.ONE * mask_step_px
@@ -1730,7 +1757,11 @@ func _sync_mountain_closed_roof_visual(
 	)
 	# Keep the same daylight/rim grading as BASE, but suppress the duplicate
 	# long cast-shadow contribution from this second presentation-only pass.
-	_apply_sun_lighting_to_mask_material(material, 1.0, false)
+	_apply_sun_lighting_to_mask_material(
+		material,
+		WorldVisualLightingProfile.MOUNTAIN_SHADOW_OPACITY_SCALE,
+		false,
+	)
 	sprite.material = material
 	sprite.position = _mountain_top_mask_origin_world - WorldRuntimeConstants.chunk_origin_px(chunk_coord)
 	sprite.scale = Vector2.ONE * _mountain_top_mask_step_px
@@ -1746,6 +1777,23 @@ func _sync_mountain_closed_roof_visual(
 		var desired_index: int = mini(_mountain_top_mask_sprite.get_index() + 1, get_child_count() - 1)
 		if sprite.get_index() != desired_index:
 			move_child(sprite, desired_index)
+
+
+## BASE samples the immutable CLOSED mask as the sun-shadow occluder and as
+## the mouth-maw geometry source. Presentation-only: collision/mining still
+## read gameplay `S`, and the shader falls back to its own mask (V) while the
+## dual CLOSED texture is not built yet (pristine chunks, where V == C).
+func _sync_mountain_base_sun_occluder(material: ShaderMaterial = null) -> void:
+	var target: ShaderMaterial = material if material != null else _mountain_top_mask_material
+	if target == null:
+		return
+	var occluder_ready: bool = _mountain_closed_roof_mask_texture != null
+	target.set_shader_parameter("sun_occluder_mask_enabled", 1.0 if occluder_ready else 0.0)
+	if occluder_ready:
+		target.set_shader_parameter(
+			"sun_occluder_mask_texture",
+			_mountain_closed_roof_mask_texture,
+		)
 
 
 func _sync_mountain_facade_mouth_material_parameters() -> void:
@@ -2038,6 +2086,7 @@ func _clear_mountain_closed_roof_state() -> void:
 	_mountain_dug_halo_texture = null
 	_mountain_dug_halo_side = 0
 	_mountain_dug_halo_visual_dirty = false
+	_sync_mountain_base_sun_occluder()
 
 
 func clear_terrain_edge_mask() -> void:

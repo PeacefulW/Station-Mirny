@@ -4,8 +4,8 @@ doc_type: system_spec
 status: approved
 owner: engineering
 source_of_truth: true
-version: 1.15
-last_updated: 2026-07-12
+version: 1.16
+last_updated: 2026-07-13
 related_docs:
   - ../../README.md
   - ../../00_governance/WORKFLOW.md
@@ -433,6 +433,27 @@ Rules:
 - The ordinary ground `_base_layer` remains visible below every cutout. Black
   fill, clear-color holes, entrance decals and duplicated floor textures are
   forbidden.
+- Physical mouth dressing is cosmetic shading layered on the existing masks
+  and never introduces new aperture geometry:
+  - `BASE` additionally binds immutable `C` as a read-only sun-occluder
+    reference. The projected SE sun shadow samples `C` (so the massif casts one
+    silhouette shadow and the lip over a mouth shades its own threshold), while
+    the shadow receiver is limited to `C`-open exterior ground so revealed
+    interior floors never collect a duplicate static sun stamp (ADR-0005 light
+    systems own interior darkness).
+  - `BASE` fills the missing facade band of a physical mouth (`C`-solid over
+    `V`-open under an `M` tile gate) with a translucent dark maw gradient:
+    deep at the roof junction, open at the organic threshold. The ground floor
+    stays visible through it; this is shading, not fill.
+  - `BASE` wall pixels flanking an aperture darken toward the cut (`A`-probed
+    jamb corner shade, asymmetric against the fixed NW sun) for side volume.
+  - `ROOF` brightens a thin sun-lit lip band just above its facade cut only at
+    `M`-gated mouth columns. Alpha and top geometry remain immutable `C`; `M`
+    still never cuts the upper surface or enters component alpha.
+  - `ChunkView` mirrors the component reveal blend to `BASE`
+    (`mouth_reveal_fade`) so the outside maw/jamb dressing softens while the
+    player stands inside; collision, mining and resolver semantics are
+    untouched.
 - Collision, resolver and mining always sample gameplay `S`, never `V`, `A`,
   `R_displayed`, `M`, or the rendered roof. Introducing those fields changes
   presentation only; roof ownership and resolver entry/exit semantics remain
@@ -1170,3 +1191,9 @@ While inside, `ROOF(C)` yields the exact `C-V` cut only for the selected tile or
 one cardinally adjacent selected tile, so the duplicate CLOSED copy cannot leave
 the same detached L. Roof entry/exit, component topology, diagonal blocking,
 immutable `C`, diff and persistence remain unchanged.
+Version `1.16` adds cosmetic physical-mouth dressing: `BASE` samples immutable
+`C` as sun-occluder for the (re-enabled) projected SE mountain shadow with the
+receiver limited to `C`-open exterior, fills the mouth's missing facade band
+with a translucent maw gradient, shades flanking jambs, and `ROOF` lights an
+`M`-gated lip band above its facade cut. All masks, aperture geometry, reveal
+selectors, collision, mining, packet shape and persistence remain unchanged.

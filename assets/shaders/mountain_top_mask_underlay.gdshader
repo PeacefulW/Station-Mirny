@@ -75,6 +75,35 @@ uniform float physical_mouth_aperture_enabled = 0.0;
 // never enters the component reveal selector.
 uniform sampler2D physical_mouth_direction_texture : filter_nearest, repeat_disable;
 uniform float physical_mouth_direction_enabled = 0.0;
+// Sun-shadow occluder override (BASE): the projected sun shadow samples the
+// immutable CLOSED mask, so the massif casts one silhouette shadow even where
+// V is excavated, and the roof lip over a physical mouth casts its own SE
+// shadow across the threshold. The shadow RECEIVER is then limited to
+// CLOSED-open exterior ground so revealed interior floors never collect a
+// duplicate static sun stamp (interior light belongs to ADR-0005 systems).
+// Disabled (0) keeps the classic own-mask occluder (shared shoreline material).
+uniform sampler2D sun_occluder_mask_texture : filter_linear, repeat_disable;
+uniform float sun_occluder_mask_enabled = 0.0;
+// Physical mouth dressing. All cosmetic, all neutral by default:
+//   - maw: the missing facade band beneath the CLOSED lip fills with a dark
+//     translucent void gradient (deep at the lip, open at the threshold), so
+//     the entrance reads as a hole into unlit rock instead of a bright path.
+//     Geometry derives from CLOSED-solid over V-open under an M tile gate; the
+//     ground floor stays visible through it (no black fill, no decals).
+//   - jamb shade: wall pixels flanking the aperture darken toward the cut
+//     (corner occlusion), asymmetrically against the NW sun for side volume.
+//   - roof lip: ROOF brightens a thin sun-lit band just above its facade cut
+//     at M-gated mouth columns. Shading only: alpha and geometry stay CLOSED.
+uniform float mouth_maw_strength = 0.0;
+uniform vec3 mouth_maw_color = vec3(0.045, 0.032, 0.022);
+uniform float mouth_maw_depth_px = 84.0;
+uniform float mouth_jamb_shade_strength = 0.0;
+uniform float mouth_jamb_shade_px = 15.0;
+uniform float mouth_roof_lip_strength = 0.0;
+uniform float mouth_roof_lip_px = 8.0;
+// Component reveal blend mirrored from ChunkView: standing inside softens the
+// outside maw/jamb dressing so the faded roof leaves no stray dark bar.
+uniform float mouth_reveal_fade = 0.0;
 // Hard dark contact line at the wall base; 0 removes it (mountains), the
 // shoreline keeps it for a crisp waterline.
 uniform float base_outline_strength = 0.92;
@@ -343,6 +372,68 @@ float sample_physical_mouth_direction_code(vec2 uv) {
 	}
 	return floor(texture(physical_mouth_direction_texture, uv).r * 255.0 + 0.5)
 		* uv_inside(uv);
+}
+
+float sample_sun_occluder_top(vec2 uv) {
+	if (sun_occluder_mask_enabled < 0.5) {
+		return mask_to_top(sample_effective_mountain_mask(uv));
+	}
+	return mask_to_top(texture(sun_occluder_mask_texture, uv).r * uv_inside(uv));
+}
+
+// First mouth direction code found at this pixel's tile or a half-tile
+// cardinal offset. The offsets keep the organic AA fringe of a native cut
+// (which may cross into the neighbouring retaining tile) inside the dressing.
+float sample_mouth_direction_code_near(vec2 uv) {
+	float code = sample_physical_mouth_direction_code(uv);
+	if (mod(code, 16.0) >= 0.5) {
+		return code;
+	}
+	if (physical_mouth_direction_enabled < 0.5) {
+		return 0.0;
+	}
+	vec2 selector_texel = 1.0 / vec2(textureSize(physical_mouth_direction_texture, 0));
+	vec2 near_offsets[4] = {
+		vec2(selector_texel.x * 0.55, 0.0),
+		vec2(-selector_texel.x * 0.55, 0.0),
+		vec2(0.0, selector_texel.y * 0.55),
+		vec2(0.0, -selector_texel.y * 0.55)
+	};
+	for (int offset_index = 0; offset_index < 4; offset_index++) {
+		float neighbor_code = sample_physical_mouth_direction_code(uv + near_offsets[offset_index]);
+		if (mod(neighbor_code, 16.0) >= 0.5) {
+			return neighbor_code;
+		}
+	}
+	return 0.0;
+}
+
+// find_outward_edge_distance twin that walks the sun-occluder (CLOSED) mask:
+// distance from a maw pixel to the organic CLOSED contour along the mouth's
+// outward direction = "how deep under the lip" for the maw gradient.
+float find_occluder_edge_distance(
+		vec2 mask_uv,
+		vec2 probe_step_uv,
+		float solid_here,
+		float max_probe_texels
+) {
+	if (solid_here < 0.5) {
+		return -1.0;
+	}
+	float previous = solid_here;
+	int steps = int(min(max_probe_texels + 2.0, 96.0));
+	for (int distance_index = 1; distance_index <= 96; distance_index++) {
+		if (distance_index > steps) {
+			break;
+		}
+		float current = sample_sun_occluder_top(mask_uv + probe_step_uv * float(distance_index));
+		if (current < 0.5 && previous >= 0.5) {
+			float crossing = (previous - 0.5) / max(previous - current, 0.0001);
+			return float(distance_index) - 1.0 + crossing;
+		}
+		previous = current;
+	}
+	return -1.0;
 }
 
 float find_outward_edge_distance(
@@ -623,6 +714,13 @@ void fragment() {
 	float coverage = max(roof_surface_mask, overhang);
 	float projected_shadow = 0.0;
 	float shadow_open_space = (1.0 - smoothstep(0.08, 0.56, top_here)) * (1.0 - clamp(overhang, 0.0, 1.0) * 0.92);
+	if (sun_occluder_mask_enabled > 0.5) {
+		// Receive the sun shadow only on CLOSED-open exterior ground: pixels
+		// still under the immutable roof (maw band, revealed interiors) get
+		// their darkness from the maw dressing / ADR-0005 light systems instead
+		// of a duplicated static stamp.
+		shadow_open_space *= 1.0 - sample_sun_occluder_top(warped_base_uv);
+	}
 	if (projected_shadow_draw_enabled > 0.5 && projected_shadow_opacity > 0.001 && projected_shadow_length_px > 1.0 && shadow_open_space > 0.001) {
 		float shadow_a = radians(projected_shadow_angle_deg);
 		vec2 shadow_dir = normalize(vec2(cos(shadow_a), sin(shadow_a)));
@@ -645,11 +743,11 @@ void fragment() {
 			float right_w = uv_inside(right_uv);
 			float wide_left_w = uv_inside(wide_left_uv);
 			float wide_right_w = uv_inside(wide_right_uv);
-			float center = mask_to_top(sample_effective_mountain_mask(base_uv)) * center_w;
-			float left = mask_to_top(sample_effective_mountain_mask(left_uv)) * left_w;
-			float right = mask_to_top(sample_effective_mountain_mask(right_uv)) * right_w;
-			float wide_left = mask_to_top(sample_effective_mountain_mask(wide_left_uv)) * wide_left_w;
-			float wide_right = mask_to_top(sample_effective_mountain_mask(wide_right_uv)) * wide_right_w;
+			float center = sample_sun_occluder_top(base_uv) * center_w;
+			float left = sample_sun_occluder_top(left_uv) * left_w;
+			float right = sample_sun_occluder_top(right_uv) * right_w;
+			float wide_left = sample_sun_occluder_top(wide_left_uv) * wide_left_w;
+			float wide_right = sample_sun_occluder_top(wide_right_uv) * wide_right_w;
 			float source = center * 0.42 + (left + right) * 0.20 + (wide_left + wide_right) * 0.09;
 			float source_weight = center_w * 0.42 + (left_w + right_w) * 0.20 + (wide_left_w + wide_right_w) * 0.09;
 			float distance_fade = pow(1.0 - t, 1.45);
@@ -668,7 +766,58 @@ void fragment() {
 		// participating weights sum to 1.
 		projected_shadow = 1.0 - pow(max(1.0 - shadow_strength, 0.0001), owner_weight);
 	}
-	if (coverage <= 0.01 && projected_shadow <= 0.002) {
+	// ---- Physical mouth maw (BASE): the missing facade band beneath the
+	// CLOSED lip reads as an unlit cavity. CLOSED-solid over V-open gives the
+	// geometry, M gives the outward direction, so 1..N tile mouths on any of
+	// the four sides share one code path. Translucent: the real ground floor
+	// keeps showing through (no black fill, no entrance decals).
+	float maw_w = 0.0;
+	if (overlay_mode < 0.5
+			&& sun_occluder_mask_enabled > 0.5
+			&& mouth_maw_strength > 0.001
+			&& top_here < 0.5
+			&& body_area > 0.5) {
+		float maw_direction_code = sample_mouth_direction_code_near(UV);
+		if (mod(maw_direction_code, 16.0) >= 0.5) {
+			float closed_top_here = sample_sun_occluder_top(warped_base_uv);
+			if (closed_top_here > 0.04) {
+				float maw_span_texels = max(mouth_maw_depth_px / max(sample_step_px, 0.001), 1.0);
+				float exit_texels = -1.0;
+				for (int direction_index = 0; direction_index < 4; direction_index++) {
+					if (selector_has_bit(
+							maw_direction_code,
+							mouth_direction_bits[direction_index]
+					) < 0.5) {
+						continue;
+					}
+					float directional_exit = find_occluder_edge_distance(
+						warped_base_uv,
+						mouth_probe_steps[direction_index],
+						max(closed_top_here, 0.5),
+						maw_span_texels
+					);
+					if (directional_exit >= 0.0
+							&& (exit_texels < 0.0 || directional_exit < exit_texels)) {
+						exit_texels = directional_exit;
+					}
+				}
+				float exit_px = exit_texels >= 0.0
+					? exit_texels * sample_step_px
+					: mouth_maw_depth_px;
+				// Chip the light/dark boundary so the threshold is a broken rock
+				// line, not a straight gradient edge.
+				exit_px += (fbm2(world_px / 46.0 + vec2(31.0, -7.0)) - 0.5) * 12.0;
+				float maw_depth = clamp(exit_px / max(mouth_maw_depth_px, 1.0), 0.0, 1.0);
+				maw_w = mouth_maw_strength
+					* smoothstep(0.02, 0.55, maw_depth)
+					* smoothstep(0.04, 0.30, closed_top_here)
+					* (1.0 - smoothstep(0.30, 0.62, top_here));
+				maw_w *= 1.0 - mouth_reveal_fade * 0.65;
+			}
+		}
+	}
+
+	if (coverage <= 0.01 && projected_shadow <= 0.002 && maw_w <= 0.003) {
 		discard;
 	}
 
@@ -799,6 +948,67 @@ void fragment() {
 			+ max(side_signed, 0.0) * side_shade_strength * 0.65 * rim_breakup
 			- max(-side_signed, 0.0) * side_shade_strength * rim_breakup;
 	}
+	if (overlay_mode > 0.5
+			&& mouth_roof_lip_strength > 0.001
+			&& physical_mouth_direction_enabled > 0.5
+			&& top_here >= 0.5) {
+		// Sun-lit upper lip over a physical mouth: the roof edge overhanging
+		// the maw catches the low NW sun in a thin band just above the facade
+		// cut. Gated by M sampled inside the cut band along each direction, so
+		// only true mouth columns light up, never the whole massif rim. Albedo
+		// -derived and daylight-gated like crest/rim lips; ROOF alpha and top
+		// geometry stay immutable CLOSED (M never cuts the C surface).
+		float lip_texels = max(mouth_roof_lip_px / max(sample_step_px, 0.001), 1.0);
+		float lip_edge = -1.0;
+		for (int direction_index = 0; direction_index < 4; direction_index++) {
+			vec2 lip_probe_step = mouth_probe_steps[direction_index];
+			float band_gate = max(
+				selector_has_bit(
+					sample_physical_mouth_direction_code(
+						UV + lip_probe_step * (wall_texels * 0.70)
+					),
+					mouth_direction_bits[direction_index]
+				),
+				selector_has_bit(
+					sample_physical_mouth_direction_code(
+						UV + lip_probe_step * (wall_texels * 1.05)
+					),
+					mouth_direction_bits[direction_index]
+				)
+			);
+			if (band_gate < 0.5) {
+				continue;
+			}
+			float lip_directional_edge = find_outward_edge_distance(
+				base_uv,
+				lip_probe_step,
+				top_here,
+				wall_texels + lip_texels + 2.0
+			);
+			if (lip_directional_edge >= 0.0
+					&& (lip_edge < 0.0 || lip_directional_edge < lip_edge)) {
+				lip_edge = lip_directional_edge;
+			}
+		}
+		if (lip_edge >= 0.0) {
+			float lip_band = smoothstep(wall_texels - 0.9, wall_texels + 0.9, lip_edge)
+				* (1.0 - smoothstep(
+					wall_texels + lip_texels,
+					wall_texels + lip_texels + 1.8,
+					lip_edge
+				));
+			float lip_daylight_gate = smoothstep(0.05, 0.45, projected_shadow_opacity);
+			float lip_breakup = 0.6 + small_mottle * 0.7;
+			vec3 lip_lit = top_lit
+				* mix(1.12, 1.42, lip_daylight_gate)
+				* mix(vec3(1.0), vec3(1.14, 0.96, 0.80), lip_daylight_gate);
+			top_lit = mix(
+				top_lit,
+				lip_lit,
+				lip_band * mouth_roof_lip_strength * lip_breakup
+			);
+		}
+	}
 
 	// Wall -- controlled relief and sparse base chips. The face texture samples
 	// vertically stretched world space (v_stretch > 1): ledge features elongate
@@ -912,6 +1122,43 @@ void fragment() {
 			vec3 crest_color = wall_color * mix(1.05, crest_day_brightness, crest_daylight) * crest_warm;
 			wall_color = mix(wall_color, crest_color, crest_band * crest_light_strength * crest_breakup);
 		}
+		if (overlay_mode < 0.5
+				&& physical_mouth_aperture_enabled > 0.5
+				&& mouth_jamb_shade_strength > 0.001) {
+			// Jamb corner shade: wall columns flanking a physical mouth darken
+			// toward the cut so the opening gains side volume. Asymmetric against
+			// the NW sun -- the jamb east of the opening falls into the deepest
+			// corner shade, the sun-side jamb keeps a readable face.
+			float jamb_reach_texels = max(mouth_jamb_shade_px / max(sample_step_px, 0.001), 1.0);
+			vec2 jamb_step_x = vec2(texel.x, 0.0) * jamb_reach_texels;
+			vec2 jamb_step_y = vec2(0.0, texel.y) * jamb_reach_texels;
+			float maw_west = max(
+				sample_physical_mouth_aperture_at(UV - jamb_step_x * 0.5),
+				sample_physical_mouth_aperture_at(UV - jamb_step_x)
+			);
+			float maw_east = max(
+				sample_physical_mouth_aperture_at(UV + jamb_step_x * 0.5),
+				sample_physical_mouth_aperture_at(UV + jamb_step_x)
+			);
+			float maw_north = max(
+				sample_physical_mouth_aperture_at(UV - jamb_step_y * 0.5),
+				sample_physical_mouth_aperture_at(UV - jamb_step_y)
+			);
+			float maw_south = max(
+				sample_physical_mouth_aperture_at(UV + jamb_step_y * 0.5),
+				sample_physical_mouth_aperture_at(UV + jamb_step_y)
+			);
+			float jamb_shade = clamp(
+				maw_west * 1.0 + maw_east * 0.5 + maw_north * 0.75 + maw_south * 0.55,
+				0.0,
+				1.0
+			);
+			float jamb_breakup = 0.72 + small_mottle * 0.5;
+			wall_color *= 1.0 - jamb_shade
+				* mouth_jamb_shade_strength
+				* jamb_breakup
+				* (1.0 - mouth_reveal_fade * 0.5);
+		}
 		float base_outline = 1.0 - smoothstep(0.0, 1.0 / max(sample_step_px, 1.0), wall_edge_distance);
 		wall_color = mix(wall_color, vec3(0.0, 0.0, 0.0), clamp(base_outline, 0.0, 1.0) * base_outline_strength);
 		// Resolve RGB ownership with the same coverage that writes alpha. Using
@@ -935,6 +1182,16 @@ void fragment() {
 	if (!is_wall && top_here < 0.5 && overhang <= 0.01 && projected_shadow > 0.002) {
 		color = projected_shadow_color;
 		out_alpha = max(out_alpha, projected_shadow);
+	}
+
+	// Mouth maw darkness composes over whatever open-space contribution exists
+	// (usually nothing or the projected shadow); ownership-weighted like the
+	// wall mix so fractional maw edges never expose a bright contour.
+	if (maw_w > 0.003) {
+		float maw_alpha = max(out_alpha, maw_w);
+		float maw_color_weight = maw_w / max(maw_alpha, 0.0001);
+		color = mix(color, mouth_maw_color, clamp(maw_color_weight, 0.0, 1.0));
+		out_alpha = maw_alpha;
 	}
 
 	// Thin dark outline along the solid silhouette edge (sides / non-wall),
