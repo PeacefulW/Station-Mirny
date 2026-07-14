@@ -129,6 +129,12 @@ var _mountain_closed_roof_mask_image: Image = null
 var _mountain_closed_roof_mask_bytes: PackedByteArray = PackedByteArray()
 var _mountain_closed_roof_mask_material: ShaderMaterial = null
 var _mountain_closed_roof_mask_visual_dirty: bool = false
+var _mountain_sky_exposure_texture: ImageTexture = null
+var _mountain_sky_exposure_image: Image = null
+var _mountain_sky_exposure_bytes: PackedByteArray = PackedByteArray()
+var _mountain_sky_exposure_reach_samples: int = 0
+var _mountain_sky_exposure_source_sample_count: int = 0
+var _mountain_sky_exposure_visual_dirty: bool = false
 var _mountain_roof_reveal_blend: float = 0.0
 # CPU tile-halo fields share the native mask's UV extent (chunk 16x16 plus the
 # 8-tile native halo). The displayed-component selector and the dug guard are
@@ -971,10 +977,20 @@ func apply_mountain_native_mask_data(
 		PackedByteArray(),
 	) as PackedByteArray
 	var dug_halo: PackedByteArray = mask_result.get("dug_halo", PackedByteArray()) as PackedByteArray
+	var sky_exposure: PackedByteArray = mask_result.get(
+		"sky_exposure_mask",
+		PackedByteArray(),
+	) as PackedByteArray
 	var has_construction_fields: bool = not closed_mask_bytes.is_empty() or not dug_halo.is_empty()
 	var dug_halo_side: int = _square_l8_mask_side(dug_halo)
 	if has_construction_fields \
-			and (closed_mask_bytes.size() != expected_mask_bytes or dug_halo_side <= 0):
+			and (
+				closed_mask_bytes.size() != expected_mask_bytes \
+						or dug_halo_side <= 0 \
+						or sky_exposure.size() != expected_mask_bytes
+			):
+		return false
+	if not has_construction_fields and not sky_exposure.is_empty():
 		return false
 
 	var mask_geometry_changed: bool = _mountain_top_mask_width != mask_width \
@@ -998,6 +1014,16 @@ func apply_mountain_native_mask_data(
 			# The permanent foothill footprint belongs to the immutable CLOSED
 			# construction, not to the excavated live mask.
 			_clear_mountain_foothill_mask()
+		if mask_geometry_changed or _mountain_sky_exposure_bytes != sky_exposure:
+			_mountain_sky_exposure_bytes = sky_exposure.duplicate()
+			_mountain_sky_exposure_image = null
+			_mountain_sky_exposure_visual_dirty = true
+		_mountain_sky_exposure_reach_samples = int(
+			mask_result.get("sky_exposure_reach_samples", 0),
+		)
+		_mountain_sky_exposure_source_sample_count = int(
+			mask_result.get("sky_exposure_source_sample_count", 0),
+		)
 		var normalized_dug_halo: PackedByteArray = _normalize_binary_l8_mask(dug_halo)
 		if _mountain_dug_halo_side != dug_halo_side \
 				or _mountain_dug_halo_bytes != normalized_dug_halo:
@@ -1152,6 +1178,7 @@ func apply_pending_mountain_native_mask_visual(
 ) -> bool:
 	var any_visual_dirty: bool = _mountain_top_mask_visual_dirty \
 			or _mountain_closed_roof_mask_visual_dirty \
+			or _mountain_sky_exposure_visual_dirty \
 			or _mountain_active_floor_halo_visual_dirty \
 			or _mountain_staged_floor_halo_visual_dirty \
 			or _mountain_dug_halo_visual_dirty
@@ -1172,12 +1199,40 @@ func apply_pending_mountain_native_mask_visual(
 					== _mountain_dug_halo_side * _mountain_dug_halo_side \
 			and _mountain_closed_roof_mask_bytes.size() \
 					== _mountain_top_mask_width * _mountain_top_mask_height \
+			and _mountain_sky_exposure_bytes.size() \
+					== _mountain_top_mask_width * _mountain_top_mask_height \
 			and _count_nonzero_mask_bytes(_mountain_dug_halo_bytes) > 0
 	if not construction_roof_needed:
 		_mountain_closed_roof_mask_visual_dirty = false
 		_mountain_dug_halo_visual_dirty = false
 		_mountain_active_floor_halo_visual_dirty = false
 		_hide_mountain_closed_roof_visual()
+
+	if construction_roof_needed and (
+		_mountain_sky_exposure_visual_dirty or _mountain_sky_exposure_texture == null
+	):
+		var skylight_image_started: int = WorldPerfProbe.begin()
+		_mountain_sky_exposure_image = Image.create_from_data(
+			_mountain_top_mask_width,
+			_mountain_top_mask_height,
+			false,
+			Image.FORMAT_L8,
+			_mountain_sky_exposure_bytes,
+		)
+		WorldPerfProbe.end(
+			"ChunkView.mountain_skylight_visual.create_exposure_image",
+			skylight_image_started,
+		)
+		var skylight_upload_started: int = WorldPerfProbe.begin()
+		_mountain_sky_exposure_texture = _update_or_create_l8_texture(
+			_mountain_sky_exposure_texture,
+			_mountain_sky_exposure_image,
+		)
+		WorldPerfProbe.end(
+			"ChunkView.mountain_skylight_visual.upload_exposure_texture",
+			skylight_upload_started,
+		)
+		_mountain_sky_exposure_visual_dirty = false
 
 	# CLOSED must seed the persistent foothill footprint before BASE has a
 	# chance to capture its excavated silhouette.
@@ -1638,6 +1693,12 @@ func _clear_mountain_closed_roof_state() -> void:
 	_mountain_closed_roof_mask_bytes = PackedByteArray()
 	_mountain_closed_roof_mask_material = null
 	_mountain_closed_roof_mask_visual_dirty = false
+	_mountain_sky_exposure_texture = null
+	_mountain_sky_exposure_image = null
+	_mountain_sky_exposure_bytes = PackedByteArray()
+	_mountain_sky_exposure_reach_samples = 0
+	_mountain_sky_exposure_source_sample_count = 0
+	_mountain_sky_exposure_visual_dirty = false
 	_mountain_active_floor_halo_bytes = PackedByteArray()
 	_mountain_active_floor_halo_image = null
 	_mountain_active_floor_halo_texture = null
@@ -1662,6 +1723,7 @@ func _clear_staged_mountain_roof_reveal_halo() -> void:
 
 func _update_mountain_native_mask_pending_debug() -> void:
 	var roof_visual_pending: bool = _mountain_closed_roof_mask_visual_dirty \
+			or _mountain_sky_exposure_visual_dirty \
 			or _mountain_active_floor_halo_visual_dirty \
 			or _mountain_staged_floor_halo_generation > 0 \
 			or _mountain_dug_halo_visual_dirty
@@ -2128,6 +2190,69 @@ func get_mountain_render_page_debug_state() -> Dictionary:
 	return _mountain_page_debug.duplicate(true)
 
 
+## Returns only already-uploaded presentation textures. MountainCavitySkylightField
+## binds these references directly and never creates a second mask copy.
+func get_mountain_cavity_skylight_field_source() -> Dictionary:
+	var mask_byte_count: int = _mountain_top_mask_width * _mountain_top_mask_height
+	var selector_byte_count: int = _mountain_active_floor_halo_side \
+			* _mountain_active_floor_halo_side
+	var facade_height_px: float = 0.0
+	if _mountain_closed_roof_mask_material != null:
+		facade_height_px = float(
+			_mountain_closed_roof_mask_material.get_shader_parameter("facade_height_px"),
+		)
+	var ready: bool = mask_byte_count > 0 \
+			and selector_byte_count > 0 \
+			and _mountain_top_mask_step_px > 0.0 \
+			and _mountain_top_mask_bytes.size() == mask_byte_count \
+			and _mountain_closed_roof_mask_bytes.size() == mask_byte_count \
+			and _mountain_sky_exposure_bytes.size() == mask_byte_count \
+			and _mountain_active_floor_halo_bytes.size() == selector_byte_count \
+			and _mountain_top_mask_texture != null \
+			and _mountain_closed_roof_mask_texture != null \
+			and _mountain_sky_exposure_texture != null \
+			and _mountain_active_floor_halo_texture != null \
+			and _mountain_dug_halo_texture != null \
+			and facade_height_px > 0.0 \
+			and not _mountain_top_mask_visual_dirty \
+			and not _mountain_closed_roof_mask_visual_dirty \
+			and not _mountain_sky_exposure_visual_dirty \
+			and not _mountain_active_floor_halo_visual_dirty
+	if not ready:
+		return {
+			"ready": false,
+			"chunk_coord": chunk_coord,
+		}
+
+	var chunk_size_px: float = float(
+		WorldRuntimeConstants.CHUNK_SIZE * WorldRuntimeConstants.TILE_SIZE_PX,
+	)
+	var mask_size_world := Vector2(
+		float(_mountain_top_mask_width) * _mountain_top_mask_step_px,
+		float(_mountain_top_mask_height) * _mountain_top_mask_step_px,
+	)
+	var selector_size_px: float = float(
+		_mountain_active_floor_halo_side * WorldRuntimeConstants.TILE_SIZE_PX,
+	)
+	return {
+		"ready": true,
+		"chunk_coord": chunk_coord,
+		"live_mask_texture": _mountain_top_mask_texture,
+		"closed_roof_mask_texture": _mountain_closed_roof_mask_texture,
+		"sky_exposure_texture": _mountain_sky_exposure_texture,
+		"reveal_selector_texture": _mountain_active_floor_halo_texture,
+		"any_cutout_texture": _mountain_dug_halo_texture,
+		"chunk_origin_world": WorldRuntimeConstants.chunk_origin_px(chunk_coord),
+		"chunk_size_world": Vector2.ONE * chunk_size_px,
+		"mask_origin_world": _mountain_top_mask_origin_world,
+		"mask_size_world": mask_size_world,
+		"selector_origin_world": _mountain_top_mask_origin_world,
+		"selector_size_world": Vector2.ONE * selector_size_px,
+		"mask_sample_step_px": _mountain_top_mask_step_px,
+		"facade_height_px": facade_height_px,
+	}
+
+
 func get_mountain_native_mask_debug_state() -> Dictionary:
 	var debug := _mountain_page_debug.duplicate(true)
 	var active: bool = _mountain_top_mask_width > 0 \
@@ -2141,6 +2266,10 @@ func get_mountain_native_mask_debug_state() -> Dictionary:
 	debug["mask_byte_count"] = _mountain_top_mask_bytes.size()
 	debug["closed_roof_mask_byte_count"] = _mountain_closed_roof_mask_bytes.size()
 	debug["closed_roof_texture_ready"] = _mountain_closed_roof_mask_texture != null
+	debug["sky_exposure_mask_byte_count"] = _mountain_sky_exposure_bytes.size()
+	debug["sky_exposure_texture_ready"] = _mountain_sky_exposure_texture != null
+	debug["sky_exposure_reach_samples"] = _mountain_sky_exposure_reach_samples
+	debug["sky_exposure_source_sample_count"] = _mountain_sky_exposure_source_sample_count
 	debug["dug_halo_tile_count"] = _count_nonzero_mask_bytes(_mountain_dug_halo_bytes)
 	debug["active_floor_halo_tile_count"] = _count_nonzero_mask_bytes(
 		_mountain_active_floor_halo_bytes,
@@ -2157,6 +2286,7 @@ func get_mountain_native_mask_debug_state() -> Dictionary:
 			and is_instance_valid(_mountain_closed_roof_mask_sprite) \
 			and _mountain_closed_roof_mask_sprite.visible
 	var roof_visual_pending: bool = _mountain_closed_roof_mask_visual_dirty \
+			or _mountain_sky_exposure_visual_dirty \
 			or _mountain_active_floor_halo_visual_dirty \
 			or _mountain_staged_floor_halo_generation > 0 \
 			or _mountain_dug_halo_visual_dirty

@@ -4,12 +4,13 @@ doc_type: system_spec
 status: approved
 source_of_truth: true
 owner: engineering+art
-version: 1.3
-last_updated: 2026-07-05
+version: 1.7
+last_updated: 2026-07-14
 related_docs:
   - ../../05_adrs/0005-light-is-gameplay-system.md
   - ../../05_adrs/0001-runtime-work-and-dirty-update-foundation.md
   - cloud_occlusion_lighting.md
+  - mountain_cavity_skylight_occlusion.md
   - plains_ground_cosmetic_shading.md
   - ../progression/player_sun_shadow_v0.md
 ---
@@ -58,6 +59,67 @@ the old screen-space cloud darkening / flatten / sun-ray overlays. It is still
 presentation-only: cloud response does **not** make `Light2D` nodes a gameplay
 authority, and gameplay systems still must not read the renderer for visibility
 (ADR-0005).
+
+## Mountain Cavity Skylight Composition (M8.2)
+
+[`mountain_cavity_skylight_occlusion.md`](mountain_cavity_skylight_occlusion.md)
+owns natural-light suppression in excavated surface-mountain cavities.
+
+The presentation owner is the singular scene node
+`MountainCavitySkylightField`. It creates at most one non-overlapping central-
+chunk sprite for each ready `ChunkView` source and reuses the already-uploaded:
+- live remaining-mass mask `V`;
+- immutable closed-roof mask `C`;
+- derived `sky_exposure` mask `S`;
+- displayed connected-component selector;
+- the already-uploaded all-components dug halo used only as a foreign-cavity
+  ownership guard and bounded facade broad phase.
+
+It does not create a second mask texture, stitch loaded chunks, discover lights,
+or run per-frame CPU work. Texture binding occurs only after the existing
+budgeted mountain visual upload and after an atomic selector commit. Eviction
+and runtime reset remove the corresponding derived presentation nodes.
+
+Composition invariants:
+- the field draws at absolute `z = Z_GRASS_SPORE + 1`, above ordinary world
+  objects/player and below mining/debug overlays and UI `CanvasLayer`s;
+- its `hint_screen_texture` source is the already-rendered world below the
+  field, so floor, internal facade, player, and world objects share one result;
+- `fragment()` clips by organic `C - V`, `1 - S`, and a guarded binary
+  displayed selector. The selector may lend ownership across its 3x3 tile
+  fringe only where full-resolution `C - V` proves the organic cutout and the
+  all-components dug halo proves that the receiving tile is not a foreign
+  cavity. Direct selector multiplication is forbidden because it exposes the
+  64 px tile grid as bright/dark squares;
+- internal facade coverage first interpolates one south-edge crossing, then
+  reads ownership/exposure just inside the organic foot. It must not take the
+  maximum of discrete facade probes, which repeats the 8 px mask contour as
+  visible bands;
+- its custom `light()` returns zero for `LIGHT_IS_DIRECTIONAL`, so the sun
+  cannot reopen deep skylight;
+- any correctly layered non-directional `PointLight2D` restores the pre-field
+  world contribution through the renderer's light texture/falloff. No torch,
+  lamp, building, power, or node-name identity is read;
+- every ready dug chunk keeps its one field sprite while the displayed selector
+  is empty. With the construction roof closed, the shader limits coverage to
+  organic `C - V` inside `C`'s original SOUTH structural-facade band, using the
+  facade height already authored on the roof material; no entrance decal,
+  fixed tile strip, player-distance switch, or second mask texture exists;
+- roof reveal blend is one O(1) parent presentation scalar. It adds the selected
+  component's full floor/facade coverage over the persistent mouth coverage;
+  it never enters `sky_exposure` compute, loops over sprites, or triggers a
+  worker request;
+- the cool cave floor is clamped against the already-rendered exterior colour,
+  so night or severe overcast cannot make the cavity brighter than outside;
+- inside the unchanged one-tile `sky_exposure` ingress, the field applies a
+  presentation-only `darkness_ramp_gamma = 1.35` after its normalized darkness
+  smoothstep.
+  This preserves exact light/full-dark endpoints while keeping the entrance
+  shadow softer and making darkness increase progressively through that tile;
+  it does not alter masks, native reach, roof coverage, or point-light restore.
+
+This remains visual-only per ADR-0005. Gameplay visibility must not read the
+field, its material, screen colour, or any `Light2D` renderer state.
 
 ## Validation (done)
 
@@ -312,6 +374,49 @@ Two owners, deliberately split:
    shadow-mask CPU max to ~10-12 ms in an aggressive movement sweep, with most frames
    cache hits.
    Object occluders (trees/rocks) and any sun occluder path remain unstarted.
+2c. Mountain cavity natural-light occlusion — **M8.2 light-aware presentation.**
+   `MountainCavitySkylightField` consumes M8.1's ready `C`, `V`, `S`, and
+   displayed selector textures through non-overlapping chunk sprites. Its custom
+   canvas light pass rejects `DirectionalLight2D` and lets arbitrary compatible
+   `PointLight2D` sources dissolve the darkness without source-specific code.
+   **Status: implemented and renderer-verified 2026-07-14.** The first live run
+   exposed an invalid bare `return` in the canvas `light()` processor (white
+   unit-chunk fallback); the landed `if/else` processor compiles in Godot 4.7.
+   The windowed render probe proves deep cavity `0.27245 -> 0.04737`, unchanged
+   by the directional sun (`0.04737`), while generic moving and stationary
+   point lights restore their local samples. The performance probe reports
+   `field_only avg=2.805 ms` vs `baseline avg=2.612 ms` in its 15-chunk synthetic
+   case, with O(1) reveal update `0.511 us` average.
+   **Organic clipping regression fix (2026-07-14):** live screenshots exposed
+   the tile-resolution displayed selector as alternating 64 px bright/dark
+   squares on the cavity floor and facade. The field now reuses the existing
+   all-components dug-halo texture as the same guarded active/foreign ownership
+   proof used by construction-roof reveal; no new texture/upload or CPU loop is
+   added. Its facade path interpolates one organic south-edge distance instead
+   of accumulating discrete probe rings. The targeted windowed render probe
+   passes for active organic fringe, foreign cavity, internal facade, closed
+   roof, directional sun, and generic point-light restoration. The follow-up
+   15-chunk performance probe passes with apply `0.3101 ms/chunk`, O(1) reveal
+   `0.455 us`, field-only `0.636 ms`, and field plus generic point light
+   `0.678 ms` averages in the final run.
+   **Closed-roof mouth continuity follow-up (M8.3, 2026-07-14):** the field no
+   longer globally disappears when `b = 0`. It derives the visible mouth from
+   organic `C - V` inside `C`'s original SOUTH facade band, retains one sprite
+   per ready dug chunk, and keeps the parent reveal update O(1). The Godot 4.7
+   render probe holds covered deep/roof samples, darkens the closed mouth
+   `0.18917 -> 0.06107`, restores it with a generic point light to `0.38007`,
+   and preserves the same mouth luma while the rest of the cavity opens. The
+   15-chunk probe reports `0.442 us` reveal updates and `0.700 ms` closed-mouth
+   synthetic frame average.
+   **Entrance-ramp softness follow-up (M8.4, 2026-07-14):** the native
+   one-tile exposure field, masks, and coverage stay unchanged. The cavity
+   shader reshapes only the normalized natural-darkness value with the
+   documented monotonic gamma, keeping the same endpoint and generic
+   `PointLight2D` composition. The windowed probe measures the unlit ingress at
+   `0.17994 -> 0.13323 -> 0.06835 -> 0.04737` from lip to deep floor, while a
+   generic mouth point light restores `0.06835 -> 0.38091`. The 15-chunk probe
+   remains bounded at `0.446 us` O(1) reveal update, `0.967 ms` field-only, and
+   `1.009 ms` with a generic point light.
 3. (Later, separate) gameplay visibility authority per ADR-0005.
 
 ## Required Updates

@@ -4,8 +4,8 @@ doc_type: system_spec
 status: draft
 owner: engineering
 source_of_truth: true
-version: 0.8
-last_updated: 2026-06-29
+version: 0.9
+last_updated: 2026-07-14
 related_docs:
   - ../README.md
   - commands.md
@@ -401,6 +401,7 @@ Confirmed public native surface:
 | `make_world_preview_patch_image(packet: Dictionary, render_mode: StringName)` | `Image` | Builds a lightweight preview patch image from an existing `ChunkPacketV1`; current modes are terrain, mountain id, and mountain classification. Terrain mode reads ground, mountain, and lake-bed packet terrain ids; it does not generate chunks. |
 | `build_mountain_contour_debug(solid_halo: PackedByteArray, chunk_size: int, tile_size_px: int)` | `Dictionary` | Debug-only native marching-squares helper for Mountain Contour Mesh L1. Input is a compact `(chunk_size + 2)^2` solid mask with a one-tile halo; output contains derived `vertices: PackedVector2Array` and `indices: PackedInt32Array`. This is visual/debug data only, not packet truth, save state, collision, or walkability. |
 | `build_mountain_halo_mask(solid_halo: PackedByteArray, chunk_size: int, tile_size_px: int, pixels_per_tile: int, origin_world_x: float, origin_world_y: float)` | `Dictionary` | Derived native mask helper for runtime mountain and terrain-edge presentation. Returns `MountainHaloMaskResult` from `packet_schemas.md`; not packet truth, save state, collision, or terrain ownership. |
+| `build_mountain_skylight_exposure(closed_roof_mask: PackedByteArray, live_mask: PackedByteArray, width: int, height: int, step_px: float, reach_samples: int)` | `Dictionary` | Deterministic derived native helper for M8 mountain-cavity natural-light exposure. Returns `MountainSkylightExposureResult` from `packet_schemas.md`; runs only inside the existing mountain-mask worker request for excavated roof-bearing chunks and adds no gameplay read or save surface. |
 | `build_mountain_plateau_raster_image(packets: Array, target_chunk: Vector2i, preset: Dictionary, top_image: Image, face_image: Image)` | `Dictionary` | Authoring/probe raster helper still used by the worker backend. Returns `MountainPlateauRasterImageResult` from `packet_schemas.md`; broad debug/probe output, not the normal chunk packet or save shape. |
 | `resolve_world_foundation_spawn_tile(seed: int, world_version: int, settings_packed: PackedFloat32Array)` | `Dictionary` | Resolves the V1 foundation spawn tile from the substrate and returns the shape documented as `WorldFoundationSpawnResult` in `packet_schemas.md` |
 | `build_grass_scatter_buffer(seed: int, chunk_coord: Vector2i, terrain_ids: PackedInt32Array, lake_flags: PackedByteArray, mountain_halo: PackedByteArray, mountain_halo_radius_tiles: int, params: PackedFloat32Array)` | `Dictionary` | Presentation-only deterministic grass tuft placement for one chunk; returns the `GrassScatterBufferResult` shape from `packet_schemas.md` (ready `MultiMesh` buffer). `mountain_halo` is the same cross-chunk solid halo `WorldStreamer` builds for the mountain mask, reused so mountain-edge clearance sees neighbouring-chunk mountains too (added 2026-07-04). Density mirrors the ground material's aperiodic world fields; never packet truth, save state, collision, or walkability. |
@@ -426,7 +427,7 @@ Current code notes:
   persisted and must not be mutated by script code.
 - Preview spawn resolution uses the shared worker wrapper, not a main-thread
   GDScript fallback.
-- Mountain halo and plateau raster outputs are derived native presentation or
+- Mountain halo, skylight-exposure, and plateau raster outputs are derived native presentation or
   debug/probe results. They must not be persisted or treated as authoritative
   terrain, walkability, navigation, or chunk packet data.
 

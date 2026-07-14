@@ -4,7 +4,7 @@ doc_type: system_spec
 status: approved
 owner: engineering
 source_of_truth: true
-version: 1.8
+version: 1.10
 last_updated: 2026-07-14
 related_docs:
   - ../../README.md
@@ -1088,6 +1088,40 @@ and Performance gates above. M7 supersedes the active presentation semantics
 of M2 and M3; their tile-layer/opening-shell text is implementation history
 only.
 
+### M8.1 — Derived Mountain Skylight Exposure (2026-07-14)
+
+Goal: derive deterministic natural-light acceptance for excavated surface
+mountain cavities without changing visible lighting yet.
+
+Changes:
+- the existing M7 worker request consumes the same immutable closed roof `C`
+  and live remaining mass `V` after both native masks validate
+- `WorldCore.build_mountain_skylight_exposure(...)` finds cardinal open-sky
+  sources and performs bounded multi-source geodesic propagation through
+  `C - V`; diagonal smoothing cannot cut blocked cardinal corners
+- the current tuned reach is one tile (`8` samples at the current `8 px` step)
+- the worker attaches `sky_exposure_mask` and prefixed timing/source metadata
+  to the same epoch/revision result; zero-dug chunks skip this work
+- `ChunkView` owns the transient L8 bytes and texture, uploaded through the
+  existing mountain visual budget; M8.1 does not bind or render that texture
+- roof reveal blend, component selection, collision, mining, packet truth,
+  `WORLD_VERSION`, and persistence remain unchanged
+
+M8.1 is governed by
+`mountain_cavity_skylight_occlusion.md`. Its output is presentation-derived
+data only; M8.2 separately owns visible natural-light composition and point-light
+interaction.
+
+### M8.3 — Closed-Roof Mouth Continuity (2026-07-14)
+
+The construction roof remains the visual cover owner. The separate
+`MountainCavitySkylightField` stays logically active while the roof is closed,
+but its closed-state coverage is limited to organic `C - V` inside the original
+`C` SOUTH structural-facade band. This preserves the real dark mouth seen from
+outside without changing ROOF shader ownership, adding a mouth decal/mask, or
+darkening closed top geometry. Opening the selected component adds the rest of
+the same field through the existing reveal scalar.
+
 ## Status Rationale
 
 This spec is approved because:
@@ -1106,7 +1140,12 @@ Implementation tasks may cite this spec as `approved` prerequisite.
 Changes to the rules above require a new version of this document with
 `last_updated` bumped and a changelog entry describing the amendment.
 
-Version `1.8` completes the M7-organic amendment: a presentation-only construction
+Version `1.10` records M8.3 closed-roof mouth continuity and corrects the
+current M8 reach wording to one tile; roof ownership, world generation,
+gameplay truth, and persistence remain unchanged. Version `1.9` added the M8.1
+derived skylight-exposure boundary without changing visible lighting, world
+generation, gameplay truth, or persistence. Version `1.8` completed the
+M7-organic amendment: a presentation-only construction
 roof `C` with a displayed-component reveal covers excavated tunnels, while
 the live organic mask `V` keeps owning facade, collision, mining and the
 excavation look unchanged. It also defines atomic selector publication,

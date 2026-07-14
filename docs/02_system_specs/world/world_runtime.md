@@ -4,8 +4,8 @@ doc_type: system_spec
 status: approved
 owner: engineering
 source_of_truth: true
-version: 1.6
-last_updated: 2026-06-24
+version: 1.7
+last_updated: 2026-07-14
 related_docs:
   - ../../README.md
   - ../../00_governance/WORKFLOW.md
@@ -278,19 +278,24 @@ accepted 2D mountain look:
   runtime diffs on the main thread. `WorldCore.build_mountain_halo_mask` runs as
   a `mountain_halo_mask` job in `WorldChunkPacketBackend` worker threads. The
   native method returns an `L8` alpha mask at bounded pixels-per-tile
-  resolution. Publish waits for gameplay-ready mask bytes before exposing a
-  chunk that contains mountain surface. Mining may apply only a local dirty
-  rect to existing bytes synchronously, then queues a worker reconciliation for
+  resolution. For an excavated roof-bearing request, the same worker also calls
+  `WorldCore.build_mountain_skylight_exposure` over immutable closed roof `C`
+  and live remaining mass `V`, attaching a bounded derived L8 exposure field
+  under the same epoch/revision. Zero-dug requests skip that second field.
+  Publish waits for gameplay-ready mask bytes before exposing a chunk that
+  contains mountain surface. Mining may apply only a local dirty rect to
+  existing bytes synchronously, then queues a worker reconciliation for
   affected halo chunks.
 - The publish/mining path may only store mask bytes and mark the chunk for
   visual upload; it must not create or update `ImageTexture` synchronously.
   `ImageTexture` creation/update belongs to the separate
   `FrameBudgetDispatcher.CATEGORY_VISUAL` job
-  `world.mountain_native_mask_visual_upload`, which applies at most one native
-  mask texture upload per visual tick. A completed native mask worker result
-  must not enqueue a full chunk republish for an already visible chunk; visible
-  chunks keep their current `ChunkView` and only swap the derived mask texture
-  through the visual queue.
+  `world.mountain_native_mask_visual_upload`, which processes queued native-mask
+  texture uploads only while the current visual budget remains. A completed
+  native mask worker result must not enqueue a full chunk republish for an
+  already visible chunk; visible chunks keep their current `ChunkView` and only
+  swap the derived mask textures, including the optional skylight exposure
+  texture, through the visual queue.
 - `ChunkView` suppresses square mountain tile visuals while the native mask
   shader paints the accepted top/facade textures through the same mask. This
   prevents visible square terrain from leaking while keeping one logical

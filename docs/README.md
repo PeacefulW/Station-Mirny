@@ -4,8 +4,8 @@ doc_type: docs_index
 status: approved
 owner: design+engineering
 source_of_truth: true
-version: 1.13
-last_updated: 2026-06-29
+version: 1.14
+last_updated: 2026-07-14
 related_docs:
   - 00_governance/WORKFLOW.md
   - 00_governance/ENGINEERING_STANDARDS.md
@@ -65,6 +65,7 @@ Templates for future docs.
 - [World Foundation V1](02_system_specs/world/world_foundation_v1.md)
 - [World Object Placement V0](02_system_specs/world/world_object_placement_v0.md) (draft)
 - [Mountain Generation V1](02_system_specs/world/mountain_generation.md)
+- [Mountain Cavity Skylight Occlusion V0](02_system_specs/world/mountain_cavity_skylight_occlusion.md)
 - [Lake Generation V1](02_system_specs/world/lake_generation.md)
 - [Terrain Hybrid Presentation](02_system_specs/world/terrain_hybrid_presentation.md)
 - [Plains Ground Field Composition - Macro-Masses and Paths](02_system_specs/world/plains_ground_field_composition.md)

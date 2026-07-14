@@ -4,8 +4,8 @@ doc_type: system_spec
 status: draft
 owner: engineering
 source_of_truth: true
-version: 1.5
-last_updated: 2026-07-09
+version: 1.7
+last_updated: 2026-07-14
 related_docs:
   - ../README.md
   - system_api.md
@@ -966,6 +966,11 @@ ownership-only halo and attaches the derived construction-roof fields:
   "dug_halo"?: PackedByteArray,          # 0/1 tile halo of excavated
                                          # mountain-owned cells, echoed from the
                                          # request for selector sizing
+  "sky_exposure_mask"?: PackedByteArray, # L8 natural-light acceptance field;
+                                         # same width/height/step as "mask"
+  "sky_exposure_reach_samples"?: int,    # current tuning: 1 tile * pixels_per_tile
+  "sky_exposure_source_sample_count"?: int,
+  "sky_exposure_worker_elapsed_ms"?: float,
 }
 ```
 
@@ -973,14 +978,42 @@ Current code notes:
 - `mask.size()` must equal `width * height` for `success = true`
 - when present, `closed_roof_mask.size()` must also equal `width * height`
   for `success = true`, and `dug_halo.size()` must equal
-  `halo_side * halo_side`
+  `halo_side * halo_side`; `sky_exposure_mask.size()` must equal
+  `width * height`
 - `step_px = tile_size_px / pixels_per_tile`
 - invalid input returns an empty mask with zero dimensions
-- the mask, `closed_roof_mask`, and `dug_halo` are derived runtime
+- the mask, `closed_roof_mask`, `dug_halo`, and `sky_exposure_mask` are derived runtime
   presentation/cache data; they are not packet truth, terrain, walkability,
   navigation, or save data
 - `mask_purpose = "terrain_edge"` reuses the same shape for dry-terrain edge
   presentation masks and never carries the construction-roof fields
+
+### `MountainSkylightExposureResult`
+
+Returned by native
+`WorldCore.build_mountain_skylight_exposure(closed_roof_mask, live_mask, width, height, step_px, reach_samples)`.
+
+```text
+{
+  "sky_exposure_mask": PackedByteArray, # width * height; 0 dark .. 255 open
+  "width": int,
+  "height": int,
+  "step_px": float,
+  "reach_samples": int,
+  "source_sample_count": int,
+}
+```
+
+Current code notes:
+- input shapes must match `width * height`; invalid dimensions, shape, step, or
+  reach return an empty `Dictionary`
+- the traversable domain is derived from immutable closed roof `C` minus live
+  remaining mass `V`; a real source requires cardinal contact with open `C`
+- propagation is bounded to `reach_samples`; diagonal smoothing requires both
+  adjacent cardinal samples to be traversable, so diagonal-only corners do not
+  leak
+- the result is deterministic derived presentation data, never part of
+  `ChunkPacketV1` and never persisted
 
 ### `MountainPlateauRasterImageResult`
 

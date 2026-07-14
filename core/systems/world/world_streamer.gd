@@ -9,6 +9,7 @@ const MountainGenSettings = preload("res://core/resources/mountain_gen_settings.
 const PlainsTreePlacementSettings = preload("res://core/resources/plains_tree_placement_settings.gd")
 const PlainsSmallRockPlacementSettings = preload("res://core/resources/plains_small_rock_placement_settings.gd")
 const MountainCavityCache = preload("res://core/systems/world/mountain_cavity_cache.gd")
+const MountainCavitySkylightField = preload("res://core/systems/world/mountain_cavity_skylight_field.gd")
 const Autotile47 = preload("res://core/systems/tiles/autotile_47.gd")
 const MountainPlateau2DRasterLayer = preload("res://core/systems/world/mountain_plateau_2d_raster_layer.gd")
 const MiningFeedbackLayer = preload("res://core/systems/world/mining_feedback_layer.gd")
@@ -186,6 +187,7 @@ var _mountain_roof_reveal_transition_state: MountainRoofRevealTransitionState = 
 var _mountain_roof_reveal_transition_elapsed_sec: float = 0.0
 var _mountain_roof_reveal_transition_start_blend: float = 0.0
 var _mountain_roof_reveal_transition_duration_sec: float = 0.0
+var _mountain_cavity_skylight_field: MountainCavitySkylightField = null
 var _did_warn_roof_layer_explosion: bool = false
 var _debug_tile_grid_visible: bool = false
 var _debug_mountain_solid_visible: bool = false
@@ -1263,6 +1265,9 @@ func _set_mountain_roof_reveal_blend(value: float) -> void:
 		return
 	_mountain_roof_reveal_blend = resolved_blend
 	_apply_mountain_roof_reveal_blend_to_displayed_chunks()
+	var skylight_field: MountainCavitySkylightField = _get_mountain_cavity_skylight_field()
+	if skylight_field != null:
+		skylight_field.set_reveal_blend(_mountain_roof_reveal_blend)
 
 
 func _apply_mountain_roof_reveal_blend_to_displayed_chunks() -> void:
@@ -1270,6 +1275,45 @@ func _apply_mountain_roof_reveal_blend_to_displayed_chunks() -> void:
 		var chunk_view: ChunkView = _chunk_views.get(chunk_coord) as ChunkView
 		if chunk_view != null:
 			chunk_view.set_mountain_roof_reveal_blend(_mountain_roof_reveal_blend)
+
+
+func _get_mountain_cavity_skylight_field() -> MountainCavitySkylightField:
+	if _mountain_cavity_skylight_field != null \
+			and is_instance_valid(_mountain_cavity_skylight_field):
+		return _mountain_cavity_skylight_field
+	var parent: Node = get_parent()
+	if parent == null:
+		return null
+	_mountain_cavity_skylight_field = parent.get_node_or_null(
+		"MountainCavitySkylightField",
+	) as MountainCavitySkylightField
+	return _mountain_cavity_skylight_field
+
+
+func _sync_mountain_cavity_skylight_field_chunk(
+		chunk_coord: Vector2i,
+		chunk_view: ChunkView,
+) -> void:
+	var skylight_field: MountainCavitySkylightField = _get_mountain_cavity_skylight_field()
+	if skylight_field == null or chunk_view == null or not is_instance_valid(chunk_view):
+		return
+	skylight_field.apply_chunk_source(
+		chunk_coord,
+		chunk_view.get_mountain_cavity_skylight_field_source(),
+	)
+
+
+func _remove_mountain_cavity_skylight_field_chunk(chunk_coord: Vector2i) -> void:
+	var skylight_field: MountainCavitySkylightField = _get_mountain_cavity_skylight_field()
+	if skylight_field != null:
+		skylight_field.remove_chunk(chunk_coord)
+
+
+func _clear_mountain_cavity_skylight_field() -> void:
+	var skylight_field: MountainCavitySkylightField = _get_mountain_cavity_skylight_field()
+	if skylight_field != null:
+		skylight_field.clear()
+		skylight_field.set_reveal_blend(0.0)
 
 
 func _is_displayed_cover_selector_upload_ready() -> bool:
@@ -1323,6 +1367,7 @@ func _try_commit_mountain_roof_reveal_selector_generation() -> bool:
 	for chunk_coord: Vector2i in commit_chunks:
 		var chunk_view: ChunkView = _chunk_views.get(chunk_coord, null) as ChunkView
 		chunk_view.commit_staged_mountain_roof_reveal_halo(generation)
+		_sync_mountain_cavity_skylight_field_chunk(chunk_coord, chunk_view)
 		_mountain_roof_reveal_selector_wait_chunks.erase(chunk_coord)
 	for chunk_coord: Vector2i in commit_chunks:
 		_finalize_pending_chunk_visibility(chunk_coord)
@@ -1836,6 +1881,7 @@ func _mountain_native_mask_visual_apply_tick() -> bool:
 		if not applied:
 			_finalize_pending_chunk_visibility(chunk_coord)
 			continue
+		_sync_mountain_cavity_skylight_field_chunk(chunk_coord, chunk_view)
 		var elapsed_ms: float = float(Time.get_ticks_usec() - started_usec) / 1000.0
 		_mountain_native_mask_visual_upload_count_total += 1
 		_mountain_native_mask_visual_upload_count_last_tick += 1
@@ -2195,6 +2241,7 @@ func _evict_outside_ring(max_count: int) -> void:
 		var chunk_view: ChunkView = _chunk_views.get(chunk_coord) as ChunkView
 		if chunk_view:
 			chunk_view.cancel_staged_mountain_roof_reveal_halo()
+			_remove_mountain_cavity_skylight_field_chunk(chunk_coord)
 			chunk_view.queue_free()
 		_chunk_views.erase(chunk_coord)
 		_mountain_roof_reveal_selector_wait_chunks.erase(chunk_coord)
@@ -3256,6 +3303,15 @@ func _record_mountain_native_mask_build(
 		"solid_sample_count": int(mask_result.get("solid_sample_count", 0)),
 		"native_mask_elapsed_ms": elapsed_ms,
 		"native_mask_worker_elapsed_ms": _mountain_native_mask_worker_elapsed_ms_last,
+		"sky_exposure_worker_elapsed_ms": float(
+			mask_result.get("sky_exposure_worker_elapsed_ms", 0.0),
+		),
+		"sky_exposure_reach_samples": int(
+			mask_result.get("sky_exposure_reach_samples", 0),
+		),
+		"sky_exposure_source_sample_count": int(
+			mask_result.get("sky_exposure_source_sample_count", 0),
+		),
 		"native_mask_request_to_complete_ms": _mountain_native_mask_request_to_complete_ms_last,
 		"queue_wait_ms": int(mask_result.get("queue_wait_ms", 0)),
 		"worker_elapsed_ms": int(mask_result.get("worker_elapsed_ms", elapsed_ms)),
@@ -3482,6 +3538,8 @@ func _forget_mountain_mask(
 	_mountain_native_masks_by_chunk.erase(chunk_coord)
 	_mountain_native_mask_inflight_chunks.erase(chunk_coord)
 	if clear_view:
+		if not preserve_visual:
+			_remove_mountain_cavity_skylight_field_chunk(chunk_coord)
 		var chunk_view: ChunkView = _chunk_views.get(chunk_coord, null) as ChunkView
 		if chunk_view != null:
 			if preserve_visual:
@@ -3776,6 +3834,7 @@ func _reset_runtime_state() -> void:
 	_last_terrain_edge_mask_result = {
 		"ready": false,
 	}
+	_clear_mountain_cavity_skylight_field()
 	for chunk_view_variant: Variant in _chunk_views.values():
 		var chunk_view: ChunkView = chunk_view_variant as ChunkView
 		if chunk_view:

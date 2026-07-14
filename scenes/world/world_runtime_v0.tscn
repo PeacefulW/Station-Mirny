@@ -1,4 +1,4 @@
-[gd_scene load_steps=11 format=3]
+[gd_scene load_steps=12 format=3]
 
 [ext_resource type="Script" path="res://scenes/world/world_runtime_v0_scene.gd" id="1"]
 [ext_resource type="Script" path="res://core/systems/world/world_streamer.gd" id="2"]
@@ -10,6 +10,7 @@
 [ext_resource type="Script" path="res://core/systems/world/mountain_torch_shadow_field.gd" id="8"]
 [ext_resource type="Script" path="res://core/systems/world/world_postprocess_overlay.gd" id="9"]
 [ext_resource type="Script" path="res://scenes/ui/hud/hud_postprocess_toggle.gd" id="10"]
+[ext_resource type="Script" path="res://core/systems/world/mountain_cavity_skylight_field.gd" id="11"]
 
 [node name="WorldRuntimeV0" type="Node2D"]
 script = ExtResource("1")
@@ -28,6 +29,9 @@ script = ExtResource("7")
 
 [node name="MountainTorchShadowField" type="Sprite2D" parent="."]
 script = ExtResource("8")
+
+[node name="MountainCavitySkylightField" type="Node2D" parent="."]
+script = ExtResource("11")
 
 [node name="DustWindOverlay" type="Sprite2D" parent="."]
 visible = false

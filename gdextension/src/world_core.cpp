@@ -10,7 +10,9 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
+#include <functional>
 #include <limits>
+#include <queue>
 #include <unordered_map>
 #include <unordered_set>
 #include <utility>
@@ -2093,6 +2095,7 @@ void WorldCore::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("make_world_preview_patch_image", "packet", "render_mode"), &WorldCore::make_world_preview_patch_image);
 	ClassDB::bind_method(D_METHOD("build_mountain_contour_debug", "solid_halo", "chunk_size", "tile_size_px"), &WorldCore::build_mountain_contour_debug);
 	ClassDB::bind_method(D_METHOD("build_mountain_halo_mask", "solid_halo", "chunk_size", "tile_size_px", "pixels_per_tile", "origin_world_x", "origin_world_y"), &WorldCore::build_mountain_halo_mask);
+	ClassDB::bind_method(D_METHOD("build_mountain_skylight_exposure", "closed_roof_mask", "live_mask", "width", "height", "step_px", "reach_samples"), &WorldCore::build_mountain_skylight_exposure);
 	ClassDB::bind_method(D_METHOD("build_grass_scatter_buffer", "seed", "chunk_coord", "terrain_ids", "lake_flags", "mountain_halo", "mountain_halo_radius_tiles", "params"), &WorldCore::build_grass_scatter_buffer);
 	ClassDB::bind_method(D_METHOD("build_mountain_plateau_raster_image", "packets", "target_chunk", "preset", "top_image", "face_image"), &WorldCore::build_mountain_plateau_raster_image);
 	ClassDB::bind_method(D_METHOD("resolve_world_foundation_spawn_tile", "seed", "world_version", "settings_packed"), &WorldCore::resolve_world_foundation_spawn_tile);
@@ -2288,6 +2291,152 @@ Dictionary WorldCore::build_mountain_halo_mask(
 		p_origin_world_x,
 		p_origin_world_y
 	);
+}
+
+Dictionary WorldCore::build_mountain_skylight_exposure(
+	PackedByteArray p_closed_roof_mask,
+	PackedByteArray p_live_mask,
+	int64_t p_width,
+	int64_t p_height,
+	double p_step_px,
+	int64_t p_reach_samples
+) {
+	constexpr int32_t closed_roof_threshold = 127;
+	constexpr int32_t live_mass_threshold = 127;
+	constexpr int32_t excavation_delta_threshold = 24;
+	constexpr int32_t cardinal_cost = 1000;
+	constexpr int32_t diagonal_cost = 1414;
+
+	if (p_width <= 0 || p_height <= 0 || p_step_px <= 0.0 || p_reach_samples <= 0) {
+		return Dictionary();
+	}
+	if (p_width > std::numeric_limits<int32_t>::max() / p_height) {
+		return Dictionary();
+	}
+	const int64_t sample_count_i64 = p_width * p_height;
+	if (sample_count_i64 > std::numeric_limits<int32_t>::max()
+			|| p_closed_roof_mask.size() != sample_count_i64
+			|| p_live_mask.size() != sample_count_i64
+			|| p_reach_samples > std::numeric_limits<int32_t>::max() / cardinal_cost) {
+		return Dictionary();
+	}
+
+	const int32_t width = static_cast<int32_t>(p_width);
+	const int32_t height = static_cast<int32_t>(p_height);
+	const int32_t sample_count = static_cast<int32_t>(sample_count_i64);
+	const int32_t max_cost = static_cast<int32_t>(p_reach_samples) * cardinal_cost;
+	std::vector<uint8_t> traversable(static_cast<size_t>(sample_count), 0);
+	for (int32_t index = 0; index < sample_count; ++index) {
+		const int32_t closed_value = static_cast<int32_t>(p_closed_roof_mask[index]);
+		const int32_t live_value = static_cast<int32_t>(p_live_mask[index]);
+		traversable[static_cast<size_t>(index)] = static_cast<uint8_t>(
+			closed_value > closed_roof_threshold
+			&& live_value <= live_mass_threshold
+			&& closed_value - live_value >= excavation_delta_threshold
+		);
+	}
+
+	using QueueEntry = std::pair<int32_t, int32_t>;
+	std::priority_queue<QueueEntry, std::vector<QueueEntry>, std::greater<QueueEntry>> frontier;
+	std::vector<int32_t> distances(
+		static_cast<size_t>(sample_count),
+		std::numeric_limits<int32_t>::max()
+	);
+	constexpr int32_t cardinal_dx[4] = { 0, 1, 0, -1 };
+	constexpr int32_t cardinal_dy[4] = { -1, 0, 1, 0 };
+	int32_t source_sample_count = 0;
+	for (int32_t y = 0; y < height; ++y) {
+		for (int32_t x = 0; x < width; ++x) {
+			const int32_t index = y * width + x;
+			if (traversable[static_cast<size_t>(index)] == 0) {
+				continue;
+			}
+			bool touches_open_sky = false;
+			for (int32_t direction = 0; direction < 4; ++direction) {
+				const int32_t neighbour_x = x + cardinal_dx[direction];
+				const int32_t neighbour_y = y + cardinal_dy[direction];
+				if (neighbour_x < 0 || neighbour_y < 0 || neighbour_x >= width || neighbour_y >= height) {
+					continue;
+				}
+				const int32_t neighbour_index = neighbour_y * width + neighbour_x;
+				if (static_cast<int32_t>(p_closed_roof_mask[neighbour_index]) <= closed_roof_threshold) {
+					touches_open_sky = true;
+					break;
+				}
+			}
+			if (!touches_open_sky) {
+				continue;
+			}
+			distances[static_cast<size_t>(index)] = 0;
+			frontier.push({ 0, index });
+			++source_sample_count;
+		}
+	}
+
+	constexpr int32_t neighbour_dx[8] = { 0, 1, 0, -1, 1, 1, -1, -1 };
+	constexpr int32_t neighbour_dy[8] = { -1, 0, 1, 0, -1, 1, 1, -1 };
+	while (!frontier.empty()) {
+		const QueueEntry current = frontier.top();
+		frontier.pop();
+		const int32_t current_cost = current.first;
+		const int32_t current_index = current.second;
+		if (current_cost != distances[static_cast<size_t>(current_index)] || current_cost >= max_cost) {
+			continue;
+		}
+		const int32_t x = current_index % width;
+		const int32_t y = current_index / width;
+		for (int32_t direction = 0; direction < 8; ++direction) {
+			const int32_t dx = neighbour_dx[direction];
+			const int32_t dy = neighbour_dy[direction];
+			const int32_t neighbour_x = x + dx;
+			const int32_t neighbour_y = y + dy;
+			if (neighbour_x < 0 || neighbour_y < 0 || neighbour_x >= width || neighbour_y >= height) {
+				continue;
+			}
+			const int32_t neighbour_index = neighbour_y * width + neighbour_x;
+			if (traversable[static_cast<size_t>(neighbour_index)] == 0) {
+				continue;
+			}
+			const bool diagonal = dx != 0 && dy != 0;
+			if (diagonal) {
+				const int32_t horizontal_index = y * width + neighbour_x;
+				const int32_t vertical_index = neighbour_y * width + x;
+				if (traversable[static_cast<size_t>(horizontal_index)] == 0
+						|| traversable[static_cast<size_t>(vertical_index)] == 0) {
+					continue;
+				}
+			}
+			const int32_t next_cost = current_cost + (diagonal ? diagonal_cost : cardinal_cost);
+			if (next_cost > max_cost || next_cost >= distances[static_cast<size_t>(neighbour_index)]) {
+				continue;
+			}
+			distances[static_cast<size_t>(neighbour_index)] = next_cost;
+			frontier.push({ next_cost, neighbour_index });
+		}
+	}
+
+	PackedByteArray exposure_mask;
+	exposure_mask.resize(sample_count);
+	for (int32_t index = 0; index < sample_count; ++index) {
+		const int32_t distance = distances[static_cast<size_t>(index)];
+		if (distance == std::numeric_limits<int32_t>::max() || distance >= max_cost) {
+			exposure_mask.set(index, 0);
+			continue;
+		}
+		const double t = std::clamp(static_cast<double>(distance) / static_cast<double>(max_cost), 0.0, 1.0);
+		const double smooth_t = t * t * (3.0 - 2.0 * t);
+		const int32_t exposure = static_cast<int32_t>(std::lround((1.0 - smooth_t) * 255.0));
+		exposure_mask.set(index, static_cast<uint8_t>(std::clamp(exposure, 0, 255)));
+	}
+
+	Dictionary result;
+	result["sky_exposure_mask"] = exposure_mask;
+	result["width"] = width;
+	result["height"] = height;
+	result["step_px"] = p_step_px;
+	result["reach_samples"] = static_cast<int32_t>(p_reach_samples);
+	result["source_sample_count"] = source_sample_count;
+	return result;
 }
 
 Dictionary WorldCore::_generate_chunk_packet(

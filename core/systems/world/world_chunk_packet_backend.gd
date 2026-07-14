@@ -2,6 +2,7 @@ class_name WorldChunkPacketBackend
 extends RefCounted
 
 const DEFAULT_MAX_BATCH_SIZE: int = 64
+const MOUNTAIN_SKYLIGHT_REACH_TILES: int = 1
 
 var _worker_threads: Array[Thread] = []
 var _request_mutex: Mutex = Mutex.new()
@@ -536,6 +537,12 @@ func _process_mountain_halo_mask_request(worker_world_core: Object, request: Dic
 			"success": false,
 			"message": "WorldCore.build_mountain_halo_mask is unavailable in this build.",
 		}
+	elif construction_roof_requested \
+			and not worker_world_core.has_method("build_mountain_skylight_exposure"):
+		result = {
+			"success": false,
+			"message": "WorldCore.build_mountain_skylight_exposure is unavailable in this build.",
+		}
 	else:
 		var mask_origin_world: Vector2 = request.get("mask_origin_world", Vector2.ZERO) as Vector2
 		var result_variant: Variant = worker_world_core.call(
@@ -585,8 +592,49 @@ func _process_mountain_halo_mask_request(worker_world_core: Object, request: Dic
 						and int(closed_result.get("halo_side", 0)) \
 								== int(result.get("halo_side", 0))
 				if closed_output_valid:
-					result["closed_roof_mask"] = closed_mask
-					result["dug_halo"] = dug_halo.duplicate()
+					var reach_samples: int = MOUNTAIN_SKYLIGHT_REACH_TILES * int(
+						request.get("pixels_per_tile", 1),
+					)
+					var skylight_started_usec: int = Time.get_ticks_usec()
+					var exposure_variant: Variant = worker_world_core.call(
+						"build_mountain_skylight_exposure",
+						closed_mask,
+						mask,
+						mask_width,
+						mask_height,
+						float(result.get("step_px", 0.0)),
+						reach_samples,
+					)
+					var skylight_elapsed_ms: float = float(
+						Time.get_ticks_usec() - skylight_started_usec,
+					) / 1000.0
+					var exposure_result: Dictionary = { }
+					if exposure_variant is Dictionary:
+						exposure_result = exposure_variant as Dictionary
+					var exposure_mask: PackedByteArray = exposure_result.get(
+						"sky_exposure_mask",
+						PackedByteArray(),
+					) as PackedByteArray
+					var exposure_output_valid: bool = exposure_mask.size() == mask_width * mask_height \
+							and int(exposure_result.get("width", 0)) == mask_width \
+							and int(exposure_result.get("height", 0)) == mask_height \
+							and is_equal_approx(
+								float(exposure_result.get("step_px", 0.0)),
+								float(result.get("step_px", 0.0)),
+							) \
+							and int(exposure_result.get("reach_samples", 0)) == reach_samples
+					if exposure_output_valid:
+						result["closed_roof_mask"] = closed_mask
+						result["dug_halo"] = dug_halo.duplicate()
+						result["sky_exposure_mask"] = exposure_mask
+						result["sky_exposure_reach_samples"] = reach_samples
+						result["sky_exposure_source_sample_count"] = int(
+							exposure_result.get("source_sample_count", 0),
+						)
+						result["sky_exposure_worker_elapsed_ms"] = skylight_elapsed_ms
+					else:
+						output_valid = false
+						result["message"] = "Native mountain skylight exposure output is malformed."
 				else:
 					output_valid = false
 					result["message"] = "Native mountain closed-roof mask output is malformed."

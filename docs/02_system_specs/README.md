@@ -4,8 +4,8 @@ doc_type: system_spec_index
 status: approved
 owner: engineering+design
 source_of_truth: true
-version: 1.11
-last_updated: 2026-06-29
+version: 1.12
+last_updated: 2026-07-14
 ---
 
 # System Specs
@@ -75,6 +75,7 @@ Current transition strategy:
 - [World Foundation V1](world/world_foundation_v1.md)
 - [World Object Placement V0](world/world_object_placement_v0.md) (draft)
 - [Mountain Generation V1](world/mountain_generation.md)
+- [Mountain Cavity Skylight Occlusion V0](world/mountain_cavity_skylight_occlusion.md)
 - [Lake Generation V1](world/lake_generation.md)
 - [Terrain Hybrid Presentation](world/terrain_hybrid_presentation.md)
 - [Plains Ground Field Composition - Macro-Masses and Paths](world/plains_ground_field_composition.md)
