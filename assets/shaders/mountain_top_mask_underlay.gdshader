@@ -41,9 +41,34 @@ uniform float projected_shadow_angle_deg = 234.0;
 uniform float projected_shadow_length_px = 72.0;
 uniform float projected_shadow_opacity = 0.0;
 uniform float projected_shadow_softness_px = 28.0;
+// The construction ROOF pass keeps projected_shadow_opacity as the shared
+// daylight gate for crest/rim shading but must not draw a second cast shadow.
+uniform float projected_shadow_draw_enabled = 1.0;
 uniform vec3 projected_shadow_color = vec3(0.030, 0.026, 0.018);
 uniform float top_surface_alpha = 1.0;
 uniform float wall_surface_alpha = 1.0;
+// Construction roof mode (0 = live BASE pass, unchanged; 1 = visual-only ROOF
+// copy of the immutable closed mask). In ROOF mode the sprite TEXTURE is the
+// CLOSED pre-dig mask: the pass draws only top geometry (its own structural
+// facade band and eave are suppressed so BASE(V)'s real mouth stays in
+// charge), and the resolver-selected component fades this contribution out.
+uniform float roof_overlay_mode = 0.0;
+// Read-only live-mask reference for ROOF: locates the exact organic C-V
+// excavation cutout and the internal BASE(V) structural facade owned by the
+// displayed component. It never feeds roof colour, normals, or top geometry.
+uniform sampler2D base_visual_mask_texture : filter_linear, repeat_disable;
+// Displayed-component floor selector halo (32x32 L8, 255 = active floor).
+// Ownership stays nearest/binary: the full-resolution C-V residual already
+// carries the organic reveal border, so smoothing this tile field would leak
+// into an adjacent foreign cavity.
+uniform sampler2D active_floor_halo_texture : filter_nearest, repeat_disable;
+// All excavated cells (any component). The nearest sampler is authoritative
+// for foreign-cavity ownership; the second binding uses the same tiny texture
+// with linear filtering only as a conservative 3x4 broad-phase accelerator.
+uniform sampler2D any_cutout_halo_texture : filter_nearest, repeat_disable;
+uniform sampler2D any_cutout_broad_texture : filter_linear, repeat_disable;
+uniform float roof_component_reveal_enabled = 0.0;
+uniform float component_reveal_blend = 0.0;
 // Hard dark contact line at the wall base; 0 removes it (mountains), the
 // shoreline keeps it for a crisp waterline.
 uniform float base_outline_strength = 0.92;
@@ -183,6 +208,194 @@ float uv_rect_inside(vec2 uv, vec2 min_uv, vec2 max_uv) {
 	return step(min_uv.x, uv.x) * step(min_uv.y, uv.y) * step(uv.x, max_uv.x) * step(uv.y, max_uv.y);
 }
 
+float sample_component_exact_weight(vec2 uv) {
+	if (roof_component_reveal_enabled < 0.5) {
+		return 0.0;
+	}
+	float inside = uv_inside(uv);
+	float selector_raw = texture(active_floor_halo_texture, uv).r;
+	float selector_code = floor(selector_raw * 255.0 + 0.5);
+	return step(127.5, selector_code) * inside;
+}
+
+float sample_any_cutout_exact_weight(vec2 uv) {
+	float inside = uv_inside(uv);
+	float cutout_raw = texture(any_cutout_halo_texture, uv).r;
+	float cutout_code = floor(cutout_raw * 255.0 + 0.5);
+	return step(127.5, cutout_code) * inside;
+}
+
+float sample_any_cutout_broad_weight(vec2 uv) {
+	vec2 selector_size = vec2(textureSize(any_cutout_broad_texture, 0));
+	vec2 selector_texel = 1.0 / selector_size;
+	vec2 safe_uv = clamp(uv, vec2(0.0), vec2(1.0) - selector_texel * 0.001);
+	vec2 cell_center = (floor(safe_uv * selector_size) + vec2(0.5)) * selector_texel;
+	// Four bilinear samples at cell intersections conservatively cover the same
+	// dx=-1..1, dy=-1..2 stencil as twelve nearest reads. False positives are
+	// harmless because full-resolution C-V is still the visual proof.
+	float broad = texture(
+		any_cutout_broad_texture,
+		cell_center + selector_texel * vec2(-0.5, -0.5)
+	).r;
+	broad = max(broad, texture(
+		any_cutout_broad_texture,
+		cell_center + selector_texel * vec2(0.5, -0.5)
+	).r);
+	broad = max(broad, texture(
+		any_cutout_broad_texture,
+		cell_center + selector_texel * vec2(-0.5, 1.5)
+	).r);
+	broad = max(broad, texture(
+		any_cutout_broad_texture,
+		cell_center + selector_texel * vec2(0.5, 1.5)
+	).r);
+	return step(0.001, broad);
+}
+
+vec2 sample_active_foreign_exact_pair(vec2 uv) {
+	float active = sample_component_exact_weight(uv);
+	float any_cutout = sample_any_cutout_exact_weight(uv);
+	return vec2(active, any_cutout * (1.0 - active));
+}
+
+vec2 sample_guarded_active_foreign_pair(vec2 uv) {
+	vec2 center_owners = sample_active_foreign_exact_pair(uv);
+	if (center_owners.x > 0.5 || center_owners.y > 0.5) {
+		return center_owners;
+	}
+	vec2 selector_texel = 1.0 / vec2(textureSize(active_floor_halo_texture, 0));
+	vec2 fringe_owners = vec2(0.0);
+	fringe_owners = max(fringe_owners, sample_active_foreign_exact_pair(uv + vec2(selector_texel.x, 0.0)));
+	fringe_owners = max(fringe_owners, sample_active_foreign_exact_pair(uv - vec2(selector_texel.x, 0.0)));
+	fringe_owners = max(fringe_owners, sample_active_foreign_exact_pair(uv + vec2(0.0, selector_texel.y)));
+	fringe_owners = max(fringe_owners, sample_active_foreign_exact_pair(uv - vec2(0.0, selector_texel.y)));
+	fringe_owners = max(fringe_owners, sample_active_foreign_exact_pair(uv + selector_texel));
+	fringe_owners = max(fringe_owners, sample_active_foreign_exact_pair(uv - selector_texel));
+	fringe_owners = max(fringe_owners, sample_active_foreign_exact_pair(uv + vec2(selector_texel.x, -selector_texel.y)));
+	fringe_owners = max(fringe_owners, sample_active_foreign_exact_pair(uv + vec2(-selector_texel.x, selector_texel.y)));
+	return fringe_owners;
+}
+
+// Pixel-exact organic excavation delta (CLOSED - live V), owned by the exact
+// selector tile or its guarded 3x3 fringe. Continuous movement can reach a
+// curved corner in a diagonally adjacent tile, but a tile belonging to another
+// excavated component must never inherit that ownership.
+float sample_active_cutout_reveal_weight(
+		float closed_top_here,
+		float live_top_here,
+		vec2 selector_uv
+) {
+	if (roof_component_reveal_enabled < 0.5) {
+		return 0.0;
+	}
+	float excavation_cutout = smoothstep(
+		0.001,
+		0.08,
+		max(closed_top_here - live_top_here, 0.0)
+	);
+	if (excavation_cutout <= 0.001) {
+		return 0.0;
+	}
+	vec2 owners = sample_guarded_active_foreign_pair(selector_uv);
+	// The residual alpha already carries the organic C-V antialiasing. The tile
+	// owner is therefore binary, and any ambiguous neighbouring foreign source
+	// conservatively keeps its roof closed.
+	return owners.x * (1.0 - step(0.5, owners.y));
+}
+
+float find_base_visual_south_edge_distance(
+		vec2 mask_uv,
+		vec2 probe_step_uv,
+		float solid_here,
+		float max_probe_texels
+) {
+	if (solid_here < 0.5) {
+		return -1.0;
+	}
+	float previous = solid_here;
+	int steps = int(min(max_probe_texels + 2.0, 96.0));
+	for (int distance_index = 1; distance_index <= 96; distance_index++) {
+		if (distance_index > steps) {
+			break;
+		}
+		float current = mask_to_top(texture(
+			base_visual_mask_texture,
+			mask_uv + probe_step_uv * float(distance_index)
+		).r);
+		if (current < 0.5 && previous >= 0.5) {
+			float crossing = (previous - 0.5) / max(previous - current, 0.0001);
+			return float(distance_index) - 1.0 + crossing;
+		}
+		previous = current;
+	}
+	return -1.0;
+}
+
+float structural_wall_band(
+		float edge_distance,
+		float solid_here,
+		float wall_texels,
+		float body_area
+) {
+	float valid = step(0.0, edge_distance);
+	float solid_mask = smoothstep(0.38, 0.66, solid_here);
+	float base_fade = smoothstep(-0.50, 0.15, edge_distance);
+	float top_fade = 1.0 - smoothstep(wall_texels - 1.65, wall_texels + 1.65, edge_distance);
+	return body_area * valid * solid_mask * base_fade * top_fade;
+}
+
+// Return (live SOUTH edge distance, guarded active owner, guarded foreign
+// owner) for a BASE(V) wall close to a dug tile. The low-resolution dug halo is
+// broad phase only; fragment() proves an internal wall from the exact organic
+// C-V delta beyond the live edge before allowing ROOF to cover it.
+vec3 sample_base_facade_state(
+		vec2 visual_mask_uv,
+		vec2 selector_uv,
+		vec2 mask_texel,
+		float wall_texels,
+		float body_area,
+		float visual_top_here,
+		float nearby_cutout
+) {
+	if (nearby_cutout < 0.5) {
+		return vec3(-1.0, 0.0, 0.0);
+	}
+	float visual_edge = find_base_visual_south_edge_distance(
+		visual_mask_uv,
+		vec2(0.0, mask_texel.y),
+		visual_top_here,
+		wall_texels
+	);
+	float visual_wall = structural_wall_band(
+		visual_edge,
+		visual_top_here,
+		wall_texels,
+		body_area
+	);
+	if (visual_wall <= 0.001 || visual_edge < 0.0) {
+		return vec3(-1.0, 0.0, 0.0);
+	}
+	// Selector ownership follows the same warped coordinate as the C/V masks.
+	// Multiple probes tolerate AA crossing, and the guarded fringe keeps an
+	// adjacent foreign cavity closed.
+	vec2 open_step = vec2(0.0, mask_texel.y);
+	vec2 owners = vec2(0.0);
+	// CLOSED is the steady state and has no displayed selector. Avoid the
+	// guarded 3x3 ownership probes entirely until a component is opening/open.
+	if (roof_component_reveal_enabled > 0.5) {
+		owners = sample_guarded_active_foreign_pair(
+			selector_uv + open_step * (visual_edge + 0.75)
+		);
+		owners = max(owners, sample_guarded_active_foreign_pair(
+			selector_uv + open_step * (visual_edge + 1.50)
+		));
+		owners = max(owners, sample_guarded_active_foreign_pair(
+			selector_uv + open_step * (visual_edge + 2.25)
+		));
+	}
+	return vec3(visual_edge, owners.x, owners.y);
+}
+
 float shadow_axis_owner_weight(float value, float min_value, float max_value, float texel_size, float blend_texels) {
 	float blend_uv = max(texel_size * max(blend_texels, 1.0), 0.0001);
 	float left = smoothstep(min_value - blend_uv, min_value + blend_uv, value);
@@ -198,20 +411,40 @@ float shadow_owner_weight(vec2 uv, vec2 min_uv, vec2 max_uv, vec2 texel, float b
 	return wx * wy;
 }
 
-// Minimum mask solidity over an 8-direction ring: 1.0 means "no open edge
-// within this radius", i.e. the pixel sits deeper than radius_texels inside
-// the massif. The smooth falloff of the minimum doubles as the step ramp.
-float ring_interior(sampler2D mask_tex, vec2 uv, vec2 texel, float radius_texels) {
-	float interior = 1.0;
-	interior = min(interior, mask_to_top(texture(mask_tex, uv + vec2(texel.x, 0.0) * radius_texels).r));
-	interior = min(interior, mask_to_top(texture(mask_tex, uv - vec2(texel.x, 0.0) * radius_texels).r));
-	interior = min(interior, mask_to_top(texture(mask_tex, uv + vec2(0.0, texel.y) * radius_texels).r));
-	interior = min(interior, mask_to_top(texture(mask_tex, uv - vec2(0.0, texel.y) * radius_texels).r));
-	interior = min(interior, mask_to_top(texture(mask_tex, uv + vec2(texel.x, texel.y) * radius_texels * 0.7071).r));
-	interior = min(interior, mask_to_top(texture(mask_tex, uv + vec2(-texel.x, texel.y) * radius_texels * 0.7071).r));
-	interior = min(interior, mask_to_top(texture(mask_tex, uv + vec2(texel.x, -texel.y) * radius_texels * 0.7071).r));
-	interior = min(interior, mask_to_top(texture(mask_tex, uv + vec2(-texel.x, -texel.y) * radius_texels * 0.7071).r));
-	return interior;
+float roof_body_axis_owner_weight(
+		float value,
+		float body_min,
+		float body_max,
+		float core_min,
+		float core_max
+) {
+	float left_width = max(core_min - body_min, 0.000001);
+	float right_width = max(body_max - core_max, 0.000001);
+	float left = smoothstep(core_min - left_width, core_min + left_width, value);
+	float right = 1.0 - smoothstep(core_max - right_width, core_max + right_width, value);
+	return min(left, right);
+}
+
+// ROOF sprites retain the same tiny body overlap as BASE so fractional camera
+// motion cannot expose a crack. Complementary ownership converts that overlap
+// into one alpha contribution globally: two edge weights (or four corner
+// products) sum to 1, independent of chunk publication/sibling order.
+float roof_body_owner_weight(vec2 uv) {
+	float wx = roof_body_axis_owner_weight(
+		uv.x,
+		chunk_uv_min.x,
+		chunk_uv_max.x,
+		shadow_uv_min.x,
+		shadow_uv_max.x
+	);
+	float wy = roof_body_axis_owner_weight(
+		uv.y,
+		chunk_uv_min.y,
+		chunk_uv_max.y,
+		shadow_uv_min.y,
+		shadow_uv_max.y
+	);
+	return wx * wy;
 }
 
 vec2 visual_mask_uv(vec2 uv, vec2 texel, vec2 wp) {
@@ -239,6 +472,7 @@ vec2 visual_mask_uv(vec2 uv, vec2 texel, vec2 wp) {
 void fragment() {
 	float body_area = uv_rect_inside(UV, chunk_uv_min, chunk_uv_max);
 	float shadow_draw_area = uv_rect_inside(UV, shadow_draw_uv_min, shadow_draw_uv_max);
+	float overlay_mode = clamp(roof_overlay_mode, 0.0, 1.0);
 	// Body uses a tiny opaque overlap; projected shadow uses a wider blended overlap.
 	if (max(body_area, shadow_draw_area) < 0.5) {
 		discard;
@@ -254,6 +488,18 @@ void fragment() {
 	float top_u = mask_to_top(texture(TEXTURE, base_uv - vec2(0.0, texel.y)).r);
 	float top_d = mask_to_top(texture(TEXTURE, base_uv + vec2(0.0, texel.y)).r);
 	vec2 mask_grad = vec2(top_l - top_r, top_u - top_d);
+	float light_angle_rad = radians(light_angle_deg);
+	vec2 side_shade_step = vec2(0.0);
+	float closed_side_toward = top_here;
+	float closed_side_away = top_here;
+	float closed_side_signed = 0.0;
+	if (side_shade_strength > 0.001 && top_here >= 0.5) {
+		side_shade_step = vec2(cos(light_angle_rad), sin(light_angle_rad))
+				* texel * (side_shade_reach_px / max(sample_step_px, 0.001));
+		closed_side_toward = mask_to_top(texture(TEXTURE, base_uv + side_shade_step).r);
+		closed_side_away = mask_to_top(texture(TEXTURE, base_uv - side_shade_step).r);
+		closed_side_signed = (1.0 - closed_side_toward) - (1.0 - closed_side_away);
+	}
 
 	float wall_texels = max(1.0, facade_height_px / sample_step_px);
 	float overhang_texels = max(1.0, overhang_px / sample_step_px);
@@ -273,11 +519,144 @@ void fragment() {
 			prev = cur;
 		}
 	}
-	float wall_valid = step(0.0, edge_below);
-	float wall_solid_mask = smoothstep(0.38, 0.66, top_here);
-	float wall_base_fade = smoothstep(-0.50, 0.15, edge_below);
-	float wall_top_fade = 1.0 - smoothstep(wall_texels - 1.65, wall_texels + 1.65, edge_below);
-	float wall_mask = body_area * wall_valid * wall_solid_mask * wall_base_fade * wall_top_fade;
+	float structural_wall_mask = structural_wall_band(
+		edge_below,
+		top_here,
+		wall_texels,
+		body_area
+	);
+	float live_top_here = top_here;
+	vec2 base_facade_cover_weights = vec2(0.0);
+	float side_shade_cover_owner = 0.0;
+	float side_shade_reveal_owner = 0.0;
+	if (overlay_mode > 0.5) {
+		live_top_here = mask_to_top(texture(base_visual_mask_texture, base_uv).r);
+		float nearby_cutout = sample_any_cutout_broad_weight(base_uv);
+		if (nearby_cutout > 0.5
+				&& side_shade_strength > 0.001
+				&& top_here >= 0.5
+				&& live_top_here >= 0.5) {
+			vec2 toward_uv = base_uv + side_shade_step;
+			vec2 away_uv = base_uv - side_shade_step;
+			float live_side_toward = mask_to_top(texture(base_visual_mask_texture, toward_uv).r);
+			float live_side_away = mask_to_top(texture(base_visual_mask_texture, away_uv).r);
+			float live_side_signed = (1.0 - live_side_toward) - (1.0 - live_side_away);
+			side_shade_cover_owner = step(
+				0.02,
+				abs(closed_side_signed - live_side_signed)
+			);
+			if (roof_component_reveal_enabled > 0.5 && side_shade_cover_owner > 0.5) {
+				vec2 side_owners = vec2(0.0);
+				if (closed_side_toward - live_side_toward > 0.001) {
+					side_owners = max(
+						side_owners,
+						sample_guarded_active_foreign_pair(toward_uv)
+					);
+				}
+				if (closed_side_away - live_side_away > 0.001) {
+					side_owners = max(
+						side_owners,
+						sample_guarded_active_foreign_pair(away_uv)
+					);
+				}
+				side_shade_reveal_owner = side_owners.x
+						* (1.0 - step(0.5, side_owners.y));
+			}
+		}
+		vec3 base_facade_state = sample_base_facade_state(
+			base_uv,
+			base_uv,
+			texel,
+			wall_texels,
+			body_area,
+			live_top_here,
+			nearby_cutout
+		);
+		if (base_facade_state.x >= 0.0) {
+			vec2 open_step = vec2(0.0, texel.y);
+			float organic_delta = 0.0;
+			vec2 probe_uv = base_uv + open_step * (base_facade_state.x + 0.75);
+			float probe_inside = uv_inside(probe_uv);
+			organic_delta = max(organic_delta, max(
+				mask_to_top(texture(TEXTURE, probe_uv).r)
+						- mask_to_top(texture(base_visual_mask_texture, probe_uv).r),
+				0.0
+			) * probe_inside);
+			probe_uv = base_uv + open_step * (base_facade_state.x + 1.50);
+			probe_inside = uv_inside(probe_uv);
+			organic_delta = max(organic_delta, max(
+				mask_to_top(texture(TEXTURE, probe_uv).r)
+						- mask_to_top(texture(base_visual_mask_texture, probe_uv).r),
+				0.0
+			) * probe_inside);
+			probe_uv = base_uv + open_step * (base_facade_state.x + 2.25);
+			probe_inside = uv_inside(probe_uv);
+			organic_delta = max(organic_delta, max(
+				mask_to_top(texture(TEXTURE, probe_uv).r)
+						- mask_to_top(texture(base_visual_mask_texture, probe_uv).r),
+				0.0
+			) * probe_inside);
+			float facade_cover_owner = step(0.02, organic_delta);
+			float facade_reveal_owner = base_facade_state.y
+					* (1.0 - step(0.5, base_facade_state.z));
+			base_facade_cover_weights = vec2(
+				facade_cover_owner,
+				facade_cover_owner * facade_reveal_owner
+			);
+		}
+	}
+	// The construction ROOF never repaints a structural facade: removing its
+	// own wall band exposes BASE(V)'s live break, so a dug entrance is never
+	// re-covered by the pre-dig facade while the top geometry stays CLOSED.
+	float closed_surface_mask = top_here * body_area * (1.0 - structural_wall_mask * overlay_mode);
+	float live_surface_mask = live_top_here * body_area;
+	float residual_surface_mask = 0.0;
+	if (closed_surface_mask > live_surface_mask + 0.0001) {
+		residual_surface_mask = clamp(
+			(closed_surface_mask - live_surface_mask) / max(1.0 - live_surface_mask, 0.0001),
+			0.0,
+			1.0
+		);
+	}
+	// Never replace C's original exterior facade with top texture. Even when a
+	// dug entrance touches that band, the part that existed before digging must
+	// remain the visible mouth; only genuinely internal V facade is roof-covered.
+	float base_facade_cover_mask = closed_surface_mask * base_facade_cover_weights.x;
+	// BASE(V)'s sun-facing bevel reaches into still-solid pixels around a new
+	// excavation edge. Replace only that exact organic colour footprint with
+	// C's bevel while closed; otherwise the live internal edge shines through
+	// an alpha-correct roof as a curved/vertical line.
+	float side_shade_cover_mask = closed_surface_mask
+			* smoothstep(0.72, 0.98, live_top_here)
+			* side_shade_cover_owner;
+	float overlay_surface_mask = max(
+		residual_surface_mask,
+		max(base_facade_cover_mask, side_shade_cover_mask)
+	);
+	float cutout_reveal_owner = 0.0;
+	float facade_reveal_owner = 0.0;
+	if (overlay_mode > 0.5 && roof_component_reveal_enabled > 0.5) {
+		cutout_reveal_owner = sample_active_cutout_reveal_weight(
+			top_here,
+			live_top_here,
+			base_uv
+		);
+		facade_reveal_owner = base_facade_cover_weights.y;
+		// Fully transparent revealed cave pixels should not pay the expensive
+		// albedo/noise/terrace path below.
+		float visible_overlay_hint = max(
+			residual_surface_mask * (1.0 - clamp(cutout_reveal_owner * component_reveal_blend, 0.0, 1.0)),
+			max(
+				base_facade_cover_mask * (1.0 - clamp(facade_reveal_owner * component_reveal_blend, 0.0, 1.0)),
+				side_shade_cover_mask * (1.0 - clamp(side_shade_reveal_owner * component_reveal_blend, 0.0, 1.0))
+			)
+		);
+		if (visible_overlay_hint <= 0.0001) {
+			discard;
+		}
+	}
+	float roof_surface_mask = mix(top_here * body_area, overlay_surface_mask, overlay_mode);
+	float wall_mask = structural_wall_mask * (1.0 - overlay_mode);
 	bool is_wall = wall_mask > 0.02;
 
 	// OPEN pixel: cosmetic roof eave just below the silhouette ("козырёк").
@@ -293,12 +672,14 @@ void fragment() {
 			}
 		}
 	}
-	overhang *= body_area;
+	// BASE owns the one physical eave. The construction ROOF is a cover-only
+	// contribution and must not double the translucent rim.
+	overhang *= body_area * (1.0 - overlay_mode);
 
-	float coverage = max(top_here * body_area, overhang);
+	float coverage = max(roof_surface_mask, overhang);
 	float projected_shadow = 0.0;
 	float shadow_open_space = (1.0 - smoothstep(0.08, 0.56, top_here)) * (1.0 - clamp(overhang, 0.0, 1.0) * 0.92);
-	if (projected_shadow_opacity > 0.001 && projected_shadow_length_px > 1.0 && shadow_open_space > 0.001) {
+	if (projected_shadow_draw_enabled > 0.5 && projected_shadow_opacity > 0.001 && projected_shadow_length_px > 1.0 && shadow_open_space > 0.001) {
 		float shadow_a = radians(projected_shadow_angle_deg);
 		vec2 shadow_dir = normalize(vec2(cos(shadow_a), sin(shadow_a)));
 		vec2 shadow_side = vec2(-shadow_dir.y, shadow_dir.x);
@@ -348,7 +729,7 @@ void fragment() {
 	}
 
 	float tz = max(texture_zoom, 0.01);
-	float a = radians(light_angle_deg);
+	float a = light_angle_rad;
 	vec3 light_dir = normalize(vec3(cos(a), sin(a), 0.62));
 	float grad_px = 2.0;
 	float macro = fbm2(world_px / 920.0);
@@ -392,8 +773,30 @@ void fragment() {
 		float terrace_wobble = (fbm2(world_px / 300.0 + vec2(-9.0, 37.0)) - 0.5) * 2.0 * terrace_wobble_px;
 		float inner_texels = max((terrace_inner_px + terrace_wobble) / max(sample_step_px, 0.001), 1.0);
 		float upper_texels = max((terrace_upper_px + terrace_wobble * 1.4) / max(sample_step_px, 0.001), 1.0);
-		float inner_level = smoothstep(0.30, 0.72, ring_interior(TEXTURE, base_uv, texel, inner_texels));
-		float upper_level = smoothstep(0.30, 0.72, ring_interior(TEXTURE, base_uv, texel, upper_texels));
+		// Godot does not expose the built-in TEXTURE sampler from a helper
+		// function. Keep these ring probes in fragment(): besides compiling on
+		// every supported renderer, both BASE and ROOF still sample their own
+		// organic mask without introducing an auxiliary texture/uniform.
+		float inner_ring = 1.0;
+		inner_ring = min(inner_ring, mask_to_top(texture(TEXTURE, base_uv + vec2(texel.x, 0.0) * inner_texels).r));
+		inner_ring = min(inner_ring, mask_to_top(texture(TEXTURE, base_uv - vec2(texel.x, 0.0) * inner_texels).r));
+		inner_ring = min(inner_ring, mask_to_top(texture(TEXTURE, base_uv + vec2(0.0, texel.y) * inner_texels).r));
+		inner_ring = min(inner_ring, mask_to_top(texture(TEXTURE, base_uv - vec2(0.0, texel.y) * inner_texels).r));
+		inner_ring = min(inner_ring, mask_to_top(texture(TEXTURE, base_uv + vec2(texel.x, texel.y) * inner_texels * 0.7071).r));
+		inner_ring = min(inner_ring, mask_to_top(texture(TEXTURE, base_uv + vec2(-texel.x, texel.y) * inner_texels * 0.7071).r));
+		inner_ring = min(inner_ring, mask_to_top(texture(TEXTURE, base_uv + vec2(texel.x, -texel.y) * inner_texels * 0.7071).r));
+		inner_ring = min(inner_ring, mask_to_top(texture(TEXTURE, base_uv + vec2(-texel.x, -texel.y) * inner_texels * 0.7071).r));
+		float upper_ring = 1.0;
+		upper_ring = min(upper_ring, mask_to_top(texture(TEXTURE, base_uv + vec2(texel.x, 0.0) * upper_texels).r));
+		upper_ring = min(upper_ring, mask_to_top(texture(TEXTURE, base_uv - vec2(texel.x, 0.0) * upper_texels).r));
+		upper_ring = min(upper_ring, mask_to_top(texture(TEXTURE, base_uv + vec2(0.0, texel.y) * upper_texels).r));
+		upper_ring = min(upper_ring, mask_to_top(texture(TEXTURE, base_uv - vec2(0.0, texel.y) * upper_texels).r));
+		upper_ring = min(upper_ring, mask_to_top(texture(TEXTURE, base_uv + vec2(texel.x, texel.y) * upper_texels * 0.7071).r));
+		upper_ring = min(upper_ring, mask_to_top(texture(TEXTURE, base_uv + vec2(-texel.x, texel.y) * upper_texels * 0.7071).r));
+		upper_ring = min(upper_ring, mask_to_top(texture(TEXTURE, base_uv + vec2(texel.x, -texel.y) * upper_texels * 0.7071).r));
+		upper_ring = min(upper_ring, mask_to_top(texture(TEXTURE, base_uv + vec2(-texel.x, -texel.y) * upper_texels * 0.7071).r));
+		float inner_level = smoothstep(0.30, 0.72, inner_ring);
+		float upper_level = smoothstep(0.30, 0.72, upper_ring);
 		float plateau_lift = (inner_level * 0.075 + upper_level * 0.085) * terrace_strength;
 		// Asymmetric ledge per level: a dark base shadow just below the step
 		// and a lit lip just above it read as real relief, unlike a symmetric
@@ -423,14 +826,10 @@ void fragment() {
 		// Sun-relative flank shading: probe the mask along the light direction.
 		// A rim opening toward the sun is lit, a rim opening away falls into
 		// shade, so east/west flanks gain volume and track the time of day.
-		vec2 sun_step = vec2(cos(a), sin(a)) * texel * (side_shade_reach_px / max(sample_step_px, 0.001));
-		float open_toward = 1.0 - mask_to_top(texture(TEXTURE, base_uv + sun_step).r);
-		float open_away = 1.0 - mask_to_top(texture(TEXTURE, base_uv - sun_step).r);
-		float side_signed = open_toward - open_away;
 		float rim_breakup = 0.72 + small_mottle * 0.56;
 		top_lit *= 1.0
-			+ max(side_signed, 0.0) * side_shade_strength * 0.65 * rim_breakup
-			- max(-side_signed, 0.0) * side_shade_strength * rim_breakup;
+			+ max(closed_side_signed, 0.0) * side_shade_strength * 0.65 * rim_breakup
+			- max(-closed_side_signed, 0.0) * side_shade_strength * rim_breakup;
 	}
 
 	// Wall -- controlled relief and sparse base chips. The face texture samples
@@ -465,7 +864,26 @@ void fragment() {
 	// leaked into the WIDE projected-shadow overlap band (MASK_SHADOW_CHUNK_OVERLAP_PX,
 	// 48 px), so two neighbouring chunk sprites double-composited their edges into a
 	// brighter rectangular seam — very visible once the torch lit the rock at night.
-	float out_alpha = top_here * top_col.a * top_surface_alpha * body_area;
+	float top_alpha = top_col.a * top_surface_alpha;
+	float closed_target_alpha = closed_surface_mask * top_alpha;
+	float live_top_alpha = live_surface_mask * top_alpha;
+	float roof_residual_alpha = 0.0;
+	if (closed_target_alpha > live_top_alpha + 0.0001) {
+		roof_residual_alpha = clamp(
+			(closed_target_alpha - live_top_alpha) / max(1.0 - live_top_alpha, 0.0001),
+			0.0,
+			1.0
+		);
+	}
+	float roof_facade_cover_alpha = closed_target_alpha * base_facade_cover_weights.x;
+	float roof_side_shade_cover_alpha = closed_target_alpha
+			* smoothstep(0.72, 0.98, live_top_here)
+			* side_shade_cover_owner;
+	float overlay_alpha = max(
+		roof_residual_alpha,
+		max(roof_facade_cover_alpha, roof_side_shade_cover_alpha)
+	);
+	float out_alpha = mix(top_here * body_area * top_alpha, overlay_alpha, overlay_mode);
 
 	if (top_band_px > 0.5) {
 		// Shoreline band: keep the top fill only near the open contour. The
@@ -528,6 +946,9 @@ void fragment() {
 		}
 		float base_outline = 1.0 - smoothstep(0.0, 1.0 / max(sample_step_px, 1.0), edge_below);
 		wall_color = mix(wall_color, vec3(0.0, 0.0, 0.0), clamp(base_outline, 0.0, 1.0) * base_outline_strength);
+		// Preserve the established BASE/facade composition. ROOF has wall_mask=0,
+		// so construction coverage never changes the live mountain or shoreline
+		// facade path.
 		color = mix(color, wall_color, wall_mask);
 		out_alpha = max(out_alpha, wall_mask * wall_surface_alpha);
 	}
@@ -563,6 +984,25 @@ void fragment() {
 		lip_mix += lip_bio_gate * 0.20;
 	}
 	color = mix(color, inner_lip, inner_rim * lip_mix * top_here);
+	if (overlay_mode > 0.5 && roof_component_reveal_enabled > 0.5) {
+		// Reveal each construction contribution through its own ownership proof.
+		// This prevents an active facade from erasing a neighbouring cavity's
+		// CLOSED residual in an overlap pixel.
+		float visible_residual = roof_residual_alpha
+			* (1.0 - clamp(cutout_reveal_owner * component_reveal_blend, 0.0, 1.0));
+		float visible_facade = roof_facade_cover_alpha
+			* (1.0 - clamp(facade_reveal_owner * component_reveal_blend, 0.0, 1.0));
+		float visible_side_shade = roof_side_shade_cover_alpha
+			* (1.0 - clamp(side_shade_reveal_owner * component_reveal_blend, 0.0, 1.0));
+		out_alpha = max(visible_residual, max(visible_facade, visible_side_shade));
+	}
+	if (overlay_mode > 0.5) {
+		float owner_weight = roof_body_owner_weight(UV);
+		if (owner_weight <= 0.000001) {
+			discard;
+		}
+		out_alpha = 1.0 - pow(max(1.0 - clamp(out_alpha, 0.0, 1.0), 0.0), owner_weight);
+	}
 
 	point_light_facade_accept = wall_mask;
 	COLOR = vec4(color, out_alpha);

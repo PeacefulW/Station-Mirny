@@ -36,6 +36,7 @@ const MOUNTAIN_MASK_WORKER_COUNT: int = 3
 const MAX_PACKET_RESULTS_PER_TICK: int = 24
 const MAX_MOUNTAIN_PAGE_RESULTS_PER_TICK: int = 1
 const MAX_MOUNTAIN_NATIVE_MASK_RESULTS_PER_TICK: int = 8
+const MAX_MOUNTAIN_NATIVE_MASK_RETRIES_PER_TICK: int = 2
 # Publish pipeline pacing: scan a bounded queue prefix for a publishable chunk
 # (a mask-stalled head must not block ready chunks behind it) and warm native
 # mask requests for a bounded number of queued chunks per tick.
@@ -58,6 +59,11 @@ const MOUNTAIN_INTERIOR_FILL_SAFETY_MARGIN_TILES: int = 2
 const MOUNTAIN_HALO_MASK_RADIUS_TILES: int = 8
 const MOUNTAIN_HALO_MASK_PIXELS_PER_TILE: int = 8
 const MOUNTAIN_NATIVE_MASK_SOLID_THRESHOLD: int = 107
+const MOUNTAIN_NATIVE_MASK_MAX_RETRY_ATTEMPTS: int = 2
+const MOUNTAIN_NATIVE_MASK_RETRY_DELAY_MSEC: int = 125
+const MOUNTAIN_ROOF_REVEAL_ENTER_DURATION_SEC: float = 0.150
+const MOUNTAIN_ROOF_REVEAL_EXIT_DELAY_SEC: float = 0.060
+const MOUNTAIN_ROOF_REVEAL_EXIT_DURATION_SEC: float = 0.180
 const MOUNTAIN_TORCH_SHADOW_FIELD_WINDOW_SNAP_PX: float = 256.0
 const MOUNTAIN_NATIVE_MASK_RUNTIME_ENABLED: bool = true
 # The walkable plains surface is composed entirely by the world-space ground
@@ -158,6 +164,28 @@ var roof_layers_per_chunk_max: int = 0
 var _mountain_cavity_cache: MountainCavityCache = MountainCavityCache.new()
 var _active_cover_mountain_id: int = 0
 var _active_cover_component_id: int = 0
+enum MountainRoofRevealTransitionState {
+	CLOSED,
+	OPENING_WAIT_SELECTOR,
+	OPENING,
+	OPEN,
+	CLOSING_DELAY,
+	CLOSING,
+}
+# Gameplay/torch target ownership (_active_cover_*) changes immediately.
+# The displayed selector is retained independently until the presentation
+# state machine has finished fading the old roof back in.
+var _displayed_cover_mountain_id: int = 0
+var _displayed_cover_component_id: int = 0
+var _displayed_cover_visual_chunks: Dictionary = { }
+var _mountain_roof_reveal_selector_wait_chunks: Dictionary = { }
+var _mountain_roof_reveal_selector_generation: int = 0
+var _mountain_roof_reveal_blend: float = 0.0
+var _mountain_roof_reveal_transition_state: MountainRoofRevealTransitionState = \
+		MountainRoofRevealTransitionState.CLOSED
+var _mountain_roof_reveal_transition_elapsed_sec: float = 0.0
+var _mountain_roof_reveal_transition_start_blend: float = 0.0
+var _mountain_roof_reveal_transition_duration_sec: float = 0.0
 var _did_warn_roof_layer_explosion: bool = false
 var _debug_tile_grid_visible: bool = false
 var _debug_mountain_solid_visible: bool = false
@@ -185,6 +213,11 @@ var _plains_spiky_flora_atlases: Array[Texture2D] = []
 var _mountain_mask_revision_by_chunk: Dictionary = { }
 var _mountain_native_masks_by_chunk: Dictionary = { }
 var _mountain_native_mask_inflight_chunks: Dictionary = { }
+# Failed current-revision worker requests retry on a short bounded cooldown.
+# Exhausted entries deliberately block the same revision until another world
+# mutation invalidates it; this prevents a broken native request from spinning
+# every publish tick while still letting the next revision recover normally.
+var _mountain_native_mask_retry_by_chunk: Dictionary = { }
 var _terrain_edge_mask_revision_by_chunk: Dictionary = { }
 var _terrain_edge_masks_by_chunk: Dictionary = { }
 var _terrain_edge_mask_inflight_chunks: Dictionary = { }
@@ -213,6 +246,10 @@ var _mountain_native_mask_last_reason: StringName = &""
 var _mountain_native_mask_last_refreshed_chunks: Array[Vector2i] = []
 var _pending_mountain_native_mask_visual_upload_chunks: Array[Vector2i] = []
 var _pending_mountain_native_mask_visual_upload_set: Dictionary = { }
+# A published chunk whose GPU construction-roof/selector state is still dirty
+# stays hidden. This prevents one CLOSED frame when loading/restoring the
+# player inside a cavity while visual work is budgeted.
+var _pending_chunk_visibility_after_mountain_visual: Dictionary = { }
 var _pending_terrain_edge_mask_visual_upload_chunks: Array[Vector2i] = []
 var _pending_terrain_edge_mask_visual_upload_set: Dictionary = { }
 var _pending_object_packet_visual_upload_chunks: Array[Vector2i] = []
@@ -242,8 +279,8 @@ var _mountain_native_mask_worker_elapsed_ms_max_total: float = 0.0
 var _mountain_native_mask_request_to_complete_ms_last: float = 0.0
 var _mountain_native_mask_request_to_complete_ms_max_total: float = 0.0
 var _mountain_surface_dig_visual_patch_skip_count_total: int = 0
-var _mountain_torch_shadow_field_mask_cache: Dictionary = {}
-var _mountain_torch_shadow_field_debug_state: Dictionary = {}
+var _mountain_torch_shadow_field_mask_cache: Dictionary = { }
+var _mountain_torch_shadow_field_debug_state: Dictionary = { }
 var _sun_light_angle_deg: float = WorldVisualLightingProfile.DEFAULT_LIGHT_ANGLE_DEG
 var _sun_shadow_length_px: float = WorldVisualLightingProfile.DEFAULT_SHADOW_LENGTH_PX
 var _sun_shadow_opacity: float = WorldVisualLightingProfile.DEFAULT_SHADOW_OPACITY
@@ -257,6 +294,8 @@ var _mining_feedback_layer: MiningFeedbackLayer = null
 func _ready() -> void:
 	add_to_group("chunk_manager")
 	name = "WorldStreamer"
+	# _process runs only while a roof reveal transition is animating.
+	set_process(false)
 	_apply_worldgen_settings(
 		MountainGenSettings.hard_coded_defaults(),
 		WorldBoundsSettings.hard_coded_defaults(),
@@ -297,6 +336,10 @@ func _ready() -> void:
 		EventBus.time_tick.connect(_on_time_tick)
 	_sync_sun_lighting_from_time(true)
 	_ensure_mining_feedback_layer()
+
+
+func _process(delta: float) -> void:
+	_advance_mountain_roof_reveal_transition(delta)
 
 
 func _exit_tree() -> void:
@@ -567,6 +610,17 @@ func get_mountain_mask_runtime_debug_state() -> Dictionary:
 	snapshot["native_mask_visual_ready_count"] = native_mask_visual_ready_count
 	snapshot["native_mask_visual_pending_count"] = native_mask_visual_pending_count
 	snapshot["native_mask_visual_upload_queue_count"] = _pending_mountain_native_mask_visual_upload_chunks.size()
+	snapshot["chunk_visibility_waiting_for_roof_count"] = \
+	_pending_chunk_visibility_after_mountain_visual.size()
+	snapshot["mountain_roof_target_mountain_id"] = _active_cover_mountain_id
+	snapshot["mountain_roof_target_component_id"] = _active_cover_component_id
+	snapshot["mountain_roof_displayed_mountain_id"] = _displayed_cover_mountain_id
+	snapshot["mountain_roof_displayed_component_id"] = _displayed_cover_component_id
+	snapshot["mountain_roof_displayed_visual_chunk_count"] = \
+	_displayed_cover_visual_chunks.size()
+	snapshot["mountain_roof_reveal_transition_state"] = \
+	_get_mountain_roof_reveal_transition_state_name()
+	snapshot["mountain_roof_reveal_blend"] = _mountain_roof_reveal_blend
 	snapshot["native_mask_visual_upload_count_total"] = _mountain_native_mask_visual_upload_count_total
 	snapshot["native_mask_visual_upload_count_last_tick"] = _mountain_native_mask_visual_upload_count_last_tick
 	snapshot["native_mask_visual_upload_elapsed_ms_last"] = _mountain_native_mask_visual_upload_elapsed_ms_last
@@ -618,6 +672,138 @@ func get_mountain_cover_sample(world_tile: Vector2i) -> Dictionary:
 	)
 
 
+## Resolve tile ownership first, then retain/enter a nearby cavity only inside
+## the real organic excavation delta (CLOSED solid, live mask open). This
+## prevents the roof from snapping shut when the player's centre stands in a
+## walkable curved corner just outside the square DUG source cell.
+func resolve_mountain_cover_at_world(
+		world_pos: Vector2,
+		preferred_component_id: int = 0,
+) -> Dictionary:
+	var player_tile: Vector2i = _canonicalize_tile_coord(
+		WorldRuntimeConstants.world_to_tile(world_pos),
+	)
+	var exact_sample: Dictionary = get_mountain_cover_sample(player_tile)
+	if not bool(exact_sample.get("ready", false)):
+		return exact_sample
+	var exact_component_id: int = int(exact_sample.get("component_id", 0))
+	if _mountain_cavity_cache.has_component(exact_component_id):
+		exact_sample["resolved_from_organic_cutout"] = false
+		return exact_sample
+
+	var remaining_hit: Dictionary = _sample_mountain_remaining_mass_hit(world_pos)
+	var closed_hit: Dictionary = _sample_mountain_closed_roof_hit(world_pos)
+	if not bool(remaining_hit.get("ready", false)) \
+			or not bool(remaining_hit.get("in_bounds", false)) \
+			or bool(remaining_hit.get("solid", false)) \
+			or not bool(closed_hit.get("ready", false)) \
+			or not bool(closed_hit.get("in_bounds", false)) \
+			or not bool(closed_hit.get("solid", false)):
+		exact_sample["resolved_from_organic_cutout"] = false
+		return exact_sample
+
+	var best_sample: Dictionary = { }
+	var best_distance_sq: float = INF
+	for offset_y: int in range(-1, 2):
+		for offset_x: int in range(-1, 2):
+			if offset_x == 0 and offset_y == 0:
+				continue
+			var candidate_tile: Vector2i = _canonicalize_tile_coord(
+				player_tile + Vector2i(offset_x, offset_y),
+			)
+			var candidate: Dictionary = get_mountain_cover_sample(candidate_tile)
+			var candidate_component_id: int = int(candidate.get("component_id", 0))
+			if not bool(candidate.get("ready", false)) \
+					or not _mountain_cavity_cache.has_component(candidate_component_id):
+				continue
+			if candidate_component_id == preferred_component_id:
+				candidate["resolved_from_organic_cutout"] = true
+				candidate["organic_probe_tile"] = player_tile
+				return candidate
+			var distance_sq: float = _wrapped_distance_squared_to_tile_center(
+				world_pos,
+				candidate_tile,
+			)
+			if distance_sq < best_distance_sq:
+				best_distance_sq = distance_sq
+				best_sample = candidate
+	if best_sample.is_empty():
+		exact_sample["resolved_from_organic_cutout"] = false
+		return exact_sample
+	best_sample["resolved_from_organic_cutout"] = true
+	best_sample["organic_probe_tile"] = player_tile
+	return best_sample
+
+
+func _wrapped_distance_squared_to_tile_center(
+		world_pos: Vector2,
+		candidate_tile: Vector2i,
+) -> float:
+	var candidate_world: Vector2 = WorldRuntimeConstants.tile_to_world_center(candidate_tile)
+	var delta_x: float = absf(candidate_world.x - world_pos.x)
+	if _uses_finite_world_bounds():
+		var world_width_px: float = float(
+			_world_bounds_settings.width_tiles * WorldRuntimeConstants.TILE_SIZE_PX,
+		)
+		if world_width_px > 0.0:
+			delta_x = fposmod(delta_x, world_width_px)
+			delta_x = minf(delta_x, world_width_px - delta_x)
+	var delta_y: float = candidate_world.y - world_pos.y
+	return delta_x * delta_x + delta_y * delta_y
+
+
+func _sample_mountain_closed_roof_hit(world_pos: Vector2) -> Dictionary:
+	return _sample_mountain_raw_mask_hit(
+		world_pos,
+		&"sample_mountain_closed_roof_hit_at_world",
+	)
+
+
+func _sample_mountain_remaining_mass_hit(world_pos: Vector2) -> Dictionary:
+	return _sample_mountain_raw_mask_hit(
+		world_pos,
+		&"sample_mountain_remaining_mass_hit_at_world",
+	)
+
+
+func _sample_mountain_raw_mask_hit(
+		world_pos: Vector2,
+		chunk_view_method: StringName,
+) -> Dictionary:
+	var tile_coord: Vector2i = _canonicalize_tile_coord(
+		WorldRuntimeConstants.world_to_tile(world_pos),
+	)
+	var owner_chunk: Vector2i = _canonicalize_chunk_coord(
+		WorldRuntimeConstants.tile_to_chunk(tile_coord),
+	)
+	var owner_view: ChunkView = _chunk_views.get(owner_chunk, null) as ChunkView
+	if owner_view != null:
+		var owner_sample: Dictionary = owner_view.call(chunk_view_method, world_pos) as Dictionary
+		if bool(owner_sample.get("ready", false)) \
+				and bool(owner_sample.get("in_bounds", false)):
+			return owner_sample
+	for offset_y: int in range(-1, 2):
+		for offset_x: int in range(-1, 2):
+			var chunk_coord: Vector2i = _canonicalize_chunk_coord(
+				owner_chunk + Vector2i(offset_x, offset_y),
+			)
+			if chunk_coord == owner_chunk:
+				continue
+			var chunk_view: ChunkView = _chunk_views.get(chunk_coord, null) as ChunkView
+			if chunk_view == null:
+				continue
+			var sample: Dictionary = chunk_view.call(chunk_view_method, world_pos) as Dictionary
+			if bool(sample.get("ready", false)) \
+					and bool(sample.get("in_bounds", false)):
+				return sample
+	return {
+		"ready": _chunk_views.has(owner_chunk),
+		"in_bounds": false,
+		"solid": false,
+		"chunk_coord": owner_chunk,
+	}
+
+
 func get_mountain_cover_debug_snapshot(world_tile: Vector2i) -> Dictionary:
 	var debug_snapshot: Dictionary = _mountain_cavity_cache.get_debug_snapshot(
 		world_tile,
@@ -626,6 +812,13 @@ func get_mountain_cover_debug_snapshot(world_tile: Vector2i) -> Dictionary:
 	)
 	debug_snapshot["active_mountain_id"] = _active_cover_mountain_id
 	debug_snapshot["active_component_id"] = _active_cover_component_id
+	debug_snapshot["target_mountain_id"] = _active_cover_mountain_id
+	debug_snapshot["target_component_id"] = _active_cover_component_id
+	debug_snapshot["displayed_mountain_id"] = _displayed_cover_mountain_id
+	debug_snapshot["displayed_component_id"] = _displayed_cover_component_id
+	debug_snapshot["roof_reveal_transition_state"] = \
+	_get_mountain_roof_reveal_transition_state_name()
+	debug_snapshot["component_reveal_blend"] = _mountain_roof_reveal_blend
 	debug_snapshot["roof_layers_per_chunk_max"] = roof_layers_per_chunk_max
 	return debug_snapshot
 
@@ -683,7 +876,7 @@ func get_mountain_torch_shadow_field_mask(torch_world_pos: Vector2, radius_px: f
 		origin,
 		origin + Vector2(float(width), float(height)) * step_px,
 	)
-	var ready_results: Dictionary = {}
+	var ready_results: Dictionary = { }
 	var any_solid: bool = false
 	var pending: bool = false
 	var signature_parts: Array[String] = [
@@ -706,7 +899,7 @@ func get_mountain_torch_shadow_field_mask(torch_world_pos: Vector2, radius_px: f
 		if result.is_empty():
 			_request_mountain_native_mask_for_chunk(
 				chunk_coord,
-				halo.get("halo", PackedByteArray()) as PackedByteArray,
+				halo,
 				&"torch_shadow_field",
 			)
 			pending = true
@@ -754,7 +947,7 @@ func get_mountain_torch_shadow_field_mask(torch_world_pos: Vector2, radius_px: f
 			"signature": "|".join(signature_parts),
 		}
 	var signature: String = "|".join(signature_parts)
-	var cached: Dictionary = _mountain_torch_shadow_field_mask_cache.get("last", {}) as Dictionary
+	var cached: Dictionary = _mountain_torch_shadow_field_mask_cache.get("last", { }) as Dictionary
 	if not cached.is_empty() and str(cached.get("signature", "")) == signature:
 		_record_mountain_torch_shadow_field_debug(
 			debug_start_usec,
@@ -775,7 +968,7 @@ func get_mountain_torch_shadow_field_mask(torch_world_pos: Vector2, radius_px: f
 	var chunk_size_px: float = float(WorldRuntimeConstants.CHUNK_SIZE * WorldRuntimeConstants.TILE_SIZE_PX)
 	for chunk_variant: Variant in ready_results.keys():
 		var chunk_coord: Vector2i = chunk_variant as Vector2i
-		var result: Dictionary = ready_results.get(chunk_coord, {}) as Dictionary
+		var result: Dictionary = ready_results.get(chunk_coord, { }) as Dictionary
 		var chunk_origin: Vector2 = WorldRuntimeConstants.chunk_origin_px(chunk_coord)
 		solid_count += _blit_mountain_native_mask_result_to_shadow_field(
 			result,
@@ -859,7 +1052,324 @@ func set_active_mountain_component(mountain_id: int, component_id: int) -> void:
 		return
 	_active_cover_mountain_id = resolved_mountain_id
 	_active_cover_component_id = resolved_component_id
-	_refresh_cover_visibility_for_loaded_chunks()
+	_sync_mountain_roof_reveal_target()
+
+
+## Gameplay target ownership changes immediately through _active_cover_*. The
+## displayed selector is retained independently until this presentation state
+## machine has finished closing it. Keeping the two states separate prevents
+## an exit from deleting the only mask that can still fade the old roof in.
+func _sync_mountain_roof_reveal_target() -> void:
+	if _active_cover_component_id <= 0:
+		_begin_mountain_roof_reveal_close()
+		return
+	if _displayed_cover_component_id <= 0:
+		_replace_displayed_cover_component(
+			_active_cover_mountain_id,
+			_active_cover_component_id,
+		)
+		_begin_mountain_roof_reveal_open()
+		return
+	if _displayed_cover_mountain_id == _active_cover_mountain_id:
+		if _displayed_cover_component_id == _active_cover_component_id:
+			_begin_mountain_roof_reveal_open()
+			return
+		# Component ids are derived cache handles and can be replaced after a
+		# merge/chunk reload while the player never left this mountain. Only an
+		# ID that actually disappeared is a repair: two still-live components of
+		# the same mountain are distinct cavities and must transition through a
+		# fully closed roof instead of snapping the selector at the current blend.
+		if not _mountain_cavity_cache.has_component(_displayed_cover_component_id):
+			_replace_displayed_cover_component(
+				_active_cover_mountain_id,
+				_active_cover_component_id,
+			)
+			_begin_mountain_roof_reveal_open()
+			return
+		_begin_mountain_roof_reveal_close()
+		return
+	# A different mountain must not replace a still-visible selector. The most
+	# recent _active_cover_* values act as the pending target after close.
+	_begin_mountain_roof_reveal_close()
+
+
+func _begin_mountain_roof_reveal_open() -> void:
+	if _displayed_cover_component_id <= 0:
+		return
+	# Selector images are uploaded through the bounded visual queue. Do not
+	# advance alpha (or report OPEN after an id repair) while either the old
+	# selector cleanup or the new displayed selector still lives only on CPU.
+	if not _is_displayed_cover_selector_upload_ready():
+		_mountain_roof_reveal_transition_state = \
+		MountainRoofRevealTransitionState.OPENING_WAIT_SELECTOR
+		_mountain_roof_reveal_transition_elapsed_sec = 0.0
+		set_process(true)
+		return
+	if _mountain_roof_reveal_blend >= 1.0 - 0.0001:
+		# A same-mountain id repair at full reveal never blinks the roof closed
+		# the upload barrier above merely keeps transition/debug state honest
+		# until every affected chunk has received the replacement selector.
+		_set_mountain_roof_reveal_blend(1.0)
+		_mountain_roof_reveal_transition_state = MountainRoofRevealTransitionState.OPEN
+		_mountain_roof_reveal_transition_elapsed_sec = 0.0
+		_mountain_roof_reveal_transition_start_blend = 1.0
+		_mountain_roof_reveal_transition_duration_sec = 0.0
+		set_process(false)
+		return
+	if _mountain_roof_reveal_transition_state == MountainRoofRevealTransitionState.OPENING:
+		return
+	_mountain_roof_reveal_transition_state = MountainRoofRevealTransitionState.OPENING
+	_mountain_roof_reveal_transition_elapsed_sec = 0.0
+	_mountain_roof_reveal_transition_start_blend = _mountain_roof_reveal_blend
+	_mountain_roof_reveal_transition_duration_sec = maxf(
+		0.001,
+		MOUNTAIN_ROOF_REVEAL_ENTER_DURATION_SEC * (1.0 - _mountain_roof_reveal_blend),
+	)
+	set_process(true)
+
+
+func _begin_mountain_roof_reveal_close() -> void:
+	if _displayed_cover_component_id <= 0:
+		_mountain_roof_reveal_transition_state = MountainRoofRevealTransitionState.CLOSED
+		_set_mountain_roof_reveal_blend(0.0)
+		set_process(false)
+		return
+	if _mountain_roof_reveal_blend <= 0.0001:
+		_complete_mountain_roof_reveal_close()
+		return
+	if _mountain_roof_reveal_transition_state == MountainRoofRevealTransitionState.CLOSING_DELAY \
+			or _mountain_roof_reveal_transition_state == MountainRoofRevealTransitionState.CLOSING:
+		return
+	_mountain_roof_reveal_transition_state = MountainRoofRevealTransitionState.CLOSING_DELAY
+	_mountain_roof_reveal_transition_elapsed_sec = 0.0
+	_mountain_roof_reveal_transition_start_blend = _mountain_roof_reveal_blend
+	_mountain_roof_reveal_transition_duration_sec = 0.0
+	set_process(true)
+
+
+func _advance_mountain_roof_reveal_transition(delta: float) -> void:
+	var remaining_delta: float = maxf(0.0, delta)
+	if _mountain_roof_reveal_transition_state \
+			== MountainRoofRevealTransitionState.OPENING_WAIT_SELECTOR:
+		if not _is_displayed_cover_selector_upload_ready():
+			return
+		# Start with a fresh 150 ms clock; queue latency is not part of the fade.
+		_mountain_roof_reveal_transition_state = MountainRoofRevealTransitionState.CLOSED
+		_begin_mountain_roof_reveal_open()
+		return
+	if _mountain_roof_reveal_transition_state == MountainRoofRevealTransitionState.CLOSING_DELAY:
+		_mountain_roof_reveal_transition_elapsed_sec += remaining_delta
+		if _mountain_roof_reveal_transition_elapsed_sec < MOUNTAIN_ROOF_REVEAL_EXIT_DELAY_SEC:
+			return
+		remaining_delta = _mountain_roof_reveal_transition_elapsed_sec \
+				- MOUNTAIN_ROOF_REVEAL_EXIT_DELAY_SEC
+		_mountain_roof_reveal_transition_state = MountainRoofRevealTransitionState.CLOSING
+		_mountain_roof_reveal_transition_elapsed_sec = 0.0
+		_mountain_roof_reveal_transition_start_blend = _mountain_roof_reveal_blend
+		_mountain_roof_reveal_transition_duration_sec = maxf(
+			0.001,
+			MOUNTAIN_ROOF_REVEAL_EXIT_DURATION_SEC * _mountain_roof_reveal_blend,
+		)
+	if _mountain_roof_reveal_transition_state == MountainRoofRevealTransitionState.OPENING:
+		if not _is_displayed_cover_selector_upload_ready():
+			_mountain_roof_reveal_transition_state = \
+			MountainRoofRevealTransitionState.OPENING_WAIT_SELECTOR
+			_mountain_roof_reveal_transition_elapsed_sec = 0.0
+			return
+		_mountain_roof_reveal_transition_elapsed_sec += remaining_delta
+		var opening_progress: float = clampf(
+			_mountain_roof_reveal_transition_elapsed_sec \
+					/ _mountain_roof_reveal_transition_duration_sec,
+			0.0,
+			1.0,
+		)
+		var opening_eased: float = 1.0 - pow(1.0 - opening_progress, 3.0)
+		_set_mountain_roof_reveal_blend(
+			lerpf(
+				_mountain_roof_reveal_transition_start_blend,
+				1.0,
+				opening_eased,
+			),
+		)
+		if opening_progress >= 1.0:
+			_mountain_roof_reveal_transition_state = MountainRoofRevealTransitionState.OPEN
+			_mountain_roof_reveal_transition_elapsed_sec = 0.0
+			_mountain_roof_reveal_transition_start_blend = 1.0
+			_mountain_roof_reveal_transition_duration_sec = 0.0
+			set_process(false)
+		return
+	if _mountain_roof_reveal_transition_state != MountainRoofRevealTransitionState.CLOSING:
+		return
+	_mountain_roof_reveal_transition_elapsed_sec += remaining_delta
+	var closing_progress: float = clampf(
+		_mountain_roof_reveal_transition_elapsed_sec \
+				/ _mountain_roof_reveal_transition_duration_sec,
+		0.0,
+		1.0,
+	)
+	var closing_eased: float = _ease_mountain_roof_reveal_cubic_in_out(closing_progress)
+	_set_mountain_roof_reveal_blend(
+		lerpf(
+			_mountain_roof_reveal_transition_start_blend,
+			0.0,
+			closing_eased,
+		),
+	)
+	if closing_progress >= 1.0:
+		_complete_mountain_roof_reveal_close()
+
+
+func _complete_mountain_roof_reveal_close() -> void:
+	_set_mountain_roof_reveal_blend(0.0)
+	_mountain_roof_reveal_transition_state = MountainRoofRevealTransitionState.CLOSED
+	_mountain_roof_reveal_transition_elapsed_sec = 0.0
+	_mountain_roof_reveal_transition_start_blend = 0.0
+	_mountain_roof_reveal_transition_duration_sec = 0.0
+	var next_mountain_id: int = _active_cover_mountain_id \
+	if _active_cover_component_id > 0 else 0
+	var next_component_id: int = _active_cover_component_id \
+	if _active_cover_component_id > 0 else 0
+	_replace_displayed_cover_component(next_mountain_id, next_component_id)
+	if next_component_id > 0:
+		_begin_mountain_roof_reveal_open()
+	else:
+		set_process(false)
+
+
+func _replace_displayed_cover_component(mountain_id: int, component_id: int) -> void:
+	var resolved_component_id: int = component_id if component_id > 0 else 0
+	var resolved_mountain_id: int = mountain_id if resolved_component_id > 0 else 0
+	if resolved_mountain_id == _displayed_cover_mountain_id \
+			and resolved_component_id == _displayed_cover_component_id:
+		return
+	var affected_chunks: Dictionary = _displayed_cover_visual_chunks.duplicate()
+	_append_cover_component_chunks(affected_chunks, _displayed_cover_component_id)
+	_displayed_cover_mountain_id = resolved_mountain_id
+	_displayed_cover_component_id = resolved_component_id
+	_displayed_cover_visual_chunks.clear()
+	var next_component_chunks: Dictionary = { }
+	_append_cover_component_chunks(next_component_chunks, _displayed_cover_component_id)
+	for visual_chunk: Vector2i in _expand_cover_visual_chunks(
+		_dictionary_vector2i_keys(next_component_chunks),
+	):
+		_displayed_cover_visual_chunks[visual_chunk] = true
+		affected_chunks[visual_chunk] = true
+	_refresh_cover_visibility_for_loaded_chunks(_dictionary_vector2i_keys(affected_chunks))
+
+
+func _set_mountain_roof_reveal_blend(value: float) -> void:
+	var resolved_blend: float = clampf(value, 0.0, 1.0)
+	if is_equal_approx(resolved_blend, _mountain_roof_reveal_blend):
+		return
+	_mountain_roof_reveal_blend = resolved_blend
+	_apply_mountain_roof_reveal_blend_to_displayed_chunks()
+
+
+func _apply_mountain_roof_reveal_blend_to_displayed_chunks() -> void:
+	for chunk_coord: Vector2i in _dictionary_vector2i_keys(_displayed_cover_visual_chunks):
+		var chunk_view: ChunkView = _chunk_views.get(chunk_coord) as ChunkView
+		if chunk_view != null:
+			chunk_view.set_mountain_roof_reveal_blend(_mountain_roof_reveal_blend)
+
+
+func _is_displayed_cover_selector_upload_ready() -> bool:
+	if not _try_commit_mountain_roof_reveal_selector_generation():
+		return false
+	# Keep the opening barrier compatible with the chunk publish gate: a newly
+	# loaded displayed chunk may still be uploading its initial zero selector or
+	# native mask even when it did not need a staged selector transition.
+	for chunk_coord: Vector2i in _dictionary_vector2i_keys(_displayed_cover_visual_chunks):
+		if _pending_mountain_native_mask_visual_upload_set.has(chunk_coord):
+			return false
+	return true
+
+
+func _try_commit_mountain_roof_reveal_selector_generation() -> bool:
+	if _mountain_roof_reveal_selector_wait_chunks.is_empty():
+		return true
+	var generation: int = _mountain_roof_reveal_selector_generation
+	var commit_chunks: Array[Vector2i] = []
+	var released_chunks: Array[Vector2i] = []
+	for chunk_coord: Vector2i in _dictionary_vector2i_keys(
+		_mountain_roof_reveal_selector_wait_chunks,
+	):
+		var waiting_generation: int = int(
+			_mountain_roof_reveal_selector_wait_chunks.get(chunk_coord, 0),
+		)
+		var chunk_view: ChunkView = _chunk_views.get(chunk_coord, null) as ChunkView
+		if chunk_view != null \
+				and is_instance_valid(chunk_view) \
+				and chunk_view.has_staged_mountain_roof_reveal_halo(generation):
+			_mountain_roof_reveal_selector_wait_chunks[chunk_coord] = generation
+			commit_chunks.append(chunk_coord)
+			continue
+		if chunk_view != null and is_instance_valid(chunk_view):
+			chunk_view.cancel_staged_mountain_roof_reveal_halo(waiting_generation)
+		_mountain_roof_reveal_selector_wait_chunks.erase(chunk_coord)
+		released_chunks.append(chunk_coord)
+	for chunk_coord: Vector2i in released_chunks:
+		_finalize_pending_chunk_visibility(chunk_coord)
+
+	# Preflight the complete generation before changing a single material. Since
+	# this runs synchronously on the main thread, the following commit loop is an
+	# atomic publication from the renderer's point of view.
+	for chunk_coord: Vector2i in commit_chunks:
+		if _pending_mountain_native_mask_visual_upload_set.has(chunk_coord):
+			return false
+		var chunk_view: ChunkView = _chunk_views.get(chunk_coord, null) as ChunkView
+		if chunk_view == null \
+				or not chunk_view.is_staged_mountain_roof_reveal_halo_ready(generation):
+			return false
+	for chunk_coord: Vector2i in commit_chunks:
+		var chunk_view: ChunkView = _chunk_views.get(chunk_coord, null) as ChunkView
+		chunk_view.commit_staged_mountain_roof_reveal_halo(generation)
+		_mountain_roof_reveal_selector_wait_chunks.erase(chunk_coord)
+	for chunk_coord: Vector2i in commit_chunks:
+		_finalize_pending_chunk_visibility(chunk_coord)
+	return _mountain_roof_reveal_selector_wait_chunks.is_empty()
+
+
+func _ease_mountain_roof_reveal_cubic_in_out(value: float) -> float:
+	var t: float = clampf(value, 0.0, 1.0)
+	if t < 0.5:
+		return 4.0 * t * t * t
+	return 1.0 - pow(-2.0 * t + 2.0, 3.0) * 0.5
+
+
+func _get_mountain_roof_reveal_transition_state_name() -> StringName:
+	match _mountain_roof_reveal_transition_state:
+		MountainRoofRevealTransitionState.OPENING_WAIT_SELECTOR:
+			return &"OPENING_WAIT_SELECTOR"
+		MountainRoofRevealTransitionState.OPENING:
+			return &"OPENING"
+		MountainRoofRevealTransitionState.OPEN:
+			return &"OPEN"
+		MountainRoofRevealTransitionState.CLOSING_DELAY:
+			return &"CLOSING_DELAY"
+		MountainRoofRevealTransitionState.CLOSING:
+			return &"CLOSING"
+		_:
+			return &"CLOSED"
+
+
+func _reset_mountain_roof_reveal_presentation() -> void:
+	# Presentation progress is intentionally derived and never persisted.
+	_set_mountain_roof_reveal_blend(0.0)
+	for chunk_view_variant: Variant in _chunk_views.values():
+		var chunk_view: ChunkView = chunk_view_variant as ChunkView
+		if chunk_view != null:
+			chunk_view.set_mountain_roof_reveal_blend(0.0)
+			chunk_view.cancel_staged_mountain_roof_reveal_halo()
+	_displayed_cover_mountain_id = 0
+	_displayed_cover_component_id = 0
+	_displayed_cover_visual_chunks.clear()
+	_mountain_roof_reveal_selector_wait_chunks.clear()
+	_mountain_roof_reveal_selector_generation = 0
+	_mountain_roof_reveal_transition_state = MountainRoofRevealTransitionState.CLOSED
+	_mountain_roof_reveal_transition_elapsed_sec = 0.0
+	_mountain_roof_reveal_transition_start_blend = 0.0
+	_mountain_roof_reveal_transition_duration_sec = 0.0
+	set_process(false)
 
 
 func is_walkable_at_world(world_pos: Vector2) -> bool:
@@ -1093,6 +1603,8 @@ func _streaming_tick() -> bool:
 	timing_step_usec = _record_streaming_step_timing(timing_records, "drain_packets", timing_step_usec)
 	_drain_completed_native_masks(MAX_MOUNTAIN_NATIVE_MASK_RESULTS_PER_TICK)
 	timing_step_usec = _record_streaming_step_timing(timing_records, "drain_native_masks", timing_step_usec)
+	_retry_failed_mountain_native_masks(MAX_MOUNTAIN_NATIVE_MASK_RETRIES_PER_TICK)
+	timing_step_usec = _record_streaming_step_timing(timing_records, "retry_native_masks", timing_step_usec)
 	_publish_next_batch()
 	timing_step_usec = _record_streaming_step_timing(timing_records, "publish", timing_step_usec)
 	_evict_outside_ring(1)
@@ -1322,6 +1834,7 @@ func _mountain_native_mask_visual_apply_tick() -> bool:
 			_mountain_foothill_normal_texture,
 		)
 		if not applied:
+			_finalize_pending_chunk_visibility(chunk_coord)
 			continue
 		var elapsed_ms: float = float(Time.get_ticks_usec() - started_usec) / 1000.0
 		_mountain_native_mask_visual_upload_count_total += 1
@@ -1332,8 +1845,11 @@ func _mountain_native_mask_visual_apply_tick() -> bool:
 			elapsed_ms,
 		)
 		_mountain_native_mask_visual_upload_last_chunk = chunk_coord
+		_finalize_pending_chunk_visibility(chunk_coord)
 		if Time.get_ticks_usec() - tick_started_usec >= budget_usec:
+			_try_commit_mountain_roof_reveal_selector_generation()
 			return false
+	_try_commit_mountain_roof_reveal_selector_generation()
 	while not _pending_terrain_edge_mask_visual_upload_chunks.is_empty():
 		var chunk_coord: Vector2i = _pending_terrain_edge_mask_visual_upload_chunks.pop_front()
 		_pending_terrain_edge_mask_visual_upload_set.erase(chunk_coord)
@@ -1575,12 +2091,36 @@ func _publish_next_batch() -> void:
 	WorldPerfProbe.end("WorldStreamer.publish.apply_batch", publish_apply_started)
 	if not has_more:
 		var publish_finalize_started: int = WorldPerfProbe.begin()
-		_handle_cover_chunk_published(_active_publish_chunk)
-		_refresh_debug_visuals_for_chunk(_active_publish_chunk)
-		active_view.visible = true
-		EventBus.chunk_loaded.emit(_active_publish_chunk)
+		var finalized_chunk: Vector2i = _active_publish_chunk
+		_handle_cover_chunk_published(finalized_chunk)
+		_refresh_debug_visuals_for_chunk(finalized_chunk)
+		# A chunk whose native mountain visual (mask/roof/selector textures) is
+		# still budget-queued stays hidden: showing it now would flash a closed
+		# or stale-cavity roof for one or more frames on reload.
+		var native_debug: Dictionary = active_view.get_mountain_native_mask_debug_state()
+		if bool(native_debug.get("native_mask_visual_pending", false)):
+			_pending_chunk_visibility_after_mountain_visual[finalized_chunk] = true
+		else:
+			active_view.visible = true
+			EventBus.chunk_loaded.emit(finalized_chunk)
 		WorldPerfProbe.end("WorldStreamer.publish.finalize", publish_finalize_started)
 		_active_publish_chunk = INVALID_CHUNK_COORD
+
+
+func _finalize_pending_chunk_visibility(chunk_coord: Vector2i) -> void:
+	chunk_coord = _canonicalize_chunk_coord(chunk_coord)
+	if not _pending_chunk_visibility_after_mountain_visual.has(chunk_coord):
+		return
+	var chunk_view: ChunkView = _chunk_views.get(chunk_coord, null) as ChunkView
+	if chunk_view == null:
+		_pending_chunk_visibility_after_mountain_visual.erase(chunk_coord)
+		return
+	var native_debug: Dictionary = chunk_view.get_mountain_native_mask_debug_state()
+	if bool(native_debug.get("native_mask_visual_pending", false)):
+		return
+	_pending_chunk_visibility_after_mountain_visual.erase(chunk_coord)
+	chunk_view.visible = true
+	EventBus.chunk_loaded.emit(chunk_coord)
 
 
 func _prune_stale_pending_publish_chunks() -> void:
@@ -1617,11 +2157,11 @@ func _prefetch_chunk_masks(chunk_coord: Vector2i) -> bool:
 		if not _mountain_solid_halo_cache.has(chunk_coord):
 			built_halo = true
 		var mountain_halo: Dictionary = _get_cached_mountain_solid_halo(chunk_coord)
-		if bool(mountain_halo.get("has_any", false)) \
+		if bool(mountain_halo.get("has_closed", false)) \
 				and _get_ready_mountain_native_mask_result(chunk_coord).is_empty():
 			_request_mountain_native_mask_for_chunk(
 				chunk_coord,
-				mountain_halo.get("halo", PackedByteArray()) as PackedByteArray,
+				mountain_halo,
 				&"prefetch",
 			)
 	if TERRAIN_EDGE_MASK_RUNTIME_ENABLED and _has_loaded_terrain_edge_halo_sources(chunk_coord):
@@ -1654,14 +2194,18 @@ func _evict_outside_ring(max_count: int) -> void:
 			continue
 		var chunk_view: ChunkView = _chunk_views.get(chunk_coord) as ChunkView
 		if chunk_view:
+			chunk_view.cancel_staged_mountain_roof_reveal_halo()
 			chunk_view.queue_free()
 		_chunk_views.erase(chunk_coord)
+		_mountain_roof_reveal_selector_wait_chunks.erase(chunk_coord)
 		_chunk_packets.erase(chunk_coord)
 		_requested_chunks.erase(chunk_coord)
 		_pending_publish_queue.erase(chunk_coord)
+		_pending_chunk_visibility_after_mountain_visual.erase(chunk_coord)
 		_drop_object_packet_visual_upload(chunk_coord)
 		_drop_grass_scatter_visual_upload(chunk_coord)
 		_handle_cover_chunk_unloaded(chunk_coord)
+		_try_commit_mountain_roof_reveal_selector_generation()
 		_forget_mountain_mask(chunk_coord, true, true)
 		_forget_terrain_edge_mask(chunk_coord, true, true)
 		EventBus.chunk_unloaded.emit(chunk_coord)
@@ -1674,6 +2218,8 @@ func _has_pending_streaming_work() -> bool:
 	if not _pending_publish_queue.is_empty():
 		return true
 	if _active_publish_chunk != INVALID_CHUNK_COORD:
+		return true
+	if not _pending_chunk_visibility_after_mountain_visual.is_empty():
 		return true
 	if _packet_backend.has_pending_requests():
 		return true
@@ -1867,6 +2413,7 @@ func _refresh_loaded_packets_from_diffs() -> void:
 	_mountain_cavity_cache.clear()
 	_active_cover_mountain_id = 0
 	_active_cover_component_id = 0
+	_reset_mountain_roof_reveal_presentation()
 	var chunk_coords: Array[Vector2i] = []
 	for chunk_coord_variant: Variant in _chunk_packets.keys():
 		chunk_coords.append(chunk_coord_variant as Vector2i)
@@ -1892,7 +2439,7 @@ func _refresh_loaded_visuals_around_chunk_overrides(center_chunk_coord: Vector2i
 	var origin_tiles: Array[Vector2i] = []
 	for y: int in range(center_chunk_coord.y - 1, center_chunk_coord.y + 2):
 		for x: int in range(center_chunk_coord.x - 1, center_chunk_coord.x + 2):
-			var sample_chunk_coord := Vector2i(x, y)
+			var sample_chunk_coord: Vector2i = _canonicalize_chunk_coord(Vector2i(x, y))
 			for local_coord: Vector2i in _diff_store.get_chunk_override_local_coords(sample_chunk_coord):
 				origin_tiles.append(_chunk_local_to_tile(sample_chunk_coord, local_coord))
 	if origin_tiles.is_empty():
@@ -2181,6 +2728,9 @@ func _ensure_chunk_view(chunk_coord: Vector2i) -> ChunkView:
 		return existing
 	var chunk_view := ChunkView.new()
 	chunk_view.configure(chunk_coord)
+	# New/reloaded views must receive the current reveal blend before their
+	# roof material exists, preventing a one-frame closed-roof flash.
+	chunk_view.set_mountain_roof_reveal_blend(_mountain_roof_reveal_blend)
 	chunk_view.set_mountain_tile_visuals_enabled(false)
 	chunk_view.set_debug_overlays(
 		_debug_tile_grid_visible,
@@ -2297,17 +2847,25 @@ func _handle_completed_mountain_native_mask(result: Dictionary) -> void:
 	if target_chunk == INVALID_CHUNK_COORD:
 		return
 	var expected_revision: int = _get_mountain_mask_revision(target_chunk)
-	_mountain_native_mask_inflight_chunks.erase(target_chunk)
-	if int(result.get("revision", -1)) != expected_revision:
+	var result_revision: int = int(result.get("revision", -1))
+	var inflight: Dictionary = _mountain_native_mask_inflight_chunks.get(
+		target_chunk,
+		{ },
+	) as Dictionary
+	# Only the request that owns the current inflight marker may clear it. A
+	# stale worker result must not cancel a newer in-flight rebuild.
+	if int(inflight.get("revision", -1)) == result_revision:
+		_mountain_native_mask_inflight_chunks.erase(target_chunk)
+	if result_revision != expected_revision:
 		return
 	if not bool(result.get("success", false)):
-		push_warning(
-			"Mountain native mask failed for chunk %s: %s" % [
-				str(target_chunk),
-				str(result.get("message", "")),
-			],
+		_schedule_mountain_native_mask_retry(
+			target_chunk,
+			result_revision,
+			str(result.get("message", "")),
 		)
 		return
+	_mountain_native_mask_retry_by_chunk.erase(target_chunk)
 	var apply_started_usec: int = Time.get_ticks_usec()
 	_mountain_native_masks_by_chunk[target_chunk] = result
 	var chunk_view: ChunkView = _chunk_views.get(target_chunk, null) as ChunkView
@@ -2327,6 +2885,96 @@ func _handle_completed_mountain_native_mask(result: Dictionary) -> void:
 			and not _pending_publish_queue.has(target_chunk) \
 			and target_chunk != _active_publish_chunk:
 		_pending_publish_queue.append(target_chunk)
+
+
+func _schedule_mountain_native_mask_retry(
+		target_chunk: Vector2i,
+		revision: int,
+		message: String,
+) -> void:
+	var previous: Dictionary = _mountain_native_mask_retry_by_chunk.get(
+		target_chunk,
+		{ },
+	) as Dictionary
+	var failure_count: int = 1
+	if int(previous.get("epoch", -1)) == _generation_epoch \
+			and int(previous.get("revision", -1)) == revision:
+		failure_count = int(previous.get("failure_count", 0)) + 1
+	var exhausted: bool = failure_count > MOUNTAIN_NATIVE_MASK_MAX_RETRY_ATTEMPTS
+	_mountain_native_mask_retry_by_chunk[target_chunk] = {
+		"epoch": _generation_epoch,
+		"revision": revision,
+		"failure_count": failure_count,
+		"not_before_msec": Time.get_ticks_msec() + MOUNTAIN_NATIVE_MASK_RETRY_DELAY_MSEC,
+		"exhausted": exhausted,
+	}
+	if exhausted:
+		push_warning(
+			"Mountain native mask failed for chunk %s and exhausted %d retries: %s" % [
+				str(target_chunk),
+				MOUNTAIN_NATIVE_MASK_MAX_RETRY_ATTEMPTS,
+				message,
+			],
+		)
+		return
+	push_warning(
+		"Mountain native mask failed for chunk %s; retry %d/%d in %d ms: %s" % [
+			str(target_chunk),
+			failure_count,
+			MOUNTAIN_NATIVE_MASK_MAX_RETRY_ATTEMPTS,
+			MOUNTAIN_NATIVE_MASK_RETRY_DELAY_MSEC,
+			message,
+		],
+	)
+
+
+func _retry_failed_mountain_native_masks(max_count: int) -> void:
+	if max_count <= 0 or _mountain_native_mask_retry_by_chunk.is_empty():
+		return
+	var now_msec: int = Time.get_ticks_msec()
+	var queued_count: int = 0
+	for chunk_coord: Vector2i in _dictionary_vector2i_keys(
+		_mountain_native_mask_retry_by_chunk,
+	):
+		if queued_count >= max_count:
+			return
+		var retry_state: Dictionary = _mountain_native_mask_retry_by_chunk.get(
+			chunk_coord,
+			{ },
+		) as Dictionary
+		if int(retry_state.get("epoch", -1)) != _generation_epoch \
+				or int(retry_state.get("revision", -1)) != _get_mountain_mask_revision(chunk_coord):
+			_mountain_native_mask_retry_by_chunk.erase(chunk_coord)
+			continue
+		if bool(retry_state.get("exhausted", false)) \
+				or now_msec < int(retry_state.get("not_before_msec", 0)):
+			continue
+		if not _get_ready_mountain_native_mask_result(chunk_coord).is_empty():
+			_mountain_native_mask_retry_by_chunk.erase(chunk_coord)
+			continue
+		var inflight: Dictionary = _mountain_native_mask_inflight_chunks.get(
+			chunk_coord,
+			{ },
+		) as Dictionary
+		if int(inflight.get("revision", -1)) == _get_mountain_mask_revision(chunk_coord):
+			continue
+		if not _chunk_packets.has(chunk_coord):
+			_mountain_native_mask_retry_by_chunk.erase(chunk_coord)
+			continue
+		if not _has_loaded_mountain_halo_sources(chunk_coord):
+			continue
+		var halo_fields: Dictionary = _get_cached_mountain_solid_halo(chunk_coord)
+		if not bool(halo_fields.get("has_closed", false)):
+			_mountain_native_mask_retry_by_chunk.erase(chunk_coord)
+			continue
+		_request_mountain_native_mask_for_chunk(
+			chunk_coord,
+			halo_fields,
+			&"retry",
+		)
+		inflight = _mountain_native_mask_inflight_chunks.get(chunk_coord, { }) as Dictionary
+		if int(inflight.get("revision", -1)) == _get_mountain_mask_revision(chunk_coord):
+			queued_count += 1
 
 
 func _handle_completed_terrain_edge_mask(result: Dictionary) -> void:
@@ -2424,13 +3072,24 @@ func _has_loaded_terrain_edge_halo_sources(chunk_coord: Vector2i) -> bool:
 
 func _request_mountain_native_mask_for_chunk(
 		chunk_coord: Vector2i,
-		solid_halo: PackedByteArray,
+		halo_fields: Dictionary,
 		reason: StringName,
 ) -> void:
 	chunk_coord = _canonicalize_chunk_coord(chunk_coord)
 	if not _get_ready_mountain_native_mask_result(chunk_coord).is_empty():
 		return
 	var revision: int = _get_mountain_mask_revision(chunk_coord)
+	var retry_state: Dictionary = _mountain_native_mask_retry_by_chunk.get(
+		chunk_coord,
+		{ },
+	) as Dictionary
+	if not retry_state.is_empty():
+		if int(retry_state.get("epoch", -1)) != _generation_epoch \
+				or int(retry_state.get("revision", -1)) != revision:
+			_mountain_native_mask_retry_by_chunk.erase(chunk_coord)
+		elif bool(retry_state.get("exhausted", false)) \
+				or Time.get_ticks_msec() < int(retry_state.get("not_before_msec", 0)):
+			return
 	var inflight: Dictionary = _mountain_native_mask_inflight_chunks.get(chunk_coord, { }) as Dictionary
 	if not inflight.is_empty() and int(inflight.get("revision", -1)) == revision:
 		return
@@ -2438,8 +3097,13 @@ func _request_mountain_native_mask_for_chunk(
 		"revision": revision,
 		"reason": reason,
 	}
+	# The live mask always builds from the post-diff remaining halo (pre-M7
+	# behaviour, organic contour untouched). The closed/dug pair rides along
+	# only for excavated chunks, where the worker derives the construction
+	# roof C in the same request.
+	var construction_roof_needed: bool = bool(halo_fields.get("has_dug", false))
 	_mountain_mask_backend.queue_mountain_halo_mask_request(
-		solid_halo,
+		halo_fields.get("remaining_halo", halo_fields.get("halo", PackedByteArray())) as PackedByteArray,
 		chunk_coord,
 		_build_mountain_native_mask_origin(chunk_coord),
 		WorldRuntimeConstants.CHUNK_SIZE,
@@ -2448,6 +3112,11 @@ func _request_mountain_native_mask_for_chunk(
 		_generation_epoch,
 		revision,
 		reason,
+		&"mountain",
+		halo_fields.get("closed_halo", PackedByteArray()) as PackedByteArray \
+		if construction_roof_needed else PackedByteArray(),
+		halo_fields.get("dug_halo", PackedByteArray()) as PackedByteArray \
+		if construction_roof_needed else PackedByteArray(),
 	)
 
 
@@ -2626,11 +3295,15 @@ func _refresh_mountain_native_masks_around_tile(world_tile: Vector2i) -> void:
 		_mountain_solid_halo_cache.erase(affected_chunk)
 		_mountain_native_masks_by_chunk.erase(affected_chunk)
 		_mountain_native_mask_inflight_chunks.erase(affected_chunk)
+		# A target mask is valid only when its complete 3x3 packet source ring is
+		# resident. Missing sources must never be interpreted/cached as open air.
+		if not _has_loaded_mountain_halo_sources(affected_chunk):
+			continue
 		var dig_halo: Dictionary = _get_cached_mountain_solid_halo(affected_chunk)
-		if bool(dig_halo.get("has_any", false)):
+		if bool(dig_halo.get("has_closed", false)):
 			_request_mountain_native_mask_for_chunk(
 				affected_chunk,
-				dig_halo.get("halo", PackedByteArray()) as PackedByteArray,
+				dig_halo,
 				&"mining",
 			)
 
@@ -2757,7 +3430,7 @@ func _blit_mountain_native_mask_result_to_shadow_field(
 				continue
 			var dst_index: int = dst_y * window_width + dst_x0
 			var src_index: int = src_y * source_width + src_x0
-			for _i: int in range(copy_width):
+			for column_index: int in range(copy_width):
 				var previous: int = int(target_bytes[dst_index])
 				var value: int = int(mask_bytes[src_index])
 				if value > previous:
@@ -2801,6 +3474,7 @@ func _forget_mountain_mask(
 ) -> void:
 	chunk_coord = _canonicalize_chunk_coord(chunk_coord)
 	_drop_mountain_native_mask_visual_upload(chunk_coord)
+	_mountain_native_mask_retry_by_chunk.erase(chunk_coord)
 	if bump_revision:
 		_bump_mountain_mask_revision(chunk_coord)
 		_mountain_torch_shadow_field_mask_cache.clear()
@@ -2842,6 +3516,7 @@ func _get_mountain_mask_revision(chunk_coord: Vector2i) -> int:
 func _bump_mountain_mask_revision(chunk_coord: Vector2i) -> void:
 	chunk_coord = _canonicalize_chunk_coord(chunk_coord)
 	_mountain_mask_revision_by_chunk[chunk_coord] = _get_mountain_mask_revision(chunk_coord) + 1
+	_mountain_native_mask_retry_by_chunk.erase(chunk_coord)
 
 
 func _get_terrain_edge_mask_revision(chunk_coord: Vector2i) -> int:
@@ -3021,7 +3696,7 @@ func _can_publish_chunk_with_mountain_mask(chunk_coord: Vector2i, packet: Dictio
 	if not _has_loaded_mountain_halo_sources(chunk_coord):
 		return false
 	var cached_halo: Dictionary = _get_cached_mountain_solid_halo(chunk_coord)
-	if not bool(cached_halo.get("has_any", false)):
+	if not bool(cached_halo.get("has_closed", false)):
 		_mountain_native_masks_by_chunk.erase(chunk_coord)
 		_mountain_native_mask_inflight_chunks.erase(chunk_coord)
 		return true
@@ -3029,10 +3704,10 @@ func _can_publish_chunk_with_mountain_mask(chunk_coord: Vector2i, packet: Dictio
 		return true
 	_request_mountain_native_mask_for_chunk(
 		chunk_coord,
-		cached_halo.get("halo", PackedByteArray()) as PackedByteArray,
+		cached_halo,
 		&"publish",
 	)
-	if _packet_has_raster_mountain(packet):
+	if _packet_has_roof_bearing_mountain_metadata(packet):
 		return false
 	return true
 
@@ -3079,11 +3754,13 @@ func _reset_runtime_state() -> void:
 	_mountain_mask_revision_by_chunk.clear()
 	_mountain_native_masks_by_chunk.clear()
 	_mountain_native_mask_inflight_chunks.clear()
+	_mountain_native_mask_retry_by_chunk.clear()
 	_terrain_edge_mask_revision_by_chunk.clear()
 	_terrain_edge_masks_by_chunk.clear()
 	_terrain_edge_mask_inflight_chunks.clear()
 	_pending_mountain_native_mask_visual_upload_chunks.clear()
 	_pending_mountain_native_mask_visual_upload_set.clear()
+	_pending_chunk_visibility_after_mountain_visual.clear()
 	_pending_terrain_edge_mask_visual_upload_chunks.clear()
 	_pending_terrain_edge_mask_visual_upload_set.clear()
 	_pending_object_packet_visual_upload_chunks.clear()
@@ -3111,6 +3788,7 @@ func _reset_runtime_state() -> void:
 	_mountain_cavity_cache.clear()
 	_active_cover_mountain_id = 0
 	_active_cover_component_id = 0
+	_reset_mountain_roof_reveal_presentation()
 	_did_warn_roof_layer_explosion = false
 
 
@@ -3265,55 +3943,61 @@ func _chunk_has_diff(chunk_coord: Vector2i) -> bool:
 
 
 func _handle_cover_chunk_published(published_chunk_coord: Vector2i) -> void:
+	var previous_displayed_chunks: Array[Vector2i] = \
+			_dictionary_vector2i_keys(_displayed_cover_visual_chunks)
 	var cover_result: Dictionary = _mountain_cavity_cache.on_chunk_loaded(
 		published_chunk_coord,
 		_collect_cover_candidate_tiles_for_chunk(published_chunk_coord),
 		Callable(self, "_sample_mountain_cover_tile"),
 	)
-	var active_change: Dictionary = _repair_active_cover_component_from_player_position()
-	var affected_chunks: Dictionary = { }
+	_repair_active_cover_component_from_player_position()
+	var affected_chunks: Dictionary = { published_chunk_coord: true }
+	for previous_chunk: Vector2i in previous_displayed_chunks:
+		affected_chunks[previous_chunk] = true
 	var published_chunks: Array[Vector2i] = _variant_to_vector2i_array(cover_result.get("affected_chunks", []))
 	for chunk_coord: Vector2i in published_chunks:
 		affected_chunks[chunk_coord] = true
-	if bool(active_change.get("state_changed", false)):
-		_refresh_cover_visibility_for_loaded_chunks()
-		return
+	_append_cover_component_chunks(affected_chunks, _displayed_cover_component_id)
 	_refresh_cover_visibility_for_loaded_chunks(_dictionary_vector2i_keys(affected_chunks))
 
 
 func _handle_cover_chunk_unloaded(chunk_coord: Vector2i) -> void:
+	var previous_displayed_chunks: Array[Vector2i] = \
+			_dictionary_vector2i_keys(_displayed_cover_visual_chunks)
 	var cover_result: Dictionary = _mountain_cavity_cache.on_chunk_unloaded(
 		chunk_coord,
 		_collect_diff_world_tiles_for_chunk(chunk_coord),
 		Callable(self, "_sample_mountain_cover_tile"),
 	)
-	var active_change: Dictionary = _repair_active_cover_component_from_player_position()
-	if bool(active_change.get("state_changed", false)):
-		_refresh_cover_visibility_for_loaded_chunks()
-		return
+	_repair_active_cover_component_from_player_position()
+	var affected_chunks: Dictionary = { chunk_coord: true }
+	for previous_chunk: Vector2i in previous_displayed_chunks:
+		affected_chunks[previous_chunk] = true
 	var unloaded_chunks: Array[Vector2i] = _variant_to_vector2i_array(cover_result.get("affected_chunks", []))
-	_refresh_cover_visibility_for_loaded_chunks(unloaded_chunks)
+	for affected_chunk: Vector2i in unloaded_chunks:
+		affected_chunks[affected_chunk] = true
+	_append_cover_component_chunks(affected_chunks, _displayed_cover_component_id)
+	_refresh_cover_visibility_for_loaded_chunks(_dictionary_vector2i_keys(affected_chunks))
 
 
 func _handle_cover_tile_dug(world_tile: Vector2i) -> void:
 	var previous_active_component_id: int = _active_cover_component_id
+	var previous_displayed_chunks: Array[Vector2i] = \
+			_dictionary_vector2i_keys(_displayed_cover_visual_chunks)
 	var cover_result: Dictionary = _mountain_cavity_cache.on_tile_dug(
 		world_tile,
 		Callable(self, "_sample_mountain_cover_tile"),
 	)
 	var active_change: Dictionary = _repair_active_cover_component_from_player_position()
-	if bool(active_change.get("state_changed", false)):
-		_refresh_cover_visibility_for_loaded_chunks()
-		return
 	var affected_chunks: Dictionary = { }
 	var dug_chunks: Array[Vector2i] = _variant_to_vector2i_array(cover_result.get("affected_chunks", []))
 	for chunk_coord: Vector2i in dug_chunks:
 		affected_chunks[chunk_coord] = true
-	for component_id: int in [previous_active_component_id, _active_cover_component_id]:
-		if component_id <= 0:
-			continue
-		for component_chunk_coord: Vector2i in _mountain_cavity_cache.get_component_chunks(component_id):
-			affected_chunks[component_chunk_coord] = true
+	if bool(active_change.get("state_changed", false)) \
+			or previous_active_component_id != _active_cover_component_id:
+		for previous_chunk: Vector2i in previous_displayed_chunks:
+			affected_chunks[previous_chunk] = true
+		_append_cover_component_chunks(affected_chunks, _displayed_cover_component_id)
 	_refresh_cover_visibility_for_loaded_chunks(_dictionary_vector2i_keys(affected_chunks))
 
 
@@ -3321,7 +4005,9 @@ func _collect_cover_candidate_tiles_for_chunk(published_chunk_coord: Vector2i) -
 	var candidate_tiles: Dictionary = { }
 	for sample_chunk_y: int in range(published_chunk_coord.y - 1, published_chunk_coord.y + 2):
 		for sample_chunk_x: int in range(published_chunk_coord.x - 1, published_chunk_coord.x + 2):
-			var sample_chunk_coord := Vector2i(sample_chunk_x, sample_chunk_y)
+			var sample_chunk_coord: Vector2i = _canonicalize_chunk_coord(
+				Vector2i(sample_chunk_x, sample_chunk_y),
+			)
 			for local_coord: Vector2i in _diff_store.get_chunk_override_local_coords(sample_chunk_coord):
 				candidate_tiles[_chunk_local_to_tile(sample_chunk_coord, local_coord)] = true
 	return _dictionary_vector2i_keys(candidate_tiles)
@@ -3340,6 +4026,7 @@ func _repair_active_cover_component_from_player_position() -> Dictionary:
 	if PlayerAuthority.get_local_player() == null:
 		_active_cover_mountain_id = 0
 		_active_cover_component_id = 0
+		_sync_mountain_roof_reveal_target()
 		return {
 			"state_changed": previous_mountain_id != 0 or previous_component_id != 0,
 			"previous_mountain_id": previous_mountain_id,
@@ -3347,14 +4034,17 @@ func _repair_active_cover_component_from_player_position() -> Dictionary:
 			"mountain_id": 0,
 			"component_id": 0,
 		}
-	var player_tile: Vector2i = _canonicalize_tile_coord(WorldRuntimeConstants.world_to_tile(PlayerAuthority.get_local_player_position()))
-	var current_sample: Dictionary = get_mountain_cover_sample(player_tile)
+	var current_sample: Dictionary = resolve_mountain_cover_at_world(
+		PlayerAuthority.get_local_player_position(),
+		previous_component_id,
+	)
 	var next_component_id: int = int(current_sample.get("component_id", 0))
 	if not _mountain_cavity_cache.has_component(next_component_id):
 		next_component_id = 0
 	var next_mountain_id: int = int(current_sample.get("mountain_id", 0)) if next_component_id > 0 else 0
 	_active_cover_mountain_id = next_mountain_id
 	_active_cover_component_id = next_component_id
+	_sync_mountain_roof_reveal_target()
 	return {
 		"state_changed": previous_mountain_id != next_mountain_id
 		or previous_component_id != next_component_id,
@@ -3366,20 +4056,131 @@ func _repair_active_cover_component_from_player_position() -> Dictionary:
 
 
 func _refresh_cover_visibility_for_loaded_chunks(target_chunks: Array[Vector2i] = []) -> void:
-	var refresh_chunks: Array[Vector2i] = target_chunks
+	if _displayed_cover_component_id > 0:
+		var displayed_component_chunks: Dictionary = { }
+		_append_cover_component_chunks(
+			displayed_component_chunks,
+			_displayed_cover_component_id,
+		)
+		for displayed_chunk: Vector2i in _expand_cover_visual_chunks(
+			_dictionary_vector2i_keys(displayed_component_chunks),
+		):
+			_displayed_cover_visual_chunks[displayed_chunk] = true
+	var refresh_chunks: Array[Vector2i] = _expand_cover_visual_chunks(target_chunks)
+	# An empty target list must never mean "scan every loaded ChunkView"
+	# callers name the dirty chunks explicitly (see mountain_generation.md M7).
 	if refresh_chunks.is_empty():
-		refresh_chunks = _dictionary_vector2i_keys(_chunk_views)
-	var seen_chunks: Dictionary = { }
+		return
+	# A refresh supersedes an in-flight selector generation. Re-stage every old
+	# participant directly (without expanding it again, which would grow the
+	# affected radius on every retry) so no uploaded stale texture can commit.
+	var refresh_chunk_set: Dictionary = { }
 	for chunk_coord: Vector2i in refresh_chunks:
-		if seen_chunks.has(chunk_coord):
-			continue
-		seen_chunks[chunk_coord] = true
+		refresh_chunk_set[chunk_coord] = true
+	for waiting_chunk: Vector2i in _dictionary_vector2i_keys(
+		_mountain_roof_reveal_selector_wait_chunks,
+	):
+		if _chunk_views.has(waiting_chunk):
+			refresh_chunk_set[waiting_chunk] = true
+	refresh_chunks = _dictionary_vector2i_keys(refresh_chunk_set)
+	_mountain_roof_reveal_selector_generation += 1
+	if _mountain_roof_reveal_selector_generation <= 0:
+		_mountain_roof_reveal_selector_generation = 1
+	var selector_generation: int = _mountain_roof_reveal_selector_generation
+	var next_wait_chunks: Dictionary = { }
+	var floor_masks_by_chunk: Dictionary = { }
+	for chunk_coord: Vector2i in refresh_chunks:
 		var chunk_view: ChunkView = _chunk_views.get(chunk_coord) as ChunkView
 		if chunk_view == null:
 			continue
-		chunk_view.apply_cover_visibility(
-			_mountain_cavity_cache.build_chunk_visibility_mask(chunk_coord, _active_cover_component_id),
+		chunk_view.set_mountain_roof_reveal_blend(_mountain_roof_reveal_blend)
+		var selector_staged: bool = chunk_view.stage_mountain_roof_reveal_halo(
+			_build_cover_floor_visibility_halo(
+				chunk_coord,
+				floor_masks_by_chunk,
+				_displayed_cover_component_id,
+			),
+			selector_generation,
 		)
+		if not selector_staged:
+			continue
+		next_wait_chunks[chunk_coord] = selector_generation
+		if not chunk_view.is_staged_mountain_roof_reveal_halo_ready(selector_generation):
+			_queue_mountain_native_mask_visual_upload(chunk_coord)
+	_mountain_roof_reveal_selector_wait_chunks = next_wait_chunks
+	_try_commit_mountain_roof_reveal_selector_generation()
+
+
+func _expand_cover_visual_chunks(target_chunks: Array[Vector2i]) -> Array[Vector2i]:
+	var expanded: Dictionary = { }
+	for target_chunk: Vector2i in target_chunks:
+		for offset_y: int in range(-1, 2):
+			for offset_x: int in range(-1, 2):
+				var chunk_coord: Vector2i = _canonicalize_chunk_coord(
+					target_chunk + Vector2i(offset_x, offset_y),
+				)
+				if _chunk_views.has(chunk_coord):
+					expanded[chunk_coord] = true
+	return _dictionary_vector2i_keys(expanded)
+
+
+func _get_cached_cover_floor_mask(
+		chunk_coord: Vector2i,
+		cache: Dictionary,
+		component_id: int,
+) -> PackedByteArray:
+	chunk_coord = _canonicalize_chunk_coord(chunk_coord)
+	if not cache.has(chunk_coord):
+		cache[chunk_coord] = _mountain_cavity_cache.build_chunk_component_floor_mask(
+			chunk_coord,
+			component_id,
+		)
+	return cache[chunk_coord] as PackedByteArray
+
+
+func _build_cover_floor_visibility_halo(
+		chunk_coord: Vector2i,
+		floor_masks_by_chunk: Dictionary,
+		component_id: int,
+) -> PackedByteArray:
+	chunk_coord = _canonicalize_chunk_coord(chunk_coord)
+	var halo_radius: int = MOUNTAIN_HALO_MASK_RADIUS_TILES
+	var halo_side: int = WorldRuntimeConstants.CHUNK_SIZE + halo_radius * 2
+	var visibility_halo := PackedByteArray()
+	visibility_halo.resize(halo_side * halo_side)
+	var local_min: int = -halo_radius
+	var local_max: int = WorldRuntimeConstants.CHUNK_SIZE + halo_radius
+	for source_offset_y: int in range(-1, 2):
+		var source_base_y: int = source_offset_y * WorldRuntimeConstants.CHUNK_SIZE
+		var from_local_y: int = maxi(local_min, source_base_y)
+		var to_local_y: int = mini(local_max, source_base_y + WorldRuntimeConstants.CHUNK_SIZE)
+		for source_offset_x: int in range(-1, 2):
+			var source_base_x: int = source_offset_x * WorldRuntimeConstants.CHUNK_SIZE
+			var from_local_x: int = maxi(local_min, source_base_x)
+			var to_local_x: int = mini(local_max, source_base_x + WorldRuntimeConstants.CHUNK_SIZE)
+			var source_chunk: Vector2i = _canonicalize_chunk_coord(
+				chunk_coord + Vector2i(source_offset_x, source_offset_y),
+			)
+			var source_mask: PackedByteArray = _get_cached_cover_floor_mask(
+				source_chunk,
+				floor_masks_by_chunk,
+				component_id,
+			)
+			for local_y: int in range(from_local_y, to_local_y):
+				var source_y: int = local_y - source_base_y
+				var target_row: int = (local_y + halo_radius) * halo_side
+				var source_row: int = source_y * WorldRuntimeConstants.CHUNK_SIZE
+				for local_x: int in range(from_local_x, to_local_x):
+					var source_x: int = local_x - source_base_x
+					visibility_halo[target_row + local_x + halo_radius] = source_mask[source_row + source_x]
+	return visibility_halo
+
+
+func _append_cover_component_chunks(target: Dictionary, component_id: int) -> void:
+	if component_id <= 0:
+		return
+	for chunk_coord: Vector2i in _mountain_cavity_cache.get_component_chunks(component_id):
+		target[chunk_coord] = true
 
 
 func _apply_debug_overlay_visibility_to_loaded_chunks() -> void:
@@ -3507,12 +4308,31 @@ func _get_cached_mountain_solid_halo(chunk_coord: Vector2i) -> Dictionary:
 			and int(cached.get("revision", -2)) == revision \
 			and int(cached.get("epoch", -2)) == _generation_epoch:
 		return cached
-	var halo: PackedByteArray = _build_mountain_solid_halo(chunk_coord, MOUNTAIN_HALO_MASK_RADIUS_TILES)
+	var fields: Dictionary = _build_mountain_halo_fields(
+		chunk_coord,
+		MOUNTAIN_HALO_MASK_RADIUS_TILES,
+	)
+	var remaining_halo: PackedByteArray = fields.get(
+		"remaining_halo",
+		PackedByteArray(),
+	) as PackedByteArray
+	var closed_halo: PackedByteArray = fields.get(
+		"closed_halo",
+		PackedByteArray(),
+	) as PackedByteArray
+	var dug_halo: PackedByteArray = fields.get("dug_halo", PackedByteArray()) as PackedByteArray
 	cached = {
 		"revision": revision,
 		"epoch": _generation_epoch,
-		"halo": halo,
-		"has_any": _solid_halo_has_any(halo),
+		# Compatibility field for grass, torch shadows and contour debug: those
+		# systems consume the physical mass that remains after excavation.
+		"halo": remaining_halo,
+		"remaining_halo": remaining_halo,
+		"closed_halo": closed_halo,
+		"dug_halo": dug_halo,
+		"has_any": _solid_halo_has_any(remaining_halo),
+		"has_closed": _solid_halo_has_any(closed_halo),
+		"has_dug": _solid_halo_has_any(dug_halo),
 	}
 	_mountain_solid_halo_cache[chunk_coord] = cached
 	return cached
@@ -3538,10 +4358,21 @@ func _get_cached_terrain_edge_solid_halo(chunk_coord: Vector2i) -> Dictionary:
 
 
 func _build_mountain_solid_halo(chunk_coord: Vector2i, halo_radius_tiles: int = 1) -> PackedByteArray:
+	return _build_mountain_halo_fields(
+		chunk_coord,
+		halo_radius_tiles,
+	).get("remaining_halo", PackedByteArray()) as PackedByteArray
+
+
+func _build_mountain_halo_fields(chunk_coord: Vector2i, halo_radius_tiles: int = 1) -> Dictionary:
 	halo_radius_tiles = maxi(1, halo_radius_tiles)
 	var halo_side: int = WorldRuntimeConstants.CHUNK_SIZE + halo_radius_tiles * 2
-	var solid_halo := PackedByteArray()
-	solid_halo.resize(halo_side * halo_side)
+	var remaining_halo := PackedByteArray()
+	remaining_halo.resize(halo_side * halo_side)
+	var closed_halo := PackedByteArray()
+	closed_halo.resize(halo_side * halo_side)
+	var dug_halo := PackedByteArray()
+	dug_halo.resize(halo_side * halo_side)
 	var local_min: int = -halo_radius_tiles
 	var local_max: int = WorldRuntimeConstants.CHUNK_SIZE + halo_radius_tiles
 	for source_offset_y: int in range(-1, 2):
@@ -3576,12 +4407,6 @@ func _build_mountain_solid_halo(chunk_coord: Vector2i, halo_radius_tiles: int = 
 					var index: int = source_row + local_x - source_base_x
 					if index < 0 or index >= terrain_ids.size() or index >= walkable_flags.size():
 						continue
-					var terrain_id: int = int(terrain_ids[index])
-					if terrain_id != WorldRuntimeConstants.TERRAIN_MOUNTAIN_WALL \
-							and terrain_id != WorldRuntimeConstants.TERRAIN_MOUNTAIN_FOOT:
-						continue
-					if int(walkable_flags[index]) != 0:
-						continue
 					if index >= mountain_ids.size() or int(mountain_ids[index]) <= 0:
 						continue
 					if index >= mountain_flags.size():
@@ -3589,8 +4414,29 @@ func _build_mountain_solid_halo(chunk_coord: Vector2i, halo_radius_tiles: int = 
 					var flags: int = int(mountain_flags[index])
 					if (flags & (WorldRuntimeConstants.MOUNTAIN_FLAG_WALL | WorldRuntimeConstants.MOUNTAIN_FLAG_FOOT)) == 0:
 						continue
-					solid_halo[halo_row + local_x + halo_radius_tiles] = 1
-	return solid_halo
+					var halo_index: int = halo_row + local_x + halo_radius_tiles
+					var terrain_id: int = int(terrain_ids[index])
+					var walkable: bool = int(walkable_flags[index]) != 0
+					# The remaining condition is byte-identical to the pre-M7 solid
+					# halo: the live organic mask must not change when the closed
+					# construction roof is introduced.
+					if not walkable \
+							and (
+								terrain_id == WorldRuntimeConstants.TERRAIN_MOUNTAIN_WALL \
+										or terrain_id == WorldRuntimeConstants.TERRAIN_MOUNTAIN_FOOT
+							):
+						remaining_halo[halo_index] = 1
+						closed_halo[halo_index] = 1
+					elif walkable and terrain_id == WorldRuntimeConstants.TERRAIN_PLAINS_DUG:
+						# Closed = remaining + excavated ownership. Generation-carved
+						# walkable tiles never enter the roof: they were never solid.
+						dug_halo[halo_index] = 1
+						closed_halo[halo_index] = 1
+	return {
+		"remaining_halo": remaining_halo,
+		"closed_halo": closed_halo,
+		"dug_halo": dug_halo,
+	}
 
 
 func _build_terrain_edge_solid_halo(chunk_coord: Vector2i, halo_radius_tiles: int = 1) -> PackedByteArray:
@@ -3843,6 +4689,31 @@ func _packet_has_raster_mountain(packet: Dictionary) -> bool:
 	return false
 
 
+## Roof-bearing ownership survives excavation, unlike the raster check above:
+## a fully dug local mountain no longer has non-walkable WALL/FOOT terrain but
+## must still gate publish on its closed construction roof.
+func _packet_has_roof_bearing_mountain_metadata(packet: Dictionary) -> bool:
+	var mountain_ids: PackedInt32Array = packet.get(
+		"mountain_id_per_tile",
+		PackedInt32Array(),
+	) as PackedInt32Array
+	var mountain_flags: PackedByteArray = packet.get(
+		"mountain_flags",
+		PackedByteArray(),
+	) as PackedByteArray
+	var sample_count: int = mini(
+		WorldRuntimeConstants.CHUNK_CELL_COUNT,
+		mini(mountain_ids.size(), mountain_flags.size()),
+	)
+	for index: int in range(sample_count):
+		if int(mountain_ids[index]) <= 0:
+			continue
+		var flags: int = int(mountain_flags[index])
+		if (flags & (WorldRuntimeConstants.MOUNTAIN_FLAG_WALL | WorldRuntimeConstants.MOUNTAIN_FLAG_FOOT)) != 0:
+			return true
+	return false
+
+
 func _wrap_local_player_position_if_needed() -> void:
 	if not _uses_finite_world_bounds():
 		return
@@ -3909,6 +4780,9 @@ func _apply_worldgen_settings(
 ) -> void:
 	_worldgen_settings = _clone_worldgen_settings(settings)
 	_world_bounds_settings = _clone_world_bounds(world_bounds)
+	_mountain_cavity_cache.configure_horizontal_wrap(
+		_world_bounds_settings.width_tiles if _uses_finite_world_bounds() else 0,
+	)
 	_foundation_settings = _clone_foundation_settings(foundation_settings, _world_bounds_settings)
 	_lake_settings = _clone_lake_settings(lake_settings)
 	_plains_tree_settings = _clone_plains_tree_settings(plains_tree_settings)

@@ -6,11 +6,12 @@ const WorldStreamer = preload("res://core/systems/world/world_streamer.gd")
 
 var _last_mountain_id: int = 0
 var _last_component_id: int = 0
-var _debug_snapshot: Dictionary = {"ready": false}
+var _debug_snapshot: Dictionary = { "ready": false }
+
 
 func update_from_player_position(
-	world_pos: Vector2,
-	streamer: WorldStreamer
+		world_pos: Vector2,
+		streamer: WorldStreamer,
 ) -> void:
 	if streamer == null:
 		_debug_snapshot = {
@@ -21,7 +22,10 @@ func update_from_player_position(
 		}
 		return
 	var tile_coord: Vector2i = WorldRuntimeConstants.world_to_tile(world_pos)
-	var current_sample: Dictionary = streamer.get_mountain_cover_sample(tile_coord)
+	var current_sample: Dictionary = streamer.resolve_mountain_cover_at_world(
+		world_pos,
+		_last_component_id,
+	)
 	if not bool(current_sample.get("ready", false)):
 		_debug_snapshot = {
 			"ready": false,
@@ -42,6 +46,12 @@ func update_from_player_position(
 		"sample_mountain_flags": int(current_sample.get("mountain_flags", 0)),
 		"sample_component_id": current_component_id,
 		"sample_is_opening": bool(current_sample.get("is_opening", false)),
+		"resolved_from_organic_cutout": bool(
+			current_sample.get(
+				"resolved_from_organic_cutout",
+				false,
+			),
+		),
 		"resolved_mountain_id": current_mountain_id,
 		"resolved_component_id": current_component_id,
 		"last_mountain_id_before_update": last_mountain_id_before_update,
@@ -56,6 +66,7 @@ func update_from_player_position(
 	_last_component_id = current_component_id
 	_debug_snapshot["last_mountain_id_after_update"] = _last_mountain_id
 	_debug_snapshot["last_component_id_after_update"] = _last_component_id
+
 
 func get_debug_snapshot() -> Dictionary:
 	return _debug_snapshot.duplicate(true)

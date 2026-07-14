@@ -939,7 +939,10 @@ Returned by native
 ```
 
 `WorldChunkPacketBackend` appends worker metadata to completed halo-mask
-results:
+results. For `mask_purpose = "mountain"` requests that carry a non-empty
+`closed_halo` (chunks with at least one excavated mountain-owned halo cell),
+the worker performs a second `build_mountain_halo_mask` call over the
+ownership-only halo and attaches the derived construction-roof fields:
 
 ```text
 {
@@ -956,17 +959,28 @@ results:
   "worker_elapsed_ms": int,
   "queue_wait_ms": int,
   "request_to_complete_ms": int,
+  "closed_roof_mask"?: PackedByteArray,  # immutable pre-dig roof mask C; same
+                                         # width/height/step as "mask"; present
+                                         # only when the request carried a
+                                         # closed_halo (dug mountain chunks)
+  "dug_halo"?: PackedByteArray,          # 0/1 tile halo of excavated
+                                         # mountain-owned cells, echoed from the
+                                         # request for selector sizing
 }
 ```
 
 Current code notes:
 - `mask.size()` must equal `width * height` for `success = true`
+- when present, `closed_roof_mask.size()` must also equal `width * height`
+  for `success = true`, and `dug_halo.size()` must equal
+  `halo_side * halo_side`
 - `step_px = tile_size_px / pixels_per_tile`
 - invalid input returns an empty mask with zero dimensions
-- the mask is derived runtime presentation/cache data; it is not packet truth,
-  terrain, walkability, navigation, or save data
+- the mask, `closed_roof_mask`, and `dug_halo` are derived runtime
+  presentation/cache data; they are not packet truth, terrain, walkability,
+  navigation, or save data
 - `mask_purpose = "terrain_edge"` reuses the same shape for dry-terrain edge
-  presentation masks
+  presentation masks and never carries the construction-roof fields
 
 ### `MountainPlateauRasterImageResult`
 

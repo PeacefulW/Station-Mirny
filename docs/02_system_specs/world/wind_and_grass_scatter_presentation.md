@@ -4,8 +4,8 @@ doc_type: system_spec
 status: approved
 owner: engineering+design
 source_of_truth: true
-version: 1.1
-last_updated: 2026-07-08
+version: 1.2
+last_updated: 2026-07-14
 related_docs:
   - ../../00_governance/ENGINEERING_STANDARDS.md
   - ../../00_governance/WORKFLOW.md
@@ -480,11 +480,14 @@ re-assigns z on all chunk mid-layer stripe nodes (plain `z_index` writes on
 existing nodes, no buffer rebuilds; layers cache the applied anchor and
 reset it when their batches rebuild). Native returns the tuft buffer
 pre-split per chunk-local stripe (`bucket_buffers`, sparse
-`MultiMeshInstance2D` nodes per non-empty stripe). Mountain presentation
-sits BELOW the whole ladder (`Z_MOUNTAIN_TOP/PAGE = 19`, since 2026-07-04 —
-see `mountain_object_occlusion.md`): trees/rocks/player always draw over the
+`MultiMeshInstance2D` nodes per non-empty stripe). Mountain presentation sits
+BELOW the whole ladder (`Z_MOUNTAIN_TOP/PAGE = 19`, construction-only
+`Z_MOUNTAIN_ROOF = 20`, ladder base `21`; see
+`mountain_object_occlusion.md`): trees/rocks/player always draw over the
 mountain, which is geometrically correct because objects never stand on
-mountain tiles and their sprites extend upward from their anchors.
+mountain tiles and their sprites extend upward from their anchors. The
+dedicated construction-roof z also guarantees that every chunk's live BASE is
+drawn below every neighbouring chunk's ROOF.
 Ground/edge/blob layers sit below the mountain, contact shadows just below
 the ladder.
 

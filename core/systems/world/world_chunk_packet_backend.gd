@@ -17,6 +17,7 @@ var _worker_should_exit: bool = false
 var _max_batch_size: int = DEFAULT_MAX_BATCH_SIZE
 var _worker_count: int = 1
 
+
 func start(worker_count: int = 1) -> void:
 	if not _worker_threads.is_empty():
 		return
@@ -30,20 +31,23 @@ func start(worker_count: int = 1) -> void:
 		assert(start_error == OK, "Failed to start world chunk packet worker thread")
 		_worker_threads.append(worker_thread)
 
+
 func stop() -> void:
 	if _worker_threads.is_empty():
 		return
 	_worker_should_exit = true
-	for _worker_index: int in range(_worker_threads.size()):
+	for worker_index: int in range(_worker_threads.size()):
 		_request_semaphore.post()
 	for worker_thread: Thread in _worker_threads:
 		worker_thread.wait_to_finish()
 	_worker_threads.clear()
 
+
 func set_max_batch_size(max_batch_size: int) -> void:
 	_request_mutex.lock()
 	_max_batch_size = maxi(1, max_batch_size)
 	_request_mutex.unlock()
+
 
 func get_max_batch_size() -> int:
 	_request_mutex.lock()
@@ -51,72 +55,82 @@ func get_max_batch_size() -> int:
 	_request_mutex.unlock()
 	return max_batch_size
 
+
 func queue_packet_request(
-	chunk_coord: Vector2i,
-	seed: int,
-	world_version: int,
-	settings_packed: PackedFloat32Array,
-	epoch: int
+		chunk_coord: Vector2i,
+		seed: int,
+		world_version: int,
+		settings_packed: PackedFloat32Array,
+		epoch: int,
 ) -> void:
 	_request_mutex.lock()
-	_pending_requests.append({
-		"kind": "packet",
-		"coord": chunk_coord,
-		"seed": seed,
-		"world_version": world_version,
-		"settings_packed": settings_packed.duplicate(),
-		"epoch": epoch,
-	})
+	_pending_requests.append(
+		{
+			"kind": "packet",
+			"coord": chunk_coord,
+			"seed": seed,
+			"world_version": world_version,
+			"settings_packed": settings_packed.duplicate(),
+			"epoch": epoch,
+		},
+	)
 	_request_mutex.unlock()
 	_request_semaphore.post()
+
 
 func queue_spawn_request(
-	seed: int,
-	world_version: int,
-	settings_packed: PackedFloat32Array,
-	epoch: int
+		seed: int,
+		world_version: int,
+		settings_packed: PackedFloat32Array,
+		epoch: int,
 ) -> void:
 	_request_mutex.lock()
-	_pending_requests.append({
-		"kind": "spawn",
-		"seed": seed,
-		"world_version": world_version,
-		"settings_packed": settings_packed.duplicate(),
-		"epoch": epoch,
-	})
+	_pending_requests.append(
+		{
+			"kind": "spawn",
+			"seed": seed,
+			"world_version": world_version,
+			"settings_packed": settings_packed.duplicate(),
+			"epoch": epoch,
+		},
+	)
 	_request_mutex.unlock()
 	_request_semaphore.post()
+
 
 func queue_overview_request(
-	seed: int,
-	world_version: int,
-	settings_packed: PackedFloat32Array,
-	epoch: int,
-	layer_mask: int = 0,
-	pixels_per_cell: int = 1
+		seed: int,
+		world_version: int,
+		settings_packed: PackedFloat32Array,
+		epoch: int,
+		layer_mask: int = 0,
+		pixels_per_cell: int = 1,
 ) -> void:
 	_request_mutex.lock()
-	_pending_requests.append({
-		"kind": "overview",
-		"seed": seed,
-		"world_version": world_version,
-		"settings_packed": settings_packed.duplicate(),
-		"epoch": epoch,
-		"layer_mask": layer_mask,
-		"pixels_per_cell": maxi(1, pixels_per_cell),
-	})
+	_pending_requests.append(
+		{
+			"kind": "overview",
+			"seed": seed,
+			"world_version": world_version,
+			"settings_packed": settings_packed.duplicate(),
+			"epoch": epoch,
+			"layer_mask": layer_mask,
+			"pixels_per_cell": maxi(1, pixels_per_cell),
+		},
+	)
 	_request_mutex.unlock()
 	_request_semaphore.post()
 
+
 func queue_mountain_raster_request(
-	packets: Array,
-	target_chunk: Vector2i,
-	preset: Dictionary,
-	top_image: Image,
-	face_image: Image,
-	epoch: int,
-	revision: int,
-	raster_purpose: StringName = &"chunk_hit"
+		packets: Array,
+		target_chunk: Vector2i,
+		preset: Dictionary,
+		top_image: Image,
+		face_image: Image,
+		epoch: int,
+		revision: int,
+		raster_purpose: StringName = &"chunk_hit",
 ) -> void:
 	var source_chunks: Array[Vector2i] = []
 	for packet_variant: Variant in packets:
@@ -126,96 +140,111 @@ func queue_mountain_raster_request(
 	if raster_purpose == &"chunk_hit":
 		request_preset["runtime_ground_patch"] = false
 	_request_mutex.lock()
-	_pending_requests.append({
-		"kind": "mountain_raster",
-		"packets": packets.duplicate(true),
-		"target_chunk": target_chunk,
-		"preset": request_preset,
-		"top_image": top_image.duplicate() if top_image != null else null,
-		"face_image": face_image.duplicate() if face_image != null else null,
-		"epoch": epoch,
-		"revision": revision,
-		"raster_purpose": raster_purpose,
-		"source_chunks": source_chunks,
-		"queued_msec": Time.get_ticks_msec(),
-	})
+	_pending_requests.append(
+		{
+			"kind": "mountain_raster",
+			"packets": packets.duplicate(true),
+			"target_chunk": target_chunk,
+			"preset": request_preset,
+			"top_image": top_image.duplicate() if top_image != null else null,
+			"face_image": face_image.duplicate() if face_image != null else null,
+			"epoch": epoch,
+			"revision": revision,
+			"raster_purpose": raster_purpose,
+			"source_chunks": source_chunks,
+			"queued_msec": Time.get_ticks_msec(),
+		},
+	)
 	_request_mutex.unlock()
 	_request_semaphore.post()
 
+
 func queue_mountain_halo_mask_request(
-	solid_halo: PackedByteArray,
-	target_chunk: Vector2i,
-	mask_origin_world: Vector2,
-	chunk_size_tiles: int,
-	tile_size_px: int,
-	pixels_per_tile: int,
-	epoch: int,
-	revision: int,
-	reason: StringName,
-	mask_purpose: StringName = &"mountain"
+		solid_halo: PackedByteArray,
+		target_chunk: Vector2i,
+		mask_origin_world: Vector2,
+		chunk_size_tiles: int,
+		tile_size_px: int,
+		pixels_per_tile: int,
+		epoch: int,
+		revision: int,
+		reason: StringName,
+		mask_purpose: StringName = &"mountain",
+		closed_halo: PackedByteArray = PackedByteArray(),
+		dug_halo: PackedByteArray = PackedByteArray(),
 ) -> void:
 	_request_mutex.lock()
-	_pending_requests.append({
-		"kind": "mountain_halo_mask",
-		"solid_halo": solid_halo.duplicate(),
-		"target_chunk": target_chunk,
-		"mask_origin_world": mask_origin_world,
-		"chunk_size_tiles": maxi(1, chunk_size_tiles),
-		"tile_size_px": maxi(1, tile_size_px),
-		"pixels_per_tile": maxi(1, pixels_per_tile),
-		"epoch": epoch,
-		"revision": revision,
-		"reason": reason,
-		"mask_purpose": mask_purpose,
-		"queued_msec": Time.get_ticks_msec(),
-	})
+	_pending_requests.append(
+		{
+			"kind": "mountain_halo_mask",
+			"solid_halo": solid_halo.duplicate(),
+			"closed_halo": closed_halo.duplicate(),
+			"dug_halo": dug_halo.duplicate(),
+			"target_chunk": target_chunk,
+			"mask_origin_world": mask_origin_world,
+			"chunk_size_tiles": maxi(1, chunk_size_tiles),
+			"tile_size_px": maxi(1, tile_size_px),
+			"pixels_per_tile": maxi(1, pixels_per_tile),
+			"epoch": epoch,
+			"revision": revision,
+			"reason": reason,
+			"mask_purpose": mask_purpose,
+			"queued_msec": Time.get_ticks_msec(),
+		},
+	)
 	_request_mutex.unlock()
 	_request_semaphore.post()
+
 
 func drain_completed_packets(max_count: int) -> Array[Dictionary]:
 	var drained: Array[Dictionary] = []
 	_result_mutex.lock()
 	var drain_count: int = mini(max_count, _completed_packets.size())
-	for _i: int in range(drain_count):
+	for drain_index: int in range(drain_count):
 		drained.append(_completed_packets.pop_front() as Dictionary)
 	_result_mutex.unlock()
 	return drained
+
 
 func drain_completed_spawn_results(max_count: int) -> Array[Dictionary]:
 	var drained: Array[Dictionary] = []
 	_result_mutex.lock()
 	var drain_count: int = mini(max_count, _completed_spawn_results.size())
-	for _i: int in range(drain_count):
+	for drain_index: int in range(drain_count):
 		drained.append(_completed_spawn_results.pop_front() as Dictionary)
 	_result_mutex.unlock()
 	return drained
+
 
 func drain_completed_overviews(max_count: int) -> Array[Dictionary]:
 	var drained: Array[Dictionary] = []
 	_result_mutex.lock()
 	var drain_count: int = mini(max_count, _completed_overviews.size())
-	for _i: int in range(drain_count):
+	for drain_index: int in range(drain_count):
 		drained.append(_completed_overviews.pop_front() as Dictionary)
 	_result_mutex.unlock()
 	return drained
+
 
 func drain_completed_mountain_rasters(max_count: int) -> Array[Dictionary]:
 	var drained: Array[Dictionary] = []
 	_result_mutex.lock()
 	var drain_count: int = mini(max_count, _completed_mountain_rasters.size())
-	for _i: int in range(drain_count):
+	for drain_index: int in range(drain_count):
 		drained.append(_completed_mountain_rasters.pop_front() as Dictionary)
 	_result_mutex.unlock()
 	return drained
+
 
 func drain_completed_mountain_halo_masks(max_count: int) -> Array[Dictionary]:
 	var drained: Array[Dictionary] = []
 	_result_mutex.lock()
 	var drain_count: int = mini(max_count, _completed_mountain_halo_masks.size())
-	for _i: int in range(drain_count):
+	for drain_index: int in range(drain_count):
 		drained.append(_completed_mountain_halo_masks.pop_front() as Dictionary)
 	_result_mutex.unlock()
 	return drained
+
 
 func clear_queued_work() -> void:
 	_request_mutex.lock()
@@ -229,11 +258,13 @@ func clear_queued_work() -> void:
 	_completed_mountain_halo_masks.clear()
 	_result_mutex.unlock()
 
+
 func has_pending_requests() -> bool:
 	_request_mutex.lock()
 	var has_pending: bool = not _pending_requests.is_empty()
 	_request_mutex.unlock()
 	return has_pending
+
 
 func has_completed_packets() -> bool:
 	_result_mutex.lock()
@@ -241,17 +272,20 @@ func has_completed_packets() -> bool:
 	_result_mutex.unlock()
 	return has_completed
 
+
 func has_completed_mountain_rasters() -> bool:
 	_result_mutex.lock()
 	var has_completed: bool = not _completed_mountain_rasters.is_empty()
 	_result_mutex.unlock()
 	return has_completed
 
+
 func has_completed_mountain_halo_masks() -> bool:
 	_result_mutex.lock()
 	var has_completed: bool = not _completed_mountain_halo_masks.is_empty()
 	_result_mutex.unlock()
 	return has_completed
+
 
 func _requests_are_batch_compatible(base_request: Dictionary, candidate_request: Dictionary) -> bool:
 	if str(candidate_request.get("kind", "packet")) != "packet":
@@ -266,8 +300,9 @@ func _requests_are_batch_compatible(base_request: Dictionary, candidate_request:
 		return false
 	return _settings_packed_equal(
 		candidate_request.get("settings_packed", PackedFloat32Array()) as PackedFloat32Array,
-		base_request.get("settings_packed", PackedFloat32Array()) as PackedFloat32Array
+		base_request.get("settings_packed", PackedFloat32Array()) as PackedFloat32Array,
 	)
+
 
 func _settings_packed_equal(lhs: PackedFloat32Array, rhs: PackedFloat32Array) -> bool:
 	if lhs.size() != rhs.size():
@@ -277,9 +312,10 @@ func _settings_packed_equal(lhs: PackedFloat32Array, rhs: PackedFloat32Array) ->
 			return false
 	return true
 
+
 func _call_generate_chunk_packets_batch(
-	worker_world_core: Object,
-	batch_requests: Array[Dictionary]
+		worker_world_core: Object,
+		batch_requests: Array[Dictionary],
 ) -> Array:
 	if batch_requests.is_empty():
 		return []
@@ -292,21 +328,22 @@ func _call_generate_chunk_packets_batch(
 		int(base_request.get("seed", 0)),
 		coords,
 		int(base_request.get("world_version", 0)),
-		base_request.get("settings_packed", PackedFloat32Array()) as PackedFloat32Array
+		base_request.get("settings_packed", PackedFloat32Array()) as PackedFloat32Array,
 	)
 	if packets_variant is Array:
 		return packets_variant as Array
 	push_error(
-		"WorldChunkPacketBackend.generate_chunk_packets_batch returned non-array result for %d request(s)." % batch_requests.size()
+		"WorldChunkPacketBackend.generate_chunk_packets_batch returned non-array result for %d request(s)." % batch_requests.size(),
 	)
 	return []
+
 
 func _call_resolve_world_foundation_spawn_tile(worker_world_core: Object, request: Dictionary) -> Dictionary:
 	var result_variant: Variant = worker_world_core.call(
 		"resolve_world_foundation_spawn_tile",
 		int(request.get("seed", 0)),
 		int(request.get("world_version", 0)),
-		request.get("settings_packed", PackedFloat32Array()) as PackedFloat32Array
+		request.get("settings_packed", PackedFloat32Array()) as PackedFloat32Array,
 	)
 	if result_variant is Dictionary:
 		return result_variant as Dictionary
@@ -315,6 +352,7 @@ func _call_resolve_world_foundation_spawn_tile(worker_world_core: Object, reques
 		"success": false,
 		"message": "Native spawn resolver returned non-dictionary result.",
 	}
+
 
 func _call_get_world_foundation_overview_payload(worker_world_core: Object, request: Dictionary) -> Dictionary:
 	if not worker_world_core.has_method("get_world_foundation_overview"):
@@ -330,19 +368,19 @@ func _call_get_world_foundation_overview_payload(worker_world_core: Object, requ
 	var requested_pixels_per_cell: int = maxi(1, int(request.get("pixels_per_cell", 1)))
 	var overview_arg_count: int = _get_method_argument_count(
 		worker_world_core,
-		&"get_world_foundation_overview"
+		&"get_world_foundation_overview",
 	)
 	var overview_variant: Variant
 	if overview_arg_count >= 2:
 		overview_variant = worker_world_core.call(
 			"get_world_foundation_overview",
 			int(request.get("layer_mask", 0)),
-			requested_pixels_per_cell
+			requested_pixels_per_cell,
 		)
 	else:
 		overview_variant = worker_world_core.call(
 			"get_world_foundation_overview",
-			int(request.get("layer_mask", 0))
+			int(request.get("layer_mask", 0)),
 		)
 	if overview_variant is Image:
 		var overview_image: Image = overview_variant as Image
@@ -352,7 +390,7 @@ func _call_get_world_foundation_overview_payload(worker_world_core: Object, requ
 				overview_image.resize(
 					overview_image.get_width() * requested_pixels_per_cell,
 					overview_image.get_height() * requested_pixels_per_cell,
-					Image.INTERPOLATE_BILINEAR
+					Image.INTERPOLATE_BILINEAR,
 				)
 			return {
 				"success": true,
@@ -370,12 +408,14 @@ func _call_get_world_foundation_overview_payload(worker_world_core: Object, requ
 		"message": "Native foundation overview returned empty image.",
 	}
 
+
 func _get_method_argument_count(target: Object, method_name: StringName) -> int:
 	for method: Dictionary in target.get_method_list():
 		if StringName(str(method.get("name", ""))) == method_name:
 			var args: Array = method.get("args", []) as Array
 			return args.size()
 	return -1
+
 
 func _append_completed_packets(batch_requests: Array[Dictionary], packets: Array) -> void:
 	_result_mutex.lock()
@@ -386,18 +426,22 @@ func _append_completed_packets(batch_requests: Array[Dictionary], packets: Array
 		_completed_packets.append(packet)
 	_result_mutex.unlock()
 
+
 func _append_failed_packets(batch_requests: Array[Dictionary], message: String) -> void:
 	_result_mutex.lock()
 	for request: Dictionary in batch_requests:
 		var chunk_coord: Vector2i = request.get("coord", Vector2i.ZERO) as Vector2i
-		_completed_packets.append({
-			"success": false,
-			"chunk_coord": chunk_coord,
-			"request_chunk_coord": chunk_coord,
-			"epoch": int(request.get("epoch", -1)),
-			"message": message,
-		})
+		_completed_packets.append(
+			{
+				"success": false,
+				"chunk_coord": chunk_coord,
+				"request_chunk_coord": chunk_coord,
+				"epoch": int(request.get("epoch", -1)),
+				"message": message,
+			},
+		)
 	_result_mutex.unlock()
+
 
 func _process_packet_batch_strict(worker_world_core: Object, batch_requests: Array[Dictionary]) -> void:
 	var packets: Array = _call_generate_chunk_packets_batch(worker_world_core, batch_requests)
@@ -406,9 +450,10 @@ func _process_packet_batch_strict(worker_world_core: Object, batch_requests: Arr
 		return
 
 	var message := "WorldChunkPacketBackend batch response mismatch: expected %d packet(s), got %d. Native batch contract is required; no single-request fallback is allowed." \
-		% [batch_requests.size(), packets.size()]
+			% [batch_requests.size(), packets.size()]
 	push_error(message)
 	_append_failed_packets(batch_requests, message)
+
 
 func _process_spawn_request(worker_world_core: Object, request: Dictionary) -> void:
 	var spawn_result: Dictionary = _call_resolve_world_foundation_spawn_tile(worker_world_core, request)
@@ -416,6 +461,7 @@ func _process_spawn_request(worker_world_core: Object, request: Dictionary) -> v
 	_result_mutex.lock()
 	_completed_spawn_results.append(spawn_result)
 	_result_mutex.unlock()
+
 
 func _process_overview_request(worker_world_core: Object, request: Dictionary) -> void:
 	var overview_result: Dictionary = _call_get_world_foundation_overview_payload(worker_world_core, request)
@@ -425,8 +471,9 @@ func _process_overview_request(worker_world_core: Object, request: Dictionary) -
 	_completed_overviews.append(overview_result)
 	_result_mutex.unlock()
 
+
 func _process_mountain_raster_request(worker_world_core: Object, request: Dictionary) -> void:
-	var result: Dictionary = {}
+	var result: Dictionary = { }
 	var started_msec: int = Time.get_ticks_msec()
 	if not worker_world_core.has_method("build_mountain_plateau_raster_image"):
 		result = {
@@ -438,9 +485,9 @@ func _process_mountain_raster_request(worker_world_core: Object, request: Dictio
 			"build_mountain_plateau_raster_image",
 			request.get("packets", []) as Array,
 			request.get("target_chunk", Vector2i.ZERO) as Vector2i,
-			request.get("preset", {}) as Dictionary,
+			request.get("preset", { }) as Dictionary,
 			request.get("top_image", null) as Image,
-			request.get("face_image", null) as Image
+			request.get("face_image", null) as Image,
 		)
 		if result_variant is Dictionary:
 			result = result_variant as Dictionary
@@ -465,10 +512,26 @@ func _process_mountain_raster_request(worker_world_core: Object, request: Dictio
 	_completed_mountain_rasters.append(result)
 	_result_mutex.unlock()
 
+
 func _process_mountain_halo_mask_request(worker_world_core: Object, request: Dictionary) -> void:
-	var result: Dictionary = {}
+	var result: Dictionary = { }
 	var started_msec: int = Time.get_ticks_msec()
-	if not worker_world_core.has_method("build_mountain_halo_mask"):
+	var mask_purpose: StringName = request.get("mask_purpose", &"mountain") as StringName
+	var solid_halo: PackedByteArray = request.get("solid_halo", PackedByteArray()) as PackedByteArray
+	var closed_halo: PackedByteArray = request.get("closed_halo", PackedByteArray()) as PackedByteArray
+	var dug_halo: PackedByteArray = request.get("dug_halo", PackedByteArray()) as PackedByteArray
+	# The construction roof C is requested only for excavated mountain chunks.
+	# It reuses the exact same native contour recipe over the ownership halo, so
+	# the roof stays byte-identical to the pre-dig silhouette without any C++
+	# surface change.
+	var construction_roof_requested: bool = mask_purpose == &"mountain" and not closed_halo.is_empty()
+	if construction_roof_requested \
+			and (closed_halo.size() != solid_halo.size() or dug_halo.size() != solid_halo.size()):
+		result = {
+			"success": false,
+			"message": "Mountain closed/dug halos must match the remaining solid halo shape.",
+		}
+	elif not worker_world_core.has_method("build_mountain_halo_mask"):
 		result = {
 			"success": false,
 			"message": "WorldCore.build_mountain_halo_mask is unavailable in this build.",
@@ -477,21 +540,57 @@ func _process_mountain_halo_mask_request(worker_world_core: Object, request: Dic
 		var mask_origin_world: Vector2 = request.get("mask_origin_world", Vector2.ZERO) as Vector2
 		var result_variant: Variant = worker_world_core.call(
 			"build_mountain_halo_mask",
-			request.get("solid_halo", PackedByteArray()) as PackedByteArray,
+			solid_halo,
 			int(request.get("chunk_size_tiles", 1)),
 			int(request.get("tile_size_px", 1)),
 			int(request.get("pixels_per_tile", 1)),
 			mask_origin_world.x,
-			mask_origin_world.y
+			mask_origin_world.y,
 		)
 		if result_variant is Dictionary:
 			result = result_variant as Dictionary
 			var mask: PackedByteArray = result.get("mask", PackedByteArray()) as PackedByteArray
 			var mask_width: int = int(result.get("width", 0))
 			var mask_height: int = int(result.get("height", 0))
-			result["success"] = mask_width > 0 \
-				and mask_height > 0 \
-				and mask.size() == mask_width * mask_height
+			var output_valid: bool = mask_width > 0 \
+					and mask_height > 0 \
+					and mask.size() == mask_width * mask_height
+			if output_valid and construction_roof_requested:
+				var closed_variant: Variant = worker_world_core.call(
+					"build_mountain_halo_mask",
+					closed_halo,
+					int(request.get("chunk_size_tiles", 1)),
+					int(request.get("tile_size_px", 1)),
+					int(request.get("pixels_per_tile", 1)),
+					mask_origin_world.x,
+					mask_origin_world.y,
+				)
+				var closed_result: Dictionary = { }
+				var closed_mask: PackedByteArray = PackedByteArray()
+				if closed_variant is Dictionary:
+					closed_result = closed_variant as Dictionary
+					closed_mask = closed_result.get(
+						"mask",
+						PackedByteArray(),
+					) as PackedByteArray
+				var closed_width: int = int(closed_result.get("width", 0))
+				var closed_height: int = int(closed_result.get("height", 0))
+				var closed_output_valid: bool = closed_width == mask_width \
+						and closed_height == mask_height \
+						and closed_mask.size() == closed_width * closed_height \
+						and is_equal_approx(
+							float(closed_result.get("step_px", 0.0)),
+							float(result.get("step_px", 0.0)),
+						) \
+						and int(closed_result.get("halo_side", 0)) \
+								== int(result.get("halo_side", 0))
+				if closed_output_valid:
+					result["closed_roof_mask"] = closed_mask
+					result["dug_halo"] = dug_halo.duplicate()
+				else:
+					output_valid = false
+					result["message"] = "Native mountain closed-roof mask output is malformed."
+			result["success"] = output_valid
 		else:
 			result = {
 				"success": false,
@@ -501,7 +600,7 @@ func _process_mountain_halo_mask_request(worker_world_core: Object, request: Dic
 	result["epoch"] = int(request.get("epoch", -1))
 	result["revision"] = int(request.get("revision", -1))
 	result["reason"] = request.get("reason", &"worker") as StringName
-	result["mask_purpose"] = request.get("mask_purpose", &"mountain") as StringName
+	result["mask_purpose"] = mask_purpose
 	result["target_chunk"] = request.get("target_chunk", Vector2i.ZERO) as Vector2i
 	result["mask_origin_world"] = request.get("mask_origin_world", Vector2.ZERO) as Vector2
 	result["queued_msec"] = int(request.get("queued_msec", started_msec))
@@ -513,6 +612,7 @@ func _process_mountain_halo_mask_request(worker_world_core: Object, request: Dic
 	_completed_mountain_halo_masks.append(result)
 	_result_mutex.unlock()
 
+
 func _worker_loop() -> void:
 	var worker_world_core: Object = ClassDB.instantiate("WorldCore")
 	assert(worker_world_core != null, "WorldCore required inside worker thread")
@@ -520,7 +620,7 @@ func _worker_loop() -> void:
 		_request_semaphore.wait()
 		if _worker_should_exit:
 			return
-		var base_request: Dictionary = {}
+		var base_request: Dictionary = { }
 		_request_mutex.lock()
 		if not _pending_requests.is_empty():
 			base_request = _pending_requests.pop_front() as Dictionary

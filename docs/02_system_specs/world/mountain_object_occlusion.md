@@ -4,8 +4,8 @@ doc_type: system_spec
 status: approved
 source_of_truth: true
 owner: engineering+art
-version: 2.1
-last_updated: 2026-07-04
+version: 2.2
+last_updated: 2026-07-14
 related_docs:
   - wind_and_grass_scatter_presentation.md
   - plains_trees_presentation.md
@@ -17,7 +17,7 @@ related_docs:
 
 Tree canopies near a mountain silhouette were hard-clipped by the mountain's own
 rendering: the mountain layers used fixed `z = 300/301`, far above the object depth
-ladder (`21..213`), so the mountain unconditionally covered every tree/rock/player
+ladder (`21..214`), so the mountain unconditionally covered every tree/rock/player
 sprite that overlapped its pixels — even when the object was clearly standing in
 front of (south of, closer to the camera than) that part of the mountain.
 
@@ -33,9 +33,10 @@ code was fully reverted (shader uniforms + final block, `ChunkView` propagation,
 ## Final decision: mountain BELOW the object ladder
 
 `Z_MOUNTAIN_TOP` and `Z_MOUNTAIN_PAGE` moved `300/301 → 19` — between the grass
-contact shadows (`Z_GRASS_SHADOW = 18`) and the ladder base (`Z_MID_LADDER_BASE =
-20`). Trees, rocks, and the player (ladder `21..213`, player fixed `117`) now always
-draw OVER the mountain.
+contact shadows (`Z_GRASS_SHADOW = 18`) and the construction roof
+(`Z_MOUNTAIN_ROOF = 20`). The ladder now starts at `Z_MID_LADDER_BASE = 21`;
+trees, rocks, and the player (ladder `21..214`, player fixed `118`) therefore
+always draw OVER both mountain passes.
 
 This is geometrically correct, not a compromise:
 - objects are never placed on mountain wall/foot tiles (native clearance,
@@ -46,25 +47,25 @@ This is geometrically correct, not a compromise:
   where the object must win.
 
 Raising only the trees above `300` instead was considered and rejected: the player
-is the fixed ladder anchor (`z = 117`), so trees above `300` would always cover the
+is the fixed ladder anchor (`z = 118`), so trees above `300` would always cover the
 player and break the confirmed player↔tree Y-sort.
 
 ## Consequences (accepted)
 
 - The interior roof (`RoofLayer`, `Z_DEBUG_OVERLAY = 350`) still hides unrevealed
   cavities — unchanged.
-- Tree cast shadows (`Z_CAST_SHADOW = 214`) can now fall onto rock near the base of
+- Tree cast shadows (`Z_CAST_SHADOW = 215`) can now fall onto rock near the base of
   a mountain — physically plausible, accepted.
 - Biofield spores (`Z_GRASS_SPORE = 290`) now render above mountain pixels at edges —
   they are airborne particles, accepted.
-- The mountain's projected sun shadow (part of the same mask sprite, now z 19)
-  renders under grass tufts (z 20+); grass inside long dawn/dusk mountain shadows
+- The mountain's projected sun shadow (part of the BASE mask sprite, z 19)
+  renders under grass tufts (z 21+); grass inside long dawn/dusk mountain shadows
   pops slightly. Accepted as minor; revisit only if a probe shows it objectionable.
 
 ## Follow-up: grass tufts visible inside the mountain (fixed 2026-07-04)
 
 The z-flip above made a second, distinct bug visible: grass tufts (also on the
-object ladder, z 20+) occasionally rendered on/inside solid mountain rock —
+object ladder, now z 21+) occasionally rendered on/inside solid mountain rock —
 not the "front overlap is correct" case above, but tufts genuinely inside the
 mountain's silhouette. Unlike the tree-canopy case, this was a real bug, not a
 consequence to accept: grass placement already had a "keep clear of mountain
