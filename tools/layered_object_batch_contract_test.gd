@@ -82,26 +82,63 @@ func _run() -> void:
 	rock_layer.configure_catalog(catalog)
 	_expect(tree_layer.begin_apply(native_result), "tree begin_apply")
 	_expect(rock_layer.begin_apply(native_result), "rock begin_apply")
-	_expect(tree_layer.apply_next_batch(1), "tree apply remains staged after first occupied stripe")
-	_expect(rock_layer.apply_next_batch(1), "rock apply remains staged after first occupied stripe")
+	var tree_uploads_before_allocation: int = int(
+		tree_layer.get_debug_state().get("raw_multimesh_upload_count_total", -1),
+	)
+	var rock_uploads_before_allocation: int = int(
+		rock_layer.get_debug_state().get("raw_multimesh_upload_count_total", -1),
+	)
+	for allocation_index: int in range(2):
+		_expect(
+			tree_layer.has_pending_required_slot_allocation() \
+					and tree_layer.allocate_next_required_slot(),
+			"tree front-loads required slot %d" % allocation_index,
+		)
+		var tree_allocation_state: Dictionary = tree_layer.get_debug_state()
+		_expect(
+			bool(tree_allocation_state.get("last_slice_created_slot", false)) \
+					and int(tree_allocation_state.get("next_stripe", -1)) == 0 \
+					and int(tree_allocation_state.get("raw_multimesh_upload_count_total", -1)) \
+							== tree_uploads_before_allocation,
+			"tree slot allocation %d advances neither cursor nor raw upload" \
+					% allocation_index,
+		)
+		_expect(
+			rock_layer.has_pending_required_slot_allocation() \
+					and rock_layer.allocate_next_required_slot(),
+			"rock front-loads required slot %d" % allocation_index,
+		)
+		var rock_allocation_state: Dictionary = rock_layer.get_debug_state()
+		_expect(
+			bool(rock_allocation_state.get("last_slice_created_slot", false)) \
+					and int(rock_allocation_state.get("next_stripe", -1)) == 0 \
+					and int(rock_allocation_state.get("raw_multimesh_upload_count_total", -1)) \
+							== rock_uploads_before_allocation,
+			"rock slot allocation %d advances neither cursor nor raw upload" \
+					% allocation_index,
+		)
 	_expect(
-		bool(tree_layer.get_debug_state().get("last_slice_created_slot", false)) \
-				and int(tree_layer.get_debug_state().get("next_stripe", -1)) == 7,
-		"tree first-use slot allocation is separate from raw upload",
+		not tree_layer.has_pending_required_slot_allocation(),
+		"tree required capacity is fully reserved before upload",
 	)
 	_expect(
-		bool(rock_layer.get_debug_state().get("last_slice_created_slot", false)) \
-				and int(rock_layer.get_debug_state().get("next_stripe", -1)) == 7,
-		"rock first-use slot allocation is separate from raw upload",
+		not rock_layer.has_pending_required_slot_allocation(),
+		"rock required capacity is fully reserved before upload",
 	)
 	_expect(tree_layer.apply_next_batch(1), "tree uploads after its allocation phase")
 	_expect(rock_layer.apply_next_batch(1), "rock uploads after its allocation phase")
+	var tree_upload_state: Dictionary = tree_layer.get_debug_state()
+	var rock_upload_state: Dictionary = rock_layer.get_debug_state()
 	_expect(
-		int(tree_layer.get_debug_state().get("next_stripe", -1)) == 8,
+		int(tree_upload_state.get("next_stripe", -1)) == 8 \
+				and int(tree_upload_state.get("raw_multimesh_upload_count_total", -1)) \
+						== tree_uploads_before_allocation + 2,
 		"tree skips no-op buckets and applies one occupied stripe",
 	)
 	_expect(
-		int(rock_layer.get_debug_state().get("next_stripe", -1)) == 8,
+		int(rock_upload_state.get("next_stripe", -1)) == 8 \
+				and int(rock_upload_state.get("raw_multimesh_upload_count_total", -1)) \
+						== rock_uploads_before_allocation + 2,
 		"rock skips no-op buckets and applies one occupied stripe",
 	)
 	_drain_apply(tree_layer, rock_layer)

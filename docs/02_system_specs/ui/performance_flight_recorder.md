@@ -4,7 +4,7 @@ doc_type: system_spec
 status: approved
 owner: engineering
 source_of_truth: true
-version: 1.4
+version: 1.5
 last_updated: 2026-07-15
 related_docs:
   - ../../00_governance/ENGINEERING_STANDARDS.md
@@ -130,8 +130,9 @@ context.
 ### Grass render-page telemetry
 
 The full-LOD grass render-page path extends the F4 trace append-only. Existing
-column names and indexes remain unchanged; these seven columns are appended in
-this exact order:
+column names and indexes remain unchanged; these seven columns occupy indexes
+57 through 63 (zero-based) and are appended in this exact order after the 57
+legacy columns:
 
 1. `grass_page_inflight`
 2. `grass_page_ready_cpu`
@@ -151,6 +152,28 @@ The event/F2 sidecar keeps the complete sanitized streaming snapshot. Therefore
 cumulative diagnostics such as `grass_page_cache_hits_total` and
 `grass_page_evictions_total` remain available there without becoming additional
 per-frame F4 columns.
+
+### Object presentation telemetry
+
+The compact per-frame sample stride is 68 values. Indexes 0 through 56 remain
+the unchanged 57-column legacy prefix, indexes 57 through 63 remain the seven
+grass render-page fields above, and indexes 64 through 67 contain these four
+object presentation fields in this exact order:
+
+1. `object_active_transactions`
+2. `object_active_live`
+3. `object_active_source`
+4. `object_fenced_transactions`
+
+`object_active_transactions` is the total number of transactions in the bounded
+active object-presentation window. `object_active_live` counts active live/reveal
+transactions, while `object_active_source` counts active hidden source-prestage
+transactions. `object_fenced_transactions` counts active transactions that are
+process-frame-fenced until their next eligible frame.
+
+This is an append-only schema contract: no legacy or grass field may be moved,
+renamed, or reindexed, and all object-presentation fields are appended only
+after the seven grass fields.
 
 ## UI Contract
 
@@ -198,6 +221,10 @@ per-frame F4 columns.
 - [ ] the trace contains viewport CPU/GPU and streaming context columns
 - [ ] the trace appends exactly seven grass-page columns without changing any
       legacy column index, and `session.json` contains their maxima
+- [ ] the compact trace stride is exactly 68 values: the 57 legacy indexes are
+      unchanged, the seven grass fields remain at indexes 57-63, and the four
+      object-presentation fields are appended at indexes 64-67 in the specified
+      order
 - [ ] sustained 30 FPS creates one plateau event, not a screenshot storm
 - [ ] capture-tainted frames cannot recursively trigger captures
 - [ ] active F4 data survives recorder shutdown or scene replacement

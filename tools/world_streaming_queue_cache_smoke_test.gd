@@ -26,6 +26,8 @@ func _run() -> void:
 	await _test_failed_hot_promotion_restages_local_result()
 	_test_object_visual_lane_budgeted_continuation()
 	_test_object_visual_queue_cap_and_live_tick_preemption()
+	await _test_cooperative_object_active_window_contract()
+	_test_moving_anchor_ready_hot_finalizes_without_chase()
 	_test_object_result_drain_is_cpu_only()
 	_test_terminal_failure_is_dispatcher_only()
 	_test_stale_hidden_hot_work_is_pruned()
@@ -686,6 +688,23 @@ func _test_object_visual_lane_budgeted_continuation() -> void:
 		not allocation_streamer._object_presentation_allocation_lookahead_fits_lane(0, family),
 		"one allocation outlier raises the monotonic high-water and stops continuation",
 	)
+	allocation_streamer._object_presentation_allocation_callback_count = 0
+	allocation_streamer._object_presentation_visual_lane_callback_count = 1
+	_expect(
+		allocation_streamer._can_start_object_presentation_allocation(0, family),
+		"an over-budget high-water still permits one indivisible allocation to make progress",
+	)
+	allocation_streamer._object_presentation_visual_lane_callback_count = 2
+	_expect(
+		not allocation_streamer._can_start_object_presentation_allocation(0, family),
+		"an indivisible first allocation waits when another transaction already used the lane",
+	)
+	allocation_streamer._object_presentation_visual_lane_callback_count = 1
+	allocation_streamer._object_presentation_allocation_callback_count = 1
+	_expect(
+		not allocation_streamer._can_start_object_presentation_allocation(0, family),
+		"the same high-water forbids a second allocation in that process frame",
+	)
 	var allocation_coord := Vector2i.ZERO
 	allocation_streamer._player_chunk_coord = allocation_coord
 	allocation_streamer._queue_object_packet_visual_upload(allocation_coord)
@@ -702,6 +721,17 @@ func _test_object_visual_lane_budgeted_continuation() -> void:
 		),
 		"one measured allocation may request the second allocation-only callback",
 	)
+	allocation_streamer._object_presentation_visual_lane_callback_count = \
+			allocation_streamer.OBJECT_PRESENTATION_MAX_DISPATCH_CALLBACKS_PER_FRAME
+	_expect(
+		not allocation_streamer._can_continue_object_presentation_allocation_lane(
+			Time.get_ticks_usec(),
+			family,
+			allocation_coord,
+		),
+		"allocation-only continuation also respects the global eight-callback cap",
+	)
+	allocation_streamer._object_presentation_visual_lane_callback_count = 1
 	allocation_streamer._object_presentation_allocation_callback_count = \
 			allocation_streamer.OBJECT_PRESENTATION_MAX_ALLOCATION_CALLBACKS_PER_FRAME
 	_expect(
@@ -869,6 +899,421 @@ func _test_object_visual_queue_cap_and_live_tick_preemption() -> void:
 		"closer class-0 token gets a priority slice before far heavy work",
 	)
 	deadline_streamer.free()
+
+
+func _test_cooperative_object_active_window_contract() -> void:
+	var streamer_script: Script = load("res://core/systems/world/world_streamer.gd") as Script
+	var capped_streamer: Node = streamer_script.new() as Node
+	capped_streamer._player_chunk_coord = Vector2i.ZERO
+	_expect(
+		capped_streamer.OBJECT_PRESENTATION_ACTIVE_TRANSACTION_MAX == 4 \
+				and capped_streamer.OBJECT_PRESENTATION_ACTIVE_SOURCE_TRANSACTION_MAX == 2,
+		"cooperative object window keeps the explicit four-total/two-source contract",
+	)
+
+	var protected_active_coords: Array[Vector2i] = []
+	for index: int in range(3):
+		var source_coord := Vector2i(40 + index, 120)
+		capped_streamer._queue_hot_object_prestage(source_coord)
+		var admitted: bool = capped_streamer._activate_object_presentation_transaction(
+			source_coord,
+		)
+		if index < capped_streamer.OBJECT_PRESENTATION_ACTIVE_SOURCE_TRANSACTION_MAX:
+			_expect(admitted, "the bounded window admits its reserved source transaction")
+			protected_active_coords.append(source_coord)
+		else:
+			_expect(
+				not admitted,
+				"a third source transaction cannot consume a live-reserved active slot",
+			)
+	for index: int in range(2):
+		var live_coord := Vector2i(index, 0)
+		var live_view: ChunkView = ChunkView.new()
+		live_view.visible = false
+		capped_streamer.add_child(live_view)
+		capped_streamer._chunk_views[live_coord] = live_view
+		capped_streamer._queue_object_packet_visual_upload(live_coord)
+		_expect(
+			capped_streamer._activate_object_presentation_transaction(live_coord),
+			"live reveal work occupies either reserved active slot",
+		)
+		protected_active_coords.append(live_coord)
+	var overflow_live_coord := Vector2i(0, 1)
+	var overflow_live_view: ChunkView = ChunkView.new()
+	overflow_live_view.visible = false
+	capped_streamer.add_child(overflow_live_view)
+	capped_streamer._chunk_views[overflow_live_coord] = overflow_live_view
+	_expect(
+		not capped_streamer._activate_object_presentation_transaction(overflow_live_coord),
+		"the active window never exceeds four transactions even for new live work",
+	)
+	_expect(
+		capped_streamer._active_object_presentation_chunks.size() == 4 \
+				and capped_streamer._active_object_presentation_index_by_chunk.size() == 4 \
+				and capped_streamer._active_source_object_presentation_count() == 2,
+		"active transaction arrays, index, total cap, and source cap agree",
+	)
+	for active_index: int in range(capped_streamer._active_object_presentation_chunks.size()):
+		var indexed_coord: Vector2i = \
+				capped_streamer._active_object_presentation_chunks[active_index]
+		_expect(
+			int(capped_streamer._active_object_presentation_index_by_chunk.get(
+				indexed_coord,
+				-1,
+			)) == active_index,
+			"active object transaction index points back to its dense slot",
+		)
+
+	var queue_cap: int = int(capped_streamer.OBJECT_PRESENTATION_VISUAL_QUEUE_MAX_TOKENS)
+	var filler_index: int = 0
+	while capped_streamer._pending_object_packet_visual_upload_set.size() < queue_cap:
+		capped_streamer._queue_hot_object_prestage(
+			Vector2i(100 + filler_index, 300),
+		)
+		filler_index += 1
+	var queued_before_urgent: Dictionary = \
+			capped_streamer._pending_object_packet_visual_upload_set.duplicate()
+	capped_streamer._queue_object_packet_visual_upload(overflow_live_coord)
+	var cap_repair_victim: Vector2i = capped_streamer.INVALID_CHUNK_COORD
+	for coord_variant: Variant in queued_before_urgent.keys():
+		var queued_coord: Vector2i = coord_variant as Vector2i
+		if not capped_streamer._pending_object_packet_visual_upload_set.has(queued_coord):
+			cap_repair_victim = queued_coord
+			break
+	var every_active_token_survived: bool = true
+	for active_coord: Vector2i in protected_active_coords:
+		every_active_token_survived = every_active_token_survived \
+				and capped_streamer._pending_object_packet_visual_upload_set.has(active_coord)
+	_expect(
+		cap_repair_victim != capped_streamer.INVALID_CHUNK_COORD \
+				and not protected_active_coords.has(cap_repair_victim) \
+				and every_active_token_survived \
+				and capped_streamer._pending_object_packet_visual_upload_set.has(
+					overflow_live_coord,
+				) \
+				and capped_streamer._pending_object_packet_visual_upload_set.size() == queue_cap \
+				and capped_streamer._object_packet_visual_queue_repair_needed,
+		"live cap admission evicts only inactive source work and pins every active queue token",
+	)
+	capped_streamer._repair_one_object_packet_visual_queue_token()
+	for active_coord: Vector2i in protected_active_coords:
+		_expect(
+			capped_streamer._pending_object_packet_visual_upload_set.has(active_coord) \
+					and capped_streamer._is_object_presentation_transaction_active(active_coord),
+			"cap-repair cannot orphan or evict an active transaction token",
+		)
+	capped_streamer.free()
+
+	var preemption_streamer: Node = streamer_script.new() as Node
+	preemption_streamer._player_chunk_coord = Vector2i.ZERO
+	var active_source_coord := Vector2i(50, 50)
+	preemption_streamer._queue_hot_object_prestage(active_source_coord)
+	_expect(
+		preemption_streamer._activate_object_presentation_transaction(active_source_coord),
+		"deadline-preemption fixture owns one active source transaction",
+	)
+	preemption_streamer._focused_object_packet_visual_upload_chunk = active_source_coord
+	preemption_streamer._fence_object_presentation_transaction(active_source_coord)
+	var newly_live_coord := Vector2i(1, 0)
+	var newly_live_view: ChunkView = ChunkView.new()
+	newly_live_view.visible = false
+	preemption_streamer.add_child(newly_live_view)
+	preemption_streamer._chunk_views[newly_live_coord] = newly_live_view
+	preemption_streamer._queue_object_packet_visual_upload(newly_live_coord)
+	_expect(
+		preemption_streamer._object_packet_visual_urgent_priority_dirty,
+		"a newly-live token preempts the bounded active source window even after focus yield",
+	)
+	preemption_streamer._object_presentation_visual_apply_tick()
+	_expect(
+		preemption_streamer._object_packet_visual_selection_phase_prepared \
+				and preemption_streamer._focused_object_packet_visual_upload_chunk \
+						== newly_live_coord,
+		"priority refresh selects the live reveal before active source continuation",
+	)
+	var next_live_coord := Vector2i(2, 0)
+	var next_live_view: ChunkView = ChunkView.new()
+	next_live_view.visible = false
+	preemption_streamer.add_child(next_live_view)
+	preemption_streamer._chunk_views[next_live_coord] = next_live_view
+	preemption_streamer._queue_object_packet_visual_upload(next_live_coord)
+	preemption_streamer._drop_object_packet_visual_upload(newly_live_coord)
+	_expect(
+		preemption_streamer._object_packet_visual_urgent_priority_dirty,
+		"focus completion forces priority refresh before active source inheritance",
+	)
+	preemption_streamer._object_presentation_visual_apply_tick()
+	_expect(
+		preemption_streamer._object_packet_visual_selection_phase_prepared \
+				and preemption_streamer._focused_object_packet_visual_upload_chunk \
+						== next_live_coord,
+		"the next inactive live reveal wins after the previous focus completes",
+	)
+	preemption_streamer.free()
+
+	var cooperative_streamer: Node = streamer_script.new() as Node
+	cooperative_streamer._generation_epoch = 103
+	cooperative_streamer._player_chunk_coord = Vector2i.ZERO
+	cooperative_streamer._current_stream_radius_chunks = 2
+	var cooperative_coords: Array[Vector2i] = [Vector2i.ZERO, Vector2i(1, 0)]
+	var cooperative_views: Dictionary = { }
+	var cooperative_layers: Dictionary = { }
+	for index: int in range(cooperative_coords.size()):
+		var coord: Vector2i = cooperative_coords[index]
+		var revision: int = 700 + index
+		var view: ChunkView = ChunkView.new()
+		cooperative_streamer._configure_chunk_view(view, coord)
+		view._object_packet_visual_dirty = true
+		view._object_packet_visual_started = false
+		cooperative_streamer._chunk_views[coord] = view
+		cooperative_streamer._object_presentation_revision_by_chunk[coord] = revision
+		var result: Dictionary = _make_live_object_completion(
+			cooperative_streamer,
+			coord,
+			revision,
+		)
+		cooperative_streamer._object_presentation_results_by_chunk[coord] = result
+		_expect(
+			cooperative_streamer._stage_hot_object_presentation(coord, result),
+			"cooperative fixture owns one incomplete hot transaction per coordinate",
+		)
+		cooperative_streamer._queue_pending_chunk_visibility(coord)
+		cooperative_views[coord] = view
+		cooperative_layers[coord] = (
+			cooperative_streamer._hot_object_presentation_layers.get(coord, { }) as Dictionary
+		).get("layer", null)
+	var first_coord: Vector2i = cooperative_coords[0]
+	var second_coord: Vector2i = cooperative_coords[1]
+	var first_layer: WorldObjectPacketLayer = \
+			cooperative_layers.get(first_coord, null) as WorldObjectPacketLayer
+	var second_layer: WorldObjectPacketLayer = \
+			cooperative_layers.get(second_coord, null) as WorldObjectPacketLayer
+	_expect(
+		first_layer != null and second_layer != null \
+				and cooperative_streamer._active_object_presentation_chunks.size() == 2,
+		"two hot incomplete coordinates coexist inside the cooperative window",
+	)
+	cooperative_streamer._focused_object_packet_visual_upload_chunk = first_coord
+	var simulated_frame: int = int(Engine.get_process_frames())
+	cooperative_streamer._fence_object_presentation_transaction(first_coord)
+	_expect(
+		cooperative_streamer._is_object_presentation_transaction_fenced(first_coord) \
+				and not cooperative_streamer._is_object_presentation_transaction_fenced(second_coord) \
+				and cooperative_streamer._select_eligible_active_object_presentation_focus() \
+				and cooperative_streamer._focused_object_packet_visual_upload_chunk == second_coord,
+		"a coordinate-local fence switches focus to another active transaction",
+	)
+	cooperative_streamer._object_presentation_visual_lane_frame = -1
+	cooperative_streamer._object_presentation_visual_apply_tick()
+	_expect(
+		int(Engine.get_process_frames()) == simulated_frame \
+				and first_layer.get_node_or_null(
+					"LayeredTreeBatchLayer/TreeDepthLadder",
+				) == null \
+				and second_layer.get_node_or_null(
+					"LayeredTreeBatchLayer/TreeDepthLadder",
+				) != null,
+		"the scheduler advances an eligible coordinate in the same simulated frame without touching the fenced owner",
+	)
+
+	var loaded_coords: Array[Vector2i] = []
+	var on_chunk_loaded := func(loaded_coord: Vector2i) -> void:
+		if cooperative_coords.has(loaded_coord):
+			loaded_coords.append(loaded_coord)
+	var event_bus: Node = get_root().get_node_or_null("EventBus")
+	_expect(event_bus != null, "EventBus autoload must exist for cooperative reveal checks")
+	if event_bus != null:
+		event_bus.connect(&"chunk_loaded", on_chunk_loaded)
+	for coord: Vector2i in cooperative_coords:
+		var view: ChunkView = cooperative_views.get(coord, null) as ChunkView
+		var layer: WorldObjectPacketLayer = \
+				cooperative_layers.get(coord, null) as WorldObjectPacketLayer
+		_expect(
+			view != null and not view.visible and layer != null and not layer.visible \
+					and (layer._tree_collision_body == null \
+							or layer._tree_collision_body.collision_layer == 0) \
+					and loaded_coords.count(coord) == 0,
+			"every active object transaction starts behind its own pixel/collision/event gate",
+		)
+
+	var reveal_guard: int = 256
+	var saw_individual_finalize: bool = false
+	while loaded_coords.size() < cooperative_coords.size() and reveal_guard > 0:
+		_advance_object_presentation_work_phase(cooperative_streamer)
+		var revealed_this_step: int = 0
+		for coord: Vector2i in cooperative_coords:
+			var view: ChunkView = cooperative_views.get(coord, null) as ChunkView
+			var layer: WorldObjectPacketLayer = \
+					cooperative_layers.get(coord, null) as WorldObjectPacketLayer
+			var reveal_count: int = loaded_coords.count(coord)
+			if reveal_count == 0:
+				_expect(
+					not view.visible and not layer.visible \
+							and (layer._tree_collision_body == null \
+									or layer._tree_collision_body.collision_layer == 0),
+					"an unfinished coordinate remains atomically hidden and collision-free",
+				)
+			else:
+				revealed_this_step += 1
+				_expect(
+					reveal_count == 1 \
+							and view.visible and layer.visible \
+							and layer._tree_collision_body != null \
+							and layer._tree_collision_body.collision_layer \
+									== WorldObjectPacketLayer.OBJECT_COLLISION_LAYER,
+					"each individual finalize reveals pixels, collision, and one event together",
+				)
+		if revealed_this_step == 1:
+			saw_individual_finalize = true
+		await process_frame
+		reveal_guard -= 1
+	_expect(
+		reveal_guard > 0 \
+				and saw_individual_finalize \
+				and loaded_coords.count(first_coord) == 1 \
+				and loaded_coords.count(second_coord) == 1 \
+				and cooperative_streamer._active_object_presentation_chunks.is_empty() \
+				and cooperative_streamer._active_object_presentation_index_by_chunk.is_empty() \
+				and cooperative_streamer._object_presentation_not_before_frame_by_chunk.is_empty(),
+		"cooperative transactions finalize independently and release every active/fence owner",
+	)
+	if event_bus != null:
+		event_bus.disconnect(&"chunk_loaded", on_chunk_loaded)
+	cooperative_streamer.free()
+
+	var lifecycle_streamer: Node = streamer_script.new() as Node
+	lifecycle_streamer._generation_epoch = 104
+	lifecycle_streamer._player_chunk_coord = Vector2i.ZERO
+	var lifecycle_coords: Array[Vector2i] = [Vector2i(0, 1), Vector2i(1, 1)]
+	for index: int in range(lifecycle_coords.size()):
+		var coord: Vector2i = lifecycle_coords[index]
+		var revision: int = 800 + index
+		var view: ChunkView = ChunkView.new()
+		lifecycle_streamer._configure_chunk_view(view, coord)
+		view._object_packet_visual_dirty = true
+		lifecycle_streamer._chunk_views[coord] = view
+		lifecycle_streamer._object_presentation_revision_by_chunk[coord] = revision
+		var result: Dictionary = _make_live_object_completion(
+			lifecycle_streamer,
+			coord,
+			revision,
+		)
+		lifecycle_streamer._object_presentation_results_by_chunk[coord] = result
+		_expect(
+			lifecycle_streamer._stage_hot_object_presentation(coord, result),
+			"lifecycle fixture creates an owned incomplete hot transaction",
+		)
+		lifecycle_streamer._fence_object_presentation_transaction(coord)
+	var evicted_coord: Vector2i = lifecycle_coords[0]
+	var retained_coord: Vector2i = lifecycle_coords[1]
+	lifecycle_streamer._evict_hot_object_presentation(evicted_coord)
+	_expect(
+		not lifecycle_streamer._active_object_presentation_index_by_chunk.has(evicted_coord) \
+				and not lifecycle_streamer._active_object_presentation_chunks.has(evicted_coord) \
+				and not lifecycle_streamer._object_presentation_not_before_frame_by_chunk.has(
+					evicted_coord,
+				) \
+				and lifecycle_streamer._active_object_presentation_index_by_chunk.has(
+					retained_coord,
+				),
+		"hot eviction clears only the evicted coordinate's active index and fence",
+	)
+	lifecycle_streamer._reset_runtime_state()
+	_expect(
+		lifecycle_streamer._active_object_presentation_chunks.is_empty() \
+				and lifecycle_streamer._active_object_presentation_index_by_chunk.is_empty() \
+				and lifecycle_streamer._object_presentation_not_before_frame_by_chunk.is_empty() \
+				and lifecycle_streamer._pending_object_packet_visual_upload_chunks.is_empty() \
+				and lifecycle_streamer._pending_object_packet_visual_upload_index_by_chunk.is_empty(),
+		"epoch reset clears the cooperative active window, token index, and every coordinate fence",
+	)
+	lifecycle_streamer.free()
+
+
+func _test_moving_anchor_ready_hot_finalizes_without_chase() -> void:
+	var streamer_script: Script = load("res://core/systems/world/world_streamer.gd") as Script
+	var streamer: Node = streamer_script.new() as Node
+	streamer._generation_epoch = 105
+	var coord := Vector2i.ZERO
+	var revision: int = 900
+	var first_anchor: int = 120
+	var next_anchor: int = first_anchor + 1
+	streamer._player_chunk_coord = coord
+	streamer._current_stream_radius_chunks = 2
+	streamer._ladder_anchor_stripe = first_anchor
+	streamer._object_presentation_revision_by_chunk[coord] = revision
+	var view: ChunkView = ChunkView.new()
+	streamer._configure_chunk_view(view, coord)
+	view.seed_mid_ladder_z(first_anchor)
+	view.visible = false
+	streamer._chunk_views[coord] = view
+	var result: Dictionary = _make_live_object_completion(streamer, coord, revision)
+	streamer._object_presentation_results_by_chunk[coord] = result
+	var layer := WorldObjectPacketLayer.new()
+	streamer._ensure_hot_object_presentation_root().add_child(layer)
+	streamer._configure_hot_object_layer(layer, coord)
+	_expect(
+		layer.prepare_presentation_envelope(streamer._layered_object_asset_catalog, 0) \
+				and layer.begin_presentation_result(
+					result,
+					streamer._layered_object_asset_catalog,
+				),
+		"moving-anchor fixture begins one complete hidden hot presentation",
+	)
+	var completion_guard: int = 96
+	while layer.has_pending_presentation_apply() and completion_guard > 0:
+		layer.apply_next_presentation_slice(1, 4, 1)
+		completion_guard -= 1
+	_expect(
+		completion_guard > 0 and layer.is_presentation_complete(),
+		"moving-anchor fixture reaches COMPLETE before live handoff",
+	)
+	layer.set_hot_cache_resident(true)
+	var weight: Dictionary = layer.get_hot_cache_weight()
+	streamer._add_hot_object_entry(
+		coord,
+		{
+			"layer": layer,
+			"epoch": streamer._generation_epoch,
+			"revision": revision,
+			"catalog_generation": streamer._layered_object_asset_catalog.get_catalog_generation(),
+			"ready": true,
+			"ladder_anchor_stripe": streamer.LADDER_ANCHOR_UNSET,
+			"gpu_buffer_bytes": int(weight.get("gpu_buffer_bytes", 0)),
+			"canvas_item_count": int(weight.get("canvas_item_count", 0)),
+			"collider_count": int(weight.get("collider_count", 0)),
+		},
+	)
+	streamer._queue_pending_chunk_visibility(coord)
+	streamer._queue_object_packet_visual_upload(coord)
+	_advance_object_presentation_work_phase(streamer)
+	var rebased_entry: Dictionary = streamer._get_current_hot_object_entry(coord)
+	_expect(
+		int(rebased_entry.get("ladder_anchor_stripe", streamer.LADDER_ANCHOR_UNSET)) \
+				== first_anchor \
+				and not view.visible \
+				and streamer._pending_object_packet_visual_upload_set.has(coord),
+		"ready hot work pays exactly one standalone anchor snapshot before FINALIZE",
+	)
+	# Move the target before the next callback. Equality-chasing would rebase and
+	# yield forever; one-shot scheduling must adopt, synchronize, and reveal now.
+	streamer._ladder_anchor_stripe = next_anchor
+	view.seed_mid_ladder_z(next_anchor)
+	_advance_object_presentation_work_phase(streamer)
+	var adopted_layer: WorldObjectPacketLayer = view._object_packet_layer
+	var adopted_state: Dictionary = adopted_layer.get_debug_state() \
+			if adopted_layer != null else { }
+	var tree_state: Dictionary = adopted_state.get("tree_batch", { }) as Dictionary
+	var ladder_state: Dictionary = tree_state.get("depth_ladder", { }) as Dictionary
+	_expect(
+		view.visible \
+				and adopted_layer != null \
+				and int(ladder_state.get("anchor_stripe", streamer.LADDER_ANCHOR_UNSET)) \
+						== next_anchor \
+				and not streamer._pending_object_packet_visual_upload_set.has(coord),
+		"moving anchor cannot repeat the pre-finalize phase or block atomic reveal",
+	)
+	streamer.free()
 
 
 func _test_object_result_drain_is_cpu_only() -> void:
@@ -1359,6 +1804,7 @@ func _test_incremental_cold_envelope_revision_and_accounting() -> void:
 		"begin runs only after fixed graph readiness and performs no raw upload",
 	)
 	var allocation_has_safe_continuation: bool = \
+			_clear_object_presentation_frame_fences(streamer) or \
 			streamer._object_presentation_visual_apply_tick()
 	entry = streamer._hot_object_presentation_layers.get(coord, { }) as Dictionary
 	var allocation_started_families: Dictionary = entry.get(
@@ -1391,6 +1837,7 @@ func _test_incremental_cold_envelope_revision_and_accounting() -> void:
 		"standalone slot allocation does not upload its pending raw buffer",
 	)
 	var upload_has_safe_continuation: bool = \
+			_clear_object_presentation_frame_fences(streamer) or \
 			streamer._object_presentation_visual_apply_tick()
 	_expect(
 		layer.get_raw_multimesh_upload_count_total() == 2,
@@ -1682,6 +2129,7 @@ func _expect(condition: bool, message: String) -> void:
 ## separate callback on a dirty O(queue) priority refresh; tests that validate
 ## envelope/upload state advance past that scheduling phase explicitly.
 func _advance_object_presentation_work_phase(streamer: Node) -> void:
+	_clear_object_presentation_frame_fences(streamer)
 	streamer._object_presentation_visual_apply_tick()
 	var priority_guard: int = 128
 	while streamer._object_packet_visual_priority_scan_active and priority_guard > 0:
@@ -1690,3 +2138,9 @@ func _advance_object_presentation_work_phase(streamer: Node) -> void:
 	_expect(priority_guard > 0, "bounded object priority scan completes")
 	if streamer._object_packet_visual_selection_phase_prepared:
 		streamer._object_presentation_visual_apply_tick()
+
+
+func _clear_object_presentation_frame_fences(streamer: Node) -> bool:
+	streamer._object_presentation_not_before_frame_by_chunk.clear()
+	streamer._object_presentation_visual_lane_frame = -1
+	return false

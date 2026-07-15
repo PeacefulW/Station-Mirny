@@ -26,7 +26,7 @@ const MAX_EVENT_RECORDS: int = 64
 const CAPTURE_TAINT_FRAMES: int = 3
 const RENDER_MEASUREMENT_WARMUP_FRAMES: int = 3
 const INVALID_TASK_ID: int = -1
-const TRACE_STRIDE: int = 64
+const TRACE_STRIDE: int = 68
 
 const TRACE_COLUMNS: Array[String] = [
 	"frame",
@@ -93,6 +93,10 @@ const TRACE_COLUMNS: Array[String] = [
 	"grass_page_active_slots",
 	"grass_page_worker_ms",
 	"grass_page_latency_ms",
+	"object_active_transactions",
+	"object_active_live",
+	"object_active_source",
+	"object_fenced_transactions",
 ]
 
 const LIVE_OP_KEYS: Dictionary = {
@@ -434,6 +438,10 @@ func _record_frame(delta: float) -> void:
 		float(_context_snapshot.get("grass_page_active_slots", 0)),
 		float(_context_snapshot.get("grass_page_worker_ms", 0.0)),
 		float(_context_snapshot.get("grass_page_latency_ms", 0.0)),
+		float(_context_snapshot.get("object_active_transactions", 0)),
+		float(_context_snapshot.get("object_active_live", 0)),
+		float(_context_snapshot.get("object_active_source", 0)),
+		float(_context_snapshot.get("object_fenced_transactions", 0)),
 	]
 	for column_index: int in range(TRACE_STRIDE):
 		_trace_data[row + column_index] = values[column_index]

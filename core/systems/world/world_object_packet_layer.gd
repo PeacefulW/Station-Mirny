@@ -21,6 +21,7 @@ const OBJECT_LOCAL_PX_QUANTUM: float = 4.0
 const OBJECT_COLLISION_LAYER: int = 2
 const NATIVE_MULTIMESH_BUFFER_STRIDE: int = 12
 const NATIVE_FLOAT_BYTE_SIZE: int = 4
+const LADDER_ANCHOR_UNSET: int = 1 << 30
 
 const LIVING_FLORA_FRAME_COLUMNS: int = 16
 const LIVING_FLORA_FRAME_ROWS: int = 4
@@ -105,6 +106,7 @@ var _spiky_flora_count: int = 0
 var _tree_count: int = 0
 var _small_rock_count: int = 0
 var _world_origin_y: float = 0.0
+var _applied_ladder_anchor_stripe: int = LADDER_ANCHOR_UNSET
 enum NativeApplyState {
 	IDLE,
 	RESET_PREVIOUS_COLLISIONS,
@@ -320,6 +322,7 @@ func set_world_origin_y(world_origin_y: float) -> void:
 
 ## Перестановка полос объектного декора на player-relative лесенке.
 func update_ladder_z(anchor_stripe: int) -> void:
+	_applied_ladder_anchor_stripe = anchor_stripe
 	if _living_flora_batch_layer != null and is_instance_valid(_living_flora_batch_layer):
 		_living_flora_batch_layer.update_ladder_z(anchor_stripe)
 	if _spiky_flora_batch_layer != null and is_instance_valid(_spiky_flora_batch_layer):
@@ -1347,6 +1350,7 @@ func _ensure_native_living_flora_batch_layer(
 	):
 		return null
 	_native_living_flora_batch_layer.set_world_origin_y(_world_origin_y)
+	_apply_stored_ladder_anchor(_native_living_flora_batch_layer)
 	return _native_living_flora_batch_layer
 
 
@@ -1365,6 +1369,7 @@ func _ensure_native_spiky_flora_batch_layer(
 	):
 		return null
 	_native_spiky_flora_batch_layer.set_world_origin_y(_world_origin_y)
+	_apply_stored_ladder_anchor(_native_spiky_flora_batch_layer)
 	return _native_spiky_flora_batch_layer
 
 
@@ -1377,6 +1382,7 @@ func _ensure_layered_tree_batch_layer(
 		add_child(_layered_tree_batch_layer)
 	_layered_tree_batch_layer.configure_catalog(catalog)
 	_layered_tree_batch_layer.set_world_origin_y(_world_origin_y)
+	_apply_stored_ladder_anchor(_layered_tree_batch_layer)
 	return _layered_tree_batch_layer
 
 
@@ -1517,7 +1523,16 @@ func _ensure_layered_small_rock_batch_layer(
 		add_child(_layered_small_rock_batch_layer)
 	_layered_small_rock_batch_layer.configure_catalog(catalog)
 	_layered_small_rock_batch_layer.set_world_origin_y(_world_origin_y)
+	_apply_stored_ladder_anchor(_layered_small_rock_batch_layer)
 	return _layered_small_rock_batch_layer
+
+
+func _apply_stored_ladder_anchor(layer: Node) -> void:
+	if _applied_ladder_anchor_stripe == LADDER_ANCHOR_UNSET \
+			or layer == null or not is_instance_valid(layer) \
+			or not layer.has_method("update_ladder_z"):
+		return
+	layer.call("update_ladder_z", _applied_ladder_anchor_stripe)
 
 
 func _apply_native_tree_collision_slice(max_colliders: int) -> void:
@@ -1999,6 +2014,7 @@ func _ensure_living_flora_batch_layer() -> WorldDecorBatchLayer:
 	_living_flora_batch_layer.name = "LivingFloraObjectPacketBatchLayer"
 	add_child(_living_flora_batch_layer)
 	_apply_world_origin_to_batch_layer(_living_flora_batch_layer)
+	_apply_stored_ladder_anchor(_living_flora_batch_layer)
 	return _living_flora_batch_layer
 
 
@@ -2009,6 +2025,7 @@ func _ensure_spiky_flora_batch_layer() -> WorldDecorBatchLayer:
 	_spiky_flora_batch_layer.name = "SpikyFloraObjectPacketBatchLayer"
 	add_child(_spiky_flora_batch_layer)
 	_apply_world_origin_to_batch_layer(_spiky_flora_batch_layer)
+	_apply_stored_ladder_anchor(_spiky_flora_batch_layer)
 	return _spiky_flora_batch_layer
 
 
@@ -2070,6 +2087,7 @@ func _ensure_layered_tree_layer() -> LayeredTreeObjectLayer:
 	add_child(_layered_tree_layer)
 	_layered_tree_layer.set_world_origin_y(_world_origin_y)
 	_layered_tree_layer.set_asset_dirs(_layered_tree_asset_dirs)
+	_apply_stored_ladder_anchor(_layered_tree_layer)
 	return _layered_tree_layer
 
 
@@ -2102,6 +2120,7 @@ func _ensure_layered_small_rock_layer() -> LayeredRockObjectLayer:
 	add_child(_layered_small_rock_layer)
 	_layered_small_rock_layer.set_world_origin_y(_world_origin_y)
 	_layered_small_rock_layer.set_asset_dirs(_layered_small_rock_asset_dirs)
+	_apply_stored_ladder_anchor(_layered_small_rock_layer)
 	return _layered_small_rock_layer
 
 
@@ -2208,6 +2227,7 @@ func _ensure_tree_batch_layer() -> WorldDecorBatchLayer:
 	_tree_batch_layer.set_sprite_shader(TREE_BATCH_SHADER)
 	add_child(_tree_batch_layer)
 	_apply_world_origin_to_batch_layer(_tree_batch_layer)
+	_apply_stored_ladder_anchor(_tree_batch_layer)
 	return _tree_batch_layer
 
 

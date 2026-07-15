@@ -4,7 +4,7 @@ doc_type: system_spec
 status: approved
 owner: engineering
 source_of_truth: true
-version: 1.12
+version: 1.13
 last_updated: 2026-07-15
 related_docs:
   - ../../README.md
@@ -104,21 +104,29 @@ not an accepted substitute for a shorter queue. Prepared tree shapes remain on
 collision layer `0` until the owning chunk itself becomes visible, because
 Canvas visibility does not disable physics.
 
-The object upload lane is completion-biased. Reveal-frontier/live transactions
-always precede source-padding prestage, and the selected atomic transaction
-keeps the lane until `COMPLETE` unless a higher urgency class or genuinely
-closer same-class reveal deadline arrives. Within an urgency class, wrapped
-squared chunk distance from the player orders the current player-centered
-viewport from its central coverage outward; enqueue turn is the stable tie
-breaker. Enqueue detects that preemption in
-O(1); equal/lower priority dirtiness waits for the focused transaction instead
-of repeatedly rescanning and starving uploads. The unique-token visual queue is
-hard-capped to the current plus outgoing source windows, removes tokens through
-an O(1) swap index, and refreshes its bounded priority snapshot incrementally in
-a standalone callback. Worker completion only enqueues a lightweight prestage envelope;
-hidden `Node`/RenderingServer allocation is created one transaction at a time
-inside the separately budgeted object presentation job. Incomplete hidden work
-is discarded immediately after it leaves source demand. A bounded GPU-resident
+The object upload lane is completion-biased but not globally serialized. It owns
+a cooperative active window of at most four atomic transactions, including no
+more than two source-padding prestage transactions; the remaining capacity stays
+available to live reveal work. A process-frame fence belongs to one coordinate,
+not to the whole lane, so a fenced transaction yields and another eligible active
+transaction or newly admitted transaction can use the remaining measured budget
+in that frame. Reveal-frontier/live work always precedes source prestage. Within
+an urgency class, wrapped squared chunk distance from the player orders the
+current player-centered viewport from its central coverage outward; enqueue turn
+is the stable tie breaker. Higher urgency or a genuinely closer same-class reveal
+deadline may preempt the current focus, while equal/lower priority work rotates
+cooperatively without repeatedly rescanning or starving completion. Enqueue
+detects urgent preemption against the current focus or at most four active
+owners, never by scanning the upload queue. The unique-token visual queue is hard-capped
+to the unchanged current plus outgoing source windows, removes tokens through an
+O(1) swap index, protects active owners from cap repair, and refreshes its bounded
+priority snapshot incrementally in a standalone callback. This active window does
+not enlarge the visible/source rings, queue capacity, or per-frame time budget.
+Worker completion only enqueues a lightweight prestage envelope; hidden
+`Node`/RenderingServer allocation remains inside the separately budgeted object
+presentation job and each transaction preserves one continuation owner.
+Incomplete hidden work is discarded immediately after it leaves source demand.
+A bounded GPU-resident
 hot cache complements (but does not replace) the packed CPU warm cache: a
 completed layer can survive temporary zoom/radius eviction and return with zero
 raw `MultiMesh.buffer` uploads. Promoted layers stay on the world presentation
@@ -161,17 +169,28 @@ explicit callbacks: bare shell, tree fixed bands, rock fixed bands, optional
 flora fixed graphs, collision owner, then incremental family begin. Before raw
 apply, every enabled tree, living-flora, spiky-flora, or rock family counts its
 non-empty worker buckets and reserves missing per-stripe draw capacity through
-an explicit allocation-only API. The first cold allocation of each family
-always yields. Later allocations of that same family may request one additional
-dispatcher callback only when its monotonic per-family measured high-water plus
-`25% + 25 us` safety margin keeps the allocation lane within `0.65 ms`; at most
-two allocation-only callbacks may run in one process frame. A high outlier
-raises the session high-water and stops continuation. Allocation never advances
-the staged cursor, and the first packed visual/shadow upload always waits for a
-later process frame. The latest depth-ladder anchor is
-rebased once after `COMPLETE` in its own callback before adoption/reveal, so a
-moving player cannot combine a band migration with raw upload or cause hidden
-staging to chase every anchor stripe.
+an explicit allocation-only API. One indivisible allocation is always allowed
+to make progress regardless of a previous high-water sample, but it must be the
+first object callback in its process-frame lane. If other work already used the
+lane, that coordinate is pinned for a standalone allocation on the next eligible
+frame instead of appending an unknown outlier or waiting forever. The first cold
+allocation of each family always yields. A second allocation may run only when
+the monotonic per-family measured high-water plus `25% + 25 us` safety margin
+keeps the allocation lane within `0.65 ms`; at most two allocation-only callbacks
+may run in one process frame. A high outlier raises the session high-water and
+forbids speculative continuation, never the first indivisible allocation.
+Allocation never advances the staged cursor, and the first packed visual/shadow
+upload always waits for a later process frame.
+
+The object envelope retains the current depth-ladder anchor even before lazily
+created family sublayers exist, so new bands begin in the correct ownership
+range. A completed hidden layer entering live demand performs at most one
+standalone rebase to an anchor snapshot and stores that snapshot. Readiness never
+chases equality with the subsequently moving global anchor. FINALIZE adoption
+applies the usually small snapshot-to-current delta immediately before the
+atomic visibility/collision reveal, so no raw upload shares that callback and
+continuous north/south travel cannot livelock a ready chunk.
+
 An incomplete presentation that is the only reveal transaction for a live hidden
 chunk is counted as transient visible-ring working set, not reusable hot-cache
 residency. Trimming skips it instead of evicting and recursively restaging the

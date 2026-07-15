@@ -217,6 +217,13 @@ const HOT_OBJECT_PRESENTATION_CACHE_MAX_COLLIDERS: int = \
 const OBJECT_PRESENTATION_LAYER_POOL_TARGET_SIZE: int = 2
 const OBJECT_PRESENTATION_LAYER_POOL_MAX_SIZE: int = 4
 const OBJECT_PRESENTATION_POOL_INITIAL_SLOTS_PER_FAMILY: int = 4
+# Object presentation is main-thread RenderingServer/PhysicsServer work, but a
+# process-frame fence belongs to one transaction rather than to the whole lane.
+# Keep a tiny active window aligned with the existing layer-pool ceiling: two
+# slots remain available to live reveal work even while source prestage runs.
+const OBJECT_PRESENTATION_ACTIVE_TRANSACTION_MAX: int = \
+		OBJECT_PRESENTATION_LAYER_POOL_MAX_SIZE
+const OBJECT_PRESENTATION_ACTIVE_SOURCE_TRANSACTION_MAX: int = 2
 const OBJECT_PRESENTATION_SLICE_SOFT_BUDGET_USEC: int = 350
 const OBJECT_PRESENTATION_MAX_APPLY_SUBSLICES_PER_CALLBACK: int = 8
 const OBJECT_PRESENTATION_PRIORITY_SCAN_SOFT_BUDGET_USEC: int = 150
@@ -428,6 +435,13 @@ var _object_packet_visual_priority_scan_best: Vector2i = INVALID_CHUNK_COORD
 var _object_packet_visual_priority_scan_best_class: int = 2147483647
 var _object_packet_visual_priority_scan_best_priority: int = 0
 var _object_packet_visual_priority_scan_best_turn: int = 0
+# A bounded cooperative pipeline. Every active coordinate exclusively owns one
+# incomplete local/hot layer. Frame fences are coordinate-local, so another
+# hidden transaction may consume otherwise-idle room in the same 0.75 ms lane.
+var _active_object_presentation_chunks: Array[Vector2i] = []
+var _active_object_presentation_index_by_chunk: Dictionary = { }
+var _active_object_presentation_cursor: int = 0
+var _object_presentation_not_before_frame_by_chunk: Dictionary = { }
 # Safe phases may keep the dispatcher lane active in the current process frame.
 # The lane timer is independent from the dispatcher's last-step predictor so a
 # heterogeneous next phase can reserve its own conservative lookahead.
@@ -439,6 +453,7 @@ var _object_presentation_allocation_callback_count: int = 0
 # RenderingServer allocation must make future lookahead more conservative, not
 # be averaged away by many cheap decor slots.
 var _object_presentation_allocation_high_water_usec_by_family: Dictionary = { }
+var _object_presentation_standalone_allocation_chunk: Vector2i = INVALID_CHUNK_COORD
 # COMPLETE is produced by an upload callback; adopt plus the atomic visual /
 # collision reveal run together in a later FINALIZE callback. The guard also
 # blocks the lower-priority mountain visual job from revealing a chunk later in
@@ -855,6 +870,14 @@ func get_perf_hud_snapshot() -> Dictionary:
 		_mountain_native_mask_retry_by_chunk.size()
 		+ _combined_halo_build_retry_by_chunk.size()
 	)
+	var active_object_source_count: int = _active_source_object_presentation_count()
+	var fenced_object_transaction_count: int = 0
+	var process_frame: int = int(Engine.get_process_frames())
+	for coord: Vector2i in _active_object_presentation_chunks:
+		if process_frame < int(
+			_object_presentation_not_before_frame_by_chunk.get(coord, 0),
+		):
+			fenced_object_transaction_count += 1
 	return {
 		"resident_views": _chunk_views.size(),
 		"desired_visible_chunks": _desired_visible_chunk_coords.size(),
@@ -868,6 +891,11 @@ func get_perf_hud_snapshot() -> Dictionary:
 		"object_ready_cpu": _object_presentation_results_by_chunk.size(),
 		"object_upload_queue": _pending_object_packet_visual_upload_chunks.size(),
 		"object_prestage_queue": _pending_hot_object_prestage_chunks.size(),
+		"object_active_transactions": _active_object_presentation_chunks.size(),
+		"object_active_live": _active_object_presentation_chunks.size() \
+				- active_object_source_count,
+		"object_active_source": active_object_source_count,
+		"object_fenced_transactions": fenced_object_transaction_count,
 		"object_retire_queue": _object_presentation_retire_queue.size(),
 		"object_worker_ms": _object_presentation_worker_elapsed_ms_last,
 		"object_latency_ms": _object_presentation_request_to_complete_ms_last,
@@ -2287,6 +2315,233 @@ func _drop_terrain_edge_mask_visual_upload(chunk_coord: Vector2i) -> void:
 	_pending_terrain_edge_mask_visual_upload_chunks = filtered
 
 
+func _is_object_presentation_transaction_active(chunk_coord: Vector2i) -> bool:
+	return _active_object_presentation_index_by_chunk.has(
+		_canonicalize_chunk_coord(chunk_coord),
+	)
+
+
+func _active_source_object_presentation_count() -> int:
+	var count: int = 0
+	for coord: Vector2i in _active_object_presentation_chunks:
+		if _object_packet_visual_upload_class(coord) >= 2:
+			count += 1
+	return count
+
+
+func _can_admit_object_presentation_transaction(chunk_coord: Vector2i) -> bool:
+	chunk_coord = _canonicalize_chunk_coord(chunk_coord)
+	if _is_object_presentation_transaction_active(chunk_coord):
+		return true
+	if _active_object_presentation_chunks.size() \
+			>= OBJECT_PRESENTATION_ACTIVE_TRANSACTION_MAX:
+		return false
+	if _object_packet_visual_upload_class(chunk_coord) >= 2 \
+			and _active_source_object_presentation_count() \
+					>= OBJECT_PRESENTATION_ACTIVE_SOURCE_TRANSACTION_MAX:
+		return false
+	return true
+
+
+func _activate_object_presentation_transaction(chunk_coord: Vector2i) -> bool:
+	chunk_coord = _canonicalize_chunk_coord(chunk_coord)
+	if _is_object_presentation_transaction_active(chunk_coord):
+		return true
+	if not _can_admit_object_presentation_transaction(chunk_coord):
+		return false
+	_active_object_presentation_index_by_chunk[chunk_coord] = \
+			_active_object_presentation_chunks.size()
+	_active_object_presentation_chunks.append(chunk_coord)
+	return true
+
+
+func _deactivate_object_presentation_transaction(chunk_coord: Vector2i) -> void:
+	chunk_coord = _canonicalize_chunk_coord(chunk_coord)
+	_object_presentation_not_before_frame_by_chunk.erase(chunk_coord)
+	if _object_presentation_standalone_allocation_chunk == chunk_coord:
+		_object_presentation_standalone_allocation_chunk = INVALID_CHUNK_COORD
+	if not _active_object_presentation_index_by_chunk.has(chunk_coord):
+		return
+	var removed_index: int = int(
+		_active_object_presentation_index_by_chunk.get(chunk_coord, -1),
+	)
+	_active_object_presentation_index_by_chunk.erase(chunk_coord)
+	if removed_index >= 0 and removed_index < _active_object_presentation_chunks.size():
+		var last_index: int = _active_object_presentation_chunks.size() - 1
+		if removed_index != last_index:
+			var moved_coord: Vector2i = _active_object_presentation_chunks[last_index]
+			_active_object_presentation_chunks[removed_index] = moved_coord
+			_active_object_presentation_index_by_chunk[moved_coord] = removed_index
+		_active_object_presentation_chunks.pop_back()
+	if _active_object_presentation_chunks.is_empty():
+		_active_object_presentation_cursor = 0
+	elif _active_object_presentation_cursor \
+			>= _active_object_presentation_chunks.size():
+		_active_object_presentation_cursor = 0
+	if _focused_object_packet_visual_upload_chunk == chunk_coord:
+		_focused_object_packet_visual_upload_chunk = INVALID_CHUNK_COORD
+		_object_packet_visual_selection_phase_prepared = false
+
+
+func _is_object_presentation_transaction_fenced(chunk_coord: Vector2i) -> bool:
+	chunk_coord = _canonicalize_chunk_coord(chunk_coord)
+	if not _object_presentation_not_before_frame_by_chunk.has(chunk_coord):
+		return false
+	if int(Engine.get_process_frames()) < int(
+		_object_presentation_not_before_frame_by_chunk.get(chunk_coord, 0),
+	):
+		return true
+	_object_presentation_not_before_frame_by_chunk.erase(chunk_coord)
+	return false
+
+
+func _fence_object_presentation_transaction(chunk_coord: Vector2i) -> void:
+	chunk_coord = _canonicalize_chunk_coord(chunk_coord)
+	if not _is_object_presentation_transaction_active(chunk_coord):
+		return
+	_object_presentation_not_before_frame_by_chunk[chunk_coord] = \
+			int(Engine.get_process_frames()) + 1
+	var active_index: int = int(
+		_active_object_presentation_index_by_chunk.get(chunk_coord, -1),
+	)
+	if active_index >= 0 and not _active_object_presentation_chunks.is_empty():
+		_active_object_presentation_cursor = (
+			active_index + 1
+		) % _active_object_presentation_chunks.size()
+	if _focused_object_packet_visual_upload_chunk == chunk_coord:
+		_focused_object_packet_visual_upload_chunk = INVALID_CHUNK_COORD
+		_object_packet_visual_selection_phase_prepared = false
+
+
+func _select_eligible_active_object_presentation_focus() -> bool:
+	if _active_object_presentation_chunks.is_empty():
+		return false
+	var standalone_allocation: Vector2i = \
+			_object_presentation_standalone_allocation_chunk
+	if not _object_packet_visual_urgent_priority_dirty \
+			and standalone_allocation != INVALID_CHUNK_COORD:
+		if _is_object_presentation_transaction_active(standalone_allocation) \
+				and _pending_object_packet_visual_upload_set.has(standalone_allocation):
+			if not _is_object_presentation_transaction_fenced(standalone_allocation):
+				_focused_object_packet_visual_upload_chunk = standalone_allocation
+				return true
+		else:
+			_object_presentation_standalone_allocation_chunk = INVALID_CHUNK_COORD
+	var current: Vector2i = _focused_object_packet_visual_upload_chunk
+	if current != INVALID_CHUNK_COORD \
+			and not _object_packet_visual_urgent_priority_dirty \
+			and _is_object_presentation_transaction_active(current) \
+			and _pending_object_packet_visual_upload_set.has(current) \
+			and not _is_object_presentation_transaction_fenced(current):
+		return true
+	var best_coord: Vector2i = INVALID_CHUNK_COORD
+	var best_class: int = 2147483647
+	var best_priority: int = 0
+	var best_index: int = -1
+	var active_count: int = _active_object_presentation_chunks.size()
+	for offset: int in range(active_count):
+		var index: int = (_active_object_presentation_cursor + offset) % active_count
+		var candidate: Vector2i = _active_object_presentation_chunks[index]
+		if not _pending_object_packet_visual_upload_set.has(candidate) \
+				or _is_object_presentation_transaction_fenced(candidate):
+			continue
+		var candidate_class: int = _object_packet_visual_upload_class(candidate)
+		var candidate_priority: int = _chunk_request_priority(candidate)
+		if best_coord == INVALID_CHUNK_COORD \
+				or candidate_class < best_class \
+				or (_object_packet_visual_urgent_priority_dirty \
+						and candidate_class == best_class \
+						and candidate_priority < best_priority):
+			best_coord = candidate
+			best_class = candidate_class
+			best_priority = candidate_priority
+			best_index = index
+	if best_coord == INVALID_CHUNK_COORD:
+		return false
+	_focused_object_packet_visual_upload_chunk = best_coord
+	_active_object_presentation_cursor = (best_index + 1) % active_count
+	_object_packet_visual_urgent_priority_dirty = false
+	return true
+
+
+func _object_presentation_candidate_needs_active_slot(chunk_coord: Vector2i) -> bool:
+	if _is_object_presentation_transaction_active(chunk_coord):
+		return false
+	# Terminal compatibility presentation is one indivisible dispatcher phase;
+	# it owns no incomplete hot/local graph across frames.
+	if _object_presentation_terminal_fallback_by_chunk.has(chunk_coord):
+		return false
+	var entry: Dictionary = _hot_object_presentation_layers.get(chunk_coord, { }) as Dictionary
+	if not entry.is_empty() and _hot_object_entry_is_current(chunk_coord, entry):
+		var layer: WorldObjectPacketLayer = entry.get("layer", null) as WorldObjectPacketLayer
+		return not bool(entry.get("ready", false)) \
+				and (layer == null or not layer.is_presentation_complete())
+	if _pending_hot_object_prestage_set.has(chunk_coord):
+		return true
+	var chunk_view: ChunkView = _chunk_views.get(chunk_coord, null) as ChunkView
+	return chunk_view != null \
+			and chunk_view.has_pending_object_presentation_apply() \
+			and chunk_view.has_staged_object_presentation_result()
+
+
+func _object_presentation_candidate_is_dispatch_eligible(chunk_coord: Vector2i) -> bool:
+	chunk_coord = _canonicalize_chunk_coord(chunk_coord)
+	if not _pending_object_packet_visual_upload_set.has(chunk_coord):
+		return false
+	if _is_object_presentation_transaction_active(chunk_coord):
+		return not _is_object_presentation_transaction_fenced(chunk_coord)
+	if not _object_presentation_candidate_needs_active_slot(chunk_coord):
+		return true
+	return _can_admit_object_presentation_transaction(chunk_coord)
+
+
+func _has_eligible_active_object_presentation_transaction() -> bool:
+	for coord: Vector2i in _active_object_presentation_chunks:
+		if _pending_object_packet_visual_upload_set.has(coord) \
+				and not _is_object_presentation_transaction_fenced(coord):
+			return true
+	return false
+
+
+func _object_presentation_active_window_can_admit_more() -> bool:
+	if _active_object_presentation_chunks.size() \
+			>= OBJECT_PRESENTATION_ACTIVE_TRANSACTION_MAX \
+			or _pending_object_packet_visual_upload_set.size() \
+					<= _active_object_presentation_chunks.size():
+		return false
+	# This predicate only decides whether another callback may reuse the current
+	# 0.75 ms lane. Probe a tiny bounded sample of inactive tokens instead of
+	# launching a full priority scan that cannot admit a third source transaction.
+	var checked_inactive: int = 0
+	for coord: Vector2i in _pending_object_packet_visual_upload_chunks:
+		if _is_object_presentation_transaction_active(coord):
+			continue
+		checked_inactive += 1
+		if _object_presentation_candidate_is_dispatch_eligible(coord):
+			return true
+		if checked_inactive >= OBJECT_PRESENTATION_ACTIVE_TRANSACTION_MAX:
+			break
+	return false
+
+
+func _yield_object_presentation_transaction(
+		chunk_coord: Vector2i,
+		callback_started_usec: int,
+		next_phase_lookahead_usec: int = OBJECT_PRESENTATION_PRIORITY_SCAN_SOFT_BUDGET_USEC,
+		allow_same_frame_other_transaction: bool = true,
+) -> bool:
+	_fence_object_presentation_transaction(chunk_coord)
+	if not allow_same_frame_other_transaction:
+		return false
+	if not _has_eligible_active_object_presentation_transaction() \
+			and not _object_presentation_active_window_can_admit_more():
+		return false
+	return _can_continue_object_presentation_visual_lane(
+		callback_started_usec,
+		next_phase_lookahead_usec,
+	)
+
+
 func _queue_object_packet_visual_upload(chunk_coord: Vector2i) -> void:
 	chunk_coord = _canonicalize_chunk_coord(chunk_coord)
 	if _pending_object_packet_visual_upload_set.has(chunk_coord):
@@ -2317,6 +2572,10 @@ func _make_object_packet_visual_queue_room_for(chunk_coord: Vector2i) -> bool:
 	var victim_class: int = candidate_class
 	var victim_priority: int = -1
 	for queued_coord: Vector2i in _pending_object_packet_visual_upload_chunks:
+		# An active coordinate exclusively owns an incomplete layer. Queue-cap
+		# repair may pause source admission, never orphan an in-flight transaction.
+		if _is_object_presentation_transaction_active(queued_coord):
+			continue
 		var queued_class: int = _object_packet_visual_upload_class(queued_coord)
 		var queued_priority: int = _chunk_request_priority(queued_coord)
 		if queued_class > victim_class \
@@ -2333,28 +2592,51 @@ func _make_object_packet_visual_queue_room_for(chunk_coord: Vector2i) -> bool:
 	return true
 
 
+func _object_packet_visual_candidate_preempts(
+		candidate: Vector2i,
+		incumbent: Vector2i,
+) -> bool:
+	if candidate == INVALID_CHUNK_COORD or incumbent == INVALID_CHUNK_COORD:
+		return false
+	var candidate_class: int = _object_packet_visual_upload_class(candidate)
+	var incumbent_class: int = _object_packet_visual_upload_class(incumbent)
+	return candidate_class < incumbent_class \
+			or (candidate_class == incumbent_class \
+					and _chunk_request_priority(candidate) \
+							< _chunk_request_priority(incumbent))
+
+
 func _mark_object_packet_visual_urgent_preemption(chunk_coord: Vector2i) -> void:
-	if _focused_object_packet_visual_upload_chunk == INVALID_CHUNK_COORD \
-			or chunk_coord == _focused_object_packet_visual_upload_chunk \
-			or not _pending_object_packet_visual_upload_set.has(
-				_focused_object_packet_visual_upload_chunk,
-			):
+	if not _pending_object_packet_visual_upload_set.has(chunk_coord):
 		return
-	var candidate_class: int = _object_packet_visual_upload_class(chunk_coord)
-	var focused_class: int = _object_packet_visual_upload_class(
-		_focused_object_packet_visual_upload_chunk,
-	)
-	if candidate_class < focused_class \
-			or (candidate_class == focused_class \
-					and _chunk_request_priority(chunk_coord) \
-							< _chunk_request_priority(
-								_focused_object_packet_visual_upload_chunk,
-							)):
+	var incumbent: Vector2i = _focused_object_packet_visual_upload_chunk
+	if incumbent == chunk_coord:
+		return
+	if incumbent == INVALID_CHUNK_COORD \
+			or not _pending_object_packet_visual_upload_set.has(incumbent):
+		incumbent = INVALID_CHUNK_COORD
+		# Coordinate-local yield deliberately clears focus. Compare a newly queued
+		# token with the tiny active window so a live reveal cannot lose the next
+		# dispatcher turn to an already-active source transaction. This is O(4),
+		# never an enqueue-time scan of the upload queue.
+		for active_coord: Vector2i in _active_object_presentation_chunks:
+			if active_coord == chunk_coord \
+					or not _pending_object_packet_visual_upload_set.has(active_coord):
+				continue
+			if incumbent == INVALID_CHUNK_COORD \
+					or _object_packet_visual_candidate_preempts(active_coord, incumbent):
+				incumbent = active_coord
+	if incumbent != INVALID_CHUNK_COORD \
+			and _object_packet_visual_candidate_preempts(chunk_coord, incumbent):
 		_object_packet_visual_urgent_priority_dirty = true
 
 
 func _drop_object_packet_visual_upload(chunk_coord: Vector2i) -> void:
 	chunk_coord = _canonicalize_chunk_coord(chunk_coord)
+	var dropped_focus: bool = _focused_object_packet_visual_upload_chunk == chunk_coord
+	_deactivate_object_presentation_transaction(chunk_coord)
+	if dropped_focus:
+		_object_packet_visual_urgent_priority_dirty = false
 	if not _pending_object_packet_visual_upload_set.has(chunk_coord):
 		return
 	_pending_object_packet_visual_upload_set.erase(chunk_coord)
@@ -2370,10 +2652,13 @@ func _drop_object_packet_visual_upload(chunk_coord: Vector2i) -> void:
 			_pending_object_packet_visual_upload_chunks[removed_index] = moved_coord
 			_pending_object_packet_visual_upload_index_by_chunk[moved_coord] = removed_index
 		_pending_object_packet_visual_upload_chunks.pop_back()
-	if _focused_object_packet_visual_upload_chunk == chunk_coord:
-		_focused_object_packet_visual_upload_chunk = INVALID_CHUNK_COORD
-		_object_packet_visual_urgent_priority_dirty = false
 	_object_packet_visual_priority_dirty = true
+	if dropped_focus:
+		# Completion/eviction changes the best eligible owner. Force one bounded
+		# priority refresh before an already-active source transaction can inherit
+		# the lane ahead of an inactive live reveal token.
+		_object_packet_visual_urgent_priority_dirty = \
+				not _pending_object_packet_visual_upload_chunks.is_empty()
 
 
 ## Completion-biased priority pick. A live/reveal transaction always beats a
@@ -2457,6 +2742,11 @@ func _advance_object_packet_visual_priority_scan() -> bool:
 		_begin_object_packet_visual_priority_scan()
 	var phase_started_usec: int = Time.get_ticks_usec()
 	var processed_items: int = 0
+	# With no owned transaction every queued coordinate is admissible: the first
+	# selection cannot violate either the four-total or two-source ceiling. Keep
+	# this common cold-start/idle path as cheap as the pre-window scheduler; the
+	# per-candidate ownership checks matter only after the window has occupants.
+	var active_window_is_empty: bool = _active_object_presentation_chunks.is_empty()
 	while _object_packet_visual_priority_scan_cursor \
 			< _object_packet_visual_priority_scan_candidates.size():
 		var candidate: Vector2i = _object_packet_visual_priority_scan_candidates[
@@ -2464,7 +2754,9 @@ func _advance_object_packet_visual_priority_scan() -> bool:
 		]
 		_object_packet_visual_priority_scan_cursor += 1
 		processed_items += 1
-		if _pending_object_packet_visual_upload_set.has(candidate):
+		if _pending_object_packet_visual_upload_set.has(candidate) \
+				and (active_window_is_empty \
+						or _object_presentation_candidate_is_dispatch_eligible(candidate)):
 			var enqueued_turn: int = int(
 				_object_packet_visual_enqueued_turn_by_chunk.get(
 					candidate,
@@ -2496,7 +2788,7 @@ func _advance_object_packet_visual_priority_scan() -> bool:
 	# Completion bias is evaluated at commit time against the current queue, not
 	# the snapshot, so a focused transaction removed mid-scan is never resurrected.
 	if _focused_object_packet_visual_upload_chunk != INVALID_CHUNK_COORD \
-			and _pending_object_packet_visual_upload_set.has(
+			and _object_presentation_candidate_is_dispatch_eligible(
 				_focused_object_packet_visual_upload_chunk,
 			):
 		var focused_class: int = _object_packet_visual_upload_class(
@@ -2636,18 +2928,37 @@ func _stage_pending_hot_object_presentation(chunk_coord: Vector2i) -> bool:
 		_drop_hot_object_prestage(chunk_coord)
 		_drop_object_packet_visual_upload(chunk_coord)
 		return false
+	var result: Dictionary = _object_presentation_results_by_chunk.get(
+		chunk_coord,
+		{ },
+	) as Dictionary
+	var presented_object_count: int = \
+			maxi(0, int(result.get("tree_instance_count", 0))) \
+			+ maxi(0, int(result.get("rock_instance_count", 0))) \
+			+ maxi(0, int(result.get("living_flora_count", 0))) \
+			+ maxi(0, int(result.get("spiky_flora_count", 0)))
+	var current_hot_entry: Dictionary = _get_current_hot_object_entry(chunk_coord)
+	if presented_object_count > 0 \
+			and current_hot_entry.is_empty() \
+			and not _can_admit_object_presentation_transaction(chunk_coord):
+		# Admission pressure pauses the lightweight token. Never drop CPU truth or
+		# reveal work merely because the four-slot cooperative window is occupied.
+		return false
 	var chunk_view: ChunkView = _chunk_views.get(chunk_coord, null) as ChunkView
 	if chunk_view != null:
-		_drop_hot_object_prestage(chunk_coord)
 		var staged: bool = _stage_ready_object_presentation(chunk_coord, chunk_view)
 		if not staged:
+			# A full active window is backpressure, not presentation failure. Keep
+			# both the immutable CPU result and its unique prestage/upload token.
+			if not _can_admit_object_presentation_transaction(chunk_coord):
+				return false
 			_drop_object_packet_visual_upload(chunk_coord)
 		return staged
 	if not _is_chunk_source_desired(chunk_coord):
 		_drop_hot_object_prestage(chunk_coord)
 		_drop_object_packet_visual_upload(chunk_coord)
 		return false
-	if not _get_current_hot_object_entry(chunk_coord).is_empty():
+	if not current_hot_entry.is_empty():
 		_drop_hot_object_prestage(chunk_coord)
 		return true
 	# Retiring resources remain part of exact residency. Do not let source-ring
@@ -2661,10 +2972,6 @@ func _stage_pending_hot_object_presentation(chunk_coord: Vector2i) -> bool:
 	# A long stale tail must not turn one nominally bounded callback into a scan
 	# plus several Node/RenderingServer allocations.
 	_drop_hot_object_prestage(chunk_coord)
-	var result: Dictionary = _object_presentation_results_by_chunk.get(
-		chunk_coord,
-		{ },
-	) as Dictionary
 	var staged: bool = _stage_hot_object_presentation(chunk_coord, result)
 	if not staged:
 		# Empty/suppressed hidden packets retain CPU truth and will be queued again
@@ -2951,7 +3258,12 @@ func _stage_ready_object_presentation(chunk_coord: Vector2i, chunk_view: ChunkVi
 		_object_packet_visual_priority_dirty = true
 		_queue_object_packet_visual_upload(chunk_coord)
 		return true
+	var was_active: bool = _is_object_presentation_transaction_active(chunk_coord)
+	if not _activate_object_presentation_transaction(chunk_coord):
+		return false
 	if not chunk_view.stage_object_presentation_result(result, _layered_object_asset_catalog):
+		if not was_active:
+			_deactivate_object_presentation_transaction(chunk_coord)
 		return false
 	_drop_hot_object_prestage(chunk_coord)
 	_object_packet_visual_priority_dirty = true
@@ -2973,16 +3285,21 @@ func _restore_live_object_presentation_after_failed_hot_promotion(
 		return true
 	if chunk_view.has_pending_object_presentation_apply() \
 			and chunk_view.has_staged_object_presentation_result():
-		return true
+		return _activate_object_presentation_transaction(chunk_coord)
 	var result: Dictionary = _object_presentation_results_by_chunk.get(
 		chunk_coord,
 		{ },
 	) as Dictionary
+	var was_active: bool = _is_object_presentation_transaction_active(chunk_coord)
+	if not _activate_object_presentation_transaction(chunk_coord):
+		return false
 	if result.is_empty() \
 			or not chunk_view.stage_object_presentation_result(
 				result,
 				_layered_object_asset_catalog,
 			):
+		if not was_active:
+			_deactivate_object_presentation_transaction(chunk_coord)
 		return false
 	_drop_hot_object_prestage(chunk_coord)
 	_object_packet_visual_priority_dirty = true
@@ -2997,7 +3314,13 @@ func _queue_object_presentation_for_live_view(chunk_coord: Vector2i) -> bool:
 	chunk_coord = _canonicalize_chunk_coord(chunk_coord)
 	if not _chunk_views.has(chunk_coord):
 		return false
-	if not _get_current_hot_object_entry(chunk_coord).is_empty():
+	var hot_entry: Dictionary = _get_current_hot_object_entry(chunk_coord)
+	if not hot_entry.is_empty():
+		# Source-cache ordering is intentionally allowed to go stale while hidden.
+		# Mark this one live handoff for a single standalone pre-finalize rebase;
+		# the value is then a snapshot, never an equality target.
+		hot_entry["ladder_anchor_stripe"] = LADDER_ANCHOR_UNSET
+		_hot_object_presentation_layers[chunk_coord] = hot_entry
 		_queue_object_packet_visual_upload(chunk_coord)
 	elif _object_presentation_terminal_fallback_by_chunk.has(chunk_coord):
 		_queue_object_packet_visual_upload(chunk_coord)
@@ -3688,12 +4011,37 @@ func _object_presentation_allocation_lookahead_fits_lane(
 			<= OBJECT_PRESENTATION_ALLOCATION_SOFT_BUDGET_USEC
 
 
+## Allocation is an indivisible RenderingServer/Node phase. A historical
+## outlier may forbid a *second* allocation in the same frame, but it must never
+## forbid the first one forever. Otherwise a monotonic high-water above the
+## soft budget turns a safety estimate into a permanent hidden-chunk deadlock.
+func _can_start_object_presentation_allocation(
+		lane_elapsed_usec: int,
+		family: StringName,
+) -> bool:
+	if _object_presentation_allocation_callback_count \
+			>= OBJECT_PRESENTATION_MAX_ALLOCATION_CALLBACKS_PER_FRAME:
+		return false
+	if _object_presentation_allocation_callback_count == 0:
+		# An over-budget indivisible allocation may make progress once, but it
+		# must own the first callback of a fresh lane rather than being appended
+		# after another transaction's work. The caller pins a deferred coordinate
+		# so round-robin ordering cannot keep it second forever.
+		return _object_presentation_visual_lane_callback_count == 1
+	return _object_presentation_allocation_lookahead_fits_lane(
+		lane_elapsed_usec,
+		family,
+	)
+
+
 func _can_continue_object_presentation_allocation_lane(
 		callback_started_usec: int,
 		family: StringName,
 		expected_focus: Vector2i,
 ) -> bool:
-	if _object_presentation_allocation_callback_count \
+	if _object_presentation_visual_lane_callback_count \
+			>= OBJECT_PRESENTATION_MAX_DISPATCH_CALLBACKS_PER_FRAME \
+			or _object_presentation_allocation_callback_count \
 			>= OBJECT_PRESENTATION_MAX_ALLOCATION_CALLBACKS_PER_FRAME:
 		return false
 	if _object_packet_visual_urgent_priority_dirty \
@@ -3755,9 +4103,14 @@ func _object_presentation_visual_apply_tick() -> bool:
 		)
 		return false
 
+	var active_focus_selected: bool = false
+	if not _object_packet_visual_selection_phase_prepared \
+			and not _object_packet_visual_priority_scan_active \
+			and not _object_packet_visual_urgent_priority_dirty:
+		active_focus_selected = _select_eligible_active_object_presentation_focus()
 	var focused_selection_is_valid: bool = \
 			_focused_object_packet_visual_upload_chunk != INVALID_CHUNK_COORD \
-			and _pending_object_packet_visual_upload_set.has(
+			and _object_presentation_candidate_is_dispatch_eligible(
 				_focused_object_packet_visual_upload_chunk,
 			)
 	if _object_packet_visual_selection_phase_prepared and not focused_selection_is_valid:
@@ -3772,7 +4125,8 @@ func _object_presentation_visual_apply_tick() -> bool:
 	# refresh may dirty priorities again, but one prepared phase is guaranteed to
 	# run before another equal/lower-urgency refresh, so continuous streaming
 	# cannot starve the focused transaction.
-	if not _object_packet_visual_selection_phase_prepared \
+	if not active_focus_selected \
+			and not _object_packet_visual_selection_phase_prepared \
 			and (_object_packet_visual_priority_scan_active \
 					or _object_packet_visual_urgent_priority_dirty \
 					or not focused_selection_is_valid):
@@ -3809,6 +4163,12 @@ func _object_presentation_visual_apply_tick() -> bool:
 		_object_packet_visual_dispatch_turn += 1
 	if chunk_coord == INVALID_CHUNK_COORD:
 		return false
+	if not _pending_hot_object_prestage_set.has(chunk_coord) \
+			and _object_presentation_candidate_needs_active_slot(chunk_coord) \
+			and not _activate_object_presentation_transaction(chunk_coord):
+		_focused_object_packet_visual_upload_chunk = INVALID_CHUNK_COORD
+		_object_packet_visual_priority_dirty = true
+		return false
 	var chunk_view: ChunkView = _chunk_views.get(chunk_coord, null) as ChunkView
 	if _object_presentation_terminal_fallback_by_chunk.has(chunk_coord):
 		# The compatibility renderer is exceptional but still owns an explicit
@@ -3817,19 +4177,54 @@ func _object_presentation_visual_apply_tick() -> bool:
 			_drop_object_packet_visual_upload(chunk_coord)
 			return false
 		var fallback_started: int = WorldPerfProbe.begin()
-		_try_apply_terminal_object_presentation_fallback(chunk_coord)
+		var fallback_applied: bool = \
+				_try_apply_terminal_object_presentation_fallback(chunk_coord)
 		WorldPerfProbe.end(
 			"WorldStreamer.visual_upload.object_packet_terminal_fallback",
 			fallback_started,
 		)
+		if not fallback_applied:
+			if not _object_presentation_terminal_fallback_by_chunk.has(chunk_coord):
+				# The marker became stale while queued; retire its token instead of
+				# falling through to an empty local finalize on the next frame.
+				_drop_object_packet_visual_upload(chunk_coord)
+				return false
+			var fallback_packet: Dictionary = _chunk_packets.get(chunk_coord, { }) as Dictionary
+			if fallback_packet.is_empty() and _warm_base_chunk_packet_cache.has(chunk_coord):
+				fallback_packet = _diff_store.apply_to_packet(
+					_warm_base_chunk_packet_cache.get(chunk_coord, { }) as Dictionary,
+				)
+			if fallback_packet.is_empty():
+				# Packet residency can legitimately turn over while this exceptional
+				# phase waits. Re-request authoritative data and park the fallback;
+				# packet integration will create a new revision/wakeup.
+				_drop_object_packet_visual_upload(chunk_coord)
+				_enqueue_chunk_if_needed(chunk_coord)
+			else:
+				# A present authoritative packet being rejected by the compatibility
+				# renderer is terminal. Report once and stop burning the highest-priority
+				# visual lane every frame; the chunk remains safely hidden.
+				_object_presentation_terminal_fallback_by_chunk.erase(chunk_coord)
+				_drop_object_packet_visual_upload(chunk_coord)
+				push_error(
+					"WorldStreamer compatibility object fallback rejected chunk %s" \
+							% str(chunk_coord),
+				)
 		return false
 	if _pending_hot_object_prestage_set.has(chunk_coord):
 		var envelope_started: int = WorldPerfProbe.begin()
-		_stage_pending_hot_object_presentation(chunk_coord)
+		var staged_transaction: bool = \
+				_stage_pending_hot_object_presentation(chunk_coord)
 		WorldPerfProbe.end(
 			"WorldStreamer.visual_upload.object_packet_envelope",
 			envelope_started,
 		)
+		if staged_transaction \
+				and _is_object_presentation_transaction_active(chunk_coord):
+			return _yield_object_presentation_transaction(
+				chunk_coord,
+				lane_callback_started_usec,
+			)
 		return false
 	var hot_entry: Dictionary = _get_current_hot_object_entry(chunk_coord)
 	if not hot_entry.is_empty():
@@ -3850,8 +4245,9 @@ func _object_presentation_visual_apply_tick() -> bool:
 						hot_layer.prepare_next_presentation_envelope_phase(
 							_layered_object_asset_catalog,
 						)
-				if not fixed_phase_advanced \
-						and not hot_layer.is_presentation_envelope_ready():
+				var fixed_phase_failed: bool = not fixed_phase_advanced \
+						and not hot_layer.is_presentation_envelope_ready()
+				if fixed_phase_failed:
 					_evict_hot_object_presentation(chunk_coord)
 					_record_object_presentation_failure(
 						chunk_coord,
@@ -3862,7 +4258,14 @@ func _object_presentation_visual_apply_tick() -> bool:
 					"WorldStreamer.visual_upload.object_packet_envelope",
 					envelope_started_usec,
 				)
-				return false
+				if fixed_phase_failed:
+					return false
+				return _yield_object_presentation_transaction(
+					chunk_coord,
+					lane_callback_started_usec,
+					OBJECT_PRESENTATION_PRIORITY_SCAN_SOFT_BUDGET_USEC,
+					bool(hot_entry.get("acquired_from_pool", false)),
+				)
 			var result: Dictionary = _object_presentation_results_by_chunk.get(
 				chunk_coord,
 				{ },
@@ -3928,16 +4331,21 @@ func _object_presentation_visual_apply_tick() -> bool:
 				"WorldStreamer.visual_upload.object_packet_envelope",
 				envelope_started_usec,
 			)
-			return false
+			return _yield_object_presentation_transaction(
+				chunk_coord,
+				lane_callback_started_usec,
+			)
 		var presentation_is_ready: bool = bool(hot_entry.get("ready", false)) \
 				or hot_layer.is_presentation_complete()
+		# Pay the potentially full UNSET -> current ladder reclassification once,
+		# outside FINALIZE. Never chase equality with the moving global anchor:
+		# adoption performs the usually tiny snapshot -> current delta before
+		# reveal, while a hidden source-cache entry needs no visible ordering yet.
 		if presentation_is_ready \
+				and chunk_view != null \
 				and _ladder_anchor_stripe != LADDER_ANCHOR_UNSET \
 				and int(hot_entry.get("ladder_anchor_stripe", LADDER_ANCHOR_UNSET)) \
-						!= _ladder_anchor_stripe:
-			# A depth-root migration can touch several band roots. It owns a
-			# standalone phase so an unpredictable boundary crossing never shares a
-			# callback with raw MultiMesh upload, allocation, adopt, or reveal.
+						== LADDER_ANCHOR_UNSET:
 			var anchor_phase_started: int = WorldPerfProbe.begin()
 			hot_layer.update_ladder_z(_ladder_anchor_stripe)
 			hot_entry["ladder_anchor_stripe"] = _ladder_anchor_stripe
@@ -3946,13 +4354,23 @@ func _object_presentation_visual_apply_tick() -> bool:
 				"WorldStreamer.visual_upload.object_packet_anchor_rebase",
 				anchor_phase_started,
 			)
-			return false
+			return _yield_object_presentation_transaction(
+				chunk_coord,
+				lane_callback_started_usec,
+				OBJECT_PRESENTATION_PRIORITY_SCAN_SOFT_BUDGET_USEC,
+				false,
+			)
 		if presentation_is_ready:
 			if chunk_view != null:
 				# COMPLETE was produced by an earlier callback/frame. Adoption and the
 				# atomic visibility+collision release are one FINALIZE phase; neither
 				# can ever follow a raw upload in this callback.
 				if _is_object_presentation_reveal_deferred(chunk_coord):
+					if _is_object_presentation_transaction_active(chunk_coord):
+						return _yield_object_presentation_transaction(
+							chunk_coord,
+							lane_callback_started_usec,
+						)
 					return false
 				var finalize_started: int = WorldPerfProbe.begin()
 				var adopt_started: int = WorldPerfProbe.begin()
@@ -3969,6 +4387,19 @@ func _object_presentation_visual_apply_tick() -> bool:
 						"WorldStreamer.visual_upload.object_packet_reveal",
 						reveal_started,
 					)
+				elif chunk_view.is_object_blocking_presentation_ready():
+					# Adoption can reject because the recycled view already owns the
+					# exact completed layer. This is terminal-ready work and needs no
+					# active slot even when the cooperative window is full.
+					_drop_object_packet_visual_upload(chunk_coord)
+					_finalize_pending_chunk_visibility(chunk_coord)
+				elif not _can_admit_object_presentation_transaction(chunk_coord):
+					# A ready hot adoption normally needs no active slot. If that
+					# exceptional transfer fails while all four slots are occupied,
+					# retain the CPU result behind a prestage token instead of creating
+					# an untracked fifth local graph or revealing an empty chunk.
+					_queue_hot_object_prestage(chunk_coord)
+					_object_packet_visual_priority_dirty = true
 				elif _restore_live_object_presentation_after_failed_hot_promotion(
 					chunk_coord,
 					chunk_view,
@@ -4014,6 +4445,24 @@ func _object_presentation_visual_apply_tick() -> bool:
 				{ },
 			) as Dictionary
 			var is_first_family_allocation: bool = not started_families.has(next_phase_hint)
+			var allocation_lane_elapsed_usec: int = maxi(
+				0,
+				Time.get_ticks_usec() - _object_presentation_visual_lane_started_usec,
+			)
+			if not _can_start_object_presentation_allocation(
+						allocation_lane_elapsed_usec,
+						next_phase_hint,
+					):
+				if _object_presentation_allocation_callback_count == 0:
+					_object_presentation_standalone_allocation_chunk = chunk_coord
+				return _yield_object_presentation_transaction(
+					chunk_coord,
+					lane_callback_started_usec,
+					OBJECT_PRESENTATION_PRIORITY_SCAN_SOFT_BUDGET_USEC,
+					false,
+				)
+			if _object_presentation_standalone_allocation_chunk == chunk_coord:
+				_object_presentation_standalone_allocation_chunk = INVALID_CHUNK_COORD
 			var allocation_probe_started: int = WorldPerfProbe.begin()
 			var allocation_started_usec: int = Time.get_ticks_usec()
 			var allocated: bool = hot_layer.apply_next_presentation_allocation_only()
@@ -4036,12 +4485,18 @@ func _object_presentation_visual_apply_tick() -> bool:
 			hot_entry["allocation_started_families"] = started_families
 			_hot_object_presentation_layers[chunk_coord] = hot_entry
 			if is_first_family_allocation:
-				return false
+				return _yield_object_presentation_transaction(
+					chunk_coord,
+					lane_callback_started_usec,
+				)
 			# Allocation and upload are never adjacent in one process frame. A
 			# changed hint means either the family is fully reserved or the next
 			# family owns a fresh first-yield boundary.
 			if hot_layer.get_next_presentation_apply_phase_hint() != next_phase_hint:
-				return false
+				return _yield_object_presentation_transaction(
+					chunk_coord,
+					lane_callback_started_usec,
+				)
 			return _can_continue_object_presentation_allocation_lane(
 				lane_callback_started_usec,
 				next_phase_hint,
@@ -4097,7 +4552,10 @@ func _object_presentation_visual_apply_tick() -> bool:
 				or hot_layer.get_next_presentation_apply_phase_hint() != next_phase_hint:
 			# COMPLETE must reach FINALIZE in a later process frame. A freshly
 			# allocated slot and every heterogeneous phase transition likewise yield.
-			return false
+			return _yield_object_presentation_transaction(
+				chunk_coord,
+				lane_callback_started_usec,
+			)
 		return _can_continue_object_presentation_visual_lane(
 			lane_callback_started_usec,
 			OBJECT_PRESENTATION_SLICE_SOFT_BUDGET_USEC,
@@ -4110,6 +4568,11 @@ func _object_presentation_visual_apply_tick() -> bool:
 	if not chunk_view.has_pending_object_presentation_apply() \
 			or not chunk_view.has_staged_object_presentation_result():
 		if _is_object_presentation_reveal_deferred(chunk_coord):
+			if _is_object_presentation_transaction_active(chunk_coord):
+				return _yield_object_presentation_transaction(
+					chunk_coord,
+					lane_callback_started_usec,
+				)
 			return false
 		var finalize_started: int = WorldPerfProbe.begin()
 		_drop_object_packet_visual_upload(chunk_coord)
@@ -4133,6 +4596,11 @@ func _object_presentation_visual_apply_tick() -> bool:
 	elif chunk_view.is_object_presentation_complete():
 		_defer_object_presentation_reveal(chunk_coord)
 	WorldPerfProbe.end("WorldStreamer.visual_upload.object_packet_slice", object_started)
+	if apply_failure.is_empty():
+		return _yield_object_presentation_transaction(
+			chunk_coord,
+			lane_callback_started_usec,
+		)
 	return false
 
 
@@ -4876,6 +5344,8 @@ func _stage_hot_object_presentation(
 			+ maxi(0, int(result.get("spiky_flora_count", 0)))
 	if presented_object_count <= 0:
 		return false
+	if not _activate_object_presentation_transaction(chunk_coord):
+		return false
 	var acquired_from_pool: bool = not _object_presentation_layer_pool.is_empty()
 	var acquire_started_usec: int = WorldPerfProbe.begin()
 	var layer: WorldObjectPacketLayer = _acquire_object_presentation_layer()
@@ -4886,6 +5356,7 @@ func _stage_hot_object_presentation(
 		acquire_started_usec,
 	)
 	if layer == null:
+		_deactivate_object_presentation_transaction(chunk_coord)
 		return false
 	layer.name = "HotObjectPacket_%d_%d" % [chunk_coord.x, chunk_coord.y]
 	var configure_started_usec: int = WorldPerfProbe.begin()
@@ -4916,7 +5387,10 @@ func _stage_hot_object_presentation(
 	)
 	_queue_object_packet_visual_upload(chunk_coord)
 	_trim_hot_object_presentation_cache_to_budget()
-	return _hot_object_presentation_layers.has(chunk_coord)
+	var staged: bool = _hot_object_presentation_layers.has(chunk_coord)
+	if not staged:
+		_deactivate_object_presentation_transaction(chunk_coord)
+	return staged
 
 
 func _mark_hot_object_presentation_ready(chunk_coord: Vector2i) -> bool:
@@ -5070,7 +5544,8 @@ func _trim_hot_object_presentation_cache_to_budget() -> void:
 		var live_view: ChunkView = _chunk_views.get(coord, null) as ChunkView
 		var has_live_view: bool = live_view != null and is_instance_valid(live_view)
 		var layer: WorldObjectPacketLayer = entry.get("layer", null) as WorldObjectPacketLayer
-		if has_live_view and layer != null and is_instance_valid(layer) \
+		if _is_object_presentation_transaction_active(coord) \
+				and layer != null and is_instance_valid(layer) \
 				and not bool(entry.get("ready", false)) \
 				and not layer.is_presentation_complete():
 			continue
@@ -5165,6 +5640,11 @@ func _clear_hot_object_presentation_cache() -> void:
 	_object_presentation_retire_colliders = 0
 	_object_presentation_retire_phase_count_total = 0
 	_object_presentation_retire_phase_usec_max_total = 0
+	_active_object_presentation_chunks.clear()
+	_active_object_presentation_index_by_chunk.clear()
+	_active_object_presentation_cursor = 0
+	_object_presentation_not_before_frame_by_chunk.clear()
+	_object_presentation_standalone_allocation_chunk = INVALID_CHUNK_COORD
 	if _hot_object_presentation_root != null \
 			and is_instance_valid(_hot_object_presentation_root):
 		_hot_object_presentation_root.queue_free()
@@ -7531,10 +8011,15 @@ func _reset_runtime_state() -> void:
 	_object_packet_visual_priority_scan_candidates.clear()
 	_object_packet_visual_priority_scan_cursor = 0
 	_object_packet_visual_priority_scan_best = INVALID_CHUNK_COORD
+	_active_object_presentation_chunks.clear()
+	_active_object_presentation_index_by_chunk.clear()
+	_active_object_presentation_cursor = 0
+	_object_presentation_not_before_frame_by_chunk.clear()
 	_object_presentation_visual_lane_frame = -1
 	_object_presentation_visual_lane_started_usec = 0
 	_object_presentation_visual_lane_callback_count = 0
 	_object_presentation_allocation_callback_count = 0
+	_object_presentation_standalone_allocation_chunk = INVALID_CHUNK_COORD
 	_object_presentation_reveal_not_before_frame_by_chunk.clear()
 	_pending_hot_object_prestage_chunks.clear()
 	_pending_hot_object_prestage_set.clear()

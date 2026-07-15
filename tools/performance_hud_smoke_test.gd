@@ -77,6 +77,12 @@ const GRASS_PAGE_TRACE_COLUMNS: Array[String] = [
 	"grass_page_worker_ms",
 	"grass_page_latency_ms",
 ]
+const OBJECT_PIPELINE_TRACE_COLUMNS: Array[String] = [
+	"object_active_transactions",
+	"object_active_live",
+	"object_active_source",
+	"object_fenced_transactions",
+]
 
 var _failed: bool = false
 
@@ -93,6 +99,10 @@ class FakePerfSource extends Node:
 			"object_upload_queue": 18,
 			"object_prestage_queue": 14,
 			"object_inflight": 6,
+			"object_active_transactions": 4,
+			"object_active_live": 2,
+			"object_active_source": 2,
+			"object_fenced_transactions": 1,
 			"grass_upload_queue": 2,
 			"grass_inflight": 4,
 			"grass_ready_cpu": 11,
@@ -199,8 +209,8 @@ func _test_static_contract() -> void:
 func _test_trace_schema_contract() -> void:
 	var columns: Array[String] = PerformanceFlightRecorder.TRACE_COLUMNS
 	_assert(
-		PerformanceFlightRecorder.TRACE_STRIDE == 64 and columns.size() == 64,
-		"F4 trace stride must contain the 57 legacy and seven page columns.",
+		PerformanceFlightRecorder.TRACE_STRIDE == 68 and columns.size() == 68,
+		"F4 trace stride must contain 57 legacy, seven page, and four object-pipeline columns.",
 	)
 	for column_index: int in range(LEGACY_TRACE_COLUMNS.size()):
 		_assert(
@@ -213,6 +223,13 @@ func _test_trace_schema_contract() -> void:
 			columns[column_index] == GRASS_PAGE_TRACE_COLUMNS[page_index],
 			"Grass-page F4 columns must be append-only and ordered.",
 		)
+	for pipeline_index: int in range(OBJECT_PIPELINE_TRACE_COLUMNS.size()):
+		var column_index: int = LEGACY_TRACE_COLUMNS.size() \
+				+ GRASS_PAGE_TRACE_COLUMNS.size() + pipeline_index
+		_assert(
+			columns[column_index] == OBJECT_PIPELINE_TRACE_COLUMNS[pipeline_index],
+			"Object-pipeline F4 columns must be append-only and ordered.",
+		)
 	var grass_page_column_count: int = 0
 	for column_name: String in columns:
 		if column_name.begins_with("grass_page_"):
@@ -220,6 +237,14 @@ func _test_trace_schema_contract() -> void:
 	_assert(
 		grass_page_column_count == GRASS_PAGE_TRACE_COLUMNS.size(),
 		"F4 must append exactly seven grass_page_* columns.",
+	)
+	var object_pipeline_column_count: int = 0
+	for column_name: String in columns:
+		if OBJECT_PIPELINE_TRACE_COLUMNS.has(column_name):
+			object_pipeline_column_count += 1
+	_assert(
+		object_pipeline_column_count == OBJECT_PIPELINE_TRACE_COLUMNS.size(),
+		"F4 must append exactly four object-pipeline scheduling columns.",
 	)
 	_assert(
 		not columns.has("grass_page_cache_hits_total")
@@ -419,6 +444,7 @@ func _test_recorder_observer_contract() -> void:
 	_assert(trace_file != null, "F4 trace artifact must be readable.")
 	if trace_file != null:
 		var trace_header: PackedStringArray = trace_file.get_csv_line()
+		var trace_row: PackedStringArray = trace_file.get_csv_line()
 		trace_file.close()
 		_assert(
 			trace_header.size() == PerformanceFlightRecorder.TRACE_STRIDE,
@@ -428,6 +454,26 @@ func _test_recorder_observer_contract() -> void:
 			_assert(
 				trace_header[column_index] == PerformanceFlightRecorder.TRACE_COLUMNS[column_index],
 				"F4 artifact header must preserve the in-memory schema order.",
+			)
+		_assert(
+			trace_row.size() == PerformanceFlightRecorder.TRACE_STRIDE,
+			"F4 CSV data row must serialize the complete append-only stride.",
+		)
+		var expected_object_pipeline_values: Dictionary = {
+			"object_active_transactions": 4.0,
+			"object_active_live": 2.0,
+			"object_active_source": 2.0,
+			"object_fenced_transactions": 1.0,
+		}
+		for column_name: String in expected_object_pipeline_values:
+			var column_index: int = trace_header.find(column_name)
+			_assert(
+				column_index >= 0 and column_index < trace_row.size() \
+						and is_equal_approx(
+							float(trace_row[column_index]),
+							float(expected_object_pipeline_values[column_name]),
+						),
+				"F4 CSV row must preserve object scheduler value: %s" % column_name,
 			)
 	var session_variant: Variant = JSON.parse_string(
 		FileAccess.get_file_as_string(session_directory.path_join("session.json")),
