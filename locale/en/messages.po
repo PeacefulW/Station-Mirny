@@ -1044,6 +1044,159 @@ msgstr "Post FX: Off"
 msgid "UI_INVENTORY_SLOT_TOOLTIP"
 msgstr "{name}\n{amount} / {max_stack}"
 
+msgid "UI_PERF_TITLE"
+msgstr "PERFORMANCE"
+
+msgid "UI_PERF_LIVE"
+msgstr "// LIVE"
+
+msgid "UI_PERF_GRAPH_WINDOW"
+msgstr "300 FRAME WINDOW"
+
+msgid "UI_PERF_SUMMARY"
+msgstr "STREAM %.2f ms   •   IN SCENE %d/%d   •   QUEUES %d"
+
+msgid "UI_PERF_SECTION_STREAMING"
+msgstr "WORLD STREAMING"
+
+msgid "UI_PERF_SECTION_QUEUES"
+msgstr "PIPELINE QUEUES"
+
+msgid "UI_PERF_SECTION_RENDER"
+msgstr "RENDER AND MEMORY"
+
+msgid "UI_PERF_PRIMARY_FPS"
+msgstr "FPS"
+
+msgid "UI_PERF_PRIMARY_FRAME"
+msgstr "FRAME, MS"
+
+msgid "UI_PERF_PRIMARY_P95"
+msgstr "P95"
+
+msgid "UI_PERF_PRIMARY_PEAK"
+msgstr "PEAK"
+
+msgid "UI_PERF_METRIC_DISPATCHER"
+msgstr "Dispatcher"
+
+msgid "UI_PERF_METRIC_STREAMING"
+msgstr "Streaming"
+
+msgid "UI_PERF_METRIC_PACKET"
+msgstr "Packet integration"
+
+msgid "UI_PERF_METRIC_PUBLISH_BEGIN"
+msgstr "Publish begin"
+
+msgid "UI_PERF_METRIC_PUBLISH_APPLY"
+msgstr "Terrain apply"
+
+msgid "UI_PERF_METRIC_OBJECT_UPLOAD"
+msgstr "Object upload"
+
+msgid "UI_PERF_METRIC_GRASS_UPLOAD"
+msgstr "Grass upload"
+
+msgid "UI_PERF_METRIC_MOUNTAIN_VISUAL"
+msgstr "Mountain visual"
+
+msgid "UI_PERF_METRIC_CHUNKS"
+msgstr "Chunks: in scene / target"
+
+msgid "UI_PERF_METRIC_PACKETS"
+msgstr "Packets: ready / request"
+
+msgid "UI_PERF_METRIC_PUBLISH_QUEUE"
+msgstr "Publish queue"
+
+msgid "UI_PERF_METRIC_REVEAL_WAIT"
+msgstr "Waiting for reveal"
+
+msgid "UI_PERF_METRIC_OBJECTS"
+msgstr "Objects GPU / stage / worker"
+
+msgid "UI_PERF_METRIC_GRASS"
+msgstr "Grass GPU / worker / CPU"
+
+msgid "UI_PERF_METRIC_MASKS"
+msgstr "Masks worker / GPU / retry"
+
+msgid "UI_PERF_METRIC_CACHES"
+msgstr "Hot views / packets"
+
+msgid "UI_PERF_METRIC_CPU"
+msgstr "CPU / physics"
+
+msgid "UI_PERF_METRIC_DRAW_CALLS"
+msgstr "Draw calls"
+
+msgid "UI_PERF_METRIC_RENDER_OBJECTS"
+msgstr "Render objects"
+
+msgid "UI_PERF_METRIC_MEMORY"
+msgstr "VRAM / RAM"
+
+msgid "UI_PERF_STATUS_WARMING"
+msgstr "SAMPLING"
+
+msgid "UI_PERF_STATUS_STABLE"
+msgstr "STABLE"
+
+msgid "UI_PERF_STATUS_PRESSURE"
+msgstr "PRESSURE"
+
+msgid "UI_PERF_STATUS_HITCH"
+msgstr "HITCH"
+
+msgid "UI_PERF_MODE_COMPACT"
+msgstr "COMPACT"
+
+msgid "UI_PERF_MODE_DETAILED"
+msgstr "DETAILED"
+
+msgid "UI_PERF_F3_MORE"
+msgstr "F3 — details"
+
+msgid "UI_PERF_F3_HIDE"
+msgstr "F3 — hide"
+
+msgid "UI_PERF_LAST_HITCH"
+msgstr "LAST HITCH"
+
+msgid "UI_PERF_LAST_HITCH_NONE"
+msgstr "No hitches detected in the current window"
+
+msgid "UI_PERF_CAUSE_PACKET_INTEGRATION"
+msgstr "packet integration"
+
+msgid "UI_PERF_CAUSE_PUBLISH_BEGIN"
+msgstr "publish begin"
+
+msgid "UI_PERF_CAUSE_PUBLISH_APPLY"
+msgstr "terrain apply"
+
+msgid "UI_PERF_CAUSE_PUBLISH_FINALIZE"
+msgstr "publish finalize"
+
+msgid "UI_PERF_CAUSE_OBJECT_UPLOAD"
+msgstr "object upload"
+
+msgid "UI_PERF_CAUSE_OBJECT_ADOPT"
+msgstr "object adoption"
+
+msgid "UI_PERF_CAUSE_GRASS_UPLOAD"
+msgstr "grass upload"
+
+msgid "UI_PERF_CAUSE_MOUNTAIN_UPLOAD"
+msgstr "mountain visual"
+
+msgid "UI_PERF_CAUSE_WORLD_STREAMING"
+msgstr "world streaming"
+
+msgid "UI_PERF_CAUSE_EXTERNAL_OR_RENDER"
+msgstr "render / driver / system"
+
 msgid "UI_DEBUG_CHUNK_OVERLAY_TITLE"
 msgstr "F11 chunk debug"
 

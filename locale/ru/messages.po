@@ -1044,6 +1044,159 @@ msgstr "Постэффект: выкл"
 msgid "UI_INVENTORY_SLOT_TOOLTIP"
 msgstr "{name}\n{amount} / {max_stack}"
 
+msgid "UI_PERF_TITLE"
+msgstr "ПРОИЗВОДИТЕЛЬНОСТЬ"
+
+msgid "UI_PERF_LIVE"
+msgstr "// LIVE"
+
+msgid "UI_PERF_GRAPH_WINDOW"
+msgstr "ОКНО: 300 КАДРОВ"
+
+msgid "UI_PERF_SUMMARY"
+msgstr "ПОТОК %.2f мс   •   В СЦЕНЕ %d/%d   •   ОЧЕРЕДИ %d"
+
+msgid "UI_PERF_SECTION_STREAMING"
+msgstr "ПОТОК МИРА / STREAMING"
+
+msgid "UI_PERF_SECTION_QUEUES"
+msgstr "ОЧЕРЕДИ / QUEUES"
+
+msgid "UI_PERF_SECTION_RENDER"
+msgstr "РЕНДЕР И ПАМЯТЬ"
+
+msgid "UI_PERF_PRIMARY_FPS"
+msgstr "FPS"
+
+msgid "UI_PERF_PRIMARY_FRAME"
+msgstr "КАДР, МС"
+
+msgid "UI_PERF_PRIMARY_P95"
+msgstr "P95"
+
+msgid "UI_PERF_PRIMARY_PEAK"
+msgstr "ПИК"
+
+msgid "UI_PERF_METRIC_DISPATCHER"
+msgstr "Диспетчер"
+
+msgid "UI_PERF_METRIC_STREAMING"
+msgstr "Streaming"
+
+msgid "UI_PERF_METRIC_PACKET"
+msgstr "Интеграция пакетов"
+
+msgid "UI_PERF_METRIC_PUBLISH_BEGIN"
+msgstr "Начало publish"
+
+msgid "UI_PERF_METRIC_PUBLISH_APPLY"
+msgstr "Terrain apply"
+
+msgid "UI_PERF_METRIC_OBJECT_UPLOAD"
+msgstr "Загрузка объектов"
+
+msgid "UI_PERF_METRIC_GRASS_UPLOAD"
+msgstr "Загрузка травы"
+
+msgid "UI_PERF_METRIC_MOUNTAIN_VISUAL"
+msgstr "Визуал гор"
+
+msgid "UI_PERF_METRIC_CHUNKS"
+msgstr "Чанки: в сцене / цель"
+
+msgid "UI_PERF_METRIC_PACKETS"
+msgstr "Пакеты: готово / запрос"
+
+msgid "UI_PERF_METRIC_PUBLISH_QUEUE"
+msgstr "Очередь publish"
+
+msgid "UI_PERF_METRIC_REVEAL_WAIT"
+msgstr "Ожидают показа"
+
+msgid "UI_PERF_METRIC_OBJECTS"
+msgstr "Объекты GPU / stage / worker"
+
+msgid "UI_PERF_METRIC_GRASS"
+msgstr "Трава GPU / worker / CPU"
+
+msgid "UI_PERF_METRIC_MASKS"
+msgstr "Маски worker / GPU / retry"
+
+msgid "UI_PERF_METRIC_CACHES"
+msgstr "Hot views / пакеты"
+
+msgid "UI_PERF_METRIC_CPU"
+msgstr "CPU / физика"
+
+msgid "UI_PERF_METRIC_DRAW_CALLS"
+msgstr "Draw calls"
+
+msgid "UI_PERF_METRIC_RENDER_OBJECTS"
+msgstr "Объекты рендера"
+
+msgid "UI_PERF_METRIC_MEMORY"
+msgstr "VRAM / RAM"
+
+msgid "UI_PERF_STATUS_WARMING"
+msgstr "СБОР ДАННЫХ"
+
+msgid "UI_PERF_STATUS_STABLE"
+msgstr "СТАБИЛЬНО"
+
+msgid "UI_PERF_STATUS_PRESSURE"
+msgstr "НАГРУЗКА"
+
+msgid "UI_PERF_STATUS_HITCH"
+msgstr "ФРИЗ"
+
+msgid "UI_PERF_MODE_COMPACT"
+msgstr "КОМПАКТ"
+
+msgid "UI_PERF_MODE_DETAILED"
+msgstr "ПОДРОБНО"
+
+msgid "UI_PERF_F3_MORE"
+msgstr "F3 — подробнее"
+
+msgid "UI_PERF_F3_HIDE"
+msgstr "F3 — скрыть"
+
+msgid "UI_PERF_LAST_HITCH"
+msgstr "ПОСЛЕДНИЙ ФРИЗ"
+
+msgid "UI_PERF_LAST_HITCH_NONE"
+msgstr "Фризов в текущем окне не обнаружено"
+
+msgid "UI_PERF_CAUSE_PACKET_INTEGRATION"
+msgstr "интеграция пакетов"
+
+msgid "UI_PERF_CAUSE_PUBLISH_BEGIN"
+msgstr "начало publish"
+
+msgid "UI_PERF_CAUSE_PUBLISH_APPLY"
+msgstr "terrain apply"
+
+msgid "UI_PERF_CAUSE_PUBLISH_FINALIZE"
+msgstr "завершение publish"
+
+msgid "UI_PERF_CAUSE_OBJECT_UPLOAD"
+msgstr "загрузка объектов"
+
+msgid "UI_PERF_CAUSE_OBJECT_ADOPT"
+msgstr "подключение объектов"
+
+msgid "UI_PERF_CAUSE_GRASS_UPLOAD"
+msgstr "загрузка травы"
+
+msgid "UI_PERF_CAUSE_MOUNTAIN_UPLOAD"
+msgstr "визуал гор"
+
+msgid "UI_PERF_CAUSE_WORLD_STREAMING"
+msgstr "поток мира"
+
+msgid "UI_PERF_CAUSE_EXTERNAL_OR_RENDER"
+msgstr "рендер / драйвер / система"
+
 msgid "UI_DEBUG_CHUNK_OVERLAY_TITLE"
 msgstr "F11 отладка чанков"
 

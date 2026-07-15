@@ -783,6 +783,59 @@ func get_mountain_contour_debug_state(chunk_coord: Vector2i) -> Dictionary:
 	return debug_state
 
 
+## HUD-safe O(1) snapshot. Keep this separate from the forensic mountain state
+## below: that diagnostic intentionally walks every ChunkView and takes backend
+## locks, which would make the profiler itself a source of frame-time noise.
+func get_perf_hud_snapshot() -> Dictionary:
+	var mountain_uploads: int = _pending_mountain_native_mask_visual_upload_chunks.size()
+	var terrain_uploads: int = _pending_terrain_edge_mask_visual_upload_chunks.size()
+	var mask_retries: int = (
+		_mountain_native_mask_retry_by_chunk.size()
+		+ _combined_halo_build_retry_by_chunk.size()
+	)
+	return {
+		"resident_views": _chunk_views.size(),
+		"desired_visible_chunks": _desired_visible_chunk_coords.size(),
+		"desired_source_chunks": _desired_source_chunk_coords.size(),
+		"packet_count": _chunk_packets.size(),
+		"requested_packets": _requested_chunks.size(),
+		"publish_queue": _pending_publish_queue.size(),
+		"publish_active": _active_publish_chunk != INVALID_CHUNK_COORD,
+		"visibility_wait": _pending_chunk_visibility_after_mountain_visual.size(),
+		"object_inflight": _object_presentation_inflight_chunks.size(),
+		"object_ready_cpu": _object_presentation_results_by_chunk.size(),
+		"object_upload_queue": _pending_object_packet_visual_upload_chunks.size(),
+		"object_prestage_queue": _pending_hot_object_prestage_chunks.size(),
+		"object_retire_queue": _object_presentation_retire_queue.size(),
+		"object_worker_ms": _object_presentation_worker_elapsed_ms_last,
+		"object_latency_ms": _object_presentation_request_to_complete_ms_last,
+		"object_warm_cache": _warm_object_presentation_cache.size(),
+		"object_warm_cache_bytes": _warm_object_presentation_cache_bytes,
+		"object_hot_cache": _hot_object_presentation_layers.size(),
+		"object_hot_cache_bytes": _hot_object_presentation_cache_bytes,
+		"object_pool": _object_presentation_layer_pool.size(),
+		"grass_inflight": _grass_scatter_inflight_chunks.size(),
+		"grass_ready_cpu": _grass_scatter_results_by_chunk.size(),
+		"grass_upload_queue": _pending_grass_scatter_visual_upload_chunks.size(),
+		"grass_worker_ms": _grass_scatter_worker_elapsed_ms_last,
+		"grass_latency_ms": _grass_scatter_request_to_complete_ms_last,
+		"grass_warm_cache": _warm_grass_scatter_cache.size(),
+		"grass_warm_cache_bytes": _warm_grass_scatter_cache_bytes,
+		"mountain_mask_inflight": _mountain_native_mask_inflight_chunks.size(),
+		"terrain_mask_inflight": _terrain_edge_mask_inflight_chunks.size(),
+		"mountain_mask_upload_queue": mountain_uploads,
+		"terrain_mask_upload_queue": terrain_uploads,
+		"mask_retry_queue": mask_retries,
+		"warm_packet_cache": _warm_base_chunk_packet_cache.size(),
+		"warm_packet_cache_capacity": WARM_PACKET_CACHE_MAX_CHUNKS,
+		"hot_view_cache": _hot_chunk_view_cache.size(),
+		"hot_view_cache_capacity": HOT_CHUNK_VIEW_CACHE_MAX_ENTRIES,
+		"worker_count": _world_compute_worker_count,
+		"stream_radius": _current_stream_radius_chunks,
+		"player_chunk": _player_chunk_coord,
+	}
+
+
 func get_mountain_mask_runtime_debug_state() -> Dictionary:
 	var visible_chunk_count: int = 0
 	var ready_native_mask_chunk_count: int = 0

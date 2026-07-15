@@ -3,12 +3,15 @@ extends Control
 ## Менеджер HUD. Размещает виджеты по зонам экрана.
 ## Добавить новый виджет = создать экземпляр + добавить в зону.
 
+const PerformanceHudWidgetScript = preload("res://scenes/ui/hud/hud_performance_widget.gd")
+
 # --- Зоны экрана ---
 var _top_left: VBoxContainer = null
 var _top_right: VBoxContainer = null
 var _bottom_left: VBoxContainer = null
 var _bottom_center: HBoxContainer = null
 var _alerts: VBoxContainer = null
+var _performance_hud: HudPerformanceWidget = null
 
 
 func _ready() -> void:
@@ -83,6 +86,11 @@ func _create_widgets() -> void:
 	_top_right.add_child(HudWeatherWidget.new())
 	_bottom_left.add_child(HudHintsWidget.new())
 
+	# Diagnostic overlay owns its absolute position and must not reflow survival
+	# widgets when F3 switches between compact and detailed modes.
+	_performance_hud = PerformanceHudWidgetScript.new() as HudPerformanceWidget
+	add_child(_performance_hud)
+
 	# === ЗАГЛУШКИ (раскомментировать когда появится механика) ===
 	# _top_left.add_child(HudHungerWidget.new())       # Этап 5.1
 	# _top_left.add_child(HudThirstWidget.new())       # Этап 5.1
@@ -90,3 +98,18 @@ func _create_widgets() -> void:
 	# _alerts.add_child(HudTemperatureAlert.new())     # Этап 5.4
 	# _alerts.add_child(HudToxicityAlert.new())        # Этап 5.5
 	# _bottom_center.add_child(HudQuickbar.new())      # Этап 8.2
+
+
+func set_performance_source(streamer: Node) -> void:
+	if _performance_hud != null:
+		_performance_hud.set_performance_source(streamer)
+
+
+func cycle_performance_mode() -> int:
+	if _performance_hud == null:
+		return HudPerformanceWidget.DisplayMode.HIDDEN
+	return _performance_hud.cycle_display_mode()
+
+
+func get_performance_hud() -> HudPerformanceWidget:
+	return _performance_hud
