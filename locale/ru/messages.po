@@ -1126,7 +1126,7 @@ msgid "UI_PERF_METRIC_CACHES"
 msgstr "Hot views / пакеты"
 
 msgid "UI_PERF_METRIC_CPU"
-msgstr "CPU / физика"
+msgstr "Кадр / физика"
 
 msgid "UI_PERF_METRIC_DRAW_CALLS"
 msgstr "Draw calls"
@@ -1147,7 +1147,7 @@ msgid "UI_PERF_STATUS_PRESSURE"
 msgstr "НАГРУЗКА"
 
 msgid "UI_PERF_STATUS_HITCH"
-msgstr "ФРИЗ"
+msgstr "ТЯЖЁЛЫЙ КАДР"
 
 msgid "UI_PERF_MODE_COMPACT"
 msgstr "КОМПАКТ"
@@ -1162,10 +1162,52 @@ msgid "UI_PERF_F3_HIDE"
 msgstr "F3 — скрыть"
 
 msgid "UI_PERF_LAST_HITCH"
-msgstr "ПОСЛЕДНИЙ ФРИЗ"
+msgstr "ПОСЛЕДНИЙ ПИК"
 
 msgid "UI_PERF_LAST_HITCH_NONE"
-msgstr "Фризов в текущем окне не обнаружено"
+msgstr "Пиков тяжелее 50 мс в текущем окне нет"
+
+msgid "UI_PERF_HINT_MORE"
+msgstr "F2 снимок  •  F4 REC  •  F3 подробнее"
+
+msgid "UI_PERF_HINT_HIDE"
+msgstr "F2 снимок  •  F4 REC  •  F3 скрыть"
+
+msgid "UI_PERF_REC_STATUS"
+msgstr "● REC {minutes}:{seconds} · {captures} PNG"
+
+msgid "UI_PERF_REC_SAVING"
+msgstr "СОХРАНЕНИЕ…"
+
+msgid "UI_PERF_REC_CAPTURING"
+msgstr "СНИМОК…"
+
+msgid "UI_PERF_RECORDING_STARTED"
+msgstr "Регистратор запущен. F4 — остановить и сохранить."
+
+msgid "UI_PERF_RECORDING_SAVING"
+msgstr "Сохраняю телеметрию…"
+
+msgid "UI_PERF_RECORDING_WAIT_CAPTURE"
+msgstr "Сначала дождитесь завершения текущего снимка."
+
+msgid "UI_PERF_RECORDING_SAVED"
+msgstr "Запись сохранена: {path}"
+
+msgid "UI_PERF_CAPTURE_PENDING"
+msgstr "Диагностический снимок будет сделан после отрисовки кадра."
+
+msgid "UI_PERF_CAPTURE_QUEUED"
+msgstr "Снимок поставлен следующим в очередь."
+
+msgid "UI_PERF_CAPTURE_SAVED"
+msgstr "PNG и данные кадра сохранены: {path}"
+
+msgid "UI_PERF_CAPTURE_FAILED"
+msgstr "Не удалось сохранить диагностику: {error}"
+
+msgid "UI_PERF_EVENT_LIMIT_REACHED"
+msgstr "В этой записи достигнут лимит диагностических снимков."
 
 msgid "UI_PERF_CAUSE_PACKET_INTEGRATION"
 msgstr "интеграция пакетов"

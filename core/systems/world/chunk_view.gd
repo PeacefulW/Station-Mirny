@@ -80,6 +80,7 @@ enum GrassScatterApplyPhase {
 	PREPARE,
 	SHADOW_BLOB,
 	SPORE_BLOB,
+	DIRECTIONAL_SHADOW,
 	STRIPES,
 	COMMIT,
 }
@@ -226,6 +227,7 @@ var _object_packet_visual_started: bool = false
 var _object_presentation_apply_failure: String = ""
 var _grass_scatter_layers: Array[MultiMeshInstance2D] = []
 var _grass_shadow_atlas_layers: Array[MultiMeshInstance2D] = []
+var _grass_directional_shadow_layer: MultiMeshInstance2D = null
 var _grass_depth_ladder: DepthLadderBandRoot = null
 var _grass_shadow_layer: MultiMeshInstance2D = null
 var _grass_spore_layer: MultiMeshInstance2D = null
@@ -234,6 +236,7 @@ var _pending_grass_scatter_result: Dictionary = { }
 var _grass_scatter_apply_phase: int = GrassScatterApplyPhase.IDLE
 var _grass_scatter_apply_stripe: int = 0
 var _grass_scatter_apply_uses_shadow_atlas: bool = false
+var _grass_scatter_apply_consolidates_directional_shadow: bool = false
 var _grass_scatter_presentation_hidden: bool = false
 const LADDER_ANCHOR_UNSET: int = 1 << 30
 var _applied_ladder_anchor_stripe: int = LADDER_ANCHOR_UNSET
@@ -345,6 +348,7 @@ func begin_apply(
 		_grass_scatter_apply_phase = GrassScatterApplyPhase.IDLE
 		_grass_scatter_apply_stripe = 0
 		_grass_scatter_apply_uses_shadow_atlas = false
+		_grass_scatter_apply_consolidates_directional_shadow = false
 	WorldPerfProbe.end("ChunkView.begin_apply.sync_objects", step_started)
 	step_started = WorldPerfProbe.begin()
 	if _debug_solid_mask_visible:
@@ -555,6 +559,7 @@ func prepare_for_chunk_view_cache() -> void:
 		_grass_scatter_apply_phase = GrassScatterApplyPhase.IDLE
 		_grass_scatter_apply_stripe = 0
 		_grass_scatter_apply_uses_shadow_atlas = false
+		_grass_scatter_apply_consolidates_directional_shadow = false
 		for layer: MultiMeshInstance2D in _grass_scatter_layers:
 			if layer != null and is_instance_valid(layer):
 				layer.visible = false
@@ -565,6 +570,10 @@ func prepare_for_chunk_view_cache() -> void:
 			if layer != null and is_instance_valid(layer):
 				layer.visible = false
 				layer.multimesh = null
+		if _grass_directional_shadow_layer != null \
+				and is_instance_valid(_grass_directional_shadow_layer):
+			_grass_directional_shadow_layer.visible = false
+			_grass_directional_shadow_layer.multimesh = null
 		if _grass_shadow_layer != null and is_instance_valid(_grass_shadow_layer):
 			_grass_shadow_layer.visible = false
 			_grass_shadow_layer.multimesh = null
@@ -618,6 +627,7 @@ func apply_pending_grass_scatter_visual_phase(
 		grass_shadow_atlas_material: ShaderMaterial,
 		shadow_material: ShaderMaterial,
 		spore_material: ShaderMaterial,
+		consolidate_directional_shadow: bool = false,
 ) -> bool:
 	if not _grass_scatter_visual_dirty or _pending_grass_scatter_result.is_empty():
 		return false
@@ -632,6 +642,9 @@ func apply_pending_grass_scatter_visual_phase(
 			_grass_scatter_apply_stripe = 0
 			_grass_scatter_apply_uses_shadow_atlas = \
 					grass_shadow_atlas != null and grass_shadow_atlas_material != null
+			_grass_scatter_apply_consolidates_directional_shadow = \
+					_grass_scatter_apply_uses_shadow_atlas \
+					and consolidate_directional_shadow
 			_hide_grass_scatter_presentation()
 			_grass_scatter_apply_phase = GrassScatterApplyPhase.SHADOW_BLOB
 			WorldPerfProbe.end("ChunkView.grass.prepare", phase_started)
@@ -656,8 +669,24 @@ func apply_pending_grass_scatter_visual_phase(
 				WorldRuntimeConstants.Z_GRASS_SPORE,
 				false,
 			)
-			_grass_scatter_apply_phase = GrassScatterApplyPhase.STRIPES
+			_grass_scatter_apply_phase = GrassScatterApplyPhase.DIRECTIONAL_SHADOW
 			WorldPerfProbe.end("ChunkView.grass.spore_blob", phase_started)
+			return true
+		GrassScatterApplyPhase.DIRECTIONAL_SHADOW:
+			var phase_started: int = WorldPerfProbe.begin()
+			var directional_shadow_buffer := PackedFloat32Array()
+			if _grass_scatter_apply_consolidates_directional_shadow:
+				directional_shadow_buffer = result.get(
+					"directional_shadow_buffer",
+					PackedFloat32Array(),
+				) as PackedFloat32Array
+			_stage_grass_directional_shadow_layer(
+				directional_shadow_buffer,
+				grass_shadow_atlas,
+				grass_shadow_atlas_material,
+			)
+			_grass_scatter_apply_phase = GrassScatterApplyPhase.STRIPES
+			WorldPerfProbe.end("ChunkView.grass.directional_shadow", phase_started)
 			return true
 		GrassScatterApplyPhase.STRIPES:
 			# Empty native buckets with no stale allocation require no RenderingServer
@@ -740,16 +769,33 @@ func get_grass_scatter_debug_state() -> Dictionary:
 	var instance_count: int = 0
 	var visible_instance_count: int = 0
 	var layer_visible: bool = false
+	var albedo_draw_layer_count: int = 0
 	for layer: MultiMeshInstance2D in _grass_scatter_layers:
 		if layer == null or not is_instance_valid(layer) or layer.multimesh == null:
 			continue
 		if layer.visible:
 			layer_visible = true
+			albedo_draw_layer_count += 1
 		instance_count += layer.multimesh.instance_count
 		var layer_visible_count: int = layer.multimesh.visible_instance_count
 		if layer_visible_count < 0:
 			layer_visible_count = layer.multimesh.instance_count
 		visible_instance_count += layer_visible_count
+	var legacy_shadow_draw_layer_count: int = 0
+	for layer: MultiMeshInstance2D in _grass_shadow_atlas_layers:
+		if layer != null \
+				and is_instance_valid(layer) \
+				and layer.visible \
+				and layer.multimesh != null \
+				and layer.multimesh.instance_count > 0:
+			legacy_shadow_draw_layer_count += 1
+	var consolidated_shadow_draw_layer_count: int = 0
+	if _grass_directional_shadow_layer != null \
+			and is_instance_valid(_grass_directional_shadow_layer) \
+			and _grass_directional_shadow_layer.visible \
+			and _grass_directional_shadow_layer.multimesh != null \
+			and _grass_directional_shadow_layer.multimesh.instance_count > 0:
+		consolidated_shadow_draw_layer_count = 1
 	var depth_ladder_state: Dictionary = { }
 	if _grass_depth_ladder != null and is_instance_valid(_grass_depth_ladder):
 		depth_ladder_state = _grass_depth_ladder.get_debug_state()
@@ -757,6 +803,18 @@ func get_grass_scatter_debug_state() -> Dictionary:
 		"instance_count": instance_count,
 		"visible_instance_count": visible_instance_count,
 		"visible": layer_visible,
+		"albedo_draw_layer_count": albedo_draw_layer_count,
+		"directional_shadow_draw_layer_count": \
+				legacy_shadow_draw_layer_count + consolidated_shadow_draw_layer_count,
+		"legacy_shadow_draw_layer_count": legacy_shadow_draw_layer_count,
+		"consolidated_shadow_draw_layer_count": consolidated_shadow_draw_layer_count,
+		"grass_and_directional_shadow_draw_layer_count": \
+				albedo_draw_layer_count \
+				+ legacy_shadow_draw_layer_count \
+				+ consolidated_shadow_draw_layer_count,
+		"directional_shadow_mode": \
+				"consolidated" if _grass_scatter_apply_consolidates_directional_shadow \
+				else "per_stripe",
 		"pending": _grass_scatter_visual_dirty,
 		"apply_phase": _grass_scatter_apply_phase,
 		"apply_stripe": _grass_scatter_apply_stripe,
@@ -801,15 +859,20 @@ func _stage_grass_scatter_stripe(
 	multimesh.buffer = buffer
 	layer.multimesh = multimesh
 	if _grass_scatter_apply_uses_shadow_atlas:
-		if shadow_atlas_layer == null or not is_instance_valid(shadow_atlas_layer):
-			shadow_atlas_layer = _create_grass_shadow_atlas_layer(
-				stripe_index,
-				grass_shadow_atlas,
-				grass_shadow_atlas_material,
-			)
-			_grass_shadow_atlas_layers[stripe_index] = shadow_atlas_layer
-		shadow_atlas_layer.multimesh = multimesh
-		shadow_atlas_layer.visible = false
+		if _grass_scatter_apply_consolidates_directional_shadow:
+			if shadow_atlas_layer != null and is_instance_valid(shadow_atlas_layer):
+				shadow_atlas_layer.visible = false
+				shadow_atlas_layer.multimesh = null
+		else:
+			if shadow_atlas_layer == null or not is_instance_valid(shadow_atlas_layer):
+				shadow_atlas_layer = _create_grass_shadow_atlas_layer(
+					stripe_index,
+					grass_shadow_atlas,
+					grass_shadow_atlas_material,
+				)
+				_grass_shadow_atlas_layers[stripe_index] = shadow_atlas_layer
+			shadow_atlas_layer.multimesh = multimesh
+			shadow_atlas_layer.visible = false
 	elif shadow_atlas_layer != null and is_instance_valid(shadow_atlas_layer):
 		shadow_atlas_layer.visible = false
 		shadow_atlas_layer.multimesh = null
@@ -862,6 +925,40 @@ func _stage_grass_blob_layer(
 	layer.visible = false
 
 
+## Full-detail directional shadows are fixed below the whole depth ladder, so
+## native flattens their transforms on the worker and this phase performs one
+## bounded raw upload. Fractional-LOD profiles retain the per-stripe path above.
+func _stage_grass_directional_shadow_layer(
+		buffer: PackedFloat32Array,
+		grass_shadow_atlas: Texture2D,
+		grass_shadow_atlas_material: ShaderMaterial,
+) -> void:
+	var count: int = buffer.size() / 12
+	if count <= 0 or grass_shadow_atlas == null or grass_shadow_atlas_material == null:
+		if _grass_directional_shadow_layer != null \
+				and is_instance_valid(_grass_directional_shadow_layer):
+			_grass_directional_shadow_layer.visible = false
+			_grass_directional_shadow_layer.multimesh = null
+		return
+	if _grass_directional_shadow_layer == null \
+			or not is_instance_valid(_grass_directional_shadow_layer):
+		_grass_directional_shadow_layer = MultiMeshInstance2D.new()
+		_grass_directional_shadow_layer.name = "GrassDirectionalShadowBatch"
+		_grass_directional_shadow_layer.z_index = WorldRuntimeConstants.Z_GRASS_SHADOW + 1
+		_grass_directional_shadow_layer.texture_filter = \
+				CanvasItem.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS
+		_grass_directional_shadow_layer.texture = grass_shadow_atlas
+		_grass_directional_shadow_layer.material = grass_shadow_atlas_material
+		add_child(_grass_directional_shadow_layer)
+	var multimesh: MultiMesh = _prepare_grass_multimesh(
+		_grass_directional_shadow_layer.multimesh,
+		count,
+	)
+	multimesh.buffer = buffer
+	_grass_directional_shadow_layer.multimesh = multimesh
+	_grass_directional_shadow_layer.visible = false
+
+
 func _hide_grass_scatter_presentation() -> void:
 	if _grass_scatter_presentation_hidden:
 		return
@@ -871,6 +968,9 @@ func _hide_grass_scatter_presentation() -> void:
 	for layer: MultiMeshInstance2D in _grass_shadow_atlas_layers:
 		if layer != null and is_instance_valid(layer):
 			layer.visible = false
+	if _grass_directional_shadow_layer != null \
+			and is_instance_valid(_grass_directional_shadow_layer):
+		_grass_directional_shadow_layer.visible = false
 	if _grass_shadow_layer != null and is_instance_valid(_grass_shadow_layer):
 		_grass_shadow_layer.visible = false
 	if _grass_spore_layer != null and is_instance_valid(_grass_spore_layer):
@@ -890,7 +990,14 @@ func _commit_grass_scatter_presentation() -> void:
 		var shadow_atlas_layer: MultiMeshInstance2D = _grass_shadow_atlas_layers[stripe_index]
 		if shadow_atlas_layer != null and is_instance_valid(shadow_atlas_layer):
 			shadow_atlas_layer.visible = _grass_scatter_apply_uses_shadow_atlas \
+					and not _grass_scatter_apply_consolidates_directional_shadow \
 					and has_instances
+	if _grass_directional_shadow_layer != null \
+			and is_instance_valid(_grass_directional_shadow_layer):
+		_grass_directional_shadow_layer.visible = \
+				_grass_scatter_apply_consolidates_directional_shadow \
+				and _grass_directional_shadow_layer.multimesh != null \
+				and _grass_directional_shadow_layer.multimesh.instance_count > 0
 	if _grass_shadow_layer != null and is_instance_valid(_grass_shadow_layer):
 		_grass_shadow_layer.visible = not _grass_scatter_apply_uses_shadow_atlas \
 				and _grass_shadow_layer.multimesh != null \

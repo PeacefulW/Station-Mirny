@@ -304,6 +304,7 @@ Dictionary build_buffer(
 	Dictionary result;
 	result["bucket_buffers"] = Array();
 	result["instance_count"] = 0;
+	result["directional_shadow_buffer"] = PackedFloat32Array();
 	// Keep cache-accounting fields present on every exit path.  The payload is
 	// the exact byte size of all PackedFloat32Array contents returned below;
 	// Array/container overhead is intentionally not part of the transferable
@@ -524,6 +525,10 @@ Dictionary build_buffer(
 	}
 
 	Array bucket_buffers;
+	PackedFloat32Array directional_shadow_packed;
+	directional_shadow_packed.resize(static_cast<int64_t>(emitted) * 12);
+	float *directional_shadow_out = emitted > 0 ? directional_shadow_packed.ptrw() : nullptr;
+	int64_t directional_shadow_offset = 0;
 	int64_t buffer_float_count = 0;
 	int64_t non_empty_bucket_count = 0;
 	for (int32_t depth_stripe = 0; depth_stripe < DEPTH_STRIPES_PER_CHUNK; depth_stripe++) {
@@ -535,6 +540,15 @@ Dictionary build_buffer(
 		float *out = buffer.ptrw();
 		std::copy(large.begin(), large.end(), out);
 		std::copy(small.begin(), small.end(), out + large.size());
+		// Directional shadows are fixed below the complete depth ladder. Flatten
+		// the already-finalized stripe order on this worker so full-detail chunks
+		// need one shadow draw and GDScript never copies per-instance floats.
+		if (bucket_float_count > 0) {
+			std::copy(large.begin(), large.end(), directional_shadow_out + directional_shadow_offset);
+			directional_shadow_offset += static_cast<int64_t>(large.size());
+			std::copy(small.begin(), small.end(), directional_shadow_out + directional_shadow_offset);
+			directional_shadow_offset += static_cast<int64_t>(small.size());
+		}
 		bucket_buffers.append(buffer);
 		buffer_float_count += bucket_float_count;
 		if (bucket_float_count > 0) {
@@ -543,6 +557,7 @@ Dictionary build_buffer(
 	}
 	result["bucket_buffers"] = bucket_buffers;
 	result["instance_count"] = emitted;
+	result["directional_shadow_buffer"] = directional_shadow_packed;
 
 	PackedFloat32Array shadow_packed;
 	shadow_packed.resize(static_cast<int64_t>(shadow_buf.size()));
@@ -557,7 +572,7 @@ Dictionary build_buffer(
 		std::copy(spore_buf.begin(), spore_buf.end(), spore_packed.ptrw());
 	}
 	result["spore_buffer"] = spore_packed;
-	buffer_float_count += shadow_packed.size() + spore_packed.size();
+	buffer_float_count += directional_shadow_packed.size() + shadow_packed.size() + spore_packed.size();
 	result["buffer_float_count"] = buffer_float_count;
 	result["payload_bytes"] = buffer_float_count * static_cast<int64_t>(sizeof(float));
 	result["non_empty_bucket_count"] = non_empty_bucket_count;

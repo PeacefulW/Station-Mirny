@@ -129,6 +129,23 @@ enum NativeBeginState {
 	COMPLETE,
 	FAILED,
 }
+
+# Scheduler-facing phase hints. Allocation families are intentionally distinct:
+# their Node/RenderingServer costs differ enough that one global estimate would
+# either underpredict tree graphs or unnecessarily serialize lighter decor.
+const PRESENTATION_PHASE_NONE: StringName = &""
+const PRESENTATION_PHASE_TREE_SLOT_ALLOCATION: StringName = &"tree_slot_allocate"
+const PRESENTATION_PHASE_LIVING_SLOT_ALLOCATION: StringName = &"living_slot_allocate"
+const PRESENTATION_PHASE_SPIKY_SLOT_ALLOCATION: StringName = &"spiky_slot_allocate"
+const PRESENTATION_PHASE_ROCK_SLOT_ALLOCATION: StringName = &"rock_slot_allocate"
+const PRESENTATION_PHASE_TREE_APPLY: StringName = &"tree_apply"
+const PRESENTATION_PHASE_TREE_COLLISIONS: StringName = &"tree_collisions"
+const PRESENTATION_PHASE_LIVING_APPLY: StringName = &"living_apply"
+const PRESENTATION_PHASE_SPIKY_APPLY: StringName = &"spiky_apply"
+const PRESENTATION_PHASE_ROCK_APPLY: StringName = &"rock_apply"
+const PRESENTATION_PHASE_RETIRE: StringName = &"retire"
+const PRESENTATION_PHASE_COMMIT: StringName = &"commit"
+
 var _native_apply_state: NativeApplyState = NativeApplyState.IDLE
 var _native_collision_records: PackedFloat32Array = PackedFloat32Array()
 var _native_collision_record_index: int = 0
@@ -767,6 +784,10 @@ func apply_next_presentation_slice(
 		rock_stripes_per_slice: int,
 ) -> bool:
 	_last_apply_created_visual_slot = false
+	# Compatibility callers may still use this single entry point. Capacity
+	# reservation remains allocation-only and always returns before a raw upload.
+	if next_presentation_slice_requires_visual_slot_allocation():
+		return apply_next_presentation_allocation_only()
 	match _native_apply_state:
 		NativeApplyState.RESET_PREVIOUS_COLLISIONS:
 			_remove_previous_tree_collision_slice(maxi(1, colliders_per_slice))
@@ -862,22 +883,65 @@ func apply_next_presentation_slice(
 			return false
 
 
-func next_presentation_slice_requires_visual_slot_allocation() -> bool:
+func get_next_presentation_apply_phase_hint() -> StringName:
 	match _native_apply_state:
 		NativeApplyState.TREE_BUCKETS:
-			return not _layered_tree_batch_layer.has_pending_retire() \
-					and _layered_tree_batch_layer.next_batch_requires_slot_allocation()
+			if _layered_tree_batch_layer.has_pending_retire():
+				return PRESENTATION_PHASE_RETIRE
+			return PRESENTATION_PHASE_TREE_SLOT_ALLOCATION \
+					if _layered_tree_batch_layer.has_pending_required_slot_allocation() \
+					else PRESENTATION_PHASE_TREE_APPLY
+		NativeApplyState.TREE_COLLISIONS:
+			return PRESENTATION_PHASE_TREE_COLLISIONS
 		NativeApplyState.LIVING_FLORA_BUFFERS:
-			return not _native_living_flora_batch_layer.has_pending_retire() \
-					and _native_living_flora_batch_layer.next_batch_requires_slot_allocation()
+			if _native_living_flora_batch_layer.has_pending_retire():
+				return PRESENTATION_PHASE_RETIRE
+			return PRESENTATION_PHASE_LIVING_SLOT_ALLOCATION \
+					if _native_living_flora_batch_layer.has_pending_required_slot_allocation() \
+					else PRESENTATION_PHASE_LIVING_APPLY
 		NativeApplyState.SPIKY_FLORA_BUFFERS:
-			return not _native_spiky_flora_batch_layer.has_pending_retire() \
-					and _native_spiky_flora_batch_layer.next_batch_requires_slot_allocation()
+			if _native_spiky_flora_batch_layer.has_pending_retire():
+				return PRESENTATION_PHASE_RETIRE
+			return PRESENTATION_PHASE_SPIKY_SLOT_ALLOCATION \
+					if _native_spiky_flora_batch_layer.has_pending_required_slot_allocation() \
+					else PRESENTATION_PHASE_SPIKY_APPLY
 		NativeApplyState.ROCK_BUCKETS:
-			return not _layered_small_rock_batch_layer.has_pending_retire() \
-					and _layered_small_rock_batch_layer.next_batch_requires_slot_allocation()
+			if _layered_small_rock_batch_layer.has_pending_retire():
+				return PRESENTATION_PHASE_RETIRE
+			return PRESENTATION_PHASE_ROCK_SLOT_ALLOCATION \
+					if _layered_small_rock_batch_layer.has_pending_required_slot_allocation() \
+					else PRESENTATION_PHASE_ROCK_APPLY
+		NativeApplyState.RETIRE_UNUSED_VISUALS:
+			return PRESENTATION_PHASE_RETIRE
+		NativeApplyState.COMMIT_BLOCKING:
+			return PRESENTATION_PHASE_COMMIT
 		_:
-			return false
+			return PRESENTATION_PHASE_NONE
+
+
+func apply_next_presentation_allocation_only() -> bool:
+	_last_apply_created_visual_slot = false
+	var allocated: bool = false
+	match get_next_presentation_apply_phase_hint():
+		PRESENTATION_PHASE_TREE_SLOT_ALLOCATION:
+			allocated = _layered_tree_batch_layer.allocate_next_required_slot()
+		PRESENTATION_PHASE_LIVING_SLOT_ALLOCATION:
+			allocated = _native_living_flora_batch_layer.allocate_next_required_slot()
+		PRESENTATION_PHASE_SPIKY_SLOT_ALLOCATION:
+			allocated = _native_spiky_flora_batch_layer.allocate_next_required_slot()
+		PRESENTATION_PHASE_ROCK_SLOT_ALLOCATION:
+			allocated = _layered_small_rock_batch_layer.allocate_next_required_slot()
+	_last_apply_created_visual_slot = allocated
+	return allocated
+
+
+func next_presentation_slice_requires_visual_slot_allocation() -> bool:
+	return get_next_presentation_apply_phase_hint() in [
+		PRESENTATION_PHASE_TREE_SLOT_ALLOCATION,
+		PRESENTATION_PHASE_LIVING_SLOT_ALLOCATION,
+		PRESENTATION_PHASE_SPIKY_SLOT_ALLOCATION,
+		PRESENTATION_PHASE_ROCK_SLOT_ALLOCATION,
+	]
 
 
 func did_last_presentation_slice_create_visual_slot() -> bool:
@@ -1663,6 +1727,7 @@ func get_debug_state() -> Dictionary:
 		"layered_small_rock_shadow_count": _layered_small_rock_shadow_instance_count(),
 		"uses_native_presentation_buffers": _native_apply_state != NativeApplyState.IDLE,
 		"native_apply_state": NativeApplyState.keys()[_native_apply_state],
+		"native_apply_phase_hint": get_next_presentation_apply_phase_hint(),
 		"native_begin_state": NativeBeginState.keys()[_native_begin_state],
 		"native_blocking_ready": _native_blocking_ready,
 		"native_presentation_complete": _native_presentation_complete,

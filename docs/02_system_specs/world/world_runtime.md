@@ -4,8 +4,8 @@ doc_type: system_spec
 status: approved
 owner: engineering
 source_of_truth: true
-version: 1.7
-last_updated: 2026-07-14
+version: 1.9
+last_updated: 2026-07-15
 related_docs:
   - ../../README.md
   - ../../00_governance/WORKFLOW.md
@@ -107,7 +107,10 @@ Canvas visibility does not disable physics.
 The object upload lane is completion-biased. Reveal-frontier/live transactions
 always precede source-padding prestage, and the selected atomic transaction
 keeps the lane until `COMPLETE` unless a higher urgency class or genuinely
-closer same-class reveal deadline arrives. Enqueue detects that preemption in
+closer same-class reveal deadline arrives. Within an urgency class, wrapped
+squared chunk distance from the player orders the current player-centered
+viewport from its central coverage outward; enqueue turn is the stable tie
+breaker. Enqueue detects that preemption in
 O(1); equal/lower priority dirtiness waits for the focused transaction instead
 of repeatedly rescanning and starving uploads. The unique-token visual queue is
 hard-capped to the current plus outgoing source windows, removes tokens through
@@ -124,16 +127,35 @@ reveal-frame CanvasItem reparent while preserving identical world transforms.
 The dispatcher never performs raw apply and reveal in one callback: one APPLY
 phase may consume several predictively bounded sub-slices, then a
 later FINALIZE phase adopts the completed world-parented layer and releases
-visibility plus collision atomically. The process-frame reveal guard also
-prevents the mountain visual job from bypassing that boundary later in the same
-frame. A small bounded boot/recycle pool owns first-use family envelopes and
+visibility plus collision atomically. Safe homogeneous phases may keep the
+dispatcher job active in the same process frame only while the lane's measured
+elapsed time plus a phase-specific conservative lookahead fits its `0.75 ms`
+budget. This continuation is limited to an incomplete bounded priority scan,
+incremental begin work that touches no Nodes/GPU/colliders, warmed APPLY slices
+whose phase hint remains unchanged, and explicitly measured allocation-only
+reservation described below. Upload-to-collider/family/retire/commit transitions
+are process-frame boundaries. Priority
+selection commit, cold envelope construction, depth-anchor rebase,
+COMPLETE/cache commit, and FINALIZE always yield; a hard callback cap also
+protects zero-resolution timer cases. The
+process-frame reveal guard prevents both a repeated object callback and the
+mountain visual job from bypassing the APPLY-to-FINALIZE boundary later in the
+same frame. A small bounded boot/recycle pool owns first-use family envelopes and
 their first stripe resources outside the moving-player deadline. Every envelope
 also prepares the fixed depth-band roots and optional living contact-shadow
 graph. After the boot pool is exhausted, the cold transaction persists across
 explicit callbacks: bare shell, tree fixed bands, rock fixed bands, optional
-flora fixed graphs, collision owner, then incremental family begin. A missing
-per-stripe visual slot is an allocation-only callback; its packed visual/shadow
-buffer is uploaded in a later warmed callback. The latest depth-ladder anchor is
+flora fixed graphs, collision owner, then incremental family begin. Before raw
+apply, every enabled tree, living-flora, spiky-flora, or rock family counts its
+non-empty worker buckets and reserves missing per-stripe draw capacity through
+an explicit allocation-only API. The first cold allocation of each family
+always yields. Later allocations of that same family may request one additional
+dispatcher callback only when its monotonic per-family measured high-water plus
+`25% + 25 us` safety margin keeps the allocation lane within `0.65 ms`; at most
+two allocation-only callbacks may run in one process frame. A high outlier
+raises the session high-water and stops continuation. Allocation never advances
+the staged cursor, and the first packed visual/shadow upload always waits for a
+later process frame. The latest depth-ladder anchor is
 rebased once after `COMPLETE` in its own callback before adoption/reveal, so a
 moving player cannot combine a band migration with raw upload or cause hidden
 staging to chase every anchor stripe.

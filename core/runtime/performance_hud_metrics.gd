@@ -13,7 +13,7 @@ enum Health {
 
 const DEFAULT_HISTORY_CAPACITY: int = 300
 const FRAME_BUDGET_60_FPS_MS: float = 1000.0 / 60.0
-const HITCH_THRESHOLD_MS: float = 22.0
+const HITCH_THRESHOLD_MS: float = 50.0
 const CAUSE_MIN_DURATION_MS: float = 1.5
 const CAUSE_MIN_FRAME_SHARE: float = 0.20
 const CAUSE_MIN_EXCESS_SHARE: float = 0.40

@@ -22,6 +22,7 @@ func _run() -> void:
 	_test_shared_compute_priority_contract()
 	await _test_backend_start_stop_restart()
 	_test_object_visual_queue_completion_priority()
+	_test_object_visual_lane_budgeted_continuation()
 	_test_object_visual_queue_cap_and_live_tick_preemption()
 	_test_object_result_drain_is_cpu_only()
 	_test_terminal_failure_is_dispatcher_only()
@@ -372,6 +373,103 @@ func _test_object_visual_queue_completion_priority() -> void:
 		"hidden prestage runs after the live frontier drains",
 	)
 	streamer.free()
+
+
+func _test_object_visual_lane_budgeted_continuation() -> void:
+	var streamer_script: Script = load("res://core/systems/world/world_streamer.gd") as Script
+	var streamer: Node = streamer_script.new() as Node
+	streamer._player_chunk_coord = Vector2i.ZERO
+	# More than one bounded scan slice proves the real dispatcher callback can
+	# stay active without crossing into the selected envelope phase.
+	for index: int in range(
+		streamer.OBJECT_PRESENTATION_PRIORITY_SCAN_MAX_ITEMS_PER_PHASE * 3,
+	):
+		streamer._queue_object_packet_visual_upload(Vector2i(index + 20, 80))
+	var dispatcher: FrameBudgetDispatcherNode = FrameBudgetDispatcherNode.new()
+	root.add_child(dispatcher)
+	dispatcher.register_job(
+		RuntimeWorkTypes.CATEGORY_STREAMING,
+		streamer.OBJECT_PRESENTATION_VISUAL_UPLOAD_BUDGET_MS,
+		Callable(streamer, "_object_presentation_visual_apply_tick"),
+		&"test.object_visual_budgeted_continuation",
+	)
+	dispatcher._process(0.0)
+	var callback_count: int = streamer._object_presentation_visual_lane_callback_count
+	_expect(
+		callback_count > 1,
+		"FrameBudgetDispatcher consumes more than one safe object callback per frame",
+	)
+	_expect(
+		callback_count <= streamer.OBJECT_PRESENTATION_MAX_DISPATCH_CALLBACKS_PER_FRAME,
+		"object visual lane callback count stays hard-bounded",
+	)
+	_expect(
+		streamer._object_packet_visual_selection_phase_prepared \
+				and streamer._hot_object_presentation_layers.is_empty(),
+		"priority completion yields before envelope or GPU work",
+	)
+	dispatcher.free()
+	streamer.free()
+
+	var guarded_streamer: Node = streamer_script.new() as Node
+	guarded_streamer._player_chunk_coord = Vector2i.ZERO
+	for index: int in range(
+		guarded_streamer.OBJECT_PRESENTATION_PRIORITY_SCAN_MAX_ITEMS_PER_PHASE * 2,
+	):
+		guarded_streamer._queue_object_packet_visual_upload(Vector2i(index + 20, 90))
+	guarded_streamer._object_presentation_visual_lane_frame = int(Engine.get_process_frames())
+	guarded_streamer._object_presentation_visual_lane_started_usec = \
+			Time.get_ticks_usec() \
+			- guarded_streamer.OBJECT_PRESENTATION_VISUAL_UPLOAD_BUDGET_USEC \
+			+ 1
+	guarded_streamer._object_presentation_visual_lane_callback_count = 0
+	_expect(
+		not guarded_streamer._object_presentation_visual_apply_tick() \
+				and guarded_streamer._object_packet_visual_priority_scan_active,
+		"lane lookahead refuses another callback when the per-frame budget is exhausted",
+	)
+	guarded_streamer.free()
+
+	var allocation_streamer: Node = streamer_script.new() as Node
+	var family: StringName = \
+			WorldObjectPacketLayer.PRESENTATION_PHASE_TREE_SLOT_ALLOCATION
+	allocation_streamer._record_object_presentation_allocation_measurement(family, 80)
+	_expect(
+		allocation_streamer._object_presentation_allocation_lookahead_fits_lane(400, family),
+		"measured family high-water plus safety margin may use the 0.65 ms allocation lane",
+	)
+	allocation_streamer._record_object_presentation_allocation_measurement(family, 520)
+	_expect(
+		not allocation_streamer._object_presentation_allocation_lookahead_fits_lane(0, family),
+		"one allocation outlier raises the monotonic high-water and stops continuation",
+	)
+	var allocation_coord := Vector2i.ZERO
+	allocation_streamer._player_chunk_coord = allocation_coord
+	allocation_streamer._queue_object_packet_visual_upload(allocation_coord)
+	allocation_streamer._focused_object_packet_visual_upload_chunk = allocation_coord
+	allocation_streamer._object_packet_visual_priority_dirty = false
+	allocation_streamer._object_presentation_visual_lane_started_usec = Time.get_ticks_usec()
+	allocation_streamer._object_presentation_allocation_high_water_usec_by_family[family] = 40
+	allocation_streamer._object_presentation_allocation_callback_count = 1
+	_expect(
+		allocation_streamer._can_continue_object_presentation_allocation_lane(
+			Time.get_ticks_usec(),
+			family,
+			allocation_coord,
+		),
+		"one measured allocation may request the second allocation-only callback",
+	)
+	allocation_streamer._object_presentation_allocation_callback_count = \
+			allocation_streamer.OBJECT_PRESENTATION_MAX_ALLOCATION_CALLBACKS_PER_FRAME
+	_expect(
+		not allocation_streamer._can_continue_object_presentation_allocation_lane(
+			Time.get_ticks_usec(),
+			family,
+			allocation_coord,
+		),
+		"allocation-only continuation stops at two callbacks per process frame",
+	)
+	allocation_streamer.free()
 
 
 func _test_object_visual_queue_cap_and_live_tick_preemption() -> void:
@@ -1017,7 +1115,13 @@ func _test_incremental_cold_envelope_revision_and_accounting() -> void:
 				and layer.get_raw_multimesh_upload_count_total() == 0,
 		"begin runs only after fixed graph readiness and performs no raw upload",
 	)
-	_advance_object_presentation_work_phase(streamer)
+	var allocation_has_safe_continuation: bool = \
+			streamer._object_presentation_visual_apply_tick()
+	entry = streamer._hot_object_presentation_layers.get(coord, { }) as Dictionary
+	var allocation_started_families: Dictionary = entry.get(
+		"allocation_started_families",
+		{ },
+	) as Dictionary
 	_expect(
 		bool(
 			(layer.get_debug_state().get("tree_batch", { }) as Dictionary).get(
@@ -1028,13 +1132,32 @@ func _test_incremental_cold_envelope_revision_and_accounting() -> void:
 		"missing first slot is a standalone visual allocation phase",
 	)
 	_expect(
+		allocation_started_families.has(
+			WorldObjectPacketLayer.PRESENTATION_PHASE_TREE_SLOT_ALLOCATION,
+		) \
+				and layer.get_next_presentation_apply_phase_hint() \
+						== WorldObjectPacketLayer.PRESENTATION_PHASE_TREE_APPLY,
+		"first tree allocation is recorded per family and leaves raw apply as the next phase",
+	)
+	_expect(
+		not allocation_has_safe_continuation,
+		"first family allocation yields before the dispatcher can upload in the same frame",
+	)
+	_expect(
 		layer.get_raw_multimesh_upload_count_total() == 0,
 		"standalone slot allocation does not upload its pending raw buffer",
 	)
-	_advance_object_presentation_work_phase(streamer)
+	var upload_has_safe_continuation: bool = \
+			streamer._object_presentation_visual_apply_tick()
 	_expect(
 		layer.get_raw_multimesh_upload_count_total() == 2,
 		"the following warmed phase uploads tree visual and shadow buffers",
+	)
+	_expect(
+		not upload_has_safe_continuation \
+				and layer.get_next_presentation_apply_phase_hint() \
+						== WorldObjectPacketLayer.PRESENTATION_PHASE_TREE_COLLISIONS,
+		"tree upload to collider transition yields at the heterogeneous frame boundary",
 	)
 	streamer.free()
 

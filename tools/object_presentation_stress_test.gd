@@ -617,6 +617,10 @@ func _drain_result(
 		var tree_stripe_before: int = int(tree_before.get("next_stripe", 0))
 		var rock_stripe_before: int = int(rock_before.get("next_stripe", 0))
 		var colliders_before: int = int(before.get("tree_collider_count", 0))
+		var phase_hint: StringName = object_layer.get_next_presentation_apply_phase_hint()
+		var allocation_only: bool = \
+				object_layer.next_presentation_slice_requires_visual_slot_allocation()
+		var uploads_before: int = object_layer.get_raw_multimesh_upload_count_total()
 		var start_usec: int = Time.get_ticks_usec()
 		var advanced: bool = object_layer.apply_next_presentation_slice(
 			TREE_STRIPES_PER_SLICE,
@@ -629,6 +633,20 @@ func _drain_result(
 			elapsed_usec,
 		)
 		_expect(advanced, "%s %s slice advances" % [label, state_before])
+		if allocation_only:
+			var expected_allocation_hint: StringName = \
+					WorldObjectPacketLayer.PRESENTATION_PHASE_TREE_SLOT_ALLOCATION \
+					if state_before == "TREE_BUCKETS" \
+					else WorldObjectPacketLayer.PRESENTATION_PHASE_ROCK_SLOT_ALLOCATION
+			_expect(
+				phase_hint == expected_allocation_hint,
+				"%s %s exposes its family allocation phase" % [label, state_before],
+			)
+			_expect(
+				object_layer.did_last_presentation_slice_create_visual_slot() \
+						and object_layer.get_raw_multimesh_upload_count_total() == uploads_before,
+				"%s %s allocation advances no raw upload" % [label, state_before],
+			)
 		var after: Dictionary = object_layer.get_debug_state()
 		match state_before:
 			"RESET_PREVIOUS_COLLISIONS":

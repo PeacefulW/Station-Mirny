@@ -12,6 +12,11 @@ func _init() -> void:
 
 func _run() -> void:
 	await process_frame
+	var shadow_image := Image.create(2, 2, false, Image.FORMAT_RGBA8)
+	shadow_image.fill(Color.WHITE)
+	var grass_atlas := ImageTexture.create_from_image(shadow_image)
+	var grass_material := ShaderMaterial.new()
+	var shadow_material := ShaderMaterial.new()
 	var streamer_script: Script = load("res://core/systems/world/world_streamer.gd") as Script
 	var streamer: Node = streamer_script.new() as Node
 	_expect(not streamer._chunk_depth_ladder_can_change(Vector2i(0, -4), 0, 3),
@@ -46,7 +51,15 @@ func _run() -> void:
 	var guard: int = 0
 	while view.has_pending_grass_scatter_visual() and guard < 80:
 		_expect(
-			view.apply_pending_grass_scatter_visual_phase(null, null, null, null, null, null),
+			view.apply_pending_grass_scatter_visual_phase(
+				grass_atlas,
+				grass_material,
+				grass_atlas,
+				shadow_material,
+				null,
+				null,
+				true,
+			),
 			"every staged grass phase must advance",
 		)
 		guard += 1
@@ -56,12 +69,19 @@ func _run() -> void:
 	var state_before: Dictionary = view.get_grass_scatter_debug_state()
 	_expect(int(state_before.get("instance_count", 0)) == 1, "test grass instance must exist")
 	_expect(bool(state_before.get("visible", false)), "committed grass must be visible")
+	_expect(int(state_before.get("albedo_draw_layer_count", 0)) == 1,
+		"single-stripe fixture must expose one grass draw layer")
+	_expect(int(state_before.get("consolidated_shadow_draw_layer_count", 0)) == 1,
+		"full-LOD fixture must expose one consolidated directional-shadow layer")
+	_expect(int(state_before.get("legacy_shadow_draw_layer_count", -1)) == 0,
+		"full-LOD fixture must not expose a per-stripe directional-shadow draw")
 
 	var layer: MultiMeshInstance2D = view._grass_scatter_layers[3]
 	_expect(layer != null and layer.multimesh != null, "grass stripe must own a MultiMesh")
 	var view_id: int = view.get_instance_id()
 	var layer_id: int = layer.get_instance_id()
 	var multimesh_rid: RID = layer.multimesh.get_rid()
+	var directional_shadow_rid: RID = view._grass_directional_shadow_layer.multimesh.get_rid()
 	var cache_hits_before: int = streamer._hot_chunk_view_cache_hit_count_total
 	var preserve_hits_before: int = streamer._hot_chunk_view_grass_preserve_hit_count_total
 
@@ -122,6 +142,8 @@ func _run() -> void:
 	_expect(layer.get_instance_id() == layer_id, "exact reuse must keep the same grass layer")
 	_expect(layer.multimesh.get_rid() == multimesh_rid,
 		"exact reuse must keep the same GPU MultiMesh RID")
+	_expect(reused._grass_directional_shadow_layer.multimesh.get_rid() == directional_shadow_rid,
+		"exact reuse must keep the consolidated directional-shadow MultiMesh RID")
 	_expect(streamer._pending_grass_scatter_visual_upload_chunks.is_empty(),
 		"exact reuse must not enqueue a grass re-upload")
 	_expect(streamer._grass_scatter_inflight_chunks.is_empty(),
@@ -162,7 +184,15 @@ func _run() -> void:
 		_build_grass_result(coord, epoch, revision + 1),
 	), "stale view must accept its replacement grass transaction")
 	for _phase: int in range(5):
-		stale_reuse.apply_pending_grass_scatter_visual_phase(null, null, null, null, null, null)
+		stale_reuse.apply_pending_grass_scatter_visual_phase(
+			grass_atlas,
+			grass_material,
+			grass_atlas,
+			shadow_material,
+			null,
+			null,
+			true,
+		)
 	streamer._cache_chunk_view(coord, stale_reuse)
 	_expect(stale_reuse._pending_grass_scatter_result.is_empty(),
 		"hot cache must release a partial grass CPU envelope")
@@ -170,6 +200,8 @@ func _run() -> void:
 		"hot cache must cancel a partial grass phase machine")
 	_expect(stale_reuse._grass_scatter_layers[3].multimesh == null,
 		"hot cache must release partial grass GPU buffers")
+	_expect(stale_reuse._grass_directional_shadow_layer.multimesh == null,
+		"hot cache must release a partial consolidated shadow GPU buffer")
 	var recycled_coord := coord + Vector2i.RIGHT
 	streamer._ladder_anchor_stripe = 37
 	var recycled: ChunkView = streamer._ensure_chunk_view(recycled_coord)
@@ -226,7 +258,23 @@ func _run() -> void:
 	_expect(bool(edge_halo.get("success", false)),
 		"finite world edge must build a combined native halo with explicit void slots")
 
+	_assert_directional_shadow_layer_count_contract(
+		grass_atlas,
+		grass_material,
+		shadow_material,
+	)
+
+	# This synthetic streamer is intentionally never added to SceneTree, so its
+	# normal _exit_tree() backend stop cannot run. Drain the worker explicitly and
+	# release test-only render resources before quitting to keep leak diagnostics
+	# meaningful for production objects.
+	streamer._world_compute_backend.stop()
 	streamer.free()
+	grass_atlas = null
+	grass_material = null
+	shadow_material = null
+	shadow_image = null
+	await process_frame
 	if not _failures.is_empty():
 		for failure: String in _failures:
 			push_error(failure)
@@ -283,11 +331,120 @@ func _build_grass_result(coord: Vector2i, epoch: int, revision: int) -> Dictiona
 		"revision": revision,
 		"instance_count": 1,
 		"bucket_buffers": bucket_buffers,
+		"directional_shadow_buffer": bucket_buffers[3],
 		"shadow_buffer": PackedFloat32Array(),
 		"spore_buffer": PackedFloat32Array(),
-		"buffer_float_count": 12,
-		"payload_bytes": 48,
+		"buffer_float_count": 24,
+		"payload_bytes": 96,
 		"non_empty_bucket_count": 1,
+	}
+
+
+func _assert_directional_shadow_layer_count_contract(
+		grass_atlas: Texture2D,
+		grass_material: ShaderMaterial,
+		shadow_material: ShaderMaterial,
+) -> void:
+	var full_lod_view := ChunkView.new()
+	root.add_child(full_lod_view)
+	full_lod_view.configure(Vector2i.ZERO)
+	full_lod_view.begin_apply(_build_packet(Vector2i.ZERO), true, false, false)
+	full_lod_view.seed_mid_ladder_z(31)
+	var dense_result: Dictionary = _build_dense_grass_result()
+	_expect(full_lod_view.stage_grass_scatter_result(dense_result),
+		"dense full-LOD grass result must stage")
+	var guard: int = 0
+	while full_lod_view.has_pending_grass_scatter_visual() and guard < 80:
+		full_lod_view.apply_pending_grass_scatter_visual_phase(
+			grass_atlas,
+			grass_material,
+			grass_atlas,
+			shadow_material,
+			null,
+			null,
+			true,
+		)
+		guard += 1
+	_expect(guard < 80, "dense full-LOD grass transaction must complete")
+	var full_state: Dictionary = full_lod_view.get_grass_scatter_debug_state()
+	_expect(int(full_state.get("albedo_draw_layer_count", 0)) == 64,
+		"dense fixture must retain all 64 exact albedo depth stripes")
+	_expect(int(full_state.get("directional_shadow_draw_layer_count", 0)) == 1,
+		"64 albedo stripes must collapse to one directional-shadow draw layer")
+	_expect(int(full_state.get("grass_and_directional_shadow_draw_layer_count", 0)) == 65,
+		"full-LOD layer proof must reduce the old 128 draw layers to 65")
+	_expect(int(full_state.get("legacy_shadow_draw_layer_count", -1)) == 0,
+		"consolidated mode must leave legacy shadow draw layers hidden")
+	var ladder_state: Dictionary = full_state.get("depth_ladder", { }) as Dictionary
+	_expect(int(ladder_state.get("registered_item_count", 0)) == 64,
+		"consolidation must not remove or merge exact albedo ladder stripes")
+	_expect(full_lod_view._grass_directional_shadow_layer.z_index \
+			== WorldRuntimeConstants.Z_GRASS_SHADOW + 1,
+		"consolidated shadow must remain at the exact fixed pre-ladder z")
+	_expect(int(dense_result.get("payload_bytes", 0)) == 64 * 12 * 4 * 2,
+		"warm-cache payload accounting must include bucket and flat shadow copies")
+	full_lod_view.free()
+
+	var fractional_view := ChunkView.new()
+	root.add_child(fractional_view)
+	fractional_view.configure(Vector2i.ZERO)
+	fractional_view.begin_apply(_build_packet(Vector2i.ZERO), true, false, false)
+	_expect(fractional_view.stage_grass_scatter_result(dense_result),
+		"fractional-LOD compatibility result must stage")
+	guard = 0
+	while fractional_view.has_pending_grass_scatter_visual() and guard < 80:
+		fractional_view.apply_pending_grass_scatter_visual_phase(
+			grass_atlas,
+			grass_material,
+			grass_atlas,
+			shadow_material,
+			null,
+			null,
+			false,
+		)
+		guard += 1
+	_expect(guard < 80, "fractional-LOD compatibility transaction must complete")
+	var legacy_rid: RID = fractional_view._grass_shadow_atlas_layers[0].multimesh.get_rid()
+	fractional_view.set_grass_scatter_lod_fraction(0.5)
+	var fractional_state: Dictionary = fractional_view.get_grass_scatter_debug_state()
+	_expect(int(fractional_state.get("legacy_shadow_draw_layer_count", 0)) == 64,
+		"fractional profile must retain exact per-stripe shadows")
+	_expect(int(fractional_state.get("consolidated_shadow_draw_layer_count", -1)) == 0,
+		"fractional profile must not publish a consolidated shadow")
+	_expect(fractional_view._grass_shadow_atlas_layers[0].multimesh.get_rid() == legacy_rid,
+		"zoom LOD must trim the legacy graph without rebuilding its MultiMesh")
+	_expect(fractional_view._grass_shadow_atlas_layers[0].multimesh.visible_instance_count == 1,
+		"legacy shadow must share the grass stripe's exact LOD count")
+	fractional_view.free()
+
+
+func _build_dense_grass_result() -> Dictionary:
+	var buckets: Array = []
+	var flat := PackedFloat32Array()
+	flat.resize(WorldRuntimeConstants.DEPTH_STRIPES_PER_CHUNK * 12)
+	for stripe_index: int in range(WorldRuntimeConstants.DEPTH_STRIPES_PER_CHUNK):
+		var instance := PackedFloat32Array([
+			1.0, 0.0, 0.0, float(stripe_index * 4),
+			0.0, 1.0, 0.0, float(stripe_index * WorldRuntimeConstants.DEPTH_STRIPE_PX),
+			1.0, 1.0, 1.0, 1.0,
+		])
+		buckets.append(instance)
+		for element_index: int in range(12):
+			flat[stripe_index * 12 + element_index] = instance[element_index]
+	var float_count: int = flat.size() * 2
+	return {
+		"success": true,
+		"target_chunk": Vector2i.ZERO,
+		"epoch": 1,
+		"revision": 1,
+		"instance_count": WorldRuntimeConstants.DEPTH_STRIPES_PER_CHUNK,
+		"bucket_buffers": buckets,
+		"directional_shadow_buffer": flat,
+		"shadow_buffer": PackedFloat32Array(),
+		"spore_buffer": PackedFloat32Array(),
+		"buffer_float_count": float_count,
+		"payload_bytes": float_count * 4,
+		"non_empty_bucket_count": WorldRuntimeConstants.DEPTH_STRIPES_PER_CHUNK,
 	}
 
 

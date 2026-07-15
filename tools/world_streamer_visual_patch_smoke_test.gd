@@ -247,6 +247,7 @@ func _assert_grass_scatter_keeps_mountain_clearance() -> void:
 	)
 	var instance_count: int = int(result.get("instance_count", 0))
 	_assert(instance_count > 0, "Grass mountain-clearance check must generate grass instances.")
+	_assert_grass_directional_shadow_buffer_contract(result)
 	var checked_count: int = 0
 	var bucket_buffers: Array = result.get("bucket_buffers", []) as Array
 	for bucket_variant: Variant in bucket_buffers:
@@ -262,6 +263,50 @@ func _assert_grass_scatter_keeps_mountain_clearance() -> void:
 			)
 			offset += GRASS_INSTANCE_STRIDE
 	_assert(checked_count == instance_count, "Grass bucket buffers must align with instance_count.")
+
+
+func _assert_grass_directional_shadow_buffer_contract(result: Dictionary) -> void:
+	var instance_count: int = int(result.get("instance_count", 0))
+	var directional: PackedFloat32Array = result.get(
+		"directional_shadow_buffer",
+		PackedFloat32Array(),
+	) as PackedFloat32Array
+	_assert(directional.size() == instance_count * GRASS_INSTANCE_STRIDE,
+		"Native directional-shadow buffer must contain every tuft exactly once.")
+	var bucket_buffers: Array = result.get("bucket_buffers", []) as Array
+	var flat_offset: int = 0
+	var bucket_float_count: int = 0
+	var non_empty_bucket_count: int = 0
+	for bucket_variant: Variant in bucket_buffers:
+		var bucket: PackedFloat32Array = bucket_variant as PackedFloat32Array
+		bucket_float_count += bucket.size()
+		if not bucket.is_empty():
+			non_empty_bucket_count += 1
+		for value: float in bucket:
+			_assert(flat_offset < directional.size() \
+					and is_equal_approx(directional[flat_offset], value),
+				"Directional-shadow flattening must preserve finalized bucket order.")
+			flat_offset += 1
+	_assert(flat_offset == directional.size(),
+		"Directional-shadow flattening must not append or omit transforms.")
+	var contact_shadow: PackedFloat32Array = result.get(
+		"shadow_buffer",
+		PackedFloat32Array(),
+	) as PackedFloat32Array
+	var spores: PackedFloat32Array = result.get(
+		"spore_buffer",
+		PackedFloat32Array(),
+	) as PackedFloat32Array
+	var expected_float_count: int = bucket_float_count \
+			+ directional.size() \
+			+ contact_shadow.size() \
+			+ spores.size()
+	_assert(int(result.get("buffer_float_count", -1)) == expected_float_count,
+		"Grass producer metadata must include the flat directional-shadow payload.")
+	_assert(int(result.get("payload_bytes", -1)) == expected_float_count * 4,
+		"Grass warm-cache byte metadata must remain exact and O(1).")
+	_assert(int(result.get("non_empty_bucket_count", -1)) == non_empty_bucket_count,
+		"Grass non-empty stripe metadata must remain exact after flattening.")
 
 ## Regression for the 2026-07-04 grass-in-mountain bug: a mountain sitting in a
 ## NEIGHBOURING chunk must still clear grass near the shared seam. The target

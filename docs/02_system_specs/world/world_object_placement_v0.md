@@ -4,8 +4,8 @@ doc_type: system_spec
 status: draft
 owner: engineering+design
 source_of_truth: true
-version: 0.6
-last_updated: 2026-07-14
+version: 0.8
+last_updated: 2026-07-15
 related_docs:
   - ../../00_governance/ENGINEERING_STANDARDS.md
   - ../../00_governance/PROJECT_GLOSSARY.md
@@ -451,18 +451,36 @@ Required direction:
   source windows and uses O(1) indexed removal. Dirty priority selection scans a
   stable bounded snapshot across standalone callbacks; enqueue invalidates a
   prepared selection only for a higher class or closer same-class deadline, so
-  continuous equal/lower arrivals cannot starve the focused upload;
+  continuous equal/lower arrivals cannot starve the focused upload. Same-class
+  distance is wrapped squared chunk distance from the player, with enqueue turn
+  as the stable tie breaker; for the current player-centered camera this drains
+  maximum central viewport coverage before the outer ring;
 - APPLY and FINALIZE are distinct dispatcher callbacks/frames. APPLY may group
-  only predictively bounded sub-slices of the focused transaction; adoption,
-  visibility, and collision release happen later and never follow an upload in
-  the same callback. Boot-prepared/recycled layer envelopes absorb first-use
+  only predictively bounded sub-slices of the focused transaction. The object
+  lane may request another dispatcher callback in the same process frame only
+  for an incomplete bounded priority scan, incremental begin work without
+  Node/GPU/collider mutation, warmed APPLY work with one unchanged phase hint,
+  or the explicitly measured allocation-only continuation below, and only while
+  measured lane time plus
+  phase-specific lookahead fits the registered `0.75 ms` budget. Selection
+  commit, cold fixed-graph construction, anchor migration, COMPLETE, cache
+  commit, and FINALIZE always yield; adoption, visibility, and collision
+  release happen later and never follow an upload in the same process frame.
+  Boot-prepared/recycled layer envelopes absorb first-use
   fixed-graph Node/RenderingServer allocation without unbounded pooling. The
   envelope includes all three depth-band roots and the optional living-flora
   contact-shadow MultiMesh/unit texture. Cold shells persist through separate
   tree-fixed, rock-fixed, optional-flora, collision-owner, and family-begin
-  callbacks. Per-stripe draw slots continue to grow incrementally: a missing
-  slot owns one allocation-only callback and raw visual/shadow upload follows in
-  a later callback. Depth-anchor migration is also standalone and runs once on
+  callbacks. Tree, living flora, spiky flora, and rock expose distinct phase
+  hints and allocation-only APIs. Before raw apply, each family counts its
+  occupied buffers and reserves exactly one missing draw slot per callback
+  without advancing an upload cursor. Its first cold allocation always yields;
+  later same-family reservations may run at most twice per process frame under
+  a separate `0.65 ms` ceiling, using a monotonic family high-water with a
+  `25% + 25 us` safety margin. Any outlier therefore makes later scheduling more
+  conservative. Raw visual/shadow upload always follows in a later process
+  frame. Upload-to-collider, next-family, retire, and commit transitions are also
+  process-frame boundaries. Depth-anchor migration is standalone and runs once on
   the latest anchor after `COMPLETE`, before adoption/reveal;
 - eviction is queue-only. A separate retire dispatcher performs exactly one
   visual-slot group, bounded collider slice, final reset, pool transition, trim

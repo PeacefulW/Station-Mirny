@@ -338,11 +338,28 @@ func _verify_invalid_spiky_bank_is_rejected(world_core: Object, catalog: AssetCa
 func _drain_atomic_flora_apply(object_layer: WorldObjectPacketLayer, label: String) -> int:
 	var slice_count: int = 0
 	var guard: int = 16
+	var allocation_counts: Dictionary = { }
 	while object_layer.has_pending_presentation_apply():
 		var before: Dictionary = object_layer.get_debug_state()
 		var state_before: String = str(before.get("native_apply_state", ""))
-		var advanced: bool = object_layer.apply_next_presentation_slice(1, 4, 1)
+		var phase_hint: StringName = object_layer.get_next_presentation_apply_phase_hint()
+		var allocation_only: bool = \
+				object_layer.next_presentation_slice_requires_visual_slot_allocation()
+		var uploads_before: int = object_layer.get_raw_multimesh_upload_count_total()
+		var advanced: bool = object_layer.apply_next_presentation_allocation_only() \
+				if allocation_only \
+				else object_layer.apply_next_presentation_slice(1, 4, 1)
 		_expect(advanced, "%s %s slice advances" % [label, state_before])
+		if allocation_only:
+			allocation_counts[phase_hint] = int(allocation_counts.get(phase_hint, 0)) + 1
+			_expect(
+				object_layer.did_last_presentation_slice_create_visual_slot(),
+				"%s %s hint performs one explicit allocation" % [label, phase_hint],
+			)
+			_expect(
+				object_layer.get_raw_multimesh_upload_count_total() == uploads_before,
+				"%s %s allocation cannot upload a raw buffer" % [label, phase_hint],
+			)
 		var after: Dictionary = object_layer.get_debug_state()
 		if state_before == "LIVING_FLORA_BUFFERS":
 			var living: Dictionary = after.get("living_flora_batch", { }) as Dictionary
@@ -363,6 +380,21 @@ func _drain_atomic_flora_apply(object_layer: WorldObjectPacketLayer, label: Stri
 		if guard < 0:
 			_failures.append("%s flora apply exceeded structural slice bound" % label)
 			break
+	if label == "first":
+		_expect(
+			int(allocation_counts.get(
+				WorldObjectPacketLayer.PRESENTATION_PHASE_LIVING_SLOT_ALLOCATION,
+				0,
+			)) == 3,
+			"cold living flora reserves two sprite slots plus its shadow graph",
+		)
+		_expect(
+			int(allocation_counts.get(
+				WorldObjectPacketLayer.PRESENTATION_PHASE_SPIKY_SLOT_ALLOCATION,
+				0,
+			)) == 2,
+			"cold spiky flora reserves both sprite slots through its own phase hint",
+		)
 	return slice_count
 
 

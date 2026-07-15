@@ -15,6 +15,7 @@ var _slots: Array[Dictionary] = []
 var _staged_buffers: Array[PackedFloat32Array] = []
 var _next_stripe: int = 0
 var _active_slot_count: int = 0
+var _required_slot_count: int = 0
 var _instance_count: int = 0
 var _world_origin_y: float = 0.0
 var _applied_anchor_stripe: int = LADDER_ANCHOR_UNSET
@@ -59,6 +60,7 @@ func begin_apply(native_result: Dictionary) -> bool:
 	_staged_buffers = buffers
 	_next_stripe = 0
 	_active_slot_count = 0
+	_required_slot_count = _count_non_empty_buffers(buffers)
 	_instance_count = 0
 	_has_pending_apply = true
 	_has_pending_retire = false
@@ -97,6 +99,12 @@ func apply_next_batch(max_stripes: int) -> bool:
 	_last_slice_created_slot = false
 	if not _has_pending_apply:
 		return false
+	# Cold capacity reservation is an explicit phase. Front-load exactly one
+	# missing slot and return before touching a raw MultiMesh buffer; the caller
+	# may then schedule another allocation-only callback from measured lookahead.
+	if has_pending_required_slot_allocation():
+		allocate_next_required_slot()
+		return true
 	var stripe_budget: int = maxi(max_stripes, 1)
 	var applied_stripes: int = 0
 	while _next_stripe < STRIPE_COUNT and applied_stripes < stripe_budget:
@@ -119,17 +127,28 @@ func apply_next_batch(max_stripes: int) -> bool:
 		return true
 	_staged_buffers.clear()
 	_has_pending_apply = false
+	_required_slot_count = 0
 	_begin_retire_inactive_slots(_active_slot_count)
 	return false
 
 
-func next_batch_requires_slot_allocation() -> bool:
-	if not _has_pending_apply:
+func has_pending_required_slot_allocation() -> bool:
+	return _has_pending_apply and _slots.size() < _required_slot_count
+
+
+## Allocates exactly one pooled stripe graph without advancing the packet
+## cursor or uploading any worker buffer. Returns true only when capacity grew.
+func allocate_next_required_slot() -> bool:
+	_last_slice_created_slot = false
+	if not has_pending_required_slot_allocation():
 		return false
-	for stripe_index: int in range(_next_stripe, STRIPE_COUNT):
-		if not _staged_buffers[stripe_index].is_empty():
-			return _active_slot_count >= _slots.size()
-	return false
+	_ensure_slot(_slots.size())
+	_last_slice_created_slot = true
+	return true
+
+
+func next_batch_requires_slot_allocation() -> bool:
+	return has_pending_required_slot_allocation()
 
 
 func did_last_slice_create_slot() -> bool:
@@ -141,6 +160,7 @@ func cancel_pending_apply() -> void:
 	_has_pending_apply = false
 	_next_stripe = 0
 	_active_slot_count = 0
+	_required_slot_count = 0
 	_instance_count = 0
 	visible = false
 	_begin_retire_inactive_slots(0)
@@ -235,6 +255,8 @@ func get_debug_state() -> Dictionary:
 		"instance_count": _instance_count,
 		"active_stripe_count": _active_slot_count,
 		"pooled_slot_count": _slots.size(),
+		"required_slot_count": _required_slot_count,
+		"has_pending_slot_allocation": has_pending_required_slot_allocation(),
 		"has_pending_apply": _has_pending_apply,
 		"raw_multimesh_upload_count_total": _raw_multimesh_upload_count_total,
 		"resident_instance_count": _resident_instance_count,
@@ -268,6 +290,14 @@ func _validated_buffers(value: Variant) -> Array[PackedFloat32Array]:
 			return []
 		result.append(buffer)
 	return result
+
+
+static func _count_non_empty_buffers(buffers: Array[PackedFloat32Array]) -> int:
+	var count: int = 0
+	for buffer: PackedFloat32Array in buffers:
+		if not buffer.is_empty():
+			count += 1
+	return count
 
 
 func _ensure_slot(slot_index: int) -> Dictionary:

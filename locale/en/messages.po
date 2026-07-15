@@ -1126,7 +1126,7 @@ msgid "UI_PERF_METRIC_CACHES"
 msgstr "Hot views / packets"
 
 msgid "UI_PERF_METRIC_CPU"
-msgstr "CPU / physics"
+msgstr "Frame / physics"
 
 msgid "UI_PERF_METRIC_DRAW_CALLS"
 msgstr "Draw calls"
@@ -1147,7 +1147,7 @@ msgid "UI_PERF_STATUS_PRESSURE"
 msgstr "PRESSURE"
 
 msgid "UI_PERF_STATUS_HITCH"
-msgstr "HITCH"
+msgstr "HEAVY FRAME"
 
 msgid "UI_PERF_MODE_COMPACT"
 msgstr "COMPACT"
@@ -1162,10 +1162,52 @@ msgid "UI_PERF_F3_HIDE"
 msgstr "F3 — hide"
 
 msgid "UI_PERF_LAST_HITCH"
-msgstr "LAST HITCH"
+msgstr "LAST SPIKE"
 
 msgid "UI_PERF_LAST_HITCH_NONE"
-msgstr "No hitches detected in the current window"
+msgstr "No spikes above 50 ms in the current window"
+
+msgid "UI_PERF_HINT_MORE"
+msgstr "F2 snapshot  •  F4 REC  •  F3 details"
+
+msgid "UI_PERF_HINT_HIDE"
+msgstr "F2 snapshot  •  F4 REC  •  F3 hide"
+
+msgid "UI_PERF_REC_STATUS"
+msgstr "● REC {minutes}:{seconds} · {captures} PNG"
+
+msgid "UI_PERF_REC_SAVING"
+msgstr "SAVING…"
+
+msgid "UI_PERF_REC_CAPTURING"
+msgstr "SNAPSHOT…"
+
+msgid "UI_PERF_RECORDING_STARTED"
+msgstr "Flight recorder started. Press F4 to stop and save."
+
+msgid "UI_PERF_RECORDING_SAVING"
+msgstr "Saving telemetry…"
+
+msgid "UI_PERF_RECORDING_WAIT_CAPTURE"
+msgstr "Wait for the current snapshot to finish first."
+
+msgid "UI_PERF_RECORDING_SAVED"
+msgstr "Recording saved: {path}"
+
+msgid "UI_PERF_CAPTURE_PENDING"
+msgstr "The diagnostic snapshot will be captured after frame draw."
+
+msgid "UI_PERF_CAPTURE_QUEUED"
+msgstr "Snapshot queued as the next capture."
+
+msgid "UI_PERF_CAPTURE_SAVED"
+msgstr "PNG and frame data saved: {path}"
+
+msgid "UI_PERF_CAPTURE_FAILED"
+msgstr "Could not save diagnostics: {error}"
+
+msgid "UI_PERF_EVENT_LIMIT_REACHED"
+msgstr "This recording has reached its diagnostic capture limit."
 
 msgid "UI_PERF_CAUSE_PACKET_INTEGRATION"
 msgstr "packet integration"

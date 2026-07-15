@@ -2,9 +2,13 @@ class_name WorldRuntimeV0Scene
 extends Node2D
 
 const WorldRuntimeConstants = preload("res://core/systems/world/world_runtime_constants.gd")
+const PerformanceFlightRecorderScript = preload(
+	"res://core/runtime/performance_flight_recorder.gd"
+)
 
 var _booted_chunk_coords: Dictionary = { }
 var _world_initialized: bool = false
+var _performance_recorder: PerformanceFlightRecorder = null
 
 @onready var _world_streamer: WorldStreamer = $WorldStreamer as WorldStreamer
 @onready var _postprocess_overlay: Node = $PostProcessLayer/PostProcessOverlay
@@ -12,8 +16,12 @@ var _world_initialized: bool = false
 
 
 func _ready() -> void:
+	_performance_recorder = PerformanceFlightRecorderScript.new() as PerformanceFlightRecorder
+	add_child(_performance_recorder)
+	_performance_recorder.setup(_world_streamer, _postprocess_overlay)
 	if _hud_manager != null:
 		_hud_manager.set_performance_source(_world_streamer)
+		_hud_manager.set_performance_recorder(_performance_recorder)
 	if TimeManager and TimeManager.has_method("set_paused"):
 		TimeManager.set_paused(false)
 	if EventBus and not EventBus.world_initialized.is_connected(_on_world_initialized):
@@ -31,9 +39,17 @@ func _unhandled_input(event: InputEvent) -> void:
 	var key_event: InputEventKey = event as InputEventKey
 	if not key_event.pressed or key_event.echo:
 		return
-	if key_event.keycode == KEY_F3:
+	if key_event.keycode == KEY_F2:
+		if _performance_recorder != null:
+			_performance_recorder.capture_manual_snapshot()
+		get_viewport().set_input_as_handled()
+	elif key_event.keycode == KEY_F3:
 		if _hud_manager != null:
 			_hud_manager.cycle_performance_mode()
+		get_viewport().set_input_as_handled()
+	elif key_event.keycode == KEY_F4:
+		if _performance_recorder != null:
+			_performance_recorder.toggle_recording()
 		get_viewport().set_input_as_handled()
 	elif key_event.keycode == KEY_F5:
 		var save_slot: String = (

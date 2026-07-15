@@ -77,12 +77,17 @@ constexpr int32_t DEPTH_STRIPES_PER_CHUNK = 64;
 // last), so zoom LOD can trim each stripe's tail via visible_instance_count
 // without a rebuild. Tufts inside strong orange_region pick frames from the
 // biofield atlas bank.
+// "directional_shadow_buffer" is the exact bucket contents flattened in stripe
+// order (instance_count * 12 floats). The directional atlas pass is fixed below
+// the depth ladder, so a full-detail consumer uploads this worker-produced array
+// once instead of creating one shadow CanvasItem per non-empty stripe.
 // Also returns "shadow_buffer" (one flat contact-shadow blob per large tuft,
 // rendered below the grass ladder) and "spore_buffer" (sparse glowing motes
 // above strong orange_region cores, drifting on the wind globals). Both are
 // 12-float MultiMesh layouts; spore color packs (phase, drift_seed, _, alpha).
 // "buffer_float_count" is the exact total number of floats across all bucket,
-// shadow and spore buffers; "payload_bytes" is that count times sizeof(float),
+// directional-shadow, contact-shadow and spore buffers; "payload_bytes" is
+// that count times sizeof(float),
 // and "non_empty_bucket_count" counts non-empty depth-stripe bucket buffers.
 // All three metadata keys are present and zero on validation failures/empty
 // results, allowing O(1) cache accounting without rescanning packed arrays.

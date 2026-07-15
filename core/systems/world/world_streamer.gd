@@ -197,9 +197,24 @@ const OBJECT_PRESENTATION_LAYER_POOL_TARGET_SIZE: int = 2
 const OBJECT_PRESENTATION_LAYER_POOL_MAX_SIZE: int = 4
 const OBJECT_PRESENTATION_POOL_INITIAL_SLOTS_PER_FAMILY: int = 4
 const OBJECT_PRESENTATION_SLICE_SOFT_BUDGET_USEC: int = 350
-const OBJECT_PRESENTATION_MAX_SUBSLICES_PER_FRAME: int = 8
+const OBJECT_PRESENTATION_MAX_APPLY_SUBSLICES_PER_CALLBACK: int = 8
 const OBJECT_PRESENTATION_PRIORITY_SCAN_SOFT_BUDGET_USEC: int = 150
 const OBJECT_PRESENTATION_PRIORITY_SCAN_MAX_ITEMS_PER_PHASE: int = 16
+# The dispatcher may immediately call a job again while it returns true. Keep a
+# second local guard because object phases have different costs: the previous
+# dispatcher sample cannot predict a transition from a cheap control phase to a
+# GPU allocation. This cap also prevents a zero-microsecond timer resolution
+# from producing an unbounded callback loop.
+const OBJECT_PRESENTATION_MAX_DISPATCH_CALLBACKS_PER_FRAME: int = 8
+const OBJECT_PRESENTATION_VISUAL_UPLOAD_BUDGET_USEC: int = \
+		int(OBJECT_PRESENTATION_VISUAL_UPLOAD_BUDGET_MS * 1000.0)
+# Slot graphs are allocation-only callbacks. They use a tighter local ceiling
+# than the registered lane and never spend its final 0.10 ms safety reserve.
+const OBJECT_PRESENTATION_ALLOCATION_SOFT_BUDGET_USEC: int = 650
+const OBJECT_PRESENTATION_MAX_ALLOCATION_CALLBACKS_PER_FRAME: int = 2
+const OBJECT_PRESENTATION_ALLOCATION_LOOKAHEAD_NUMERATOR: int = 5
+const OBJECT_PRESENTATION_ALLOCATION_LOOKAHEAD_DENOMINATOR: int = 4
+const OBJECT_PRESENTATION_ALLOCATION_LOOKAHEAD_FIXED_MARGIN_USEC: int = 25
 const OBJECT_PRESENTATION_RETIRE_BUDGET_MS: float = 0.35
 const OBJECT_PRESENTATION_RETIRE_VISUAL_SLOTS_PER_PHASE: int = 1
 const OBJECT_PRESENTATION_RETIRE_COLLIDERS_PER_PHASE: int = 4
@@ -385,6 +400,17 @@ var _object_packet_visual_priority_scan_best: Vector2i = INVALID_CHUNK_COORD
 var _object_packet_visual_priority_scan_best_class: int = 2147483647
 var _object_packet_visual_priority_scan_best_priority: int = 0
 var _object_packet_visual_priority_scan_best_turn: int = 0
+# Safe phases may keep the dispatcher lane active in the current process frame.
+# The lane timer is independent from the dispatcher's last-step predictor so a
+# heterogeneous next phase can reserve its own conservative lookahead.
+var _object_presentation_visual_lane_frame: int = -1
+var _object_presentation_visual_lane_started_usec: int = 0
+var _object_presentation_visual_lane_callback_count: int = 0
+var _object_presentation_allocation_callback_count: int = 0
+# Per-family maxima are intentionally monotonic for the session. A rare slow
+# RenderingServer allocation must make future lookahead more conservative, not
+# be averaged away by many cheap decor slots.
+var _object_presentation_allocation_high_water_usec_by_family: Dictionary = { }
 # COMPLETE is produced by an upload callback; adopt plus the atomic visual /
 # collision reveal run together in a later FINALIZE callback. The guard also
 # blocks the lower-priority mountain visual job from revealing a chunk later in
@@ -457,6 +483,7 @@ var _grass_lod_full_zoom: float = 0.8
 var _grass_lod_min_zoom: float = 0.18
 var _grass_lod_min_fraction: float = 0.35
 var _grass_lod_fraction: float = 1.0
+var _grass_directional_shadow_consolidation_enabled: bool = false
 var _ladder_anchor_stripe: int = LADDER_ANCHOR_UNSET
 var _mountain_native_mask_visual_upload_count_total: int = 0
 var _mountain_native_mask_visual_upload_count_last_tick: int = 0
@@ -3162,6 +3189,11 @@ func _ensure_grass_scatter_sources() -> void:
 	_grass_lod_full_zoom = float(grass_params.get("lod_full_zoom", 0.8))
 	_grass_lod_min_zoom = float(grass_params.get("lod_min_zoom", 0.18))
 	_grass_lod_min_fraction = float(grass_params.get("lod_min_fraction", 0.35))
+	# The mode is authored-envelope static, never current-zoom dependent. A
+	# fractional profile keeps per-stripe shadows for exact LOD identity; the
+	# checked-in full-detail profile can use one fixed-z shadow batch per chunk.
+	_grass_directional_shadow_consolidation_enabled = \
+			_grass_lod_min_fraction >= 0.9999
 
 
 ## Exactly one bounded GPU phase per callback. FrameBudgetDispatcher may call
@@ -3184,6 +3216,7 @@ func _grass_scatter_visual_apply_tick() -> bool:
 		_grass_shadow_atlas_material,
 		_grass_shadow_material,
 		_grass_spore_material,
+		_grass_directional_shadow_consolidation_enabled,
 	)
 	WorldPerfProbe.end("WorldStreamer.visual_upload.grass_scatter_phase", grass_started)
 	if not advanced or not chunk_view.has_pending_grass_scatter_visual():
@@ -3284,11 +3317,121 @@ func _is_object_presentation_reveal_deferred(chunk_coord: Vector2i) -> bool:
 	return false
 
 
-## Exactly one main-thread phase per dispatcher callback: envelope OR one raw
-## upload/collider slice OR cache commit OR atomic adopt+reveal. Returning false
-## is intentional: FrameBudgetDispatcher must not immediately call the next
-## phase in the same frame, even when the first one happened to be cheap.
+func _begin_object_presentation_visual_lane_callback() -> int:
+	var now_usec: int = Time.get_ticks_usec()
+	var process_frame: int = int(Engine.get_process_frames())
+	if process_frame != _object_presentation_visual_lane_frame:
+		_object_presentation_visual_lane_frame = process_frame
+		_object_presentation_visual_lane_started_usec = now_usec
+		_object_presentation_visual_lane_callback_count = 0
+		_object_presentation_allocation_callback_count = 0
+	_object_presentation_visual_lane_callback_count += 1
+	return now_usec
+
+
+## Returns true only for a known-safe next callback whose conservative
+## lookahead still fits the lane's own per-frame budget. FrameBudgetDispatcher
+## also enforces the registered 0.75 ms cap, but its previous-step estimate
+## cannot safely predict a transition between heterogeneous object phases.
+func _can_continue_object_presentation_visual_lane(
+		callback_started_usec: int,
+		next_phase_lookahead_usec: int,
+		expected_focus: Vector2i = INVALID_CHUNK_COORD,
+) -> bool:
+	if _object_presentation_visual_lane_callback_count \
+			>= OBJECT_PRESENTATION_MAX_DISPATCH_CALLBACKS_PER_FRAME:
+		return false
+	if expected_focus != INVALID_CHUNK_COORD \
+			and (_object_packet_visual_urgent_priority_dirty \
+					or _focused_object_packet_visual_upload_chunk != expected_focus \
+					or not _pending_object_packet_visual_upload_set.has(expected_focus)):
+		return false
+	var now_usec: int = Time.get_ticks_usec()
+	var callback_elapsed_usec: int = maxi(0, now_usec - callback_started_usec)
+	var lane_elapsed_usec: int = maxi(
+		0,
+		now_usec - _object_presentation_visual_lane_started_usec,
+	)
+	var predicted_next_usec: int = maxi(
+		1,
+		maxi(callback_elapsed_usec, next_phase_lookahead_usec),
+	)
+	return lane_elapsed_usec + predicted_next_usec \
+			<= OBJECT_PRESENTATION_VISUAL_UPLOAD_BUDGET_USEC
+
+
+func _record_object_presentation_allocation_measurement(
+		family: StringName,
+		elapsed_usec: int,
+) -> void:
+	if family == WorldObjectPacketLayer.PRESENTATION_PHASE_NONE:
+		return
+	_object_presentation_allocation_high_water_usec_by_family[family] = maxi(
+		maxi(1, elapsed_usec),
+		int(_object_presentation_allocation_high_water_usec_by_family.get(family, 0)),
+	)
+
+
+func _object_presentation_allocation_lookahead_usec(family: StringName) -> int:
+	var high_water_usec: int = maxi(
+		1,
+		int(_object_presentation_allocation_high_water_usec_by_family.get(family, 1)),
+	)
+	return ceili(
+		float(high_water_usec * OBJECT_PRESENTATION_ALLOCATION_LOOKAHEAD_NUMERATOR) \
+				/ float(OBJECT_PRESENTATION_ALLOCATION_LOOKAHEAD_DENOMINATOR)
+	) + OBJECT_PRESENTATION_ALLOCATION_LOOKAHEAD_FIXED_MARGIN_USEC
+
+
+## Pure budget predicate kept separate from focus/revision guards so scheduler
+## tests can deterministically inject high-water samples without relying on
+## wall-clock resolution.
+func _object_presentation_allocation_lookahead_fits_lane(
+		lane_elapsed_usec: int,
+		family: StringName,
+) -> bool:
+	return maxi(0, lane_elapsed_usec) \
+			+ _object_presentation_allocation_lookahead_usec(family) \
+			<= OBJECT_PRESENTATION_ALLOCATION_SOFT_BUDGET_USEC
+
+
+func _can_continue_object_presentation_allocation_lane(
+		callback_started_usec: int,
+		family: StringName,
+		expected_focus: Vector2i,
+) -> bool:
+	if _object_presentation_allocation_callback_count \
+			>= OBJECT_PRESENTATION_MAX_ALLOCATION_CALLBACKS_PER_FRAME:
+		return false
+	if _object_packet_visual_urgent_priority_dirty \
+			or _focused_object_packet_visual_upload_chunk != expected_focus \
+			or not _pending_object_packet_visual_upload_set.has(expected_focus):
+		return false
+	var now_usec: int = Time.get_ticks_usec()
+	var callback_elapsed_usec: int = maxi(0, now_usec - callback_started_usec)
+	var lane_elapsed_usec: int = maxi(
+		0,
+		now_usec - _object_presentation_visual_lane_started_usec,
+	)
+	# The current sample is already included in the high-water table, but retain
+	# the direct comparison for defensive callers that invoke this helper alone.
+	var predicted_next_usec: int = maxi(
+		callback_elapsed_usec,
+		_object_presentation_allocation_lookahead_usec(family),
+	)
+	return lane_elapsed_usec + predicted_next_usec \
+			<= OBJECT_PRESENTATION_ALLOCATION_SOFT_BUDGET_USEC
+
+
+## One main-thread phase per dispatcher callback. Only homogeneous bounded
+## continuations return true: an incomplete priority scan, an incremental begin
+## phase with no Node/GPU work, warmed sub-slices with one unchanged phase hint,
+## or measured allocation-only reservations of one unchanged family. Cold fixed
+## graphs, every family's first allocation, allocation-to-upload transitions,
+## COMPLETE, cache commit, and FINALIZE always yield to the next process frame.
 func _object_presentation_visual_apply_tick() -> bool:
+	var lane_callback_started_usec: int = \
+			_begin_object_presentation_visual_lane_callback()
 	var repair_focus_is_valid: bool = \
 			_focused_object_packet_visual_upload_chunk != INVALID_CHUNK_COORD \
 			and _pending_object_packet_visual_upload_set.has(
@@ -3351,6 +3494,14 @@ func _object_presentation_visual_apply_tick() -> bool:
 			"WorldStreamer.visual_upload.object_packet_priority_refresh",
 			priority_started,
 		)
+		if not selection_completed:
+			return _can_continue_object_presentation_visual_lane(
+				lane_callback_started_usec,
+				OBJECT_PRESENTATION_PRIORITY_SCAN_SOFT_BUDGET_USEC,
+			)
+		# Selection commit is the boundary before any Node/RenderingServer work.
+		# Even a cheap final scan slice may not pull envelope allocation into the
+		# same process frame.
 		return false
 
 	var chunk_coord: Vector2i = INVALID_CHUNK_COORD
@@ -3456,7 +3607,14 @@ func _object_presentation_visual_apply_tick() -> bool:
 					"WorldStreamer.visual_upload.object_packet_envelope",
 					envelope_started_usec,
 				)
-				return false
+				# Header/family begin phases only validate metadata and retain COW
+				# buffers. They perform no Node, GPU, collider, or reveal work, so
+				# another same-kind callback may use otherwise-idle lane budget.
+				return _can_continue_object_presentation_visual_lane(
+					lane_callback_started_usec,
+					OBJECT_PRESENTATION_PRIORITY_SCAN_SOFT_BUDGET_USEC,
+					chunk_coord,
+				)
 			_take_hot_object_entry(chunk_coord)
 			hot_entry["envelope_pending"] = false
 			var begun_reservation: Dictionary = hot_layer.get_hot_cache_reservation_weight()
@@ -3535,6 +3693,50 @@ func _object_presentation_visual_apply_tick() -> bool:
 		if chunk_view == null and not _is_chunk_source_desired(chunk_coord):
 			_evict_hot_object_presentation(chunk_coord)
 			return false
+		var next_phase_hint: StringName = \
+				hot_layer.get_next_presentation_apply_phase_hint()
+		if hot_layer.next_presentation_slice_requires_visual_slot_allocation():
+			# One callback grows one family slot and cannot advance a raw-buffer
+			# cursor. The first allocation of every family always yields because no
+			# prior sample for this transaction can prove its cold path is warmed.
+			var started_families: Dictionary = hot_entry.get(
+				"allocation_started_families",
+				{ },
+			) as Dictionary
+			var is_first_family_allocation: bool = not started_families.has(next_phase_hint)
+			var allocation_probe_started: int = WorldPerfProbe.begin()
+			var allocation_started_usec: int = Time.get_ticks_usec()
+			var allocated: bool = hot_layer.apply_next_presentation_allocation_only()
+			var allocation_elapsed_usec: int = maxi(
+				1,
+				Time.get_ticks_usec() - allocation_started_usec,
+			)
+			_object_presentation_allocation_callback_count += 1
+			_record_object_presentation_allocation_measurement(
+				next_phase_hint,
+				allocation_elapsed_usec,
+			)
+			WorldPerfProbe.end(
+				"WorldStreamer.visual_upload.object_packet_slice.slot_allocation",
+				allocation_probe_started,
+			)
+			if not allocated:
+				return false
+			started_families[next_phase_hint] = true
+			hot_entry["allocation_started_families"] = started_families
+			_hot_object_presentation_layers[chunk_coord] = hot_entry
+			if is_first_family_allocation:
+				return false
+			# Allocation and upload are never adjacent in one process frame. A
+			# changed hint means either the family is fully reserved or the next
+			# family owns a fresh first-yield boundary.
+			if hot_layer.get_next_presentation_apply_phase_hint() != next_phase_hint:
+				return false
+			return _can_continue_object_presentation_allocation_lane(
+				lane_callback_started_usec,
+				next_phase_hint,
+				chunk_coord,
+			)
 		var hot_started: int = WorldPerfProbe.begin()
 		var phase_started_usec: int = Time.get_ticks_usec()
 		if Time.get_ticks_usec() - phase_started_usec >= OBJECT_PRESENTATION_SLICE_SOFT_BUDGET_USEC:
@@ -3543,18 +3745,19 @@ func _object_presentation_visual_apply_tick() -> bool:
 		var previous_slice_usec: int = 0
 		var subslice_count: int = 0
 		var created_visual_slot: bool = false
-		while subslice_count < OBJECT_PRESENTATION_MAX_SUBSLICES_PER_FRAME:
+		while subslice_count < OBJECT_PRESENTATION_MAX_APPLY_SUBSLICES_PER_CALLBACK:
 			var elapsed_usec: int = Time.get_ticks_usec() - phase_started_usec
 			if subslice_count > 0 \
 					and (elapsed_usec >= OBJECT_PRESENTATION_SLICE_SOFT_BUDGET_USEC \
 							or elapsed_usec + previous_slice_usec \
 									> OBJECT_PRESENTATION_SLICE_SOFT_BUDGET_USEC):
 				break
-			# A missing slot is its own allocation phase. Never append it after a
-			# warmed upload/collider subslice whose elapsed time cannot predict Node
-			# and RenderingServer first-allocation cost.
+			# Heterogeneous transitions are process-frame boundaries. In particular,
+			# upload -> collider/next family/retire/commit cannot reuse an estimate
+			# sampled from the previous phase, even if that previous slice was cheap.
 			if subslice_count > 0 \
-					and hot_layer.next_presentation_slice_requires_visual_slot_allocation():
+					and hot_layer.get_next_presentation_apply_phase_hint() \
+							!= next_phase_hint:
 				break
 			var subslice_started_usec: int = Time.get_ticks_usec()
 			var advanced: bool = hot_layer.apply_next_presentation_slice(1, 4, 1)
@@ -3579,7 +3782,17 @@ func _object_presentation_visual_apply_tick() -> bool:
 			hot_started,
 		)
 		WorldPerfProbe.end("WorldStreamer.visual_upload.object_packet_slice", hot_started)
-		return false
+		if hot_layer.is_presentation_complete() \
+				or created_visual_slot \
+				or hot_layer.get_next_presentation_apply_phase_hint() != next_phase_hint:
+			# COMPLETE must reach FINALIZE in a later process frame. A freshly
+			# allocated slot and every heterogeneous phase transition likewise yield.
+			return false
+		return _can_continue_object_presentation_visual_lane(
+			lane_callback_started_usec,
+			OBJECT_PRESENTATION_SLICE_SOFT_BUDGET_USEC,
+			chunk_coord,
+		)
 
 	if chunk_view == null:
 		_drop_object_packet_visual_upload(chunk_coord)
@@ -4381,6 +4594,7 @@ func _stage_hot_object_presentation(
 			"ready": false,
 			"envelope_pending": true,
 			"begin_started": false,
+			"allocation_started_families": { },
 			"ladder_anchor_stripe": LADDER_ANCHOR_UNSET,
 			"acquired_from_pool": acquired_from_pool,
 			"gpu_buffer_bytes": maxi(0, int(reservation.get("gpu_buffer_bytes", 0))),
@@ -6913,6 +7127,10 @@ func _reset_runtime_state() -> void:
 	_object_packet_visual_priority_scan_candidates.clear()
 	_object_packet_visual_priority_scan_cursor = 0
 	_object_packet_visual_priority_scan_best = INVALID_CHUNK_COORD
+	_object_presentation_visual_lane_frame = -1
+	_object_presentation_visual_lane_started_usec = 0
+	_object_presentation_visual_lane_callback_count = 0
+	_object_presentation_allocation_callback_count = 0
 	_object_presentation_reveal_not_before_frame_by_chunk.clear()
 	_pending_hot_object_prestage_chunks.clear()
 	_pending_hot_object_prestage_set.clear()

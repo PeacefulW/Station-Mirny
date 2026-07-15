@@ -4,8 +4,8 @@ doc_type: system_spec
 status: approved
 owner: engineering+design
 source_of_truth: true
-version: 1.3
-last_updated: 2026-07-14
+version: 1.4
+last_updated: 2026-07-15
 related_docs:
   - ../../00_governance/ENGINEERING_STANDARDS.md
   - ../../00_governance/WORKFLOW.md
@@ -58,8 +58,9 @@ orange biofield cores. Wind strength is one shared truth: when later systems
   uses (`grass_density`, `orange_region`, `rock_region`).
 - Output format: a ready interleaved `MultiMesh` 2D buffer (transform + color)
   applied on the main thread with a single `multimesh.buffer` assignment.
-- A thin `ChunkView` grass scatter layer: low grass only, below the player and
-  all object decor; no depth buckets, no collision, no save state.
+- A thin `ChunkView` grass scatter layer: low grass only, split into the shared
+  16 px depth-ladder stripes so it interleaves exactly with the player and
+  object decor; no collision and no save state.
 - Grass tuft atlas (albedo + directional shadow) baked as PNG assets by the
   Blender tool pipeline (`tools/grass_atlas`, since v1.1; previously the
   GDScript tuft painter), preloaded at runtime.
@@ -276,10 +277,16 @@ authored data:
 - **Directional baked shadows.** Each atlas frame has a paired frame in
   `grass_tuft_shadow_atlas` (Cycles shadow-catcher pass, shared fixed sun:
   azimuth 315°, elevation 42° — same screen north-east direction as the
-  layered tree shadows). `ChunkView` draws them as per-stripe
-  `MultiMeshInstance2D` layers that share the tuft multimesh buffers
-  (`Z_GRASS_SHADOW + 1`, `overlay_exact` material with wind zeroed), so
-  shadows stay glued to their tufts at zero extra buffer cost.
+  layered tree shadows). The shadow pass is fixed below the complete depth
+  ladder (`Z_GRASS_SHADOW + 1`), so full-detail grass does not need one shadow
+  CanvasItem per depth stripe. Native worker output includes one flat
+  `directional_shadow_buffer`; `ChunkView` uploads it into one bounded
+  `MultiMeshInstance2D` per chunk (`overlay_exact` material with wind zeroed).
+  Grass albedo remains per-stripe and its exact player/object ordering is
+  unchanged. If an authored profile enables fractional zoom LOD, runtime uses
+  the retained legacy per-stripe shadow path for that profile from publication
+  onward; the mode is selected once from the authored LOD envelope and never
+  rebuilds or switches buffers in response to zoom.
 - **Contact-shadow blobs (fallback).** Native still emits flat shadow blobs
   under larger tufts (`shadow_buffer`); the blob layer at `Z_GRASS_SHADOW`
   renders them only when the material set has no shadow atlas wired
@@ -382,6 +389,9 @@ WorldCore.build_grass_scatter_buffer(
   "bucket_buffers": Array[PackedFloat32Array], # 12 floats per instance:
                                                 # 2D transform (8) + color (4)
   "instance_count": int,
+  "directional_shadow_buffer": PackedFloat32Array, # all bucket instances,
+                                                       # flattened by native;
+                                                       # one fixed-z shadow draw
   "shadow_buffer": PackedFloat32Array,
   "spore_buffer": PackedFloat32Array,
 }
@@ -454,7 +464,10 @@ PNGs; runtime atlas painting is forbidden. Contract checks:
    queued stale revisions are removed when visible demand changes.
 3. Native returns the finished buffer. `WorldStreamer` rejects stale
    epoch/revision results; the visual upload job assigns a current result to the
-   chunk's grass `MultiMesh` (one bounded copy). Native placement rejects
+   chunk's grass `MultiMesh` stripes through bounded raw-buffer phases. For the
+   current authored full-detail LOD envelope it also assigns the flat directional
+   shadow payload in one separate bounded phase; this never loops over instances
+   on the main thread. Native placement rejects
    candidates inside mountain-edge clearance (`WorldCore.build_grass_scatter_buffer`
    takes the same cross-chunk `mountain_solid_halo` `WorldStreamer` already
    builds for the mountain mask, not just the chunk's own tiles — see
@@ -536,6 +549,11 @@ with this feature on or off.
   `WorldCore` instances and remain bounded by the configured pool size.
 - Grass apply: bounded main-thread publish (one buffer assignment per chunk)
   on the decorative visual upload path.
+- Full-detail directional-shadow apply: one additional bounded raw buffer
+  assignment and one fixed-z CanvasItem per chunk, instead of one shadow draw
+  per non-empty depth stripe. With `S` non-empty stripes the grass+directional
+  shadow draw-item count changes from `2*S` to `S+1`; the albedo `S` and its
+  exact depth ordering are unchanged.
 - Depth-anchor rebase: O(loaded chunk batch owners) root writes plus only the
   active nodes crossing either clamp boundary (at most two stripe boundaries
   per 16 px step per owner), independent of the 64-stripe table and instance
@@ -585,6 +603,11 @@ V0 is acceptable when:
   GDScript loop over tuft instances (static check);
 - grass publish goes through the bounded decorative path and never blocks
   chunk reveal;
+- with the checked-in full-detail LOD profile, a committed grass chunk owns at
+  most one visible directional-shadow draw layer regardless of its number of
+  non-empty albedo stripes; a synthetic 64-stripe result therefore proves
+  `128 -> 65` grass+directional-shadow draw layers without changing albedo
+  stripe count or z values;
 - the grass atlases (albedo + directional shadow) are checked-in PNGs
   produced by the Blender bake pipeline (`tools/grass_atlas`); no runtime
   atlas painting;
@@ -756,13 +779,39 @@ feature thinner than the sampled radius — worse at *larger* radii, not better.
   simulated neighbour chunk; asserts every surviving tuft origin respects
   clearance against the halo, not the chunk's own empty `terrain_ids`).
 
+### Iteration 6 — Full-LOD directional-shadow consolidation — DONE
+
+The performance flight-recorder capture at zoom `0.2` exposed thousands of
+Canvas draw calls. Grass had a structural multiplier: every non-empty 16 px
+albedo stripe also created a fixed-z directional-shadow CanvasItem even though
+the shadow pass never participates in the depth ladder.
+
+- Native `GrassScatterBufferResult` now contains
+  `directional_shadow_buffer`, the exact tuft transforms flattened from the
+  finalized stripe buckets on the worker. No instance packing or float copying
+  moves to GDScript.
+- The checked-in profile has `lod_min_fraction = 1.0`. `WorldStreamer` selects
+  the consolidated mode once from that authored envelope and `ChunkView`
+  uploads one fixed-z shadow MultiMesh in its own scheduler phase.
+- Profiles that permit fractional LOD retain the previous per-stripe shadow
+  graph, because each shadow then shares its grass stripe's
+  `visible_instance_count`. Selection is profile-static; zoom never triggers a
+  shadow rebuild or mode switch.
+- Warm-cache byte accounting includes the additional flat packed array through
+  producer-owned `buffer_float_count` / `payload_bytes`. The extra copy is
+  bounded by the existing authored per-chunk instance cap.
+- Grass albedo buffers, player/object depth ordering, mountain z placement,
+  wind deformation, placement, mining invalidation, and save semantics are
+  unchanged.
+
 ## Required Updates
 
 - `docs/README.md` and `docs/02_system_specs/README.md`: link this spec (done
   with spec landing).
 - `packet_schemas.md`: required when the native buffer call lands
   (Iteration 2; done). Signature + clearance mechanism updated again for
-  Iteration 5 (cross-chunk halo); done.
+  Iteration 5 (cross-chunk halo) and the Iteration 6 flat directional-shadow
+  buffer; done.
 - `system_api.md`: required only if `WindRuntime` exposes a public read/API.
   `get_wind_gustiness()` and debug override entries are documented.
 - `event_contracts.md`, `commands.md`: not required in V0 (no events, no

@@ -12,6 +12,10 @@ var _bottom_left: VBoxContainer = null
 var _bottom_center: HBoxContainer = null
 var _alerts: VBoxContainer = null
 var _performance_hud: HudPerformanceWidget = null
+var _performance_recorder: PerformanceFlightRecorder = null
+var _performance_toast: PanelContainer = null
+var _performance_toast_label: Label = null
+var _performance_toast_revision: int = 0
 
 
 func _ready() -> void:
@@ -19,6 +23,7 @@ func _ready() -> void:
 	set_anchors_and_offsets_preset(PRESET_FULL_RECT)
 	_create_zones()
 	_create_widgets()
+	_create_performance_toast()
 
 # --- Зоны ---
 
@@ -105,6 +110,23 @@ func set_performance_source(streamer: Node) -> void:
 		_performance_hud.set_performance_source(streamer)
 
 
+func set_performance_recorder(recorder: PerformanceFlightRecorder) -> void:
+	if _performance_recorder != null and is_instance_valid(_performance_recorder):
+		var previous_callable: Callable = Callable(
+			self,
+			"_on_performance_notification_requested",
+		)
+		if _performance_recorder.notification_requested.is_connected(previous_callable):
+			_performance_recorder.notification_requested.disconnect(previous_callable)
+	_performance_recorder = recorder
+	if _performance_hud != null:
+		_performance_hud.set_performance_recorder(recorder)
+	if _performance_recorder != null:
+		_performance_recorder.notification_requested.connect(
+			Callable(self, "_on_performance_notification_requested"),
+		)
+
+
 func cycle_performance_mode() -> int:
 	if _performance_hud == null:
 		return HudPerformanceWidget.DisplayMode.HIDDEN
@@ -113,3 +135,68 @@ func cycle_performance_mode() -> int:
 
 func get_performance_hud() -> HudPerformanceWidget:
 	return _performance_hud
+
+
+func _create_performance_toast() -> void:
+	_performance_toast = PanelContainer.new()
+	_performance_toast.name = "PerformanceCaptureToast"
+	_performance_toast.anchor_left = 0.5
+	_performance_toast.anchor_right = 0.5
+	_performance_toast.offset_left = -360.0
+	_performance_toast.offset_top = 18.0
+	_performance_toast.offset_right = 360.0
+	_performance_toast.offset_bottom = 76.0
+	_performance_toast.mouse_filter = MOUSE_FILTER_IGNORE
+	_performance_toast.visible = false
+	var style: StyleBoxFlat = StyleBoxFlat.new()
+	style.bg_color = Color(0.025, 0.037, 0.048, 0.96)
+	style.border_color = Color(0.31, 0.84, 0.94, 0.55)
+	style.set_border_width_all(1)
+	style.set_corner_radius_all(5)
+	style.content_margin_left = 14.0
+	style.content_margin_right = 14.0
+	style.content_margin_top = 9.0
+	style.content_margin_bottom = 9.0
+	_performance_toast.add_theme_stylebox_override("panel", style)
+	add_child(_performance_toast)
+	_performance_toast_label = Label.new()
+	_performance_toast_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_performance_toast_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	_performance_toast_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_performance_toast_label.add_theme_font_size_override("font_size", 11)
+	_performance_toast_label.add_theme_color_override(
+		"font_color",
+		Color(0.90, 0.96, 0.97),
+	)
+	_performance_toast.add_child(_performance_toast_label)
+
+
+func _on_performance_notification_requested(
+		message_key: StringName,
+		message_args: Dictionary,
+	) -> void:
+	if _performance_toast == null or _performance_toast_label == null:
+		return
+	_performance_toast_revision += 1
+	var localization: Node = get_node_or_null("/root/Localization")
+	_performance_toast_label.text = (
+		String(localization.call("t", String(message_key), message_args))
+		if localization != null and localization.has_method("t")
+		else String(message_key)
+	)
+	_performance_toast.visible = true
+	_performance_toast.modulate.a = 0.0
+	var tween: Tween = create_tween()
+	tween.tween_property(_performance_toast, "modulate:a", 1.0, 0.12)
+	_hide_performance_toast_after_delay(_performance_toast_revision)
+
+
+func _hide_performance_toast_after_delay(revision: int) -> void:
+	await get_tree().create_timer(4.0).timeout
+	if revision != _performance_toast_revision or _performance_toast == null:
+		return
+	var tween: Tween = create_tween()
+	tween.tween_property(_performance_toast, "modulate:a", 0.0, 0.16)
+	await tween.finished
+	if revision == _performance_toast_revision:
+		_performance_toast.visible = false

@@ -25,6 +25,7 @@ var _is_configured: bool = false
 
 var _slots: Array[Dictionary] = []
 var _active_slot_count: int = 0
+var _required_slot_count: int = 0
 var _shadow_layer: MultiMeshInstance2D = null
 var _shadow_multimesh: MultiMesh = null
 var _instance_count: int = 0
@@ -103,6 +104,7 @@ func begin_apply(
 	_next_stripe = 0
 	_shadow_pending = expected_shadow_count > 0
 	_active_slot_count = 0
+	_required_slot_count = _count_non_empty_buffers(buffers_by_atlas)
 	_instance_count = 0
 	_shadow_instance_count = 0
 	_last_slice_upload_count = 0
@@ -155,6 +157,12 @@ func apply_next_batch(max_buffers: int) -> bool:
 	_last_slice_created_slot = false
 	if not _has_pending_apply:
 		return false
+	# Capacity reservation is deliberately separate from raw upload. This also
+	# covers the defensive living-shadow path if a caller skipped fixed-graph
+	# envelope preparation before begin_apply().
+	if has_pending_required_slot_allocation():
+		allocate_next_required_slot()
+		return true
 	var upload_budget: int = maxi(1, max_buffers)
 	_skip_empty_sprite_buffers()
 	while _next_atlas < _staged_buffers_by_atlas.size() \
@@ -192,25 +200,41 @@ func apply_next_batch(max_buffers: int) -> bool:
 	_staged_buffers_by_atlas.clear()
 	_staged_shadow_buffer = PackedFloat32Array()
 	_has_pending_apply = false
+	_required_slot_count = 0
 	_begin_retire_inactive_slots(_active_slot_count, _shadow_instance_count > 0)
 	return false
 
 
-func next_batch_requires_slot_allocation() -> bool:
+func has_pending_required_slot_allocation() -> bool:
 	if not _has_pending_apply:
 		return false
-	var atlas_index: int = _next_atlas
-	var stripe_index: int = _next_stripe
-	while atlas_index < _staged_buffers_by_atlas.size():
-		var atlas_buffers: Array = _staged_buffers_by_atlas[atlas_index] as Array
-		while stripe_index < STRIPE_COUNT:
-			if not (atlas_buffers[stripe_index] as PackedFloat32Array).is_empty():
-				return _active_slot_count >= _slots.size()
-			stripe_index += 1
-		atlas_index += 1
-		stripe_index = 0
+	if _slots.size() < _required_slot_count:
+		return true
 	return _shadow_pending \
 			and (_shadow_layer == null or not is_instance_valid(_shadow_layer))
+
+
+## Grows exactly one CanvasItem/MultiMesh slot and never advances the staged
+## cursor. Sprite slots are reserved first; the optional shadow graph is one
+## final allocation-only phase.
+func allocate_next_required_slot() -> bool:
+	_last_slice_created_slot = false
+	if not _has_pending_apply:
+		return false
+	if _slots.size() < _required_slot_count:
+		_ensure_slot(_slots.size())
+		_last_slice_created_slot = true
+		return true
+	if _shadow_pending \
+			and (_shadow_layer == null or not is_instance_valid(_shadow_layer)):
+		_ensure_shadow_layer()
+		_last_slice_created_slot = true
+		return true
+	return false
+
+
+func next_batch_requires_slot_allocation() -> bool:
+	return has_pending_required_slot_allocation()
 
 
 func did_last_slice_create_slot() -> bool:
@@ -226,6 +250,7 @@ func cancel_pending_apply() -> void:
 	_has_pending_apply = false
 	_last_slice_upload_count = 0
 	_active_slot_count = 0
+	_required_slot_count = 0
 	_instance_count = 0
 	_shadow_instance_count = 0
 	visible = false
@@ -317,6 +342,8 @@ func get_debug_state() -> Dictionary:
 		"shadow_instance_count": _shadow_instance_count,
 		"active_stripe_count": _active_slot_count,
 		"pooled_slot_count": _slots.size(),
+		"required_slot_count": _required_slot_count,
+		"has_pending_slot_allocation": has_pending_required_slot_allocation(),
 		"has_pending_apply": _has_pending_apply,
 		"next_atlas": _next_atlas,
 		"next_stripe": _next_stripe,
@@ -383,6 +410,17 @@ func _buffers_are_valid(
 		push_error("NativeDecorBatchLayer: shadow payload supplied to a shadowless family")
 		return false
 	return true
+
+
+static func _count_non_empty_buffers(buffers_by_atlas: Array) -> int:
+	var count: int = 0
+	for atlas_buffers_variant: Variant in buffers_by_atlas:
+		var atlas_buffers: Array = atlas_buffers_variant as Array
+		for buffer_variant: Variant in atlas_buffers:
+			var buffer: PackedFloat32Array = buffer_variant as PackedFloat32Array
+			if not buffer.is_empty():
+				count += 1
+	return count
 
 
 func _skip_empty_sprite_buffers() -> void:

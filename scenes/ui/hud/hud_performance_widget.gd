@@ -42,6 +42,7 @@ const CRITICAL_COLOR: Color = Color(1.0, 0.34, 0.28)
 
 var _display_mode: int = DisplayMode.HIDDEN
 var _streamer: Node = null
+var _recorder: PerformanceFlightRecorder = null
 var _metrics := PerformanceHudMetrics.new()
 var _observer_active: bool = false
 var _refresh_elapsed: float = 0.0
@@ -52,6 +53,7 @@ var _graph: HudPerformanceGraph = null
 var _status_dot: Label = null
 var _status_label: Label = null
 var _mode_label: Label = null
+var _recording_label: Label = null
 var _fps_value: Label = null
 var _frame_value: Label = null
 var _p95_value: Label = null
@@ -92,6 +94,12 @@ func set_performance_source(streamer: Node) -> void:
 	_streamer = streamer
 
 
+func set_performance_recorder(recorder: PerformanceFlightRecorder) -> void:
+	_recorder = recorder
+	if visible:
+		_refresh_recorder_presentation()
+
+
 func cycle_display_mode() -> int:
 	match _display_mode:
 		DisplayMode.HIDDEN:
@@ -125,7 +133,14 @@ func get_debug_state() -> Dictionary:
 func _process(delta: float) -> void:
 	var live_snapshot: Dictionary = WorldPerfProbe.copy_completed_live_frame_snapshot()
 	var frame_ops: Dictionary = live_snapshot.get("ops", { }) as Dictionary
-	_metrics.push_frame(maxf(delta, 0.0) * 1000.0, frame_ops)
+	# Viewport readback is intentionally rare, but it can stall the following
+	# frames. Do not let an F2/F4 evidence capture accuse gameplay of the observer's
+	# own cost or leave a fake peak in the 300-frame HUD window.
+	var capture_tainted: bool = _recorder != null \
+			and is_instance_valid(_recorder) \
+			and _recorder.is_capture_tainted()
+	if not capture_tainted:
+		_metrics.push_frame(maxf(delta, 0.0) * 1000.0, frame_ops)
 	_refresh_elapsed += maxf(delta, 0.0)
 	if _refresh_elapsed < UPDATE_INTERVAL_SECONDS:
 		return
@@ -232,6 +247,9 @@ func _build_header() -> void:
 	header.add_child(_status_label)
 	_mode_label = _make_label("", 9, TEXT_SECONDARY_COLOR)
 	header.add_child(_mode_label)
+	_recording_label = _make_label("", 9, CRITICAL_COLOR)
+	_recording_label.visible = false
+	header.add_child(_recording_label)
 	var key_label: Label = _make_label("[F3]", 10, ACCENT_COLOR)
 	header.add_child(key_label)
 
@@ -343,6 +361,7 @@ func _refresh_presentation() -> void:
 	_refresh_timing_values()
 	_refresh_queue_values()
 	_refresh_render_values()
+	_refresh_recorder_presentation()
 	_refresh_last_hitch()
 	if _graph != null and _details.visible:
 		_graph.set_samples(_metrics.get_graph_samples())
@@ -468,6 +487,43 @@ func _refresh_render_values() -> void:
 	)
 
 
+func _refresh_recorder_presentation() -> void:
+	if _recording_label == null or _hint_label == null:
+		return
+	var recorder_state: Dictionary = (
+		_recorder.get_ui_state()
+		if _recorder != null and is_instance_valid(_recorder)
+		else { }
+	)
+	var is_recording: bool = bool(recorder_state.get("recording", false))
+	var is_saving: bool = bool(recorder_state.get("saving", false))
+	var is_capturing: bool = bool(recorder_state.get("capturing", false))
+	_recording_label.visible = is_recording or is_saving or is_capturing
+	if is_recording:
+		var elapsed_seconds: int = int(recorder_state.get("elapsed_seconds", 0.0))
+		_recording_label.text = _localize_with_args(
+			"UI_PERF_REC_STATUS",
+			{
+				"minutes": "%02d" % (elapsed_seconds / 60),
+				"seconds": "%02d" % (elapsed_seconds % 60),
+				"captures": int(recorder_state.get("capture_count", 0)),
+			},
+		)
+		_recording_label.add_theme_color_override("font_color", CRITICAL_COLOR)
+	elif is_saving:
+		_recording_label.text = _localize("UI_PERF_REC_SAVING")
+		_recording_label.add_theme_color_override("font_color", WARNING_COLOR)
+	else:
+		_recording_label.text = _localize("UI_PERF_REC_CAPTURING")
+		_recording_label.add_theme_color_override("font_color", ACCENT_COLOR)
+	var hint_key: String = (
+		"UI_PERF_HINT_HIDE"
+		if _display_mode == DisplayMode.DETAILED
+		else "UI_PERF_HINT_MORE"
+	)
+	_hint_label.text = _localize(hint_key)
+
+
 func _refresh_last_hitch() -> void:
 	var hitch: Dictionary = _metrics.get_last_hitch()
 	if hitch.is_empty():
@@ -546,11 +602,7 @@ func _apply_localization() -> void:
 		if _display_mode == DisplayMode.DETAILED \
 		else "UI_PERF_MODE_COMPACT",
 	)
-	_hint_label.text = _localize(
-		"UI_PERF_F3_HIDE" \
-		if _display_mode == DisplayMode.DETAILED \
-		else "UI_PERF_F3_MORE",
-	)
+	_refresh_recorder_presentation()
 	for key_variant: Variant in _localized_labels.keys():
 		var localization_key: String = String(key_variant)
 		var label: Label = _localized_labels.get(localization_key, null) as Label
@@ -683,3 +735,10 @@ func _localize(localization_key: String, fallback: String = "") -> String:
 	if localization != null and localization.has_method("t"):
 		return String(localization.call("t", localization_key))
 	return localization_key if fallback.is_empty() else fallback
+
+
+func _localize_with_args(localization_key: String, args: Dictionary) -> String:
+	var localization: Node = get_node_or_null("/root/Localization")
+	if localization != null and localization.has_method("t"):
+		return String(localization.call("t", localization_key, args))
+	return localization_key

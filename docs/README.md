@@ -87,6 +87,7 @@ Templates for future docs.
 - [Crafting and Decryption](02_system_specs/progression/crafting_and_decryption.md)
 - [Survival Core](02_system_specs/survival/survival_core.md)
 - [UI and UX Foundation](02_system_specs/ui/ui_ux_foundation.md)
+- [Performance Flight Recorder V0](02_system_specs/ui/performance_flight_recorder.md)
 - [Agent Skill Pack](02_system_specs/meta/agent_skill_pack.md)
 - [System API](02_system_specs/meta/system_api.md)
 - [Event Contracts](02_system_specs/meta/event_contracts.md)
