@@ -405,6 +405,7 @@ Confirmed public native surface:
 | `build_mountain_plateau_raster_image(packets: Array, target_chunk: Vector2i, preset: Dictionary, top_image: Image, face_image: Image)` | `Dictionary` | Authoring/probe raster helper still used by the worker backend. Returns `MountainPlateauRasterImageResult` from `packet_schemas.md`; broad debug/probe output, not the normal chunk packet or save shape. |
 | `resolve_world_foundation_spawn_tile(seed: int, world_version: int, settings_packed: PackedFloat32Array)` | `Dictionary` | Resolves the V1 foundation spawn tile from the substrate and returns the shape documented as `WorldFoundationSpawnResult` in `packet_schemas.md` |
 | `build_grass_scatter_buffer(seed: int, chunk_coord: Vector2i, terrain_ids: PackedInt32Array, lake_flags: PackedByteArray, mountain_halo: PackedByteArray, mountain_halo_radius_tiles: int, params: PackedFloat32Array)` | `Dictionary` | Presentation-only deterministic grass tuft placement for one chunk; returns the `GrassScatterBufferResult` shape from `packet_schemas.md` (ready `MultiMesh` buffer). `mountain_halo` is the same cross-chunk solid halo `WorldStreamer` builds for the mountain mask, reused so mountain-edge clearance sees neighbouring-chunk mountains too (added 2026-07-04). Density mirrors the ground material's aperiodic world fields; never packet truth, save state, collision, or walkability. |
+| `build_object_presentation_buffers(object_kind: PackedByteArray, object_local_x_px_q4: PackedByteArray, object_local_y_px_q4: PackedByteArray, object_size_px: PackedByteArray, object_atlas_index: PackedByteArray, object_variant: PackedByteArray, object_flags: PackedByteArray, object_tint: PackedByteArray, object_phase: PackedByteArray, tree_metrics: PackedFloat32Array, rock_metrics: PackedFloat32Array, params: PackedFloat32Array)` | `Dictionary` | Pure presentation packing for one already-generated object packet. Returns `ObjectPresentationBufferResult`: ready per-depth-stripe raw `MultiMesh` buffers for enabled living flora, both spiky-flora atlas banks, layered trees and small rocks, one flat living contact-shadow buffer, plus flat tree collision descriptors. Optional flora tables stay lazy-empty at zero/suppressed count; the final two params mirror actually prepared flora sources so disabled known records are explicitly suppressed without failing publication. Called on a worker-local `WorldCore`; it does not load assets, touch the scene tree, alter canonical placement, or enter save data. |
 
 Dev-only native surface:
 
@@ -417,8 +418,8 @@ Current code notes:
 - `settings_packed` for `world_version >= 9` must include the mountain fields
   plus V1 foundation indices `9-14`, Lake Generation L1/L2 indices `15-20`,
   Lake Generation V2+ `connectivity` at index `21`, plains tree indices
-  `22-43`, and plains small rock indices `44-63` in the current
-  `WorldStreamer` path.
+  `22-43`, and plains small rock indices `44-70` (`71` total fields) in the
+  current `WorldStreamer` path.
 - the active pre-alpha save/load policy accepts only the current
   `WorldRuntimeConstants.WORLD_VERSION`; older generator versions may remain
   in native code for deterministic debug surfaces, but are not load-compatible
@@ -513,7 +514,7 @@ Confirmed readable entrypoints:
 | `PlainsTreePlacementSettings.write_to_settings_packed(settings_packed: PackedFloat32Array)` | `PackedFloat32Array` | Appends plains tree placement indices `22-43` to the native settings packet |
 | `PlainsSmallRockPlacementSettings.to_save_dict()` | `Dictionary` | Writes plains small rock placement settings into `world.json` |
 | `PlainsSmallRockPlacementSettings.from_save_dict(data: Dictionary)` | `PlainsSmallRockPlacementSettings` | Rebuilds plains small rock placement settings from `world.json` |
-| `PlainsSmallRockPlacementSettings.write_to_settings_packed(settings_packed: PackedFloat32Array)` | `PackedFloat32Array` | Appends plains small rock placement indices `44-63` to the native settings packet |
+| `PlainsSmallRockPlacementSettings.write_to_settings_packed(settings_packed: PackedFloat32Array)` | `PackedFloat32Array` | Appends plains small rock placement indices `44-70` to the native settings packet |
 
 Not documented here as safe entrypoints:
 - direct mutation of settings resources after `WorldStreamer` has frozen them

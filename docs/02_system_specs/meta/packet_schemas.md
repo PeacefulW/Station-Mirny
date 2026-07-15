@@ -661,7 +661,7 @@ Returned one-per-input-coord by native
 |---|---|---|---|
 | `chunk_coord` | `Vector2i` | — | Canonical chunk coordinate |
 | `world_seed` | `int` | — | Copied into the packet for validation/debug |
-| `world_version` | `int` | — | Current foundation runtime value is `62` |
+| `world_version` | `int` | — | Current foundation runtime value is `63` |
 | `terrain_ids` | `PackedInt32Array` | 256 | Base terrain ids for the gameplay layer |
 | `terrain_atlas_indices` | `PackedInt32Array` | 256 | Base-layer atlas indices; mountain tiles reuse the native mountain atlas solve, and plains ground opens `autotile_47` bank edges only against shallow/deep lake-bed neighbours |
 | `walkable_flags` | `PackedByteArray` | 256 | `1 = walkable`, `0 = blocked` |
@@ -675,7 +675,7 @@ Returned one-per-input-coord by native
 | `object_size_px` | `PackedByteArray` | N | Rendered sprite size in pixels |
 | `object_atlas_index` | `PackedByteArray` | N | Prepared atlas bank index for the visual family |
 | `object_variant` | `PackedByteArray` | N | Atlas frame / animation view variant |
-| `object_flags` | `PackedByteArray` | N | Visual/physics proof flags; bit `0` = blocking base-collision proof |
+| `object_flags` | `PackedByteArray` | N | Reserved; the current emitter writes `0`. It is not collision authority: tree collision is derived from `object_kind == 4` and `tree_collision_records`; small rocks have no collision. |
 | `object_tint` | `PackedByteArray` | N | `0..255` presentation tint scalar |
 | `object_phase` | `PackedByteArray` | N | `0..255` deterministic animation phase |
 
@@ -710,8 +710,8 @@ Current code notes:
   Lake Generation L1 extends the same payload additively with
   `LakeGenSettings` indices `15-20`; V2 / L5 adds
   `SETTINGS_PACKED_LAYOUT_LAKE_CONNECTIVITY = 21`; plains tree placement adds
-  indices `22-43`; plains small rock placement adds indices `44-63`, so the
-  current full field count is `64`
+  indices `22-43`; plains small rock placement adds indices `44-70`, so the
+  current full field count is `71`
 - the current native boundary requires `world_version >= 6`
 - `world_version >= 6` uses implicit-domain hierarchical labeling: aligned `1024 x 1024` macro solves recurse only through mixed cells, stop at versioned `min_label_cell_size = 8`, reuse a deterministic `1`-macro halo in native code, and hash `mountain_id` from the component representative leaf
 - `mountain_id_per_tile`, `mountain_flags`, and `mountain_atlas_indices` are base packet fields only; they are not persisted in `ChunkDiffFile`
@@ -1092,6 +1092,129 @@ Current code notes:
   `ChunkPacketV1`, save state, authoritative terrain, walkability, collision,
   or navigation data
 
+### `ObjectPresentationBufferResult`
+
+Returned by native
+`WorldCore.build_object_presentation_buffers(object_kind, object_local_x_px_q4, object_local_y_px_q4, object_size_px, object_atlas_index, object_variant, object_flags, object_tint, object_phase, tree_metrics, rock_metrics, params)`.
+Governing spec:
+`docs/02_system_specs/world/world_object_placement_v0.md`.
+
+```text
+{
+  "tree_atlas_bucket_buffers": Array,      # DEPTH_STRIPES_PER_CHUNK (64)
+  "rock_atlas_bucket_buffers": Array,      # DEPTH_STRIPES_PER_CHUNK (64)
+  "living_flora_bucket_buffers": Array,    # 64 stripes when count > 0;
+                                             # empty Array when count == 0
+  "living_flora_shadow_buffer": PackedFloat32Array,
+                                             # one raw contact-shadow instance
+                                             # per living-flora instance
+  "spiky_flora_atlas_bucket_buffers": Array,
+                                             # atlas-major Array[2][64] when
+                                             # count > 0; empty when count == 0
+  "spiky_flora_atlas_bank_count": int,     # 2 when present, otherwise 0
+                                             # PackedFloat32Array entries; each
+                                             # instance is 12 floats:
+                                             # row0 = (x.x, y.x, 0, origin.x),
+                                             # row1 = (x.y, y.y, 0, origin.y),
+                                             # color = (atlas_variant/255,
+                                             #          tint, phase, alpha)
+  "tree_collision_records": PackedFloat32Array,
+                                             # flat triples (local_x, local_y,
+                                             # radius_px), one per tree
+  "object_count": int,
+  "tree_instance_count": int,
+  "rock_instance_count": int,
+  "living_flora_count": int,               # presented count after policy
+  "spiky_flora_count": int,                # presented count after policy
+  "living_flora_record_count": int,        # canonical packet count
+  "spiky_flora_record_count": int,         # canonical packet count
+  "suppressed_instance_count": int,        # known flora disabled by prepared
+                                             # source policy; not an error
+  "ignored_instance_count": int,
+  "buffer_float_count": int,
+  "payload_bytes": int,                    # buffer_float_count * 4, including
+                                             # collision records; O(1) warm-cache
+                                             # accounting
+  "error": String,                          # present only on contract violation
+
+  # Added by WorldChunkPacketBackend after native compute:
+  "success"?: bool,
+  "message"?: String,
+  "epoch"?: int,
+  "revision"?: int,
+  "catalog_generation"?: int,
+  "target_chunk"?: Vector2i,
+  "queued_msec"?: int,
+  "worker_started_msec"?: int,
+  "worker_elapsed_ms"?: int,
+  "queue_wait_ms"?: int,
+  "request_to_complete_ms"?: int,
+}
+```
+
+Current contract notes:
+
+- the nine `object_*` inputs are the immutable canonical packet arrays and must
+  have identical lengths; this result is derived presentation/loaded-collision
+  data, never a new `ChunkPacketV1` field and never save data;
+- native computes `buffer_float_count` and `payload_bytes` from its accepted
+  family counters:
+  `12 * (tree + rock + spiky + 2 * living) + 3 * tree`, with
+  `payload_bytes == buffer_float_count * 4`. Warm-cache admission may use that
+  trusted producer metadata in O(1). Before upload or commit,
+  `WorldObjectPacketLayer` accumulates actual packed-array sizes in the existing
+  phased structural validation and requires exact equality with both fields;
+  ABI drift is rejected, not cached as a committed presentation;
+- `tree_metrics` and `rock_metrics` are boot-prepared flat records with stride
+  `5`: `(frame_width, frame_height, anchor_x, anchor_y,
+  fixed_tree_scale_or_rock_visible_width)`. They reproduce the authored layered
+  asset transforms without file/path/JSON/resource access in the worker;
+- `params` is a 20-float layout owned by
+  `object_presentation::ParamIndex`: local-pixel quantum, depth-stripe pixels,
+  depth-stripe count, tree collision radius scale/min/max, then the authored
+  classic-decor stripe anchor, spiky atlas-bank count, living/spiky alpha, and
+  living contact-shadow scales/minima/alpha, followed by living/spiky prepared-
+  source enable flags. The script-side catalog owns these values so native code
+  does not carry a second drifting copy of visual tuning;
+- quantized roots decode at the centre of their `q4` cell
+  (`byte * quantum + quantum * 0.5`), matching the canonical packet consumer;
+- tree and rock variants are mapped to the prepared atlas catalog modulo its
+  declared metric count. `color.r` stores that mapped atlas frame, not an asset
+  path and not an unbounded raw packet variant;
+- living and spiky flora retain the exact legacy atlas transform/color contract:
+  centred square quads, depth stripe from `root_y + size * 0.45`, living alpha
+  `0.96`, spiky alpha `0.98`, and one living contact-shadow raw buffer using the
+  authored `0.42/0.13/0.32` scale/offset recipe. Spiky atlas indices are checked
+  against the prepared two-bank contract instead of silently dropping records;
+- optional flora bucket tables are allocated lazily. A zero-count result carries
+  empty flora arrays rather than 192 empty packed stripe arrays, so disabled
+  families do not inflate every live/warm chunk payload;
+- enable flags are derived from the actually prepared runtime sources, not just
+  placement constants. A known flora record with no prepared source increments
+  `suppressed_instance_count`, remains included in canonical `object_count`, but
+  does not increment the presented family count or allocate buffers. Therefore
+  current production policy (`living/spiky` sources disabled) preserves the
+  existing visual output and cannot turn otherwise valid chunks into permanent
+  object-presentation failures. `ignored_instance_count` remains reserved for
+  unknown family ids and is rejected by the consumer;
+- the native call runs on a worker-local `WorldCore`. Only after main-thread
+  `epoch + revision + catalog_generation` and exact structural validation may
+  `WorldObjectPacketLayer` stage reusable `MultiMesh` buffers and chunk-scoped
+  tree collision shapes;
+- main-thread flora apply consumes at most the configured number of non-empty
+  raw buffers per scheduler slice, uses pooled stripe slots, and remains hidden
+  in the same atomic object transaction until trees, collisions, both flora
+  families, and small rocks are all staged;
+- depth bucket is derived from the object's ground/root Y, so atlas anchor
+  offsets do not change player-relative ordering;
+- source channel atlases and shared materials are boot-prepared. The result
+  contains no `Texture`, `Material`, `Mesh`, `Node`, or other scene/GPU object;
+- an `error` key means the input/catalog contract was violated. Consumers must
+  reject it explicitly rather than run a hidden GDScript packing fallback. The
+  runtime retries the same current revision at most twice with a delay; malformed
+  completed payloads follow the same bounded failure path instead of spinning
+  the visual queue.
+
 ### `GrassScatterBufferResult`
 
 Returned by native
@@ -1119,6 +1242,18 @@ Governing spec:
   "truncated_count": int,                  # present only when the authored
                                            # instance cap dropped candidates
   "error": String,                         # present only on contract violation
+
+  # Added by WorldChunkPacketBackend after native compute:
+  "success"?: bool,
+  "message"?: String,
+  "epoch"?: int,
+  "revision"?: int,
+  "target_chunk"?: Vector2i,
+  "queued_msec"?: int,
+  "worker_started_msec"?: int,
+  "worker_elapsed_ms"?: int,
+  "queue_wait_ms"?: int,
+  "request_to_complete_ms"?: int,
 }
 ```
 
@@ -1136,6 +1271,8 @@ Current code notes:
   `docs/02_system_specs/world/plains_ground_field_composition.md`
 - the buffer is presentation-only derived data assigned directly to a chunk
   grass `MultiMesh`; it is never persisted and never enters `ChunkPacketV1`
+- the native call executes on a worker-local `WorldCore`; scene objects and GPU
+  resources are touched only after the main thread validates `epoch + revision`
 - placement is deterministic for the same seed, chunk, inputs, and params;
   origins are chunk-local pixels (the grass layer node sits at the chunk
   origin)

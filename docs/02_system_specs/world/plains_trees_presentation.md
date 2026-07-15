@@ -5,7 +5,7 @@ status: draft
 owner: engineering+design
 source_of_truth: true
 version: 0.1
-last_updated: 2026-06-21
+last_updated: 2026-07-14
 related_docs:
   - ../../00_governance/ENGINEERING_STANDARDS.md
   - ../../00_governance/WORKFLOW.md
@@ -89,7 +89,8 @@ in the world:
   (canopy sways, base planted), no new wind owner.
 - **Sun-tied silhouette cast shadow**: direction and length derived from the
   canonical sun model (`TimeManager.get_sun_angle()` /
-  `get_shadow_length_factor()`), as a derived presentation layer below grass.
+  `get_shadow_length_factor()`), on the fixed cast-shadow layer outside the
+  player-relative depth ladder.
 - **Deterministic per-instance variation** (atlas variant, scale tier, tint,
   wind phase) from a hash of seed / chunk / tile (no `randf` — LAW: deterministic
   hashing).
@@ -97,10 +98,10 @@ in the world:
 
 ## Out of Scope (V0)
 
-- **Collision / `blocks_movement`** (tree as obstacle). Deferred: blocking cells
-  must be reveal-ready (LAW 10); when added, it follows the loaded large-rock
-  collision proof from `world_object_placement_v0.md` (chunk-scoped static shape
-  owners), not one body per tree.
+- Per-tree bodies, crown/full-cell collision, and registry-driven general object
+  collision remain out of scope. Current trees do have chunk-scoped trunk shape
+  owners derived from `object_kind == 4`; matching visuals and collision are
+  staged and revealed atomically, never as one body per tree.
 - **Harvest / chopping / wood yield / runtime diff** — later iteration; adds
   `commands.md`, `event_contracts.md`, save diff (`world_object_placement_v0`
   Iteration 2).
@@ -120,15 +121,15 @@ in the world:
 
 | Question | Answer |
 |---|---|
-| Canonical world data, runtime overlay, or visual only? | Tree **placement** is canonical immutable base output (LAW 5), deterministic (LAW 3). Tree **presentation** (sprites, depth z, wind, shadow) is visual only, derived. |
+| Canonical world data, runtime overlay, or visual only? | Tree **placement** is canonical immutable base output (LAW 5), deterministic (LAW 3). Sprite/depth/wind/shadow batches are derived visuals; loaded trunk collision is a gameplay proof derived from the same `object_kind == 4` record. |
 | Save/load required? | No in V0 (placement is derived from seed+version; presentation is derived). Harvest iteration adds a runtime diff. |
 | Deterministic? | Placement: yes — pure function of seed, version, chunk, settings, content set. Wind/shadow animation: intentionally non-deterministic visual drift, never read by gameplay. |
-| Must it work on unloaded chunks? | Placement derivable for any chunk on demand. Presentation buffers exist only for loaded chunk views. |
-| C++ compute or main-thread apply? | Placement solve and packet build in C++ (`WorldCore`). Main thread only applies finished per-stripe buffers and writes plain `z_index` on stripe nodes. |
-| Dirty unit | One chunk's tree presentation buffer (rebuild on diff, like grass). Depth re-assignment dirty unit: the ladder anchor change → plain z writes on existing stripe nodes (no buffer rebuild). |
-| Single owner | Placement: `WorldCore`. Presentation apply + lifecycle: `ChunkView`. Ladder anchor + z assignment: `WorldStreamer`. Wind state: `WindRuntime` (read-only consumer). |
+| Must it work on unloaded chunks? | Placement is derivable on demand. CPU results may live in bounded source/warm caches and GPU layers in bounded hot/pool/retire residency without a `ChunkView`; no whole-world presentation state is retained. |
+| C++ compute or main-thread apply? | Placement solve and packet build in C++ (`WorldCore`). Main thread only applies finished per-stripe buffers and rebases their shared three-band depth roots. |
+| Dirty unit | One chunk's tree presentation buffer (rebuild on diff, like grass). Depth dirty unit: one ladder-owner root plus a clamp-boundary stripe on anchor change (no buffer rebuild). |
+| Single owner | Placement: `WorldCore`. Scheduling/cache/envelope/pool/retirement: `WorldStreamer` + `WorldObjectPacketLayer`. `ChunkView` owns only the adopted reveal/collision reference. Ladder anchor + z assignment: `WorldStreamer`. Wind state: `WindRuntime` (read-only consumer). |
 | 10x / 100x scale path | More trees stay in per-stripe batch buffers (no per-instance calls). More object types share the **one** ladder (no per-type depth code). |
-| Main-thread blocking risk | Bounded per-chunk buffer apply through the existing decorative visual upload path; z re-assignment is plain `z_index` writes on existing nodes. |
+| Main-thread blocking risk | Bounded per-chunk buffer apply through the existing decorative visual upload path; a 16 px anchor move is one linear-root z write plus clamp-boundary migrations, not a 64-stripe walk. |
 | Hidden fallback? | Forbidden (LAW 9). No GDScript placement fallback when native is unavailable; fail explicitly. |
 | Could it become heavy later? | Yes (dense forests, collision, harvest) — which is why placement is native-first and depth is on the shared ladder now. |
 | Whole-world prepass or local compute only? | Local per-chunk compute only (LAW 12). |
@@ -143,9 +144,11 @@ The world already cuts the mid-layer into absolute 16 px horizontal stripes
 `±DEPTH_LADDER_HALF_RANGE_STRIPES`, via
 `z_for_stripe_vs_anchor(world_stripe, anchor_stripe, is_object)`. Grass scatter,
 object decor, loose rocks, and the player all share this ladder; `WorldStreamer`
-owns the anchor (`_ladder_anchor_stripe`) and re-assigns z on every chunk's
-stripe nodes (`update_mid_ladder_z`) when the player's feet stripe changes
-(plain `z_index` writes, no buffer rebuild).
+owns the anchor (`_ladder_anchor_stripe`) and broadcasts it through
+`update_mid_ladder_z`. Chunk batch owners implement the same clamped formula
+with `DepthLadderBandRoot`: fixed north/south roots and one rebased linear root.
+One normal anchor step therefore updates one root and only the stripe nodes
+crossing a clamp boundary, with no all-stripe walk and no buffer rebuild.
 
 A tree is **just another mid-layer object on this ladder**. It is bucketed by
 its **base (feet) stripe** into a sparse per-stripe `MultiMeshInstance2D`
@@ -228,9 +231,12 @@ models. Placement tuning is authored in
 
 A `WorldObjectData` family for trees (registry-addressable, namespaced IDs),
 e.g. `core:plains_tree`. `category = "flora"`, `biome_tags` includes `plains`,
-`presentation_profile_id` points at the tree presentation profile,
-`blocks_movement = false` in V0 (collision deferred). Localization keys present
-(`FLORA_*`) when a player-facing name becomes visible.
+and `presentation_profile_id` points at the tree presentation profile.
+`WorldObjectData.blocks_movement` is not collision authority for the current
+native packet path: loaded trunk collision derives from `object_kind == 4` and
+`tree_collision_records`; registry metadata and `object_flags` do not gate it.
+Localization keys (`FLORA_*`) are present when a player-facing name becomes
+visible.
 
 ### Placement set
 
@@ -278,7 +284,7 @@ generator tool. Runtime preloads the PNG only; runtime atlas painting forbidden.
 |---|---|
 | Tree placement compute | `WorldCore` (C++) |
 | Tree object packet | `WorldCore`, alongside terrain + existing objects |
-| Per-stripe batch apply + layer lifecycle | `ChunkView` tree decor layer |
+| Per-stripe batch apply + lifecycle | `WorldStreamer` + world-parented `WorldObjectPacketLayer`; `ChunkView` adopts the completed reveal/collision reference |
 | Mid-layer **depth ladder anchor + z assignment** | `WorldStreamer` (`_ladder_anchor_stripe`, `update_mid_ladder_z`) |
 | Tree look + wind response | tree batch shader/material + authored profile |
 | Wind state + globals write | `WindRuntime` (read-only consumer here) |
@@ -296,15 +302,17 @@ saved `worldgen_settings.plains_trees` copy packed into native
 
 ### Presentation: per-stripe batch on the shared ladder
 
-`ChunkView` consumes the native tree records and builds bounded **per-stripe**
-`MultiMeshInstance2D` batches, the tree base bucketed into its chunk-local
-stripe (`DEPTH_STRIPES_PER_CHUNK`), interleaved with the grass scatter stripe
-nodes. The instance transform carries the rendered size and the per-instance
+The world-parented `WorldObjectPacketLayer` consumes native tree records and
+builds bounded **per-stripe** `MultiMeshInstance2D` batches; `ChunkView` adopts
+the completed layer only for reveal. The tree base is bucketed into its
+chunk-local stripe (`DEPTH_STRIPES_PER_CHUNK`), interleaved with grass scatter
+stripe nodes. The instance transform carries rendered size and per-instance
 color packs atlas frame / tint / wind phase / alpha (existing decor convention).
-`WorldStreamer` assigns and re-assigns these stripe nodes' `z_index` through the
-same `update_mid_ladder_z(anchor)` path it uses for grass — trees hold **no**
-independent z. The tree is one batched instance per object (LAW 13: no
-node-per-object).
+`WorldStreamer` assigns these stripes through the same
+`update_mid_ladder_z(anchor)` path it uses for grass. The tree batch registers
+its channel nodes with the shared three-band root, so trees hold **no**
+independent z and anchor movement does not walk all pooled stripe slots. The
+tree is one batched instance per object (LAW 13: no node-per-object).
 
 ### Wind
 
@@ -352,11 +360,18 @@ stable / deterministic instance identity, never display names or asset paths.
 ## Performance Class
 
 - Placement solve: native `boot` / `background` packet generation.
-- Presentation apply: bounded main-thread publish (per-chunk per-stripe buffer)
-  on the decorative visual upload path; trees never block chunk reveal (LAW 10 —
-  cosmetic-later, since V0 trees are non-blocking).
-- Depth re-assignment: plain `z_index` writes on existing stripe nodes when the
-  ladder anchor changes — O(loaded stripe nodes), no buffer rebuild.
+- Presentation packing: native worker compute produces ready per-stripe buffers
+  and flat trunk-collision descriptors from the same immutable object records.
+- Presentation apply: bounded main-thread publish (per-chunk non-empty stripe
+  buffers plus bounded collider slices) on the visual upload path. Since the
+  accepted current tree proof includes blocking trunks, a chunk reveals only
+  after its complete tree/small-rock presentation and matching chunk-scoped
+  collision commit coherently; no object family is allowed to pop in after the
+  reveal (LAW 10).
+- Depth rebase: one linear-root `z_index` write per loaded tree batch owner plus
+  only active nodes crossing a clamp boundary on each 16 px anchor step —
+  O(loaded chunk owners), no 64-stripe walk and no buffer rebuild. Fixed cast
+  shadows remain outside the rebased roots.
 - Wind: O(1) global write per frame (shared), shader animates.
 - Shadow: shader-uniform / bounded transform update per frame; no per-object
   rebuild.
@@ -403,8 +418,9 @@ V0 is acceptable when:
   the runtime contains no per-frame wind broadcast for trees;
 - shadows fall in the **sun direction** and change with time of day; setting the
   hour changes shadow direction/length; the shadow is not baked into the atlas;
-- removing the tree layer entirely leaves gameplay, saves, grass, and other
-  systems untouched.
+- tree visuals and loaded trunk collision remain one coherent transaction; the
+  visual layer may not be removed independently while claiming unchanged
+  collision/gameplay semantics.
 
 ## Failure Cases / Risks
 
@@ -416,7 +432,8 @@ This design is wrong if:
 - tree placement appears in a GDScript loop or as one node per tree;
 - the shared wind gets a second writer or a per-tree broadcast path returns;
 - the shadow direction is fixed/baked rather than sun-tied;
-- tree buffers block first chunk reveal or rebuild during interactive input;
+- tree preparation runs synchronously on the main thread, or a tree-bearing
+  chunk reveals before its matching trunk collision is committed;
 - VRAM/buffer growth: dense-chunk tree buffer must stay within the authored cap.
 
 ## Open Questions
@@ -430,8 +447,9 @@ This design is wrong if:
   very large hero trees, or is feet-stripe sorting sufficient at all sizes?
   (Default: feet-stripe sufficient; revisit only if a probe shows a real
   artifact.)
-- Tree collision model (V-next): chunk-scoped static shape owners at the trunk
-  base only, following the large-rock proof.
+- Future collision broadphase representation beyond the current accepted
+  chunk-scoped trunk shape owners (for example a native aggregate) remains open;
+  the current visual/collision identity and coherent reveal rule are not open.
 
 ## Implementation Iterations
 
@@ -452,8 +470,8 @@ This design is wrong if:
 
 - Add the tree `object_kind` to native object placement (LAW 3/6); bump
   `world_version` (canonical placement output changes — LAW 4).
-- `ChunkView` tree decor layer: per-stripe batches interleaved with grass,
-  z owned by `WorldStreamer` via `update_mid_ladder_z`.
+- World-parented `WorldObjectPacketLayer`: per-stripe batches interleaved with
+  grass, z and lifecycle owned by `WorldStreamer`; `ChunkView` adopts by reference.
 - Wind material + shared globals; sun-tied silhouette shadow layer.
 - Render probes: the depth acceptance criteria (grass-covers-base, player sort,
   no flip on movement), density/seam/zoom series, wind freeze, shadow vs hour.

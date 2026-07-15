@@ -5,6 +5,7 @@
 #include "mountain_contour.h"
 #include "mountain_field.h"
 #include "mountain_plateau_raster.h"
+#include "object_presentation_buffer.h"
 #include "world_utils.h"
 
 #include <algorithm>
@@ -2097,6 +2098,7 @@ void WorldCore::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("build_mountain_halo_mask", "solid_halo", "chunk_size", "tile_size_px", "pixels_per_tile", "origin_world_x", "origin_world_y"), &WorldCore::build_mountain_halo_mask);
 	ClassDB::bind_method(D_METHOD("build_mountain_skylight_exposure", "closed_roof_mask", "live_mask", "width", "height", "step_px", "reach_samples"), &WorldCore::build_mountain_skylight_exposure);
 	ClassDB::bind_method(D_METHOD("build_grass_scatter_buffer", "seed", "chunk_coord", "terrain_ids", "lake_flags", "mountain_halo", "mountain_halo_radius_tiles", "params"), &WorldCore::build_grass_scatter_buffer);
+	ClassDB::bind_method(D_METHOD("build_object_presentation_buffers", "object_kind", "object_local_x_px_q4", "object_local_y_px_q4", "object_size_px", "object_atlas_index", "object_variant", "object_flags", "object_tint", "object_phase", "tree_metrics", "rock_metrics", "params"), &WorldCore::build_object_presentation_buffers);
 	ClassDB::bind_method(D_METHOD("build_mountain_plateau_raster_image", "packets", "target_chunk", "preset", "top_image", "face_image"), &WorldCore::build_mountain_plateau_raster_image);
 	ClassDB::bind_method(D_METHOD("resolve_world_foundation_spawn_tile", "seed", "world_version", "settings_packed"), &WorldCore::resolve_world_foundation_spawn_tile);
 #ifdef DEBUG_ENABLED
@@ -2107,6 +2109,22 @@ void WorldCore::_bind_methods() {
 
 Dictionary WorldCore::build_grass_scatter_buffer(int64_t p_seed, Vector2i p_chunk_coord, PackedInt32Array p_terrain_ids, PackedByteArray p_lake_flags, PackedByteArray p_mountain_halo, int64_t p_mountain_halo_radius_tiles, PackedFloat32Array p_params) {
 	return grass_scatter::build_buffer(p_seed, p_chunk_coord.x, p_chunk_coord.y, p_terrain_ids, p_lake_flags, p_mountain_halo, p_mountain_halo_radius_tiles, p_params);
+}
+
+Dictionary WorldCore::build_object_presentation_buffers(PackedByteArray p_object_kind, PackedByteArray p_object_local_x_px_q4, PackedByteArray p_object_local_y_px_q4, PackedByteArray p_object_size_px, PackedByteArray p_object_atlas_index, PackedByteArray p_object_variant, PackedByteArray p_object_flags, PackedByteArray p_object_tint, PackedByteArray p_object_phase, PackedFloat32Array p_tree_metrics, PackedFloat32Array p_rock_metrics, PackedFloat32Array p_params) {
+	return object_presentation::build_buffers(
+			p_object_kind,
+			p_object_local_x_px_q4,
+			p_object_local_y_px_q4,
+			p_object_size_px,
+			p_object_atlas_index,
+			p_object_variant,
+			p_object_flags,
+			p_object_tint,
+			p_object_phase,
+			p_tree_metrics,
+			p_rock_metrics,
+			p_params);
 }
 
 WorldCore::WorldCore() :

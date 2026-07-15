@@ -4,7 +4,7 @@ doc_type: system_spec
 status: approved
 owner: engineering+design
 source_of_truth: true
-version: 1.2
+version: 1.3
 last_updated: 2026-07-14
 related_docs:
   - ../../00_governance/ENGINEERING_STANDARDS.md
@@ -372,14 +372,18 @@ in `packet_schemas.md` in the same task):
 
 ```text
 WorldCore.build_grass_scatter_buffer(
-  world_seed, world_version, chunk_coord,
+  world_seed, chunk_coord,
   terrain_ids: PackedInt32Array,
   lake_flags: PackedByteArray,
+  mountain_halo: PackedByteArray,
+  mountain_halo_radius_tiles: int,
   params: PackedFloat32Array      # packed authored sampling params
 ) -> Dictionary {
-  "multimesh_buffer": PackedFloat32Array,  # 12 floats per instance:
-                                           # 2D transform (8) + color (4)
+  "bucket_buffers": Array[PackedFloat32Array], # 12 floats per instance:
+                                                # 2D transform (8) + color (4)
   "instance_count": int,
+  "shadow_buffer": PackedFloat32Array,
+  "spore_buffer": PackedFloat32Array,
 }
 ```
 
@@ -435,7 +439,7 @@ PNGs; runtime atlas painting is forbidden. Contract checks:
 | Wind state + globals write | `WindRuntime` autoload |
 | Wind behaviour curve | `WorldVisualWindProfile` |
 | Grass placement compute | `WorldCore` (C++) |
-| Grass buffer request/refresh scheduling | `WorldStreamer` decorative visual upload path |
+| Grass buffer request/refresh scheduling | `WorldStreamer` + shared distance-aware `WorldChunkPacketBackend` worker pool |
 | Grass scene apply + layer lifecycle | chunk grass scatter layer inside `ChunkView` |
 | Grass look + wind response | shared grass shader family + authored material set |
 
@@ -443,9 +447,13 @@ PNGs; runtime atlas painting is forbidden. Contract checks:
 
 1. Chunk publishes through the normal packet path (grass never blocks reveal —
    LAW 10 "terrain now, cosmetics later").
-2. `WorldStreamer` enqueues a grass build for the chunk on the same bounded
-   decorative path used for shoreline/mountain mask work.
-3. Native returns the finished buffer; the visual upload job assigns it to the
+2. `WorldStreamer` queues packed input data into the shared, bounded
+   `WorldChunkPacketBackend` pool. Each worker owns its own `WorldCore`; neither
+   native placement nor buffer packing runs from the main-thread visual job.
+   Requests are coalesced by chunk, carry `(epoch, revision, priority)`, and
+   queued stale revisions are removed when visible demand changes.
+3. Native returns the finished buffer. `WorldStreamer` rejects stale
+   epoch/revision results; the visual upload job assigns a current result to the
    chunk's grass `MultiMesh` (one bounded copy). Native placement rejects
    candidates inside mountain-edge clearance (`WorldCore.build_grass_scatter_buffer`
    takes the same cross-chunk `mountain_solid_halo` `WorldStreamer` already
@@ -475,11 +483,14 @@ player-relative anchor has no wrap; beyond the clamp range (±768 px, larger
 than the screen at gameplay zooms) stripes pin to the ladder edges where
 relative errors are no longer distinguishable.
 
-`WorldStreamer` owns the anchor: when the player's feet stripe changes, it
-re-assigns z on all chunk mid-layer stripe nodes (plain `z_index` writes on
-existing nodes, no buffer rebuilds; layers cache the applied anchor and
-reset it when their batches rebuild). Native returns the tuft buffer
-pre-split per chunk-local stripe (`bucket_buffers`, sparse
+`WorldStreamer` owns the anchor and broadcasts only its changed stripe. Each
+chunk-local batch owner realizes the exact clamped formula through a shared
+three-band rebase (`DepthLadderBandRoot`): fixed north/south clamp roots plus
+one linear root. A normal 16 px anchor step writes the linear root z once and
+migrates only stripe nodes crossing the clamp boundaries; it never walks all
+64 stripes and never rebuilds a buffer. Newly uploaded non-empty stripes
+register in their current band and inherit the already-applied anchor. Native
+returns the tuft buffer pre-split per chunk-local stripe (`bucket_buffers`, sparse
 `MultiMeshInstance2D` nodes per non-empty stripe). Mountain presentation sits
 BELOW the whole ladder (`Z_MOUNTAIN_TOP/PAGE = 19`, construction-only
 `Z_MOUNTAIN_ROOF = 20`, ladder base `21`; see
@@ -519,8 +530,17 @@ with this feature on or off.
 - Wind update: `interactive`-frame work, O(1) (a few trig/noise evaluations +
   3 global uniform writes).
 - Grass build: `background` native compute per chunk.
+- Grass shares the bounded worker pool with packet, mask, and object-presentation
+  compute. Priority classes and weighted fairness protect reveal and streaming
+  progress. Grass builds may execute concurrently on different worker-local
+  `WorldCore` instances and remain bounded by the configured pool size.
 - Grass apply: bounded main-thread publish (one buffer assignment per chunk)
   on the decorative visual upload path.
+- Depth-anchor rebase: O(loaded chunk batch owners) root writes plus only the
+  active nodes crossing either clamp boundary (at most two stripe boundaries
+  per 16 px step per owner), independent of the 64-stripe table and instance
+  density. Its effective z is exactly `z_for_stripe_vs_anchor`; mountain and
+  fixed shadow layers are outside these roots.
 - Target scale: thousands of tufts per dense chunk, dozens of loaded chunks;
   authored per-chunk instance cap bounds worst-case buffer size.
 - Zoom LOD (Iteration 3): the native buffer is importance-ordered (large

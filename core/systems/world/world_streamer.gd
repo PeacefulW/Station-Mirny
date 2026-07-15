@@ -2,6 +2,7 @@ class_name WorldStreamer
 extends Node2D
 
 const ChunkView = preload("res://core/systems/world/chunk_view.gd")
+const WorldObjectPacketLayer = preload("res://core/systems/world/world_object_packet_layer.gd")
 const HarvestQuery = preload("res://core/systems/world/harvest_query.gd")
 const FoundationGenSettings = preload("res://core/resources/foundation_gen_settings.gd")
 const LakeGenSettings = preload("res://core/resources/lake_gen_settings.gd")
@@ -19,6 +20,7 @@ const WorldRuntimeConstants = preload("res://core/systems/world/world_runtime_co
 const WorldVisualLightingProfile = preload("res://core/systems/world/world_visual_lighting_profile.gd")
 const WorldVisualWindProfile = preload("res://core/systems/world/world_visual_wind_profile.gd")
 const TerrainPresentationRegistry = preload("res://core/systems/world/terrain_presentation_registry.gd")
+const WorldLayeredObjectAssetCatalog = preload("res://core/systems/world/world_layered_object_asset_catalog.gd")
 const GRASS_SHADOW_SHADER = preload("res://assets/shaders/grass_shadow_batch.gdshader")
 const GRASS_SPORE_SHADER = preload("res://assets/shaders/grass_spore_batch.gdshader")
 const WorldSpawnResolver = preload("res://core/systems/world/world_spawn_resolver.gd")
@@ -32,9 +34,19 @@ const DefaultPlainsSmallRockPlacementSettings = preload("res://data/world_object
 const INVALID_CHUNK_COORD: Vector2i = Vector2i(2147483647, 2147483647)
 const LADDER_ANCHOR_UNSET: int = 1 << 30
 const MAX_SPAWN_RESULTS_PER_TICK: int = 1
-const PACKET_WORKER_COUNT: int = 3
-const MOUNTAIN_MASK_WORKER_COUNT: int = 3
+## All world compute kinds share one priority pool. Reserving logical cores for
+## the main/render lanes prevents packet+mask+grass+object workers from
+## oversubscribing low-core machines; the cap also avoids scaling background
+## generation until it competes with frame delivery on large CPUs.
+const WORLD_COMPUTE_RESERVED_LOGICAL_CORES: int = 2
+const WORLD_COMPUTE_MAX_WORKERS: int = 6
+const WORLD_COMPUTE_PACKET_BATCH_MAX: int = 12
 const MAX_PACKET_RESULTS_PER_TICK: int = 24
+const MAX_GRASS_SCATTER_RESULTS_PER_TICK: int = 12
+const MAX_OBJECT_PRESENTATION_RESULTS_PER_TICK: int = 24
+const MAX_OBJECT_PRESENTATION_RETRIES_PER_TICK: int = 2
+const OBJECT_PRESENTATION_MAX_RETRY_ATTEMPTS: int = 2
+const OBJECT_PRESENTATION_RETRY_DELAY_MSEC: int = 125
 const MAX_MOUNTAIN_PAGE_RESULTS_PER_TICK: int = 1
 const MAX_MOUNTAIN_NATIVE_MASK_RESULTS_PER_TICK: int = 8
 const MAX_MOUNTAIN_NATIVE_MASK_RETRIES_PER_TICK: int = 2
@@ -118,8 +130,42 @@ const PLAINS_BROWN_SEAWEED_STATIC_FLORA_ATLAS_PATH: String = "res://assets/sprit
 # through the terrain presentation registry (see terrain_hybrid_presentation.md).
 const MOUNTAIN_MASK_UNDERLAY_MATERIAL_SET_ID: StringName = &"mountain:mask_underlay_material"
 const MOUNTAIN_NATIVE_MASK_VISUAL_UPLOAD_BUDGET_MS: float = 0.75
+const OBJECT_PRESENTATION_VISUAL_UPLOAD_BUDGET_MS: float = 0.75
 const MASK_MINING_SEARCH_RADIUS_TILES: int = 3
 const MAX_VIEWPORT_STREAM_RADIUS_CHUNKS: int = 4
+const WARM_PACKET_CACHE_SIDE_CHUNKS: int = MAX_VIEWPORT_STREAM_RADIUS_CHUNKS * 2 + 3
+const WARM_PACKET_CACHE_MAX_CHUNKS: int = WARM_PACKET_CACHE_SIDE_CHUNKS * WARM_PACKET_CACHE_SIDE_CHUNKS
+# At most the current source window plus one outgoing window may retain visual
+# tokens during reconciliation/teleport. This hard cap makes the priority-scan
+# snapshot allocation itself bounded; hidden overflow keeps its lightweight
+# prestage token and retries when a slot opens, while live urgency may evict a
+# lower-class token.
+const OBJECT_PRESENTATION_VISUAL_QUEUE_MAX_TOKENS: int = WARM_PACKET_CACHE_MAX_CHUNKS * 2
+const WARM_OBJECT_PRESENTATION_CACHE_MAX_BYTES: int = 32 * 1024 * 1024
+# GPU-resident object presentation is a separate cache from the CPU packed
+# result cache. Count, CanvasItem/collider pressure, and raw buffer bytes are
+# all bounded independently so repeated zoom never implies unbounded residency.
+# Live incomplete reveal transactions are a separately bounded visible-ring
+# working set and are never recursively evicted/restaged to satisfy these caps.
+const HOT_OBJECT_PRESENTATION_CACHE_MAX_CHUNKS: int = WARM_PACKET_CACHE_MAX_CHUNKS
+const HOT_OBJECT_PRESENTATION_CACHE_MAX_BYTES: int = 32 * 1024 * 1024
+const HOT_OBJECT_PRESENTATION_CACHE_MAX_CANVAS_ITEMS: int = \
+		WARM_PACKET_CACHE_MAX_CHUNKS * WorldRuntimeConstants.DEPTH_STRIPES_PER_CHUNK
+const HOT_OBJECT_PRESENTATION_CACHE_MAX_COLLIDERS: int = \
+		WARM_PACKET_CACHE_MAX_CHUNKS * WorldRuntimeConstants.DEPTH_STRIPES_PER_CHUNK
+# A tiny boot/recycle pool moves script/CanvasItem/MultiMesh first-use out of
+# the moving-player deadline. It is deliberately independent from the hot
+# residency budget and remains strictly bounded.
+const OBJECT_PRESENTATION_LAYER_POOL_TARGET_SIZE: int = 2
+const OBJECT_PRESENTATION_LAYER_POOL_MAX_SIZE: int = 4
+const OBJECT_PRESENTATION_POOL_INITIAL_SLOTS_PER_FAMILY: int = 4
+const OBJECT_PRESENTATION_SLICE_SOFT_BUDGET_USEC: int = 350
+const OBJECT_PRESENTATION_MAX_SUBSLICES_PER_FRAME: int = 8
+const OBJECT_PRESENTATION_PRIORITY_SCAN_SOFT_BUDGET_USEC: int = 150
+const OBJECT_PRESENTATION_PRIORITY_SCAN_MAX_ITEMS_PER_PHASE: int = 16
+const OBJECT_PRESENTATION_RETIRE_BUDGET_MS: float = 0.35
+const OBJECT_PRESENTATION_RETIRE_VISUAL_SLOTS_PER_PHASE: int = 1
+const OBJECT_PRESENTATION_RETIRE_COLLIDERS_PER_PHASE: int = 4
 const MOUNTAIN_MASK_PRESET_PATH: String = "res://scenes/dev/mountain_2d_raster_preset.json"
 const STREAMING_STEP_TIMING_DEBUG: bool = false
 
@@ -128,6 +174,13 @@ var world_version: int = WorldRuntimeConstants.WORLD_VERSION
 
 var _diff_store: WorldDiffStore = WorldDiffStore.new()
 var _chunk_packets: Dictionary = { }
+## Immutable native packets are kept separately from diff-applied runtime
+## packets so a warm-cache hit can always reapply the current WorldDiffStore.
+var _base_chunk_packets: Dictionary = { }
+var _warm_base_chunk_packet_cache: Dictionary = { }
+var _warm_base_chunk_packet_cache_stamps: Dictionary = { }
+var _warm_base_chunk_packet_cache_next_stamp: int = 0
+var _warm_packet_cache_hit_count_total: int = 0
 var _chunk_views: Dictionary = { }
 var _requested_chunks: Dictionary = { }
 var _pending_publish_queue: Array[Vector2i] = []
@@ -140,8 +193,11 @@ var _desired_mountain_mask_chunk_coords: Array[Vector2i] = []
 var _desired_cache_center_chunk: Vector2i = INVALID_CHUNK_COORD
 var _desired_cache_radius_chunks: int = -1
 var _desired_cache_source_radius_chunks: int = -1
+var _streaming_worker_demand_dirty: bool = true
 var _stream_job_id: StringName = &""
 var _mountain_native_mask_visual_job_id: StringName = &""
+var _object_presentation_visual_job_id: StringName = &""
+var _object_presentation_retire_job_id: StringName = &""
 var _generation_epoch: int = 0
 var _worldgen_settings: MountainGenSettings = MountainGenSettings.hard_coded_defaults()
 var _world_bounds_settings: WorldBoundsSettings = WorldBoundsSettings.hard_coded_defaults()
@@ -156,8 +212,16 @@ var _pending_new_foundation_settings: FoundationGenSettings = null
 var _pending_new_lake_settings: LakeGenSettings = null
 var _pending_new_plains_tree_settings: PlainsTreePlacementSettings = null
 var _pending_new_plains_small_rock_settings: PlainsSmallRockPlacementSettings = null
-var _packet_backend: WorldChunkPacketBackend = WorldChunkPacketBackend.new()
-var _mountain_mask_backend: WorldChunkPacketBackend = WorldChunkPacketBackend.new()
+var _world_compute_backend: WorldChunkPacketBackend = WorldChunkPacketBackend.new()
+# Compatibility role names share the same multiplexed backend. Result queues
+# remain typed inside WorldChunkPacketBackend; start/stop/clear are owned only
+# by _world_compute_backend below.
+var _packet_backend: WorldChunkPacketBackend = _world_compute_backend
+var _mountain_mask_backend: WorldChunkPacketBackend = _world_compute_backend
+var _grass_scatter_backend: WorldChunkPacketBackend = _world_compute_backend
+var _object_presentation_backend: WorldChunkPacketBackend = _world_compute_backend
+var _world_compute_worker_count: int = 0
+var _layered_object_asset_catalog: WorldLayeredObjectAssetCatalog = WorldLayeredObjectAssetCatalog.new()
 var _awaiting_new_game_spawn_result: bool = false
 var _new_game_spawn_failed: bool = false
 var roof_layers_per_chunk_max: int = 0
@@ -256,8 +320,76 @@ var _pending_terrain_edge_mask_visual_upload_chunks: Array[Vector2i] = []
 var _pending_terrain_edge_mask_visual_upload_set: Dictionary = { }
 var _pending_object_packet_visual_upload_chunks: Array[Vector2i] = []
 var _pending_object_packet_visual_upload_set: Dictionary = { }
+var _pending_object_packet_visual_upload_index_by_chunk: Dictionary = { }
+var _object_packet_visual_queue_repair_needed: bool = false
+var _object_packet_visual_queue_repair_cursor: int = 0
+var _object_packet_visual_enqueued_turn_by_chunk: Dictionary = { }
+var _object_packet_visual_dispatch_turn: int = 0
+var _focused_object_packet_visual_upload_chunk: Vector2i = INVALID_CHUNK_COORD
+var _object_packet_visual_priority_dirty: bool = true
+var _object_packet_visual_urgent_priority_dirty: bool = false
+# A dirty O(queue) priority refresh is its own dispatcher phase. This token lets
+# exactly one already-selected phase run next even if streaming appended more
+# equal/lower-urgency source tokens meanwhile, preventing refresh starvation.
+var _object_packet_visual_selection_phase_prepared: bool = false
+var _object_packet_visual_priority_scan_active: bool = false
+var _object_packet_visual_priority_scan_candidates: Array[Vector2i] = []
+var _object_packet_visual_priority_scan_cursor: int = 0
+var _object_packet_visual_priority_scan_best: Vector2i = INVALID_CHUNK_COORD
+var _object_packet_visual_priority_scan_best_class: int = 2147483647
+var _object_packet_visual_priority_scan_best_priority: int = 0
+var _object_packet_visual_priority_scan_best_turn: int = 0
+# COMPLETE is produced by an upload callback; adopt plus the atomic visual /
+# collision reveal run together in a later FINALIZE callback. The guard also
+# blocks the lower-priority mountain visual job from revealing a chunk later in
+# the same frame in which object presentation performed its last upload.
+var _object_presentation_reveal_not_before_frame_by_chunk: Dictionary = { }
+var _pending_hot_object_prestage_chunks: Array[Vector2i] = []
+var _pending_hot_object_prestage_set: Dictionary = { }
+var _object_presentation_next_revision: int = 0
+var _object_presentation_revision_by_chunk: Dictionary = { }
+var _object_presentation_inflight_chunks: Dictionary = { }
+var _object_presentation_results_by_chunk: Dictionary = { }
+var _warm_object_presentation_cache: Dictionary = { }
+var _warm_object_presentation_cache_bytes_by_chunk: Dictionary = { }
+var _warm_object_presentation_cache_bytes: int = 0
+var _object_presentation_cache_hit_count_total: int = 0
+var _hot_object_presentation_layers: Dictionary = { }
+var _hot_object_presentation_cache_next_stamp: int = 0
+var _hot_object_presentation_cache_bytes: int = 0
+var _hot_object_presentation_cache_canvas_items: int = 0
+var _hot_object_presentation_cache_colliders: int = 0
+var _hot_object_presentation_cache_hit_count_total: int = 0
+var _hot_object_presentation_cache_eviction_count_total: int = 0
+var _hot_object_presentation_root: Node2D = null
+var _object_presentation_layer_pool: Array[WorldObjectPacketLayer] = []
+var _object_presentation_retire_queue: Array[Dictionary] = []
+var _object_presentation_retire_layer_ids: Dictionary = { }
+var _object_presentation_retire_gpu_bytes: int = 0
+var _object_presentation_retire_canvas_items: int = 0
+var _object_presentation_retire_colliders: int = 0
+var _object_presentation_retire_phase_count_total: int = 0
+var _object_presentation_retire_phase_usec_max_total: int = 0
+var _object_presentation_pool_gpu_bytes: int = 0
+var _object_presentation_pool_canvas_items: int = 0
+var _object_presentation_pool_colliders: int = 0
+var _object_presentation_pool_weight_by_layer_id: Dictionary = { }
+var _object_presentation_worker_elapsed_ms_last: float = 0.0
+var _object_presentation_worker_elapsed_ms_max_total: float = 0.0
+var _object_presentation_request_to_complete_ms_last: float = 0.0
+var _object_presentation_request_to_complete_ms_max_total: float = 0.0
+var _object_presentation_retry_by_chunk: Dictionary = { }
+var _object_presentation_terminal_fallback_by_chunk: Dictionary = { }
+var _object_presentation_failure_count_total: int = 0
+var _object_presentation_terminal_failure_count: int = 0
 var _pending_grass_scatter_visual_upload_chunks: Array[Vector2i] = []
 var _pending_grass_scatter_visual_upload_set: Dictionary = { }
+var _grass_scatter_revision_by_chunk: Dictionary = { }
+var _grass_scatter_inflight_chunks: Dictionary = { }
+var _grass_scatter_worker_elapsed_ms_last: float = 0.0
+var _grass_scatter_worker_elapsed_ms_max_total: float = 0.0
+var _grass_scatter_request_to_complete_ms_last: float = 0.0
+var _grass_scatter_request_to_complete_ms_max_total: float = 0.0
 var _grass_scatter_material: ShaderMaterial = null
 var _grass_shadow_atlas_material: ShaderMaterial = null
 var _grass_shadow_material: ShaderMaterial = null
@@ -312,8 +444,39 @@ func _ready() -> void:
 	_ensure_grass_blob_overlay_source()
 	_ensure_plains_living_flora_source()
 	_ensure_plains_spiky_flora_source()
-	_packet_backend.start(PACKET_WORKER_COUNT)
-	_mountain_mask_backend.start(MOUNTAIN_MASK_WORKER_COUNT)
+	assert(
+		_layered_object_asset_catalog.is_ready(),
+		"Layered object channel atlases/catalog must be prepared before streaming starts",
+	)
+	_world_compute_worker_count = _resolve_world_compute_worker_count()
+	_world_compute_backend.set_max_batch_size(
+		mini(WORLD_COMPUTE_PACKET_BATCH_MAX, maxi(2, _world_compute_worker_count * 2)),
+	)
+	_world_compute_backend.start(_world_compute_worker_count)
+	# Required object visuals gate chunk reveal, so their small bounded apply job
+	# must run before the broader streaming job. Otherwise one legacy streaming
+	# step that overruns the global budget can starve this queue for many frames
+	# and let a moving player catch hidden/unready chunks.
+	_object_presentation_visual_job_id = FrameBudgetDispatcher.register_job(
+		RuntimeWorkTypes.CATEGORY_STREAMING,
+		OBJECT_PRESENTATION_VISUAL_UPLOAD_BUDGET_MS,
+		_object_presentation_visual_apply_tick,
+		&"world.object_presentation_visual_upload",
+		RuntimeWorkTypes.CadenceKind.NEAR_PLAYER,
+		RuntimeWorkTypes.ThreadingRole.MAIN_THREAD_ONLY,
+		true,
+		"World object presentation bounded upload",
+	)
+	_object_presentation_retire_job_id = FrameBudgetDispatcher.register_job(
+		RuntimeWorkTypes.CATEGORY_STREAMING,
+		OBJECT_PRESENTATION_RETIRE_BUDGET_MS,
+		_object_presentation_retire_tick,
+		&"world.object_presentation_retire",
+		RuntimeWorkTypes.CadenceKind.BACKGROUND,
+		RuntimeWorkTypes.ThreadingRole.MAIN_THREAD_ONLY,
+		true,
+		"World object presentation bounded retire",
+	)
 	_stream_job_id = FrameBudgetDispatcher.register_job(
 		RuntimeWorkTypes.CATEGORY_STREAMING,
 		1.5,
@@ -351,8 +514,20 @@ func _exit_tree() -> void:
 		FrameBudgetDispatcher.unregister_job(_stream_job_id)
 	if _mountain_native_mask_visual_job_id and FrameBudgetDispatcher:
 		FrameBudgetDispatcher.unregister_job(_mountain_native_mask_visual_job_id)
-	_packet_backend.stop()
-	_mountain_mask_backend.stop()
+	if _object_presentation_visual_job_id and FrameBudgetDispatcher:
+		FrameBudgetDispatcher.unregister_job(_object_presentation_visual_job_id)
+	if _object_presentation_retire_job_id and FrameBudgetDispatcher:
+		FrameBudgetDispatcher.unregister_job(_object_presentation_retire_job_id)
+	_clear_hot_object_presentation_cache()
+	_world_compute_backend.stop()
+
+
+func _resolve_world_compute_worker_count() -> int:
+	return clampi(
+		OS.get_processor_count() - WORLD_COMPUTE_RESERVED_LOGICAL_CORES,
+		1,
+		WORLD_COMPUTE_MAX_WORKERS,
+	)
 
 
 func initialize_new_world(
@@ -575,13 +750,23 @@ func get_mountain_mask_runtime_debug_state() -> Dictionary:
 				terrain_ground_visible_without_mask_count += 1
 			if not bool(terrain_edge_debug.get("visual_ready", false)):
 				terrain_ground_visible_without_visual_count += 1
+	var hot_object_ready_count: int = 0
+	for entry_variant: Variant in _hot_object_presentation_layers.values():
+		var hot_entry: Dictionary = entry_variant as Dictionary
+		if bool(hot_entry.get("ready", false)):
+			hot_object_ready_count += 1
 	var snapshot: Dictionary = _last_mountain_mask_result.duplicate(true)
 	snapshot["stream_radius_chunks"] = _current_stream_radius_chunks
 	snapshot["page_source_radius_chunks"] = MOUNTAIN_MASK_SOURCE_RADIUS_CHUNKS
-	snapshot["page_worker_count"] = MOUNTAIN_MASK_WORKER_COUNT
+	snapshot["page_worker_count"] = _world_compute_worker_count
+	snapshot["world_compute_pool_shared"] = true
+	snapshot["world_compute_worker_count"] = _world_compute_worker_count
+	snapshot["world_compute_logical_processor_count"] = OS.get_processor_count()
 	snapshot["ready_page_count"] = ready_native_mask_chunk_count
 	snapshot["ready_view_page_count"] = ready_native_mask_chunk_count
-	snapshot["page_backend_pending"] = _mountain_mask_backend.has_pending_requests()
+	snapshot["page_backend_pending"] = \
+		_world_compute_backend.has_pending_request_kind(&"mountain_raster") \
+		or _world_compute_backend.has_pending_request_kind(&"mountain_halo_mask")
 	snapshot["page_backend_completed"] = _mountain_mask_backend.has_completed_mountain_rasters() \
 			or _mountain_mask_backend.has_completed_mountain_halo_masks()
 	snapshot["native_mask_cached_count"] = _mountain_native_masks_by_chunk.size()
@@ -591,6 +776,81 @@ func get_mountain_mask_runtime_debug_state() -> Dictionary:
 	snapshot["missing_mountain_chunk_count"] = 0
 	snapshot["packet_count"] = _chunk_packets.size()
 	snapshot["source_packet_count"] = _chunk_packets.size()
+	snapshot["base_packet_count"] = _base_chunk_packets.size()
+	snapshot["warm_packet_cache_count"] = _warm_base_chunk_packet_cache.size()
+	snapshot["warm_packet_cache_capacity"] = WARM_PACKET_CACHE_MAX_CHUNKS
+	snapshot["warm_packet_cache_hit_count_total"] = _warm_packet_cache_hit_count_total
+	snapshot["object_presentation_worker_count"] = _world_compute_worker_count
+	snapshot["object_presentation_inflight_count"] = _object_presentation_inflight_chunks.size()
+	snapshot["object_presentation_ready_count"] = _object_presentation_results_by_chunk.size()
+	snapshot["object_presentation_warm_cache_count"] = _warm_object_presentation_cache.size()
+	snapshot["object_presentation_warm_cache_bytes"] = _warm_object_presentation_cache_bytes
+	snapshot["object_presentation_warm_cache_max_bytes"] = WARM_OBJECT_PRESENTATION_CACHE_MAX_BYTES
+	snapshot["object_presentation_cache_hit_count_total"] = _object_presentation_cache_hit_count_total
+	snapshot["object_presentation_hot_cache_count"] = _hot_object_presentation_layers.size()
+	snapshot["object_presentation_hot_cache_ready_count"] = hot_object_ready_count
+	snapshot["object_presentation_hot_cache_staging_count"] = \
+		_hot_object_presentation_layers.size() - hot_object_ready_count
+	snapshot["object_presentation_hot_cache_gpu_bytes"] = _hot_object_presentation_cache_bytes
+	snapshot["object_presentation_hot_cache_gpu_max_bytes"] = \
+		HOT_OBJECT_PRESENTATION_CACHE_MAX_BYTES
+	snapshot["object_presentation_hot_cache_canvas_items"] = \
+		_hot_object_presentation_cache_canvas_items
+	snapshot["object_presentation_hot_cache_colliders"] = \
+		_hot_object_presentation_cache_colliders
+	snapshot["object_presentation_hot_cache_hit_count_total"] = \
+		_hot_object_presentation_cache_hit_count_total
+	snapshot["object_presentation_hot_cache_eviction_count_total"] = \
+		_hot_object_presentation_cache_eviction_count_total
+	snapshot["object_presentation_layer_pool_count"] = \
+		_object_presentation_layer_pool.size()
+	snapshot["object_presentation_retire_queue_count"] = \
+		_object_presentation_retire_queue.size()
+	snapshot["object_presentation_retire_gpu_bytes"] = \
+		_object_presentation_retire_gpu_bytes
+	snapshot["object_presentation_retire_canvas_items"] = \
+		_object_presentation_retire_canvas_items
+	snapshot["object_presentation_retire_colliders"] = \
+		_object_presentation_retire_colliders
+	snapshot["object_presentation_retire_phase_count_total"] = \
+		_object_presentation_retire_phase_count_total
+	snapshot["object_presentation_retire_phase_usec_max_total"] = \
+		_object_presentation_retire_phase_usec_max_total
+	snapshot["object_presentation_pool_canvas_items"] = \
+		_object_presentation_pool_canvas_items
+	snapshot["object_presentation_total_resident_gpu_bytes"] = \
+		_object_presentation_total_gpu_bytes()
+	snapshot["object_presentation_total_resident_canvas_items"] = \
+		_object_presentation_total_canvas_items()
+	snapshot["object_presentation_total_resident_colliders"] = \
+		_object_presentation_total_colliders()
+	snapshot["object_presentation_deferred_reveal_count"] = \
+		_object_presentation_reveal_not_before_frame_by_chunk.size()
+	snapshot["object_presentation_worker_pending"] = \
+		_world_compute_backend.has_pending_request_kind(&"object_presentation")
+	snapshot["object_presentation_worker_completed"] = \
+		_object_presentation_backend.has_completed_object_presentation_buffers()
+	snapshot["object_presentation_worker_elapsed_ms_last"] = \
+		_object_presentation_worker_elapsed_ms_last
+	snapshot["object_presentation_worker_elapsed_ms_max_total"] = \
+		_object_presentation_worker_elapsed_ms_max_total
+	snapshot["object_presentation_request_to_complete_ms_last"] = \
+		_object_presentation_request_to_complete_ms_last
+	snapshot["object_presentation_request_to_complete_ms_max_total"] = \
+		_object_presentation_request_to_complete_ms_max_total
+	snapshot["object_presentation_retry_count"] = _object_presentation_retry_by_chunk.size()
+	snapshot["object_presentation_failure_count_total"] = \
+		_object_presentation_failure_count_total
+	snapshot["object_presentation_terminal_failure_count"] = \
+		_object_presentation_terminal_failure_count
+	snapshot["object_presentation_terminal_fallback_pending_count"] = \
+		_object_presentation_terminal_fallback_by_chunk.size()
+	snapshot["object_presentation_visual_upload_queue_count"] = \
+		_pending_object_packet_visual_upload_chunks.size()
+	snapshot["object_presentation_prestage_queue_count"] = \
+		_pending_hot_object_prestage_chunks.size()
+	snapshot["object_presentation_focused_upload_chunk"] = \
+		_focused_object_packet_visual_upload_chunk
 	snapshot["display_packet_count"] = ready_native_mask_chunk_count
 	snapshot["queued_source_chunks"] = snapshot.get("source_chunks", [])
 	snapshot["hit_mask_ready"] = int(snapshot.get("hit_mask_width", 0)) > 0 \
@@ -614,6 +874,10 @@ func get_mountain_mask_runtime_debug_state() -> Dictionary:
 	snapshot["native_mask_visual_upload_queue_count"] = _pending_mountain_native_mask_visual_upload_chunks.size()
 	snapshot["chunk_visibility_waiting_for_roof_count"] = \
 	_pending_chunk_visibility_after_mountain_visual.size()
+	# Compatibility key above remains for existing diagnostics. The visibility
+	# gate now covers every required blocking visual, including tree collisions.
+	snapshot["chunk_visibility_waiting_for_blocking_visual_count"] = \
+		_pending_chunk_visibility_after_mountain_visual.size()
 	snapshot["mountain_roof_target_mountain_id"] = _active_cover_mountain_id
 	snapshot["mountain_roof_target_component_id"] = _active_cover_component_id
 	snapshot["mountain_roof_displayed_mountain_id"] = _displayed_cover_mountain_id
@@ -653,6 +917,17 @@ func get_mountain_mask_runtime_debug_state() -> Dictionary:
 	snapshot["terrain_edge_mask_inflight_count"] = _terrain_edge_mask_inflight_chunks.size()
 	snapshot["terrain_edge_mask_visual_upload_queue_count"] = _pending_terrain_edge_mask_visual_upload_chunks.size()
 	snapshot["grass_scatter_visual_upload_queue_count"] = _pending_grass_scatter_visual_upload_chunks.size()
+	snapshot["grass_scatter_inflight_count"] = _grass_scatter_inflight_chunks.size()
+	snapshot["grass_scatter_worker_pending"] = \
+		_world_compute_backend.has_pending_request_kind(&"grass_scatter")
+	snapshot["grass_scatter_worker_completed"] = \
+		_grass_scatter_backend.has_completed_grass_scatter_buffers()
+	snapshot["grass_scatter_worker_elapsed_ms_last"] = _grass_scatter_worker_elapsed_ms_last
+	snapshot["grass_scatter_worker_elapsed_ms_max_total"] = _grass_scatter_worker_elapsed_ms_max_total
+	snapshot["grass_scatter_request_to_complete_ms_last"] = \
+		_grass_scatter_request_to_complete_ms_last
+	snapshot["grass_scatter_request_to_complete_ms_max_total"] = \
+		_grass_scatter_request_to_complete_ms_max_total
 	snapshot["ready_terrain_edge_mask_chunk_count"] = ready_terrain_edge_mask_chunk_count
 	snapshot["terrain_edge_mask_visual_ready_count"] = terrain_edge_mask_visual_ready_count
 	snapshot["terrain_edge_mask_visual_pending_count"] = terrain_edge_mask_visual_pending_count
@@ -1646,6 +1921,12 @@ func _streaming_tick() -> bool:
 	timing_step_usec = _record_streaming_step_timing(timing_records, "prune", timing_step_usec)
 	_drain_completed_packets(MAX_PACKET_RESULTS_PER_TICK)
 	timing_step_usec = _record_streaming_step_timing(timing_records, "drain_packets", timing_step_usec)
+	_drain_completed_object_presentation_buffers(MAX_OBJECT_PRESENTATION_RESULTS_PER_TICK)
+	timing_step_usec = _record_streaming_step_timing(timing_records, "drain_objects", timing_step_usec)
+	_retry_failed_object_presentation_builds(MAX_OBJECT_PRESENTATION_RETRIES_PER_TICK)
+	timing_step_usec = _record_streaming_step_timing(timing_records, "retry_objects", timing_step_usec)
+	_drain_completed_grass_scatter_buffers(MAX_GRASS_SCATTER_RESULTS_PER_TICK)
+	timing_step_usec = _record_streaming_step_timing(timing_records, "drain_grass", timing_step_usec)
 	_drain_completed_native_masks(MAX_MOUNTAIN_NATIVE_MASK_RESULTS_PER_TICK)
 	timing_step_usec = _record_streaming_step_timing(timing_records, "drain_native_masks", timing_step_usec)
 	_retry_failed_mountain_native_masks(MAX_MOUNTAIN_NATIVE_MASK_RETRIES_PER_TICK)
@@ -1704,22 +1985,392 @@ func _drop_terrain_edge_mask_visual_upload(chunk_coord: Vector2i) -> void:
 func _queue_object_packet_visual_upload(chunk_coord: Vector2i) -> void:
 	chunk_coord = _canonicalize_chunk_coord(chunk_coord)
 	if _pending_object_packet_visual_upload_set.has(chunk_coord):
+		_mark_object_packet_visual_urgent_preemption(chunk_coord)
+		return
+	if _pending_object_packet_visual_upload_set.size() \
+			>= OBJECT_PRESENTATION_VISUAL_QUEUE_MAX_TOKENS \
+			and not _make_object_packet_visual_queue_room_for(chunk_coord):
+		# Source-only overflow remains represented by its prestage token and is
+		# retried after normal queue progress; no GPU work or result is discarded.
+		_object_packet_visual_queue_repair_needed = true
 		return
 	_pending_object_packet_visual_upload_set[chunk_coord] = true
+	_object_packet_visual_enqueued_turn_by_chunk[chunk_coord] = \
+			_object_packet_visual_dispatch_turn
+	_pending_object_packet_visual_upload_index_by_chunk[chunk_coord] = \
+			_pending_object_packet_visual_upload_chunks.size()
 	_pending_object_packet_visual_upload_chunks.append(chunk_coord)
+	_object_packet_visual_priority_dirty = true
+	_mark_object_packet_visual_urgent_preemption(chunk_coord)
+
+
+func _make_object_packet_visual_queue_room_for(chunk_coord: Vector2i) -> bool:
+	var candidate_class: int = _object_packet_visual_upload_class(chunk_coord)
+	if candidate_class >= 2:
+		return false
+	var victim: Vector2i = INVALID_CHUNK_COORD
+	var victim_class: int = candidate_class
+	var victim_priority: int = -1
+	for queued_coord: Vector2i in _pending_object_packet_visual_upload_chunks:
+		var queued_class: int = _object_packet_visual_upload_class(queued_coord)
+		var queued_priority: int = _chunk_request_priority(queued_coord)
+		if queued_class > victim_class \
+				or (queued_class == victim_class and queued_priority > victim_priority):
+			victim = queued_coord
+			victim_class = queued_class
+			victim_priority = queued_priority
+	if victim == INVALID_CHUNK_COORD:
+		return false
+	_drop_object_packet_visual_upload(victim)
+	if _pending_hot_object_prestage_set.has(victim):
+		_object_packet_visual_queue_repair_needed = true
+		_object_packet_visual_queue_repair_cursor = 0
+	return true
+
+
+func _mark_object_packet_visual_urgent_preemption(chunk_coord: Vector2i) -> void:
+	if _focused_object_packet_visual_upload_chunk == INVALID_CHUNK_COORD \
+			or chunk_coord == _focused_object_packet_visual_upload_chunk \
+			or not _pending_object_packet_visual_upload_set.has(
+				_focused_object_packet_visual_upload_chunk,
+			):
+		return
+	var candidate_class: int = _object_packet_visual_upload_class(chunk_coord)
+	var focused_class: int = _object_packet_visual_upload_class(
+		_focused_object_packet_visual_upload_chunk,
+	)
+	if candidate_class < focused_class \
+			or (candidate_class == focused_class \
+					and _chunk_request_priority(chunk_coord) \
+							< _chunk_request_priority(
+								_focused_object_packet_visual_upload_chunk,
+							)):
+		_object_packet_visual_urgent_priority_dirty = true
 
 
 func _drop_object_packet_visual_upload(chunk_coord: Vector2i) -> void:
 	chunk_coord = _canonicalize_chunk_coord(chunk_coord)
+	if not _pending_object_packet_visual_upload_set.has(chunk_coord):
+		return
 	_pending_object_packet_visual_upload_set.erase(chunk_coord)
+	_object_packet_visual_enqueued_turn_by_chunk.erase(chunk_coord)
+	var removed_index: int = int(
+		_pending_object_packet_visual_upload_index_by_chunk.get(chunk_coord, -1)
+	)
+	_pending_object_packet_visual_upload_index_by_chunk.erase(chunk_coord)
+	if removed_index >= 0 and removed_index < _pending_object_packet_visual_upload_chunks.size():
+		var last_index: int = _pending_object_packet_visual_upload_chunks.size() - 1
+		if removed_index != last_index:
+			var moved_coord: Vector2i = _pending_object_packet_visual_upload_chunks[last_index]
+			_pending_object_packet_visual_upload_chunks[removed_index] = moved_coord
+			_pending_object_packet_visual_upload_index_by_chunk[moved_coord] = removed_index
+		_pending_object_packet_visual_upload_chunks.pop_back()
+	if _focused_object_packet_visual_upload_chunk == chunk_coord:
+		_focused_object_packet_visual_upload_chunk = INVALID_CHUNK_COORD
+		_object_packet_visual_urgent_priority_dirty = false
+	_object_packet_visual_priority_dirty = true
+
+
+## Completion-biased priority pick. A live/reveal transaction always beats a
+## hidden source-ring prestage, and the selected transaction keeps the lane
+## until complete. Atomic reveal cannot benefit from dozens of half-uploaded
+## chunks; completing one frontier chunk is what turns pixels/collision on.
+func _take_next_object_packet_visual_upload() -> Vector2i:
 	if _pending_object_packet_visual_upload_chunks.is_empty():
+		return INVALID_CHUNK_COORD
+	if not _object_packet_visual_priority_dirty \
+			and _focused_object_packet_visual_upload_chunk != INVALID_CHUNK_COORD \
+			and _pending_object_packet_visual_upload_set.has(
+				_focused_object_packet_visual_upload_chunk,
+			):
+		_object_packet_visual_dispatch_turn += 1
+		return _focused_object_packet_visual_upload_chunk
+	var best_index: int = -1
+	var best_class: int = 2147483647
+	var best_priority: int = 0
+	var best_enqueued_turn: int = 0
+	var focused_index: int = -1
+	for index: int in range(_pending_object_packet_visual_upload_chunks.size()):
+		var candidate: Vector2i = _pending_object_packet_visual_upload_chunks[index]
+		if candidate == _focused_object_packet_visual_upload_chunk:
+			focused_index = index
+		var enqueued_turn: int = int(
+			_object_packet_visual_enqueued_turn_by_chunk.get(
+				candidate,
+				_object_packet_visual_dispatch_turn,
+			)
+		)
+		var urgency_class: int = _object_packet_visual_upload_class(candidate)
+		var priority: int = _chunk_request_priority(candidate)
+		if best_index < 0 \
+				or urgency_class < best_class \
+				or (urgency_class == best_class and priority < best_priority) \
+				or (urgency_class == best_class and priority == best_priority \
+						and enqueued_turn < best_enqueued_turn):
+			best_index = index
+			best_class = urgency_class
+			best_priority = priority
+			best_enqueued_turn = enqueued_turn
+	# Keep the current atomic transaction unless a genuinely more urgent class
+	# or a closer deadline arrived. Equal-priority work waits for completion.
+	if focused_index >= 0:
+		var focused: Vector2i = _pending_object_packet_visual_upload_chunks[focused_index]
+		var focused_class: int = _object_packet_visual_upload_class(focused)
+		var focused_priority: int = _chunk_request_priority(focused)
+		if best_class > focused_class \
+				or (best_class == focused_class and best_priority >= focused_priority):
+			best_index = focused_index
+	var selected: Vector2i = _pending_object_packet_visual_upload_chunks[best_index]
+	_focused_object_packet_visual_upload_chunk = selected
+	_object_packet_visual_priority_dirty = false
+	_object_packet_visual_urgent_priority_dirty = false
+	_object_packet_visual_dispatch_turn += 1
+	return selected
+
+
+func _begin_object_packet_visual_priority_scan() -> void:
+	# Snapshotting coordinates is cheap and keeps cursor semantics stable while
+	# streaming appends or filters the live queue between dispatcher callbacks.
+	# Mutations set priority_dirty again and are considered by the next scan.
+	_object_packet_visual_priority_scan_candidates = \
+			_pending_object_packet_visual_upload_chunks.duplicate()
+	_object_packet_visual_priority_scan_cursor = 0
+	_object_packet_visual_priority_scan_best = INVALID_CHUNK_COORD
+	_object_packet_visual_priority_scan_best_class = 2147483647
+	_object_packet_visual_priority_scan_best_priority = 0
+	_object_packet_visual_priority_scan_best_turn = 0
+	_object_packet_visual_priority_scan_active = true
+	_object_packet_visual_priority_dirty = false
+	_object_packet_visual_urgent_priority_dirty = false
+
+
+## Advances a stable priority snapshot under both a time guard and an item cap.
+## Returns true only when selection has completed; raw upload/envelope work is
+## always deferred to a later dispatcher callback.
+func _advance_object_packet_visual_priority_scan() -> bool:
+	if not _object_packet_visual_priority_scan_active:
+		_begin_object_packet_visual_priority_scan()
+	var phase_started_usec: int = Time.get_ticks_usec()
+	var processed_items: int = 0
+	while _object_packet_visual_priority_scan_cursor \
+			< _object_packet_visual_priority_scan_candidates.size():
+		var candidate: Vector2i = _object_packet_visual_priority_scan_candidates[
+			_object_packet_visual_priority_scan_cursor
+		]
+		_object_packet_visual_priority_scan_cursor += 1
+		processed_items += 1
+		if _pending_object_packet_visual_upload_set.has(candidate):
+			var enqueued_turn: int = int(
+				_object_packet_visual_enqueued_turn_by_chunk.get(
+					candidate,
+					_object_packet_visual_dispatch_turn,
+				)
+			)
+			var urgency_class: int = _object_packet_visual_upload_class(candidate)
+			var priority: int = _chunk_request_priority(candidate)
+			if _object_packet_visual_priority_scan_best == INVALID_CHUNK_COORD \
+					or urgency_class < _object_packet_visual_priority_scan_best_class \
+					or (urgency_class == _object_packet_visual_priority_scan_best_class \
+							and priority < _object_packet_visual_priority_scan_best_priority) \
+					or (urgency_class == _object_packet_visual_priority_scan_best_class \
+							and priority == _object_packet_visual_priority_scan_best_priority \
+							and enqueued_turn < _object_packet_visual_priority_scan_best_turn):
+				_object_packet_visual_priority_scan_best = candidate
+				_object_packet_visual_priority_scan_best_class = urgency_class
+				_object_packet_visual_priority_scan_best_priority = priority
+				_object_packet_visual_priority_scan_best_turn = enqueued_turn
+		if processed_items >= OBJECT_PRESENTATION_PRIORITY_SCAN_MAX_ITEMS_PER_PHASE \
+				or Time.get_ticks_usec() - phase_started_usec \
+						>= OBJECT_PRESENTATION_PRIORITY_SCAN_SOFT_BUDGET_USEC:
+			break
+	if _object_packet_visual_priority_scan_cursor \
+			< _object_packet_visual_priority_scan_candidates.size():
+		return false
+
+	var selected: Vector2i = _object_packet_visual_priority_scan_best
+	# Completion bias is evaluated at commit time against the current queue, not
+	# the snapshot, so a focused transaction removed mid-scan is never resurrected.
+	if _focused_object_packet_visual_upload_chunk != INVALID_CHUNK_COORD \
+			and _pending_object_packet_visual_upload_set.has(
+				_focused_object_packet_visual_upload_chunk,
+			):
+		var focused_class: int = _object_packet_visual_upload_class(
+			_focused_object_packet_visual_upload_chunk,
+		)
+		var focused_priority: int = _chunk_request_priority(
+			_focused_object_packet_visual_upload_chunk,
+		)
+		if selected == INVALID_CHUNK_COORD \
+				or _object_packet_visual_priority_scan_best_class > focused_class \
+				or (_object_packet_visual_priority_scan_best_class == focused_class \
+						and _object_packet_visual_priority_scan_best_priority \
+								>= focused_priority):
+			selected = _focused_object_packet_visual_upload_chunk
+	_focused_object_packet_visual_upload_chunk = selected
+	_object_packet_visual_priority_scan_active = false
+	_object_packet_visual_priority_scan_candidates.clear()
+	_object_packet_visual_priority_scan_cursor = 0
+	_object_packet_visual_priority_scan_best = INVALID_CHUNK_COORD
+	_object_packet_visual_dispatch_turn += 1
+	# A token appended after snapshot creation is intentionally left dirty. If no
+	# snapshot candidate survived, it must trigger the next scan immediately.
+	if selected == INVALID_CHUNK_COORD \
+			and not _pending_object_packet_visual_upload_chunks.is_empty():
+		_object_packet_visual_priority_dirty = true
+	return true
+
+
+func _object_packet_visual_upload_class(chunk_coord: Vector2i) -> int:
+	var chunk_view: ChunkView = _chunk_views.get(chunk_coord, null) as ChunkView
+	if chunk_view == null:
+		return 2 # Hidden source-ring prestage.
+	if chunk_coord == _active_publish_chunk \
+			or _pending_chunk_visibility_after_mountain_visual.has(chunk_coord) \
+			or not chunk_view.visible:
+		return 0 # Atomic reveal frontier.
+	return 1 # Already visible live refresh.
+
+
+func _queue_hot_object_prestage(chunk_coord: Vector2i) -> void:
+	chunk_coord = _canonicalize_chunk_coord(chunk_coord)
+	if not _pending_hot_object_prestage_set.has(chunk_coord):
+		_pending_hot_object_prestage_set[chunk_coord] = true
+		_pending_hot_object_prestage_chunks.append(chunk_coord)
+	# The coordinate itself is the lightweight envelope token. Putting it in the
+	# normal visual queue lets a newly-live reveal frontier preempt hidden GPU
+	# work without acquiring a layer or touching RenderingServer in streaming tick.
+	_queue_object_packet_visual_upload(chunk_coord)
+
+
+func _drop_hot_object_prestage(chunk_coord: Vector2i) -> void:
+	chunk_coord = _canonicalize_chunk_coord(chunk_coord)
+	_pending_hot_object_prestage_set.erase(chunk_coord)
+	# Repair cursors address the live prestage array. Filtering can shift every
+	# later index, so restart a pending bounded scan instead of skipping an orphan.
+	if _object_packet_visual_queue_repair_needed:
+		_object_packet_visual_queue_repair_cursor = 0
+	if _pending_hot_object_prestage_chunks.is_empty():
 		return
 	var filtered: Array[Vector2i] = []
-	for queued_coord: Vector2i in _pending_object_packet_visual_upload_chunks:
-		if queued_coord == chunk_coord:
-			continue
-		filtered.append(queued_coord)
-	_pending_object_packet_visual_upload_chunks = filtered
+	for queued_coord: Vector2i in _pending_hot_object_prestage_chunks:
+		if queued_coord != chunk_coord:
+			filtered.append(queued_coord)
+	_pending_hot_object_prestage_chunks = filtered
+
+
+## Creates one transaction envelope at a time. Keeping packed CPU results in
+## this queue is cheap; Node/RenderingServer objects are only allocated by the
+## separately budgeted presentation job. The matching visual-queue token keeps
+## live/reveal urgency ordering identical before and after the envelope exists.
+func _stage_next_pending_hot_object_presentation() -> bool:
+	if _pending_hot_object_prestage_chunks.is_empty():
+		return false
+	var best_index: int = 0
+	var best_class: int = _object_packet_visual_upload_class(
+		_pending_hot_object_prestage_chunks[0],
+	)
+	var best_priority: int = _chunk_request_priority(
+		_pending_hot_object_prestage_chunks[0],
+	)
+	for index: int in range(1, _pending_hot_object_prestage_chunks.size()):
+		var urgency_class: int = _object_packet_visual_upload_class(
+			_pending_hot_object_prestage_chunks[index],
+		)
+		var priority: int = _chunk_request_priority(
+			_pending_hot_object_prestage_chunks[index],
+		)
+		if urgency_class < best_class \
+				or (urgency_class == best_class and priority < best_priority):
+			best_index = index
+			best_class = urgency_class
+			best_priority = priority
+	var chunk_coord: Vector2i = _pending_hot_object_prestage_chunks[best_index]
+	return _stage_pending_hot_object_presentation(chunk_coord)
+
+
+func _repair_one_object_packet_visual_queue_token() -> void:
+	if _pending_hot_object_prestage_chunks.is_empty():
+		_object_packet_visual_queue_repair_needed = false
+		_object_packet_visual_queue_repair_cursor = 0
+		return
+	_object_packet_visual_queue_repair_cursor = clampi(
+		_object_packet_visual_queue_repair_cursor,
+		0,
+		_pending_hot_object_prestage_chunks.size(),
+	)
+	var phase_started_usec: int = Time.get_ticks_usec()
+	var processed_items: int = 0
+	while _object_packet_visual_queue_repair_cursor \
+			< _pending_hot_object_prestage_chunks.size():
+		var coord: Vector2i = _pending_hot_object_prestage_chunks[
+			_object_packet_visual_queue_repair_cursor
+		]
+		_object_packet_visual_queue_repair_cursor += 1
+		processed_items += 1
+		if _pending_hot_object_prestage_set.has(coord) \
+				and not _pending_object_packet_visual_upload_set.has(coord):
+			_queue_object_packet_visual_upload(coord)
+			if _pending_object_packet_visual_upload_set.has(coord):
+				return
+		if processed_items >= OBJECT_PRESENTATION_PRIORITY_SCAN_MAX_ITEMS_PER_PHASE \
+				or Time.get_ticks_usec() - phase_started_usec \
+						>= OBJECT_PRESENTATION_PRIORITY_SCAN_SOFT_BUDGET_USEC:
+			return
+	_object_packet_visual_queue_repair_needed = false
+	_object_packet_visual_queue_repair_cursor = 0
+
+
+## Consumes one already-selected envelope token. This function is called only
+## from the object presentation FrameBudgetDispatcher job; acquire/begin and
+## recycled-layer cleanup therefore cannot leak back into streaming drain.
+func _stage_pending_hot_object_presentation(chunk_coord: Vector2i) -> bool:
+	chunk_coord = _canonicalize_chunk_coord(chunk_coord)
+	if not _pending_hot_object_prestage_set.has(chunk_coord):
+		return false
+	if not _object_presentation_results_by_chunk.has(chunk_coord):
+		_drop_hot_object_prestage(chunk_coord)
+		_drop_object_packet_visual_upload(chunk_coord)
+		return false
+	var chunk_view: ChunkView = _chunk_views.get(chunk_coord, null) as ChunkView
+	if chunk_view != null:
+		_drop_hot_object_prestage(chunk_coord)
+		var staged: bool = _stage_ready_object_presentation(chunk_coord, chunk_view)
+		if not staged:
+			_drop_object_packet_visual_upload(chunk_coord)
+		return staged
+	if not _is_chunk_source_desired(chunk_coord):
+		_drop_hot_object_prestage(chunk_coord)
+		_drop_object_packet_visual_upload(chunk_coord)
+		return false
+	if not _get_current_hot_object_entry(chunk_coord).is_empty():
+		_drop_hot_object_prestage(chunk_coord)
+		return true
+	# Retiring resources remain part of exact residency. Do not let source-ring
+	# prewarming acquire fresh GPU graphs faster than the one-phase retire lane can
+	# release them. The token deliberately remains in both queues: a live view can
+	# preempt it immediately, and the same hidden token retries automatically once
+	# retirement/budget pressure clears without requiring another streaming event.
+	if _hidden_object_prestage_is_backpressured():
+		return false
+	# Consume at most one envelope/obsolete queue entry per dispatcher frame.
+	# A long stale tail must not turn one nominally bounded callback into a scan
+	# plus several Node/RenderingServer allocations.
+	_drop_hot_object_prestage(chunk_coord)
+	var result: Dictionary = _object_presentation_results_by_chunk.get(
+		chunk_coord,
+		{ },
+	) as Dictionary
+	var staged: bool = _stage_hot_object_presentation(chunk_coord, result)
+	if not staged:
+		# Empty/suppressed hidden packets retain CPU truth and will be queued again
+		# if they later acquire a live ChunkView; they need no idle upload token.
+		_drop_object_packet_visual_upload(chunk_coord)
+	return staged
+
+
+func _hidden_object_prestage_is_backpressured() -> bool:
+	return not _object_presentation_retire_queue.is_empty() \
+			or _hot_object_presentation_cache_is_over_budget()
 
 
 func _queue_grass_scatter_visual_upload(chunk_coord: Vector2i) -> void:
@@ -1730,9 +2381,329 @@ func _queue_grass_scatter_visual_upload(chunk_coord: Vector2i) -> void:
 	_pending_grass_scatter_visual_upload_chunks.append(chunk_coord)
 
 
+func _request_object_presentation_build(
+		chunk_coord: Vector2i,
+		packet: Dictionary,
+		new_base_packet: bool,
+) -> void:
+	chunk_coord = _canonicalize_chunk_coord(chunk_coord)
+	if packet.is_empty() or not _is_chunk_source_desired(chunk_coord):
+		return
+	if not _layered_object_asset_catalog.is_ready():
+		push_error("WorldStreamer: layered object asset catalog is not boot-ready")
+		return
+	if new_base_packet:
+		_drop_hot_object_prestage(chunk_coord)
+		_evict_hot_object_presentation(chunk_coord)
+		_object_presentation_reveal_not_before_frame_by_chunk.erase(chunk_coord)
+		_object_presentation_next_revision += 1
+		_object_presentation_revision_by_chunk[chunk_coord] = _object_presentation_next_revision
+		_object_presentation_results_by_chunk.erase(chunk_coord)
+		_erase_warm_object_presentation(chunk_coord)
+		_object_presentation_retry_by_chunk.erase(chunk_coord)
+		_object_presentation_terminal_fallback_by_chunk.erase(chunk_coord)
+	elif _object_presentation_results_by_chunk.has(chunk_coord) \
+			or _object_presentation_inflight_chunks.has(chunk_coord):
+		return
+	elif not _object_presentation_revision_by_chunk.has(chunk_coord):
+		_object_presentation_next_revision += 1
+		_object_presentation_revision_by_chunk[chunk_coord] = _object_presentation_next_revision
+	var revision: int = int(_object_presentation_revision_by_chunk.get(chunk_coord, -1))
+	if revision < 0:
+		return
+	var living_flora_enabled: bool = _plains_living_flora_atlas != null
+	var spiky_flora_enabled: bool = \
+			_plains_spiky_flora_atlases.size() == WorldLayeredObjectAssetCatalog.SPIKY_ATLAS_BANK_COUNT
+	if spiky_flora_enabled:
+		for atlas: Texture2D in _plains_spiky_flora_atlases:
+			if atlas == null:
+				spiky_flora_enabled = false
+				break
+	_object_presentation_inflight_chunks[chunk_coord] = revision
+	_streaming_worker_demand_dirty = true
+	_object_presentation_backend.queue_object_presentation_request(
+		chunk_coord,
+		packet,
+		_layered_object_asset_catalog.get_tree_native_metrics(),
+		_layered_object_asset_catalog.get_rock_native_metrics(),
+		_layered_object_asset_catalog.get_native_params(
+			living_flora_enabled,
+			spiky_flora_enabled,
+		),
+		_layered_object_asset_catalog.get_catalog_generation(),
+		_generation_epoch,
+		revision,
+		_chunk_request_priority(chunk_coord),
+		_object_presentation_compute_priority_class(chunk_coord),
+	)
+
+
+func _object_presentation_compute_priority_class(chunk_coord: Vector2i) -> int:
+	if _is_chunk_desired(chunk_coord) \
+			or _chunk_views.has(chunk_coord) \
+			or _pending_publish_queue.has(chunk_coord) \
+			or chunk_coord == _active_publish_chunk:
+		return WorldChunkPacketBackend.PRIORITY_CLASS_REVEAL
+	return WorldChunkPacketBackend.PRIORITY_CLASS_STREAMING
+
+
+func _drain_completed_object_presentation_buffers(max_count: int) -> void:
+	var drained: Array[Dictionary] = \
+		_object_presentation_backend.drain_completed_object_presentation_buffers(max_count)
+	for result: Dictionary in drained:
+		if int(result.get("epoch", -1)) != _generation_epoch:
+			continue
+		var chunk_coord: Vector2i = _canonicalize_chunk_coord(
+			result.get("target_chunk", Vector2i.ZERO) as Vector2i,
+		)
+		var revision: int = int(result.get("revision", -1))
+		if revision != int(_object_presentation_revision_by_chunk.get(chunk_coord, -2)):
+			continue
+		if revision == int(_object_presentation_inflight_chunks.get(chunk_coord, -3)):
+			_object_presentation_inflight_chunks.erase(chunk_coord)
+		if int(result.get("catalog_generation", -1)) \
+				!= _layered_object_asset_catalog.get_catalog_generation():
+			# A completed old-catalog payload is stale, but it must also release
+			# inflight ownership and schedule current-catalog work. Silently dropping
+			# it would leave this revision permanently waiting.
+			_object_presentation_retry_by_chunk[chunk_coord] = {
+				"revision": revision,
+				"attempts": 0,
+				"next_retry_msec": Time.get_ticks_msec(),
+				"message": "object presentation catalog generation changed",
+				"terminal": false,
+			}
+			continue
+		_object_presentation_worker_elapsed_ms_last = float(result.get("worker_elapsed_ms", 0.0))
+		_object_presentation_worker_elapsed_ms_max_total = maxf(
+			_object_presentation_worker_elapsed_ms_max_total,
+			_object_presentation_worker_elapsed_ms_last,
+		)
+		_object_presentation_request_to_complete_ms_last = float(
+			result.get("request_to_complete_ms", 0.0),
+		)
+		_object_presentation_request_to_complete_ms_max_total = maxf(
+			_object_presentation_request_to_complete_ms_max_total,
+			_object_presentation_request_to_complete_ms_last,
+		)
+		if not bool(result.get("success", false)):
+			_record_object_presentation_failure(
+				chunk_coord,
+				revision,
+				str(result.get("message", "unknown native object presentation error")),
+			)
+			continue
+		_object_presentation_retry_by_chunk.erase(chunk_coord)
+		_object_presentation_terminal_fallback_by_chunk.erase(chunk_coord)
+		if _base_chunk_packets.has(chunk_coord):
+			_object_presentation_results_by_chunk[chunk_coord] = result
+			if _chunk_views.has(chunk_coord) or _is_chunk_source_desired(chunk_coord):
+				# Drain owns immutable CPU truth only. The coordinate is a lightweight
+				# priority token; acquire/begin/recycled-owner cleanup happens in the
+				# object FrameBudgetDispatcher, never in this up-to-24-result loop.
+				_queue_hot_object_prestage(chunk_coord)
+		elif _warm_base_chunk_packet_cache.has(chunk_coord):
+			_store_warm_object_presentation(chunk_coord, result)
+
+
+func _record_object_presentation_failure(
+		chunk_coord: Vector2i,
+		revision: int,
+		message: String,
+) -> void:
+	if revision != int(_object_presentation_revision_by_chunk.get(chunk_coord, -2)):
+		return
+	_object_presentation_results_by_chunk.erase(chunk_coord)
+	_erase_warm_object_presentation(chunk_coord)
+	_object_presentation_failure_count_total += 1
+	var previous: Dictionary = _object_presentation_retry_by_chunk.get(chunk_coord, { }) as Dictionary
+	var attempts: int = 1
+	if int(previous.get("revision", -1)) == revision:
+		attempts = int(previous.get("attempts", 0)) + 1
+	var terminal: bool = attempts > OBJECT_PRESENTATION_MAX_RETRY_ATTEMPTS
+	_object_presentation_retry_by_chunk[chunk_coord] = {
+		"revision": revision,
+		"attempts": attempts,
+		"next_retry_msec": Time.get_ticks_msec() + OBJECT_PRESENTATION_RETRY_DELAY_MSEC,
+		"message": message,
+		"terminal": terminal,
+	}
+	if terminal:
+		_object_presentation_terminal_failure_count += 1
+		_object_presentation_retry_by_chunk.erase(chunk_coord)
+		_object_presentation_terminal_fallback_by_chunk[chunk_coord] = revision
+		_evict_hot_object_presentation(chunk_coord)
+		push_error(
+			"WorldStreamer native object presentation failed for chunk %s revision %d after %d attempts; using the compatibility recovery path: %s" % [
+				str(chunk_coord),
+				revision,
+				attempts,
+				message,
+			],
+		)
+		# Compatibility recovery may allocate its complete legacy object graph.
+		# Queue it as one exceptional dispatcher phase instead of doing that work
+		# from result drain / streaming tick.
+		if _chunk_views.has(chunk_coord):
+			_queue_object_packet_visual_upload(chunk_coord)
+	else:
+		push_warning(
+			"WorldStreamer object presentation retry %d/%d for chunk %s revision %d: %s" % [
+				attempts,
+				OBJECT_PRESENTATION_MAX_RETRY_ATTEMPTS,
+				str(chunk_coord),
+				revision,
+				message,
+			],
+		)
+
+
+func _try_apply_terminal_object_presentation_fallback(chunk_coord: Vector2i) -> bool:
+	chunk_coord = _canonicalize_chunk_coord(chunk_coord)
+	var revision: int = int(
+		_object_presentation_terminal_fallback_by_chunk.get(chunk_coord, -1),
+	)
+	if revision < 0:
+		return false
+	if revision != int(_object_presentation_revision_by_chunk.get(chunk_coord, -2)):
+		_object_presentation_terminal_fallback_by_chunk.erase(chunk_coord)
+		return false
+	var chunk_view: ChunkView = _chunk_views.get(chunk_coord, null) as ChunkView
+	if chunk_view == null:
+		return false
+	var packet: Dictionary = _chunk_packets.get(chunk_coord, { }) as Dictionary
+	if packet.is_empty() and _warm_base_chunk_packet_cache.has(chunk_coord):
+		packet = _diff_store.apply_to_packet(
+			_warm_base_chunk_packet_cache.get(chunk_coord, { }) as Dictionary,
+		)
+	if packet.is_empty() or not chunk_view.apply_terminal_object_presentation_fallback(packet):
+		return false
+	_object_presentation_terminal_fallback_by_chunk.erase(chunk_coord)
+	_object_presentation_retry_by_chunk.erase(chunk_coord)
+	_object_presentation_results_by_chunk.erase(chunk_coord)
+	_drop_object_packet_visual_upload(chunk_coord)
+	_finalize_pending_chunk_visibility(chunk_coord)
+	return true
+
+
+func _retry_failed_object_presentation_builds(max_count: int) -> void:
+	if max_count <= 0 or _object_presentation_retry_by_chunk.is_empty():
+		return
+	var candidates: Array[Vector2i] = []
+	for chunk_coord_variant: Variant in _object_presentation_retry_by_chunk.keys():
+		candidates.append(chunk_coord_variant as Vector2i)
+	candidates.sort_custom(
+		func(a: Vector2i, b: Vector2i) -> bool:
+			return _chunk_request_priority(a) < _chunk_request_priority(b)
+	)
+	var now_msec: int = Time.get_ticks_msec()
+	var queued_count: int = 0
+	for chunk_coord: Vector2i in candidates:
+		if queued_count >= max_count:
+			break
+		var retry: Dictionary = _object_presentation_retry_by_chunk.get(chunk_coord, { }) as Dictionary
+		var revision: int = int(retry.get("revision", -1))
+		if revision != int(_object_presentation_revision_by_chunk.get(chunk_coord, -2)):
+			_object_presentation_retry_by_chunk.erase(chunk_coord)
+			continue
+		if bool(retry.get("terminal", false)) \
+				or now_msec < int(retry.get("next_retry_msec", 0)):
+			continue
+		if _object_presentation_results_by_chunk.has(chunk_coord):
+			_object_presentation_retry_by_chunk.erase(chunk_coord)
+			continue
+		if _object_presentation_inflight_chunks.has(chunk_coord) \
+				or not _is_chunk_source_desired(chunk_coord):
+			continue
+		var packet: Dictionary = _chunk_packets.get(chunk_coord, { }) as Dictionary
+		if packet.is_empty() and _warm_base_chunk_packet_cache.has(chunk_coord):
+			packet = _diff_store.apply_to_packet(
+				_warm_base_chunk_packet_cache.get(chunk_coord, { }) as Dictionary,
+			)
+		if packet.is_empty():
+			continue
+		_request_object_presentation_build(chunk_coord, packet, false)
+		if _object_presentation_inflight_chunks.has(chunk_coord):
+			retry["next_retry_msec"] = 1 << 60
+			_object_presentation_retry_by_chunk[chunk_coord] = retry
+			queued_count += 1
+
+
+func _stage_ready_object_presentation(chunk_coord: Vector2i, chunk_view: ChunkView) -> bool:
+	if chunk_view == null or not _object_presentation_results_by_chunk.has(chunk_coord):
+		return false
+	var result: Dictionary = _object_presentation_results_by_chunk.get(chunk_coord, { }) as Dictionary
+	# Production live chunks use the same world-parented transaction as hidden
+	# prestage. Besides preserving hot-cache identity, this lets them acquire a
+	# boot-prepared envelope instead of allocating a ChunkView-local graph on the
+	# reveal-critical frame. Empty/suppressed packets fall through to the small
+	# compatibility staging path because they need no GPU-resident layer.
+	if not _get_current_hot_object_entry(chunk_coord).is_empty() \
+			or _stage_hot_object_presentation(chunk_coord, result):
+		_drop_hot_object_prestage(chunk_coord)
+		_object_packet_visual_priority_dirty = true
+		_queue_object_packet_visual_upload(chunk_coord)
+		return true
+	if not chunk_view.stage_object_presentation_result(result, _layered_object_asset_catalog):
+		return false
+	_drop_hot_object_prestage(chunk_coord)
+	_object_packet_visual_priority_dirty = true
+	_queue_object_packet_visual_upload(chunk_coord)
+	return true
+
+
+## Streaming/publish-side handoff for a view that just became a reveal frontier.
+## This method is deliberately queue-only: it is also the re-entry point for a
+## terminal fallback whose previous view disappeared before its dispatcher turn.
+func _queue_object_presentation_for_live_view(chunk_coord: Vector2i) -> bool:
+	chunk_coord = _canonicalize_chunk_coord(chunk_coord)
+	if not _chunk_views.has(chunk_coord):
+		return false
+	if not _get_current_hot_object_entry(chunk_coord).is_empty():
+		_queue_object_packet_visual_upload(chunk_coord)
+	elif _object_presentation_terminal_fallback_by_chunk.has(chunk_coord):
+		_queue_object_packet_visual_upload(chunk_coord)
+	elif _object_presentation_results_by_chunk.has(chunk_coord):
+		_queue_hot_object_prestage(chunk_coord)
+	else:
+		return false
+	# A hidden prestage token may already have been focused as class 2. Creating
+	# its live ChunkView promotes it to class 0 without inserting a duplicate.
+	_object_packet_visual_priority_dirty = true
+	return true
+
+
+func _request_grass_scatter_build(chunk_coord: Vector2i) -> void:
+	chunk_coord = _canonicalize_chunk_coord(chunk_coord)
+	var chunk_view: ChunkView = _chunk_views.get(chunk_coord, null) as ChunkView
+	var packet: Dictionary = _chunk_packets.get(chunk_coord, { }) as Dictionary
+	if chunk_view == null or packet.is_empty() or not chunk_view.has_pending_grass_scatter_visual():
+		return
+	_ensure_grass_scatter_sources()
+	var revision: int = int(_grass_scatter_revision_by_chunk.get(chunk_coord, 0)) + 1
+	_grass_scatter_revision_by_chunk[chunk_coord] = revision
+	_grass_scatter_inflight_chunks[chunk_coord] = revision
+	_streaming_worker_demand_dirty = true
+	var mountain_halo: Dictionary = _get_cached_mountain_solid_halo(chunk_coord)
+	_grass_scatter_backend.queue_grass_scatter_request(
+		chunk_coord,
+		int(packet.get("world_seed", world_seed)),
+		packet.get("terrain_ids", PackedInt32Array()) as PackedInt32Array,
+		packet.get("lake_flags", PackedByteArray()) as PackedByteArray,
+		mountain_halo.get("halo", PackedByteArray()) as PackedByteArray,
+		MOUNTAIN_HALO_MASK_RADIUS_TILES,
+		_grass_scatter_params,
+		_generation_epoch,
+		revision,
+		_chunk_request_priority(chunk_coord),
+	)
+
+
 func _drop_grass_scatter_visual_upload(chunk_coord: Vector2i) -> void:
 	chunk_coord = _canonicalize_chunk_coord(chunk_coord)
 	_pending_grass_scatter_visual_upload_set.erase(chunk_coord)
+	_grass_scatter_inflight_chunks.erase(chunk_coord)
+	_streaming_worker_demand_dirty = true
 	if _pending_grass_scatter_visual_upload_chunks.is_empty():
 		return
 	var filtered: Array[Vector2i] = []
@@ -1741,6 +2712,45 @@ func _drop_grass_scatter_visual_upload(chunk_coord: Vector2i) -> void:
 			continue
 		filtered.append(queued_coord)
 	_pending_grass_scatter_visual_upload_chunks = filtered
+
+
+func _drain_completed_grass_scatter_buffers(max_count: int) -> void:
+	var drained: Array[Dictionary] = _grass_scatter_backend.drain_completed_grass_scatter_buffers(max_count)
+	for result: Dictionary in drained:
+		if int(result.get("epoch", -1)) != _generation_epoch:
+			continue
+		var chunk_coord: Vector2i = _canonicalize_chunk_coord(
+			result.get("target_chunk", Vector2i.ZERO) as Vector2i,
+		)
+		var revision: int = int(result.get("revision", -1))
+		if revision != int(_grass_scatter_revision_by_chunk.get(chunk_coord, -2)):
+			continue
+		_grass_scatter_worker_elapsed_ms_last = float(result.get("worker_elapsed_ms", 0.0))
+		_grass_scatter_worker_elapsed_ms_max_total = maxf(
+			_grass_scatter_worker_elapsed_ms_max_total,
+			_grass_scatter_worker_elapsed_ms_last,
+		)
+		_grass_scatter_request_to_complete_ms_last = float(
+			result.get("request_to_complete_ms", 0.0),
+		)
+		_grass_scatter_request_to_complete_ms_max_total = maxf(
+			_grass_scatter_request_to_complete_ms_max_total,
+			_grass_scatter_request_to_complete_ms_last,
+		)
+		if revision == int(_grass_scatter_inflight_chunks.get(chunk_coord, -3)):
+			_grass_scatter_inflight_chunks.erase(chunk_coord)
+		var chunk_view: ChunkView = _chunk_views.get(chunk_coord, null) as ChunkView
+		if chunk_view == null or not _is_chunk_desired(chunk_coord):
+			continue
+		if not bool(result.get("success", false)):
+			push_error(
+				"WorldStreamer grass scatter build failed for chunk %s: %s" % [
+					str(chunk_coord),
+					str(result.get("message", "unknown native grass scatter error")),
+				],
+			)
+		if chunk_view.stage_grass_scatter_result(result):
+			_queue_grass_scatter_visual_upload(chunk_coord)
 
 
 # Источники травы готовятся один раз из registry-данных: один shared материал
@@ -1919,19 +2929,6 @@ func _mountain_native_mask_visual_apply_tick() -> bool:
 		):
 			if Time.get_ticks_usec() - tick_started_usec >= budget_usec:
 				return false
-	while not _pending_object_packet_visual_upload_chunks.is_empty():
-		var chunk_coord: Vector2i = _pending_object_packet_visual_upload_chunks.pop_front()
-		_pending_object_packet_visual_upload_set.erase(chunk_coord)
-		var chunk_view: ChunkView = _chunk_views.get(chunk_coord, null) as ChunkView
-		if chunk_view == null:
-			continue
-		var object_started: int = WorldPerfProbe.begin()
-		var object_applied: bool = chunk_view.apply_pending_object_packet_visual()
-		if object_applied and _ladder_anchor_stripe != LADDER_ANCHOR_UNSET:
-			chunk_view.update_mid_ladder_z(_ladder_anchor_stripe)
-		WorldPerfProbe.end("WorldStreamer.visual_upload.object_packet", object_started)
-		if object_applied and Time.get_ticks_usec() - tick_started_usec >= budget_usec:
-			return false
 	while not _pending_grass_scatter_visual_upload_chunks.is_empty():
 		var chunk_coord: Vector2i = _pending_grass_scatter_visual_upload_chunks.pop_front()
 		_pending_grass_scatter_visual_upload_set.erase(chunk_coord)
@@ -1941,16 +2938,12 @@ func _mountain_native_mask_visual_apply_tick() -> bool:
 		_ensure_grass_scatter_sources()
 		var grass_started: int = WorldPerfProbe.begin()
 		var grass_applied: bool = chunk_view.apply_pending_grass_scatter_visual(
-			_get_contour_world_core(),
-			_grass_scatter_params,
 			_grass_scatter_atlas,
 			_grass_scatter_material,
 			_grass_shadow_atlas,
 			_grass_shadow_atlas_material,
 			_grass_shadow_material,
 			_grass_spore_material,
-			_get_cached_mountain_solid_halo(chunk_coord).get("halo", PackedByteArray()) as PackedByteArray,
-			MOUNTAIN_HALO_MASK_RADIUS_TILES,
 		)
 		if grass_applied:
 			chunk_view.set_grass_scatter_lod_fraction(_grass_lod_fraction)
@@ -1959,6 +2952,355 @@ func _mountain_native_mask_visual_apply_tick() -> bool:
 		WorldPerfProbe.end("WorldStreamer.visual_upload.grass_scatter", grass_started)
 		if grass_applied and Time.get_ticks_usec() - tick_started_usec >= budget_usec:
 			return false
+	return false
+
+
+func _defer_object_presentation_reveal(chunk_coord: Vector2i) -> void:
+	chunk_coord = _canonicalize_chunk_coord(chunk_coord)
+	_object_presentation_reveal_not_before_frame_by_chunk[chunk_coord] = maxi(
+		int(_object_presentation_reveal_not_before_frame_by_chunk.get(chunk_coord, 0)),
+		int(Engine.get_process_frames()) + 1,
+	)
+
+
+func _is_object_presentation_reveal_deferred(chunk_coord: Vector2i) -> bool:
+	chunk_coord = _canonicalize_chunk_coord(chunk_coord)
+	if not _object_presentation_reveal_not_before_frame_by_chunk.has(chunk_coord):
+		return false
+	if int(Engine.get_process_frames()) < int(
+		_object_presentation_reveal_not_before_frame_by_chunk.get(chunk_coord, 0),
+	):
+		return true
+	_object_presentation_reveal_not_before_frame_by_chunk.erase(chunk_coord)
+	return false
+
+
+## Exactly one main-thread phase per dispatcher callback: envelope OR one raw
+## upload/collider slice OR cache commit OR atomic adopt+reveal. Returning false
+## is intentional: FrameBudgetDispatcher must not immediately call the next
+## phase in the same frame, even when the first one happened to be cheap.
+func _object_presentation_visual_apply_tick() -> bool:
+	var repair_focus_is_valid: bool = \
+			_focused_object_packet_visual_upload_chunk != INVALID_CHUNK_COORD \
+			and _pending_object_packet_visual_upload_set.has(
+				_focused_object_packet_visual_upload_chunk,
+			)
+	if _object_packet_visual_queue_repair_needed \
+			and not repair_focus_is_valid \
+			and _pending_object_packet_visual_upload_set.size() \
+					< OBJECT_PRESENTATION_VISUAL_QUEUE_MAX_TOKENS:
+		var repair_started: int = WorldPerfProbe.begin()
+		_repair_one_object_packet_visual_queue_token()
+		WorldPerfProbe.end(
+			"WorldStreamer.visual_upload.object_packet_priority_repair",
+			repair_started,
+		)
+		return false
+	if _pending_object_packet_visual_upload_chunks.is_empty():
+		_object_packet_visual_selection_phase_prepared = false
+		if _pending_hot_object_prestage_chunks.is_empty():
+			return false
+		# Queue-invariant repair only. Selection and envelope allocation are never
+		# combined: the normal priority phase below owns the O(queue) scan later.
+		var priority_repair_started: int = WorldPerfProbe.begin()
+		_queue_object_packet_visual_upload(_pending_hot_object_prestage_chunks[0])
+		WorldPerfProbe.end(
+			"WorldStreamer.visual_upload.object_packet_priority_repair",
+			priority_repair_started,
+		)
+		return false
+
+	var focused_selection_is_valid: bool = \
+			_focused_object_packet_visual_upload_chunk != INVALID_CHUNK_COORD \
+			and _pending_object_packet_visual_upload_set.has(
+				_focused_object_packet_visual_upload_chunk,
+			)
+	if _object_packet_visual_selection_phase_prepared and not focused_selection_is_valid:
+		_object_packet_visual_selection_phase_prepared = false
+	if _object_packet_visual_selection_phase_prepared \
+			and _object_packet_visual_urgent_priority_dirty:
+		# A newly-live reveal frontier is the one exception to the prepared-work
+		# guarantee: it invalidates a hidden selection before any heavy phase runs.
+		_object_packet_visual_selection_phase_prepared = false
+	# Priority refresh can scan dozens of tokens. It must not share a callback
+	# with Node/RenderingServer allocation or raw upload. A token added after this
+	# refresh may dirty priorities again, but one prepared phase is guaranteed to
+	# run before another equal/lower-urgency refresh, so continuous streaming
+	# cannot starve the focused transaction.
+	if not _object_packet_visual_selection_phase_prepared \
+			and (_object_packet_visual_priority_scan_active \
+					or _object_packet_visual_urgent_priority_dirty \
+					or not focused_selection_is_valid):
+		var priority_started: int = WorldPerfProbe.begin()
+		var selection_completed: bool = _advance_object_packet_visual_priority_scan()
+		_object_packet_visual_selection_phase_prepared = selection_completed \
+				and _focused_object_packet_visual_upload_chunk != INVALID_CHUNK_COORD \
+				and _pending_object_packet_visual_upload_set.has(
+					_focused_object_packet_visual_upload_chunk,
+				)
+		WorldPerfProbe.end(
+			"WorldStreamer.visual_upload.object_packet_priority_refresh",
+			priority_started,
+		)
+		return false
+
+	var chunk_coord: Vector2i = INVALID_CHUNK_COORD
+	if _object_packet_visual_selection_phase_prepared:
+		_object_packet_visual_selection_phase_prepared = false
+		chunk_coord = _focused_object_packet_visual_upload_chunk
+		_object_packet_visual_dispatch_turn += 1
+	elif focused_selection_is_valid:
+		# Same/lower urgency dirtiness (new source tokens or player-distance
+		# changes) cannot interrupt an owned atomic transaction.
+		chunk_coord = _focused_object_packet_visual_upload_chunk
+		_object_packet_visual_dispatch_turn += 1
+	if chunk_coord == INVALID_CHUNK_COORD:
+		return false
+	var chunk_view: ChunkView = _chunk_views.get(chunk_coord, null) as ChunkView
+	if _object_presentation_terminal_fallback_by_chunk.has(chunk_coord):
+		# The compatibility renderer is exceptional but still owns an explicit
+		# dispatcher phase: it may allocate Nodes and rebuild authored objects.
+		if chunk_view == null:
+			_drop_object_packet_visual_upload(chunk_coord)
+			return false
+		var fallback_started: int = WorldPerfProbe.begin()
+		_try_apply_terminal_object_presentation_fallback(chunk_coord)
+		WorldPerfProbe.end(
+			"WorldStreamer.visual_upload.object_packet_terminal_fallback",
+			fallback_started,
+		)
+		return false
+	if _pending_hot_object_prestage_set.has(chunk_coord):
+		var envelope_started: int = WorldPerfProbe.begin()
+		_stage_pending_hot_object_presentation(chunk_coord)
+		WorldPerfProbe.end(
+			"WorldStreamer.visual_upload.object_packet_envelope",
+			envelope_started,
+		)
+		return false
+	var hot_entry: Dictionary = _get_current_hot_object_entry(chunk_coord)
+	if not hot_entry.is_empty():
+		var hot_layer: WorldObjectPacketLayer = hot_entry.get(
+			"layer",
+			null,
+		) as WorldObjectPacketLayer
+		if hot_layer == null or not is_instance_valid(hot_layer):
+			_evict_hot_object_presentation(chunk_coord)
+			return false
+		if bool(hot_entry.get("envelope_pending", false)):
+			# An acquired shell is already owned/accounted by this revision and must
+			# finish even if source-only admission becomes backpressured meanwhile.
+			# Live/reveal priority still comes from the shared focused queue.
+			var envelope_started_usec: int = WorldPerfProbe.begin()
+			if not hot_layer.is_presentation_envelope_ready():
+				var fixed_phase_advanced: bool = \
+						hot_layer.prepare_next_presentation_envelope_phase(
+							_layered_object_asset_catalog,
+						)
+				if not fixed_phase_advanced \
+						and not hot_layer.is_presentation_envelope_ready():
+					_evict_hot_object_presentation(chunk_coord)
+					_record_object_presentation_failure(
+						chunk_coord,
+						int(_object_presentation_revision_by_chunk.get(chunk_coord, -1)),
+						"incremental presentation envelope could not advance",
+					)
+				WorldPerfProbe.end(
+					"WorldStreamer.visual_upload.object_packet_envelope",
+					envelope_started_usec,
+				)
+				return false
+			var result: Dictionary = _object_presentation_results_by_chunk.get(
+				chunk_coord,
+				{ },
+			) as Dictionary
+			var begin_started_usec: int = WorldPerfProbe.begin()
+			var began_or_advanced: bool = false
+			if not bool(hot_entry.get("begin_started", false)):
+				began_or_advanced = hot_layer.begin_incremental_presentation_result(
+					result,
+					_layered_object_asset_catalog,
+				)
+				if began_or_advanced:
+					hot_entry["begin_started"] = true
+					_hot_object_presentation_layers[chunk_coord] = hot_entry
+			else:
+				began_or_advanced = hot_layer.advance_incremental_presentation_begin_phase()
+			WorldPerfProbe.end(
+				"WorldStreamer.visual_upload.object_packet_envelope.begin",
+				begin_started_usec,
+			)
+			if not began_or_advanced:
+				_evict_hot_object_presentation(chunk_coord)
+				_record_object_presentation_failure(
+					chunk_coord,
+					int(_object_presentation_revision_by_chunk.get(chunk_coord, -1)),
+					"prepared presentation envelope rejected worker buffers",
+				)
+				WorldPerfProbe.end(
+					"WorldStreamer.visual_upload.object_packet_envelope",
+					envelope_started_usec,
+				)
+				return false
+			if not hot_layer.is_incremental_presentation_begin_complete():
+				WorldPerfProbe.end(
+					"WorldStreamer.visual_upload.object_packet_envelope",
+					envelope_started_usec,
+				)
+				return false
+			_take_hot_object_entry(chunk_coord)
+			hot_entry["envelope_pending"] = false
+			var begun_reservation: Dictionary = hot_layer.get_hot_cache_reservation_weight()
+			hot_entry["gpu_buffer_bytes"] = maxi(
+				0,
+				int(begun_reservation.get("gpu_buffer_bytes", 0)),
+			)
+			hot_entry["canvas_item_count"] = maxi(
+				0,
+				int(begun_reservation.get("canvas_item_count", 0)),
+			)
+			hot_entry["collider_count"] = maxi(
+				0,
+				int(begun_reservation.get("collider_count", 0)),
+			)
+			_add_hot_object_entry(chunk_coord, hot_entry)
+			WorldPerfProbe.end(
+				"WorldStreamer.visual_upload.object_packet_envelope",
+				envelope_started_usec,
+			)
+			return false
+		var presentation_is_ready: bool = bool(hot_entry.get("ready", false)) \
+				or hot_layer.is_presentation_complete()
+		if presentation_is_ready \
+				and _ladder_anchor_stripe != LADDER_ANCHOR_UNSET \
+				and int(hot_entry.get("ladder_anchor_stripe", LADDER_ANCHOR_UNSET)) \
+						!= _ladder_anchor_stripe:
+			# A depth-root migration can touch several band roots. It owns a
+			# standalone phase so an unpredictable boundary crossing never shares a
+			# callback with raw MultiMesh upload, allocation, adopt, or reveal.
+			var anchor_phase_started: int = WorldPerfProbe.begin()
+			hot_layer.update_ladder_z(_ladder_anchor_stripe)
+			hot_entry["ladder_anchor_stripe"] = _ladder_anchor_stripe
+			_hot_object_presentation_layers[chunk_coord] = hot_entry
+			WorldPerfProbe.end(
+				"WorldStreamer.visual_upload.object_packet_anchor_rebase",
+				anchor_phase_started,
+			)
+			return false
+		if presentation_is_ready:
+			if chunk_view != null:
+				# COMPLETE was produced by an earlier callback/frame. Adoption and the
+				# atomic visibility+collision release are one FINALIZE phase; neither
+				# can ever follow a raw upload in this callback.
+				if _is_object_presentation_reveal_deferred(chunk_coord):
+					return false
+				var finalize_started: int = WorldPerfProbe.begin()
+				var adopt_started: int = WorldPerfProbe.begin()
+				var promoted: bool = _promote_hot_object_presentation(chunk_coord, chunk_view)
+				WorldPerfProbe.end(
+					"WorldStreamer.visual_upload.object_packet_adopt",
+					adopt_started,
+				)
+				_drop_object_packet_visual_upload(chunk_coord)
+				if promoted:
+					var reveal_started: int = WorldPerfProbe.begin()
+					_finalize_pending_chunk_visibility(chunk_coord)
+					WorldPerfProbe.end(
+						"WorldStreamer.visual_upload.object_packet_reveal",
+						reveal_started,
+					)
+				WorldPerfProbe.end(
+					"WorldStreamer.visual_upload.object_packet_finalize",
+					finalize_started,
+				)
+				return false
+			var cache_commit_started: int = WorldPerfProbe.begin()
+			if not bool(hot_entry.get("ready", false)):
+				_mark_hot_object_presentation_ready(chunk_coord)
+			_drop_object_packet_visual_upload(chunk_coord)
+			WorldPerfProbe.end(
+				"WorldStreamer.visual_upload.object_packet_cache_commit",
+				cache_commit_started,
+			)
+			return false
+		if chunk_view == null and not _is_chunk_source_desired(chunk_coord):
+			_evict_hot_object_presentation(chunk_coord)
+			return false
+		var hot_started: int = WorldPerfProbe.begin()
+		var phase_started_usec: int = Time.get_ticks_usec()
+		if Time.get_ticks_usec() - phase_started_usec >= OBJECT_PRESENTATION_SLICE_SOFT_BUDGET_USEC:
+			WorldPerfProbe.end("WorldStreamer.visual_upload.object_packet_slice", hot_started)
+			return false
+		var previous_slice_usec: int = 0
+		var subslice_count: int = 0
+		var created_visual_slot: bool = false
+		while subslice_count < OBJECT_PRESENTATION_MAX_SUBSLICES_PER_FRAME:
+			var elapsed_usec: int = Time.get_ticks_usec() - phase_started_usec
+			if subslice_count > 0 \
+					and (elapsed_usec >= OBJECT_PRESENTATION_SLICE_SOFT_BUDGET_USEC \
+							or elapsed_usec + previous_slice_usec \
+									> OBJECT_PRESENTATION_SLICE_SOFT_BUDGET_USEC):
+				break
+			# A missing slot is its own allocation phase. Never append it after a
+			# warmed upload/collider subslice whose elapsed time cannot predict Node
+			# and RenderingServer first-allocation cost.
+			if subslice_count > 0 \
+					and hot_layer.next_presentation_slice_requires_visual_slot_allocation():
+				break
+			var subslice_started_usec: int = Time.get_ticks_usec()
+			var advanced: bool = hot_layer.apply_next_presentation_slice(1, 4, 1)
+			previous_slice_usec = Time.get_ticks_usec() - subslice_started_usec
+			subslice_count += 1
+			if hot_layer.did_last_presentation_slice_create_visual_slot():
+				created_visual_slot = true
+				break
+			if not advanced or hot_layer.is_presentation_complete():
+				break
+		if hot_layer.is_presentation_complete():
+			# COMMIT makes a standalone layer internally visible. World-parented
+			# staging must immediately retain the outer reveal gate until the later
+			# adopt/reveal phases; collision stays disabled as well.
+			hot_layer.set_hot_cache_resident(true)
+			if chunk_view != null:
+				_defer_object_presentation_reveal(chunk_coord)
+		WorldPerfProbe.end(
+			"WorldStreamer.visual_upload.object_packet_slice.slot_allocation" \
+					if created_visual_slot \
+					else "WorldStreamer.visual_upload.object_packet_slice.warmed_or_upload",
+			hot_started,
+		)
+		WorldPerfProbe.end("WorldStreamer.visual_upload.object_packet_slice", hot_started)
+		return false
+
+	if chunk_view == null:
+		_drop_object_packet_visual_upload(chunk_coord)
+		return false
+	if not chunk_view.has_pending_object_presentation_apply() \
+			or not chunk_view.has_staged_object_presentation_result():
+		if _is_object_presentation_reveal_deferred(chunk_coord):
+			return false
+		var finalize_started: int = WorldPerfProbe.begin()
+		_drop_object_packet_visual_upload(chunk_coord)
+		_finalize_pending_chunk_visibility(chunk_coord)
+		WorldPerfProbe.end(
+			"WorldStreamer.visual_upload.object_packet_finalize",
+			finalize_started,
+		)
+		return false
+
+	var object_started: int = WorldPerfProbe.begin()
+	chunk_view.apply_pending_object_packet_visual()
+	var apply_failure: String = chunk_view.take_object_presentation_apply_failure()
+	if not apply_failure.is_empty():
+		_drop_object_packet_visual_upload(chunk_coord)
+		_record_object_presentation_failure(
+			chunk_coord,
+			int(_object_presentation_revision_by_chunk.get(chunk_coord, -1)),
+			apply_failure,
+		)
+	elif chunk_view.is_object_presentation_complete():
+		_defer_object_presentation_reveal(chunk_coord)
+	WorldPerfProbe.end("WorldStreamer.visual_upload.object_packet_slice", object_started)
 	return false
 
 
@@ -1984,6 +3326,7 @@ func _update_player_chunk_coord() -> void:
 	if next_player_chunk != _player_chunk_coord or next_radius != _current_stream_radius_chunks:
 		_player_chunk_coord = next_player_chunk
 		_current_stream_radius_chunks = next_radius
+		_object_packet_visual_priority_dirty = true
 		_rebuild_desired_chunk_cache()
 	_update_grass_scatter_lod()
 	_update_mid_ladder_anchor()
@@ -1993,8 +3336,9 @@ func _update_player_chunk_coord() -> void:
 ## пучки в голове), поэтому дальний зум режет хвост мелочи одним числом —
 ## visible_instance_count — без пересборки буфера.
 ## Якорь player-relative depth-лесенки: полоса ног игрока. При смене полосы
-## (раз в DEPTH_STRIPE_PX пути по Y) все чанки переставляют z своих mid-полос
-## — это только присваивания z существующим нодам, без пересборки буферов.
+## (раз в DEPTH_STRIPE_PX пути по Y) каждый chunk-owner сдвигает один linear
+## band root и переносит только полосы, пересёкшие две clamp-границы. Полного
+## O(chunks * stripes) переприсваивания z здесь больше нет.
 func _update_mid_ladder_anchor() -> void:
 	var player: Player = PlayerAuthority.get_local_player()
 	if player == null:
@@ -2034,7 +3378,11 @@ func _update_grass_scatter_lod() -> void:
 func _enqueue_desired_chunks() -> void:
 	if _player_chunk_coord == INVALID_CHUNK_COORD:
 		return
+	_sync_streaming_worker_demand()
+	_prune_resident_source_packets()
 	for desired_coord: Vector2i in _desired_source_chunk_coords:
+		if not _chunk_packets.has(desired_coord):
+			_restore_warm_chunk_packet(desired_coord)
 		if _chunk_packets.has(desired_coord):
 			if _is_chunk_desired(desired_coord) \
 					and not _pending_publish_queue.has(desired_coord) \
@@ -2050,7 +3398,881 @@ func _enqueue_desired_chunks() -> void:
 			world_version,
 			_worldgen_settings_packed,
 			_generation_epoch,
+			_chunk_request_priority(desired_coord),
 		)
+
+
+func _chunk_request_priority(chunk_coord: Vector2i) -> int:
+	if _player_chunk_coord == INVALID_CHUNK_COORD:
+		return 0
+	return _chunk_distance_sq(_player_chunk_coord, chunk_coord)
+
+
+func _sync_streaming_worker_demand() -> void:
+	if not _streaming_worker_demand_dirty:
+		return
+	_streaming_worker_demand_dirty = false
+	var packet_priorities: Dictionary = { }
+	for desired_coord: Vector2i in _desired_source_chunk_coords:
+		packet_priorities[desired_coord] = _chunk_request_priority(desired_coord)
+	for removed_coord: Vector2i in _packet_backend.sync_packet_requests(
+		_generation_epoch,
+		packet_priorities,
+	):
+		_requested_chunks.erase(removed_coord)
+
+	var grass_demand: Dictionary = { }
+	for chunk_coord_variant: Variant in _grass_scatter_inflight_chunks.keys():
+		var chunk_coord: Vector2i = chunk_coord_variant as Vector2i
+		if not _is_chunk_desired(chunk_coord) or not _chunk_views.has(chunk_coord):
+			continue
+		grass_demand[chunk_coord] = {
+			"revision": int(_grass_scatter_inflight_chunks.get(chunk_coord, -1)),
+			"priority": _chunk_request_priority(chunk_coord),
+		}
+	for removed_coord: Vector2i in _grass_scatter_backend.sync_grass_scatter_requests(
+		_generation_epoch,
+		grass_demand,
+	):
+		_grass_scatter_inflight_chunks.erase(removed_coord)
+
+	var object_demand: Dictionary = { }
+	for chunk_coord_variant: Variant in _object_presentation_inflight_chunks.keys():
+		var chunk_coord: Vector2i = chunk_coord_variant as Vector2i
+		if not _is_chunk_source_desired(chunk_coord):
+			continue
+		object_demand[chunk_coord] = {
+			"revision": int(_object_presentation_inflight_chunks.get(chunk_coord, -1)),
+			"catalog_generation": _layered_object_asset_catalog.get_catalog_generation(),
+			"priority": _chunk_request_priority(chunk_coord),
+			"priority_class": _object_presentation_compute_priority_class(chunk_coord),
+		}
+	for removed_coord: Vector2i in _object_presentation_backend.sync_object_presentation_requests(
+		_generation_epoch,
+		object_demand,
+	):
+		_object_presentation_inflight_chunks.erase(removed_coord)
+
+
+func _restore_warm_chunk_packet(chunk_coord: Vector2i) -> bool:
+	if not _warm_base_chunk_packet_cache.has(chunk_coord):
+		return false
+	var base_packet: Dictionary = _warm_base_chunk_packet_cache.get(chunk_coord, { }) as Dictionary
+	_warm_base_chunk_packet_cache.erase(chunk_coord)
+	_warm_base_chunk_packet_cache_stamps.erase(chunk_coord)
+	if base_packet.is_empty():
+		return false
+	_warm_packet_cache_hit_count_total += 1
+	_restore_warm_object_presentation(chunk_coord)
+	_base_chunk_packets[chunk_coord] = base_packet
+	_chunk_packets[chunk_coord] = _diff_store.apply_to_packet(base_packet)
+	_refresh_loaded_visuals_around_chunk_overrides(chunk_coord)
+	_request_object_presentation_build(
+		chunk_coord,
+		_chunk_packets.get(chunk_coord, { }) as Dictionary,
+		false,
+	)
+	if not _chunk_views.has(chunk_coord) \
+			and _is_chunk_source_desired(chunk_coord) \
+			and _object_presentation_results_by_chunk.has(chunk_coord):
+		_queue_hot_object_prestage(chunk_coord)
+	return true
+
+
+func _store_warm_chunk_packet(chunk_coord: Vector2i, base_packet: Dictionary) -> void:
+	if base_packet.is_empty():
+		return
+	_warm_base_chunk_packet_cache_next_stamp += 1
+	_warm_base_chunk_packet_cache[chunk_coord] = base_packet
+	_warm_base_chunk_packet_cache_stamps[chunk_coord] = _warm_base_chunk_packet_cache_next_stamp
+	_move_live_object_presentation_to_warm(chunk_coord)
+	while _warm_base_chunk_packet_cache.size() > WARM_PACKET_CACHE_MAX_CHUNKS:
+		var oldest_coord: Vector2i = INVALID_CHUNK_COORD
+		var oldest_stamp: int = 2147483647
+		for cached_coord_variant: Variant in _warm_base_chunk_packet_cache_stamps.keys():
+			var cached_coord: Vector2i = cached_coord_variant as Vector2i
+			var stamp: int = int(_warm_base_chunk_packet_cache_stamps.get(cached_coord, oldest_stamp))
+			if stamp < oldest_stamp:
+				oldest_coord = cached_coord
+				oldest_stamp = stamp
+		if oldest_coord == INVALID_CHUNK_COORD:
+			break
+		_evict_warm_chunk(oldest_coord)
+	_trim_warm_object_presentation_cache_to_budget()
+
+
+func _move_live_object_presentation_to_warm(chunk_coord: Vector2i) -> void:
+	if not _object_presentation_results_by_chunk.has(chunk_coord):
+		return
+	var result: Dictionary = _object_presentation_results_by_chunk.get(chunk_coord, { }) as Dictionary
+	_object_presentation_results_by_chunk.erase(chunk_coord)
+	_store_warm_object_presentation(chunk_coord, result)
+
+
+func _store_warm_object_presentation(chunk_coord: Vector2i, result: Dictionary) -> void:
+	if result.is_empty() or not _warm_base_chunk_packet_cache.has(chunk_coord):
+		return
+	_erase_warm_object_presentation(chunk_coord)
+	var byte_size: int = _object_presentation_result_byte_size(result)
+	_warm_object_presentation_cache[chunk_coord] = result
+	_warm_object_presentation_cache_bytes_by_chunk[chunk_coord] = byte_size
+	_warm_object_presentation_cache_bytes += byte_size
+	_trim_warm_object_presentation_cache_to_budget()
+
+
+func _restore_warm_object_presentation(chunk_coord: Vector2i) -> void:
+	if not _warm_object_presentation_cache.has(chunk_coord):
+		return
+	var result: Dictionary = _warm_object_presentation_cache.get(chunk_coord, { }) as Dictionary
+	_erase_warm_object_presentation(chunk_coord)
+	if result.is_empty():
+		return
+	_object_presentation_results_by_chunk[chunk_coord] = result
+	_object_presentation_cache_hit_count_total += 1
+
+
+func _erase_warm_object_presentation(chunk_coord: Vector2i) -> void:
+	if _warm_object_presentation_cache.has(chunk_coord):
+		_warm_object_presentation_cache.erase(chunk_coord)
+		_warm_object_presentation_cache_bytes = maxi(
+			0,
+			_warm_object_presentation_cache_bytes \
+					- int(_warm_object_presentation_cache_bytes_by_chunk.get(chunk_coord, 0)),
+		)
+	_warm_object_presentation_cache_bytes_by_chunk.erase(chunk_coord)
+
+
+func _evict_warm_chunk(chunk_coord: Vector2i) -> void:
+	_warm_base_chunk_packet_cache.erase(chunk_coord)
+	_warm_base_chunk_packet_cache_stamps.erase(chunk_coord)
+	_erase_warm_object_presentation(chunk_coord)
+	_evict_hot_object_presentation(chunk_coord)
+	_object_presentation_revision_by_chunk.erase(chunk_coord)
+	_object_presentation_inflight_chunks.erase(chunk_coord)
+	_object_presentation_retry_by_chunk.erase(chunk_coord)
+	_object_presentation_terminal_fallback_by_chunk.erase(chunk_coord)
+
+
+func _trim_warm_object_presentation_cache_to_budget() -> void:
+	while _warm_object_presentation_cache_bytes > WARM_OBJECT_PRESENTATION_CACHE_MAX_BYTES:
+		var oldest_coord: Vector2i = INVALID_CHUNK_COORD
+		var oldest_stamp: int = 2147483647
+		for cached_coord_variant: Variant in _warm_object_presentation_cache.keys():
+			var cached_coord: Vector2i = cached_coord_variant as Vector2i
+			var stamp: int = int(_warm_base_chunk_packet_cache_stamps.get(cached_coord, oldest_stamp))
+			if stamp < oldest_stamp:
+				oldest_coord = cached_coord
+				oldest_stamp = stamp
+		if oldest_coord == INVALID_CHUNK_COORD:
+			break
+		_evict_warm_chunk(oldest_coord)
+
+
+static func _object_presentation_result_byte_size(result: Dictionary) -> int:
+	if result.has("payload_bytes"):
+		return maxi(0, int(result.get("payload_bytes", 0)))
+	var float_count: int = 0
+	for key: StringName in [
+		&"tree_atlas_bucket_buffers",
+		&"rock_atlas_bucket_buffers",
+		&"living_flora_bucket_buffers",
+	]:
+		var bucket_value: Variant = result.get(key, [])
+		if not bucket_value is Array:
+			continue
+		for buffer_variant: Variant in (bucket_value as Array):
+			if buffer_variant is PackedFloat32Array:
+				float_count += (buffer_variant as PackedFloat32Array).size()
+	var spiky_value: Variant = result.get("spiky_flora_atlas_bucket_buffers", [])
+	if spiky_value is Array:
+		for atlas_variant: Variant in (spiky_value as Array):
+			if not atlas_variant is Array:
+				continue
+			for buffer_variant: Variant in (atlas_variant as Array):
+				if buffer_variant is PackedFloat32Array:
+					float_count += (buffer_variant as PackedFloat32Array).size()
+	float_count += (
+		result.get("living_flora_shadow_buffer", PackedFloat32Array()) as PackedFloat32Array
+	).size()
+	float_count += (result.get("tree_collision_records", PackedFloat32Array()) as PackedFloat32Array).size()
+	return float_count * 4
+
+
+func _ensure_hot_object_presentation_root() -> Node2D:
+	if _hot_object_presentation_root != null \
+			and is_instance_valid(_hot_object_presentation_root):
+		return _hot_object_presentation_root
+	_hot_object_presentation_root = Node2D.new()
+	_hot_object_presentation_root.name = "HotObjectPresentationRoot"
+	# Individual resident layers own their hidden/revealed state. Keeping this
+	# root visible lets a promoted GPU layer remain world-parented, avoiding a
+	# costly Node/CanvasItem reparent on the reveal-critical frame.
+	_hot_object_presentation_root.visible = true
+	add_child(_hot_object_presentation_root)
+	return _hot_object_presentation_root
+
+
+func _make_pooled_object_presentation_layer() -> WorldObjectPacketLayer:
+	var layer := WorldObjectPacketLayer.new()
+	_ensure_hot_object_presentation_root().add_child(layer)
+	_configure_hot_object_layer(layer, Vector2i.ZERO)
+	if not layer.prepare_presentation_envelope(
+		_layered_object_asset_catalog,
+		OBJECT_PRESENTATION_POOL_INITIAL_SLOTS_PER_FAMILY,
+	):
+		layer.queue_free()
+		return null
+	layer.set_hot_cache_resident(true)
+	return layer
+
+
+func _warm_object_presentation_layer_pool() -> void:
+	while _object_presentation_layer_pool.size() < OBJECT_PRESENTATION_LAYER_POOL_TARGET_SIZE:
+		var layer: WorldObjectPacketLayer = _make_pooled_object_presentation_layer()
+		if layer == null:
+			return
+		_add_clean_object_presentation_layer_to_pool(layer)
+
+
+func _acquire_object_presentation_layer() -> WorldObjectPacketLayer:
+	while not _object_presentation_layer_pool.is_empty():
+		var pooled: WorldObjectPacketLayer = _object_presentation_layer_pool.pop_back()
+		_remove_object_presentation_pool_weight(pooled)
+		if pooled != null and is_instance_valid(pooled):
+			assert(
+				not pooled.has_pending_pool_retire(),
+				"Object presentation pool exposed a layer before retirement completed",
+			)
+			return pooled
+	# Pool exhaustion creates only the shell in this explicit envelope phase.
+	# Family fixed graphs and collision ownership are advanced one-at-a-time by
+	# subsequent visual-dispatcher callbacks before begin() is allowed to run.
+	var layer := WorldObjectPacketLayer.new()
+	_ensure_hot_object_presentation_root().add_child(layer)
+	layer.set_hot_cache_resident(true)
+	return layer
+
+
+func _release_object_presentation_layer(layer: WorldObjectPacketLayer) -> void:
+	if layer == null or not is_instance_valid(layer):
+		return
+	layer.set_blocking_collision_active(false)
+	layer.begin_pool_retire()
+	layer.set_hot_cache_resident(true)
+	layer.set_streaming_world_parented(true)
+	var hot_root: Node2D = _ensure_hot_object_presentation_root()
+	if layer.get_parent() != hot_root:
+		if layer.get_parent() != null:
+			layer.get_parent().remove_child(layer)
+		hot_root.add_child(layer)
+	layer.position = Vector2.ZERO
+	_queue_object_presentation_layer_retire(layer)
+
+
+func _add_clean_object_presentation_layer_to_pool(layer: WorldObjectPacketLayer) -> void:
+	if layer == null or not is_instance_valid(layer):
+		return
+	assert(not layer.has_pending_pool_retire(), "Only fully retired object layers are reusable")
+	layer.name = "PooledObjectPresentation%d" % _object_presentation_layer_pool.size()
+	var weight: Dictionary = layer.get_retained_residency_weight()
+	var layer_id: int = layer.get_instance_id()
+	_object_presentation_pool_weight_by_layer_id[layer_id] = weight
+	_object_presentation_pool_gpu_bytes += maxi(0, int(weight.get("gpu_buffer_bytes", 0)))
+	_object_presentation_pool_canvas_items += maxi(0, int(weight.get("canvas_item_count", 0)))
+	_object_presentation_pool_colliders += maxi(0, int(weight.get("collider_count", 0)))
+	_object_presentation_layer_pool.append(layer)
+
+
+func _remove_object_presentation_pool_weight(layer: WorldObjectPacketLayer) -> void:
+	if layer == null:
+		return
+	var layer_id: int = layer.get_instance_id()
+	var weight: Dictionary = _object_presentation_pool_weight_by_layer_id.get(layer_id, { }) as Dictionary
+	_object_presentation_pool_weight_by_layer_id.erase(layer_id)
+	_object_presentation_pool_gpu_bytes = maxi(
+		0,
+		_object_presentation_pool_gpu_bytes - maxi(0, int(weight.get("gpu_buffer_bytes", 0))),
+	)
+	_object_presentation_pool_canvas_items = maxi(
+		0,
+		_object_presentation_pool_canvas_items - maxi(0, int(weight.get("canvas_item_count", 0))),
+	)
+	_object_presentation_pool_colliders = maxi(
+		0,
+		_object_presentation_pool_colliders - maxi(0, int(weight.get("collider_count", 0))),
+	)
+
+
+func _queue_object_presentation_layer_retire(layer: WorldObjectPacketLayer) -> void:
+	var layer_id: int = layer.get_instance_id()
+	if _object_presentation_retire_layer_ids.has(layer_id):
+		return
+	var weight: Dictionary = layer.get_retained_residency_weight()
+	var entry: Dictionary = {
+		"layer": layer,
+		"layer_id": layer_id,
+		"phase": &"retire",
+		"gpu_buffer_bytes": maxi(0, int(weight.get("gpu_buffer_bytes", 0))),
+		"canvas_item_count": maxi(0, int(weight.get("canvas_item_count", 0))),
+		"collider_count": maxi(0, int(weight.get("collider_count", 0))),
+	}
+	_object_presentation_retire_layer_ids[layer_id] = true
+	_object_presentation_retire_queue.append(entry)
+	_add_object_presentation_retire_weight(entry)
+
+
+func _add_object_presentation_retire_weight(entry: Dictionary) -> void:
+	_object_presentation_retire_gpu_bytes += maxi(0, int(entry.get("gpu_buffer_bytes", 0)))
+	_object_presentation_retire_canvas_items += maxi(0, int(entry.get("canvas_item_count", 0)))
+	_object_presentation_retire_colliders += maxi(0, int(entry.get("collider_count", 0)))
+
+
+func _remove_object_presentation_retire_weight(entry: Dictionary) -> void:
+	_object_presentation_retire_gpu_bytes = maxi(
+		0,
+		_object_presentation_retire_gpu_bytes - maxi(0, int(entry.get("gpu_buffer_bytes", 0))),
+	)
+	_object_presentation_retire_canvas_items = maxi(
+		0,
+		_object_presentation_retire_canvas_items - maxi(0, int(entry.get("canvas_item_count", 0))),
+	)
+	_object_presentation_retire_colliders = maxi(
+		0,
+		_object_presentation_retire_colliders - maxi(0, int(entry.get("collider_count", 0))),
+	)
+
+
+func _refresh_object_presentation_retire_weight(entry_index: int) -> void:
+	if entry_index < 0 or entry_index >= _object_presentation_retire_queue.size():
+		return
+	var entry: Dictionary = _object_presentation_retire_queue[entry_index]
+	var layer: WorldObjectPacketLayer = entry.get("layer", null) as WorldObjectPacketLayer
+	_remove_object_presentation_retire_weight(entry)
+	var weight: Dictionary = layer.get_retained_residency_weight() \
+			if layer != null and is_instance_valid(layer) else { }
+	entry["gpu_buffer_bytes"] = maxi(0, int(weight.get("gpu_buffer_bytes", 0)))
+	entry["canvas_item_count"] = maxi(0, int(weight.get("canvas_item_count", 0)))
+	entry["collider_count"] = maxi(0, int(weight.get("collider_count", 0)))
+	_object_presentation_retire_queue[entry_index] = entry
+	_add_object_presentation_retire_weight(entry)
+
+
+func _pop_object_presentation_retire_front() -> Dictionary:
+	if _object_presentation_retire_queue.is_empty():
+		return { }
+	var entry: Dictionary = _object_presentation_retire_queue.pop_front()
+	_remove_object_presentation_retire_weight(entry)
+	_object_presentation_retire_layer_ids.erase(int(entry.get("layer_id", 0)))
+	return entry
+
+
+## Separate dispatcher lane: exactly one slot-group/collider slice, one pool
+## transition/shrink, OR one trim victim per frame. Always returning false is
+## intentional: FrameBudgetDispatcher must not consume a cheap chain of
+## RenderingServer/PhysicsServer writes in one frame. A pending retirement also
+## backpressures trim, so eviction cannot outrun cleanup.
+func _object_presentation_retire_tick() -> bool:
+	var phase_started_usec: int = Time.get_ticks_usec()
+	if not _object_presentation_retire_queue.is_empty():
+		var entry: Dictionary = _object_presentation_retire_queue[0]
+		var layer: WorldObjectPacketLayer = entry.get("layer", null) as WorldObjectPacketLayer
+		if layer == null or not is_instance_valid(layer):
+			_pop_object_presentation_retire_front()
+			_finish_object_presentation_retire_phase(phase_started_usec)
+			return false
+		var phase: StringName = entry.get("phase", &"retire") as StringName
+		if phase == &"retire":
+			var retired_resource: bool = layer.retire_next_pool_slice(
+				OBJECT_PRESENTATION_RETIRE_VISUAL_SLOTS_PER_PHASE,
+				OBJECT_PRESENTATION_RETIRE_COLLIDERS_PER_PHASE,
+			)
+			_refresh_object_presentation_retire_weight(0)
+			if retired_resource:
+				_finish_object_presentation_retire_phase(phase_started_usec)
+				return false
+			if _clean_retired_object_layer_can_enter_pool(layer):
+				_pop_object_presentation_retire_front()
+				_add_clean_object_presentation_layer_to_pool(layer)
+				_finish_object_presentation_retire_phase(phase_started_usec)
+				return false
+			entry = _object_presentation_retire_queue[0]
+			entry["phase"] = &"shrink"
+			_object_presentation_retire_queue[0] = entry
+		elif _clean_retired_object_layer_can_enter_pool(layer):
+			# A prior bounded slot-group shrink may already have removed the canvas
+			# overage. Re-evaluate every frame instead of destroying the rest of a
+			# now-admissible reusable graph.
+			_pop_object_presentation_retire_front()
+			_add_clean_object_presentation_layer_to_pool(layer)
+			_finish_object_presentation_retire_phase(phase_started_usec)
+			return false
+		if layer.shrink_pool_next_slot_group():
+			_refresh_object_presentation_retire_weight(0)
+		else:
+			_pop_object_presentation_retire_front()
+			layer.free()
+		_finish_object_presentation_retire_phase(phase_started_usec)
+		return false
+	if _hot_object_presentation_cache_is_over_budget():
+		var cache_count_before: int = _hot_object_presentation_layers.size()
+		_trim_hot_object_presentation_cache_to_budget()
+		if _hot_object_presentation_layers.size() < cache_count_before:
+			_finish_object_presentation_retire_phase(phase_started_usec)
+	return false
+
+
+func _clean_retired_object_layer_can_enter_pool(layer: WorldObjectPacketLayer) -> bool:
+	if layer == null \
+			or _object_presentation_layer_pool.size() >= OBJECT_PRESENTATION_LAYER_POOL_MAX_SIZE:
+		return false
+	var weight: Dictionary = layer.get_retained_residency_weight()
+	# Moving a clean graph from retire accounting into pool accounting does not
+	# change totals. Shrink it only when that graph can actually reduce the
+	# violated dimension; tearing down hundreds of CanvasItems cannot help a
+	# GPU/collider-only overage and would postpone eviction of the real hot victim.
+	if _object_presentation_total_gpu_bytes() > HOT_OBJECT_PRESENTATION_CACHE_MAX_BYTES \
+			and int(weight.get("gpu_buffer_bytes", 0)) > 0:
+		return false
+	if _object_presentation_total_canvas_items() > HOT_OBJECT_PRESENTATION_CACHE_MAX_CANVAS_ITEMS \
+			and int(weight.get("canvas_item_count", 0)) > 0:
+		return false
+	if _object_presentation_total_colliders() > HOT_OBJECT_PRESENTATION_CACHE_MAX_COLLIDERS \
+			and int(weight.get("collider_count", 0)) > 0:
+		return false
+	return true
+
+
+func _finish_object_presentation_retire_phase(started_usec: int) -> void:
+	_object_presentation_retire_phase_count_total += 1
+	_object_presentation_retire_phase_usec_max_total = maxi(
+		_object_presentation_retire_phase_usec_max_total,
+		Time.get_ticks_usec() - started_usec,
+	)
+
+
+func _configure_hot_object_layer(
+		layer: WorldObjectPacketLayer,
+		chunk_coord: Vector2i,
+) -> void:
+	layer.set_streaming_world_parented(true)
+	layer.set_living_flora_atlas(_plains_living_flora_atlas)
+	layer.set_spiky_flora_atlases(_plains_spiky_flora_atlases)
+	layer.set_tree_atlas(PLAINS_TREE_ATLAS if PLAINS_TREE_ENABLED else null)
+	layer.set_layered_tree_asset_dirs(
+		PLAINS_LAYERED_TREE_ASSET_DIRS if PLAINS_TREE_ENABLED else [],
+	)
+	layer.set_layered_small_rock_asset_dirs(
+		PLAINS_LAYERED_SMALL_ROCK_ASSET_DIRS if PLAINS_SMALL_ROCK_ENABLED else [],
+	)
+	layer.position = WorldRuntimeConstants.chunk_origin_px(chunk_coord)
+	layer.set_world_origin_y(layer.position.y)
+	layer.set_debug_collisions_visible(_debug_object_collisions_visible)
+	if _ladder_anchor_stripe != LADDER_ANCHOR_UNSET:
+		layer.update_ladder_z(_ladder_anchor_stripe)
+
+
+func _hot_object_entry_is_current(chunk_coord: Vector2i, entry: Dictionary) -> bool:
+	return not entry.is_empty() \
+			and int(entry.get("epoch", -1)) == _generation_epoch \
+			and int(entry.get("revision", -1)) \
+					== int(_object_presentation_revision_by_chunk.get(chunk_coord, -2)) \
+			and int(entry.get("catalog_generation", -1)) \
+					== _layered_object_asset_catalog.get_catalog_generation() \
+			and is_instance_valid(entry.get("layer", null) as WorldObjectPacketLayer)
+
+
+func _get_current_hot_object_entry(chunk_coord: Vector2i) -> Dictionary:
+	chunk_coord = _canonicalize_chunk_coord(chunk_coord)
+	var entry: Dictionary = _hot_object_presentation_layers.get(chunk_coord, { }) as Dictionary
+	if entry.is_empty():
+		return { }
+	if not _hot_object_entry_is_current(chunk_coord, entry):
+		_evict_hot_object_presentation(chunk_coord)
+		return { }
+	return entry
+
+
+func _add_hot_object_entry(chunk_coord: Vector2i, entry: Dictionary) -> void:
+	_hot_object_presentation_cache_next_stamp += 1
+	entry["stamp"] = _hot_object_presentation_cache_next_stamp
+	_hot_object_presentation_layers[chunk_coord] = entry
+	_hot_object_presentation_cache_bytes += maxi(0, int(entry.get("gpu_buffer_bytes", 0)))
+	_hot_object_presentation_cache_canvas_items += maxi(
+		0,
+		int(entry.get("canvas_item_count", 0)),
+	)
+	_hot_object_presentation_cache_colliders += maxi(0, int(entry.get("collider_count", 0)))
+
+
+func _take_hot_object_entry(chunk_coord: Vector2i) -> Dictionary:
+	var entry: Dictionary = _hot_object_presentation_layers.get(chunk_coord, { }) as Dictionary
+	if entry.is_empty():
+		return { }
+	_hot_object_presentation_layers.erase(chunk_coord)
+	_hot_object_presentation_cache_bytes = maxi(
+		0,
+		_hot_object_presentation_cache_bytes - maxi(0, int(entry.get("gpu_buffer_bytes", 0))),
+	)
+	_hot_object_presentation_cache_canvas_items = maxi(
+		0,
+		_hot_object_presentation_cache_canvas_items \
+				- maxi(0, int(entry.get("canvas_item_count", 0))),
+	)
+	_hot_object_presentation_cache_colliders = maxi(
+		0,
+		_hot_object_presentation_cache_colliders \
+				- maxi(0, int(entry.get("collider_count", 0))),
+	)
+	return entry
+
+
+func _stage_hot_object_presentation(
+		chunk_coord: Vector2i,
+		result: Dictionary,
+) -> bool:
+	chunk_coord = _canonicalize_chunk_coord(chunk_coord)
+	if result.is_empty() \
+			or (not _is_chunk_source_desired(chunk_coord) and not _chunk_views.has(chunk_coord)):
+		return false
+	var current: Dictionary = _get_current_hot_object_entry(chunk_coord)
+	if not current.is_empty():
+		return true
+	var presented_object_count: int = maxi(0, int(result.get("tree_instance_count", 0))) \
+			+ maxi(0, int(result.get("rock_instance_count", 0))) \
+			+ maxi(0, int(result.get("living_flora_count", 0))) \
+			+ maxi(0, int(result.get("spiky_flora_count", 0)))
+	if presented_object_count <= 0:
+		return false
+	var acquired_from_pool: bool = not _object_presentation_layer_pool.is_empty()
+	var acquire_started_usec: int = WorldPerfProbe.begin()
+	var layer: WorldObjectPacketLayer = _acquire_object_presentation_layer()
+	WorldPerfProbe.end(
+		"WorldStreamer.visual_upload.object_packet_envelope.acquire_pool" \
+				if acquired_from_pool \
+				else "WorldStreamer.visual_upload.object_packet_envelope.acquire_cold",
+		acquire_started_usec,
+	)
+	if layer == null:
+		return false
+	layer.name = "HotObjectPacket_%d_%d" % [chunk_coord.x, chunk_coord.y]
+	var configure_started_usec: int = WorldPerfProbe.begin()
+	_configure_hot_object_layer(layer, chunk_coord)
+	WorldPerfProbe.end(
+		"WorldStreamer.visual_upload.object_packet_envelope.configure",
+		configure_started_usec,
+	)
+	layer.set_blocking_collision_active(false)
+	var reservation: Dictionary = layer.estimate_presentation_result_reservation_weight(result)
+	_add_hot_object_entry(
+		chunk_coord,
+		{
+			"layer": layer,
+			"epoch": _generation_epoch,
+			"revision": int(_object_presentation_revision_by_chunk.get(chunk_coord, -1)),
+			"catalog_generation": _layered_object_asset_catalog.get_catalog_generation(),
+			"ready": false,
+			"envelope_pending": true,
+			"begin_started": false,
+			"ladder_anchor_stripe": LADDER_ANCHOR_UNSET,
+			"acquired_from_pool": acquired_from_pool,
+			"gpu_buffer_bytes": maxi(0, int(reservation.get("gpu_buffer_bytes", 0))),
+			"canvas_item_count": maxi(0, int(reservation.get("canvas_item_count", 0))),
+			"collider_count": maxi(0, int(reservation.get("collider_count", 0))),
+		},
+	)
+	_queue_object_packet_visual_upload(chunk_coord)
+	_trim_hot_object_presentation_cache_to_budget()
+	return _hot_object_presentation_layers.has(chunk_coord)
+
+
+func _mark_hot_object_presentation_ready(chunk_coord: Vector2i) -> bool:
+	var entry: Dictionary = _get_current_hot_object_entry(chunk_coord)
+	if entry.is_empty():
+		return false
+	var layer: WorldObjectPacketLayer = entry.get("layer", null) as WorldObjectPacketLayer
+	if layer == null or not layer.is_hot_cache_eligible():
+		_evict_hot_object_presentation(chunk_coord)
+		return false
+	_take_hot_object_entry(chunk_coord)
+	layer.set_hot_cache_resident(true)
+	var weight: Dictionary = layer.get_hot_cache_weight()
+	entry["ready"] = true
+	entry["gpu_buffer_bytes"] = maxi(0, int(weight.get("gpu_buffer_bytes", 0)))
+	entry["canvas_item_count"] = maxi(0, int(weight.get("canvas_item_count", 0)))
+	entry["collider_count"] = maxi(0, int(weight.get("collider_count", 0)))
+	_add_hot_object_entry(chunk_coord, entry)
+	_trim_hot_object_presentation_cache_to_budget()
+	return _hot_object_presentation_layers.has(chunk_coord)
+
+
+func _cache_committed_object_layer(
+		chunk_coord: Vector2i,
+		layer: WorldObjectPacketLayer,
+) -> bool:
+	chunk_coord = _canonicalize_chunk_coord(chunk_coord)
+	if layer == null or not is_instance_valid(layer) or not layer.is_hot_cache_eligible():
+		return false
+	_evict_hot_object_presentation(chunk_coord)
+	var previous_parent: Node = layer.get_parent()
+	var hot_root: Node2D = _ensure_hot_object_presentation_root()
+	if previous_parent != null and previous_parent != hot_root:
+		previous_parent.remove_child(layer)
+	if layer.get_parent() == null:
+		hot_root.add_child(layer)
+	_configure_hot_object_layer(layer, chunk_coord)
+	layer.set_hot_cache_resident(true)
+	var weight: Dictionary = layer.get_hot_cache_weight()
+	_add_hot_object_entry(
+		chunk_coord,
+		{
+			"layer": layer,
+			"epoch": _generation_epoch,
+			"revision": int(_object_presentation_revision_by_chunk.get(chunk_coord, -1)),
+			"catalog_generation": _layered_object_asset_catalog.get_catalog_generation(),
+			"ready": true,
+			"gpu_buffer_bytes": maxi(0, int(weight.get("gpu_buffer_bytes", 0))),
+			"canvas_item_count": maxi(0, int(weight.get("canvas_item_count", 0))),
+			"collider_count": maxi(0, int(weight.get("collider_count", 0))),
+		},
+	)
+	_trim_hot_object_presentation_cache_to_budget()
+	return _hot_object_presentation_layers.has(chunk_coord)
+
+
+func _promote_hot_object_presentation(
+		chunk_coord: Vector2i,
+		chunk_view: ChunkView,
+) -> bool:
+	if chunk_view == null:
+		return false
+	var entry: Dictionary = _get_current_hot_object_entry(chunk_coord)
+	if entry.is_empty():
+		return false
+	var layer: WorldObjectPacketLayer = entry.get("layer", null) as WorldObjectPacketLayer
+	if not bool(entry.get("ready", false)) \
+			and (layer == null or not layer.is_presentation_complete()):
+		return false
+	var cache_take_started: int = WorldPerfProbe.begin()
+	_take_hot_object_entry(chunk_coord)
+	WorldPerfProbe.end(
+		"WorldStreamer.visual_upload.object_packet_adopt.cache_take",
+		cache_take_started,
+	)
+	var view_adopt_started: int = WorldPerfProbe.begin()
+	var adopted: bool = layer != null \
+			and chunk_view.adopt_committed_object_layer_from_hot_cache(layer)
+	WorldPerfProbe.end(
+		"WorldStreamer.visual_upload.object_packet_adopt.view",
+		view_adopt_started,
+	)
+	if adopted:
+		_hot_object_presentation_cache_hit_count_total += 1
+		return true
+	if layer != null and is_instance_valid(layer):
+		_release_object_presentation_layer(layer)
+	return false
+
+
+func _evict_hot_object_presentation(chunk_coord: Vector2i) -> void:
+	chunk_coord = _canonicalize_chunk_coord(chunk_coord)
+	_drop_hot_object_prestage(chunk_coord)
+	# A prestage envelope now shares the visual-priority queue even before a hot
+	# layer exists, so invalidation must retire both halves atomically.
+	_drop_object_packet_visual_upload(chunk_coord)
+	var entry: Dictionary = _take_hot_object_entry(chunk_coord)
+	if entry.is_empty():
+		return
+	var layer: WorldObjectPacketLayer = entry.get("layer", null) as WorldObjectPacketLayer
+	if layer != null and is_instance_valid(layer):
+		_release_object_presentation_layer(layer)
+	_hot_object_presentation_cache_eviction_count_total += 1
+
+
+func _object_presentation_total_gpu_bytes() -> int:
+	return _hot_object_presentation_cache_bytes \
+			+ _object_presentation_retire_gpu_bytes \
+			+ _object_presentation_pool_gpu_bytes
+
+
+func _object_presentation_total_canvas_items() -> int:
+	return _hot_object_presentation_cache_canvas_items \
+			+ _object_presentation_retire_canvas_items \
+			+ _object_presentation_pool_canvas_items
+
+
+func _object_presentation_total_colliders() -> int:
+	return _hot_object_presentation_cache_colliders \
+			+ _object_presentation_retire_colliders \
+			+ _object_presentation_pool_colliders
+
+
+func _object_presentation_residency_over_resource_budget() -> bool:
+	return _object_presentation_total_gpu_bytes() > HOT_OBJECT_PRESENTATION_CACHE_MAX_BYTES \
+			or _object_presentation_total_canvas_items() \
+					> HOT_OBJECT_PRESENTATION_CACHE_MAX_CANVAS_ITEMS \
+			or _object_presentation_total_colliders() \
+					> HOT_OBJECT_PRESENTATION_CACHE_MAX_COLLIDERS
+
+
+func _hot_object_presentation_cache_is_over_budget() -> bool:
+	return _hot_object_presentation_layers.size() > HOT_OBJECT_PRESENTATION_CACHE_MAX_CHUNKS \
+			or _object_presentation_residency_over_resource_budget()
+
+
+func _trim_hot_object_presentation_cache_to_budget() -> void:
+	# One victim is one explicit dispatcher phase. Its retained resources move to
+	# the retire counters, and no second victim is selected until that queue drains.
+	if not _hot_object_presentation_cache_is_over_budget() \
+			or not _object_presentation_retire_queue.is_empty():
+		return
+	var victim: Vector2i = INVALID_CHUNK_COORD
+	var victim_has_live_view: bool = true
+	var victim_is_source_desired: bool = true
+	var victim_priority: int = -1
+	var victim_stamp: int = 1 << 60
+	for coord_variant: Variant in _hot_object_presentation_layers.keys():
+		var coord: Vector2i = coord_variant as Vector2i
+		var entry: Dictionary = _hot_object_presentation_layers.get(coord, { }) as Dictionary
+		var live_view: ChunkView = _chunk_views.get(coord, null) as ChunkView
+		var has_live_view: bool = live_view != null and is_instance_valid(live_view)
+		var layer: WorldObjectPacketLayer = entry.get("layer", null) as WorldObjectPacketLayer
+		if has_live_view and layer != null and is_instance_valid(layer) \
+				and not bool(entry.get("ready", false)) \
+				and not layer.is_presentation_complete():
+			continue
+		var source_desired: bool = _is_chunk_source_desired(coord)
+		var priority: int = _chunk_request_priority(coord)
+		var stamp: int = int(entry.get("stamp", 0))
+		if victim == INVALID_CHUNK_COORD \
+				or (victim_has_live_view and not has_live_view) \
+				or (victim_has_live_view == has_live_view \
+						and victim_is_source_desired and not source_desired) \
+				or (victim_has_live_view == has_live_view \
+						and victim_is_source_desired == source_desired \
+						and priority > victim_priority) \
+				or (victim_has_live_view == has_live_view \
+						and victim_is_source_desired == source_desired \
+						and priority == victim_priority and stamp < victim_stamp):
+			victim = coord
+			victim_has_live_view = has_live_view
+			victim_is_source_desired = source_desired
+			victim_priority = priority
+			victim_stamp = stamp
+	if victim != INVALID_CHUNK_COORD:
+		_evict_hot_object_presentation_for_budget(victim)
+
+
+## Cache limits may discard hidden residency, never the only transaction that
+## a live hidden ChunkView is waiting on. If the live working set itself forces
+## eviction, immediately transfer a completed layer or restage its retained CPU
+## result into the view so atomic reveal cannot wait forever.
+func _evict_hot_object_presentation_for_budget(chunk_coord: Vector2i) -> void:
+	var chunk_view: ChunkView = _chunk_views.get(chunk_coord, null) as ChunkView
+	var entry: Dictionary = _hot_object_presentation_layers.get(chunk_coord, { }) as Dictionary
+	if chunk_view == null or entry.is_empty():
+		_evict_hot_object_presentation(chunk_coord)
+		return
+	var layer: WorldObjectPacketLayer = entry.get("layer", null) as WorldObjectPacketLayer
+	if layer != null and is_instance_valid(layer) \
+			and not bool(entry.get("ready", false)) \
+			and not layer.is_presentation_complete():
+		# Defensive counterpart to the victim filter above. Never restart the only
+		# in-flight presentation a hidden live view is waiting on.
+		return
+	if bool(entry.get("ready", false)) \
+			or (layer != null and layer.is_presentation_complete()):
+		if _promote_hot_object_presentation(chunk_coord, chunk_view):
+			# Promotion remains hidden. Keep/restore the focused queue coordinate so
+			# atomic reveal runs as its own dispatcher phase on a later frame.
+			_defer_object_presentation_reveal(chunk_coord)
+			_queue_object_packet_visual_upload(chunk_coord)
+			return
+	_evict_hot_object_presentation(chunk_coord)
+	# Do not call _stage_ready_object_presentation() here: that method prefers
+	# hot residency and would re-enter trim with the same over-budget reservation.
+	# A broken/stale live entry falls back directly to its retained CPU result.
+	var result: Dictionary = _object_presentation_results_by_chunk.get(
+		chunk_coord,
+		{ },
+	) as Dictionary
+	if result.is_empty() \
+			or not chunk_view.stage_object_presentation_result(
+				result,
+				_layered_object_asset_catalog,
+			):
+		return
+	_drop_hot_object_prestage(chunk_coord)
+	_object_packet_visual_priority_dirty = true
+	_queue_object_packet_visual_upload(chunk_coord)
+
+
+func _clear_hot_object_presentation_cache() -> void:
+	_pending_hot_object_prestage_chunks.clear()
+	_pending_hot_object_prestage_set.clear()
+	var coords: Array[Vector2i] = []
+	for coord_variant: Variant in _hot_object_presentation_layers.keys():
+		coords.append(coord_variant as Vector2i)
+	for coord: Vector2i in coords:
+		_evict_hot_object_presentation(coord)
+	_hot_object_presentation_layers.clear()
+	_hot_object_presentation_cache_bytes = 0
+	_hot_object_presentation_cache_canvas_items = 0
+	_hot_object_presentation_cache_colliders = 0
+	_hot_object_presentation_cache_next_stamp = 0
+	_object_presentation_layer_pool.clear()
+	_object_presentation_pool_weight_by_layer_id.clear()
+	_object_presentation_pool_gpu_bytes = 0
+	_object_presentation_pool_canvas_items = 0
+	_object_presentation_pool_colliders = 0
+	_object_presentation_retire_queue.clear()
+	_object_presentation_retire_layer_ids.clear()
+	_object_presentation_retire_gpu_bytes = 0
+	_object_presentation_retire_canvas_items = 0
+	_object_presentation_retire_colliders = 0
+	_object_presentation_retire_phase_count_total = 0
+	_object_presentation_retire_phase_usec_max_total = 0
+	if _hot_object_presentation_root != null \
+			and is_instance_valid(_hot_object_presentation_root):
+		_hot_object_presentation_root.queue_free()
+	_hot_object_presentation_root = null
+
+
+func _prune_resident_source_packets() -> void:
+	var resident_coords: Array[Vector2i] = []
+	for chunk_coord_variant: Variant in _base_chunk_packets.keys():
+		resident_coords.append(chunk_coord_variant as Vector2i)
+	for chunk_coord: Vector2i in resident_coords:
+		if _is_chunk_source_desired(chunk_coord) or _chunk_views.has(chunk_coord) \
+				or chunk_coord == _active_publish_chunk:
+			continue
+		_store_warm_chunk_packet(
+			chunk_coord,
+			_base_chunk_packets.get(chunk_coord, { }) as Dictionary,
+		)
+		_base_chunk_packets.erase(chunk_coord)
+		_chunk_packets.erase(chunk_coord)
+		_forget_mountain_mask(chunk_coord, false, false)
+		_forget_terrain_edge_mask(chunk_coord, false, false)
+	_prune_stale_hot_object_presentation_work()
+
+
+func _prune_stale_hot_object_presentation_work() -> void:
+	var pending_coords: Array[Vector2i] = _pending_hot_object_prestage_chunks.duplicate()
+	for chunk_coord: Vector2i in pending_coords:
+		if _is_chunk_source_desired(chunk_coord) or _chunk_views.has(chunk_coord):
+			continue
+		_drop_hot_object_prestage(chunk_coord)
+		_drop_object_packet_visual_upload(chunk_coord)
+	var resident_coords: Array[Vector2i] = []
+	for coord_variant: Variant in _hot_object_presentation_layers.keys():
+		resident_coords.append(coord_variant as Vector2i)
+	for chunk_coord: Vector2i in resident_coords:
+		if _is_chunk_source_desired(chunk_coord) or _chunk_views.has(chunk_coord):
+			continue
+		var entry: Dictionary = _hot_object_presentation_layers.get(chunk_coord, { }) as Dictionary
+		if bool(entry.get("ready", false)):
+			continue
+		_evict_hot_object_presentation(chunk_coord)
 
 
 func _drain_completed_packets(max_count: int) -> void:
@@ -2068,11 +4290,17 @@ func _drain_completed_packets(max_count: int) -> void:
 				],
 			)
 			continue
+		if not _is_chunk_source_desired(chunk_coord):
+			_store_warm_chunk_packet(chunk_coord, packet)
+			continue
+		_evict_warm_chunk(chunk_coord)
+		_base_chunk_packets[chunk_coord] = packet
 		var merged_packet: Dictionary = _diff_store.apply_to_packet(packet)
 		_chunk_packets[chunk_coord] = merged_packet
 		_refresh_loaded_visuals_around_chunk_overrides(chunk_coord)
 		_forget_mountain_mask(chunk_coord, true, true)
 		_forget_terrain_edge_mask(chunk_coord, true, true)
+		_request_object_presentation_build(chunk_coord, merged_packet, true)
 		if _is_chunk_desired(chunk_coord) and not _pending_publish_queue.has(chunk_coord) and chunk_coord != _active_publish_chunk:
 			_pending_publish_queue.append(chunk_coord)
 
@@ -2121,9 +4349,12 @@ func _publish_next_batch() -> void:
 		_apply_terrain_edge_mask_to_chunk_view(_active_publish_chunk, chunk_view, packet)
 		WorldPerfProbe.end("WorldStreamer.publish.begin.apply_terrain_edge_mask", step_started)
 		step_started = WorldPerfProbe.begin()
-		chunk_view.begin_apply(packet, true)
-		_queue_object_packet_visual_upload(_active_publish_chunk)
-		_queue_grass_scatter_visual_upload(_active_publish_chunk)
+		# Terrain publication only establishes the hidden reveal gate. Adoption,
+		# begin(), recycled-owner cleanup and terminal compatibility rendering all
+		# remain distinct phases of the higher-priority object dispatcher.
+		chunk_view.begin_apply(packet, true, false)
+		_queue_object_presentation_for_live_view(_active_publish_chunk)
+		_request_grass_scatter_build(_active_publish_chunk)
 		WorldPerfProbe.end("WorldStreamer.publish.begin.chunk_begin_apply", step_started)
 		WorldPerfProbe.end("WorldStreamer.publish.begin", publish_begin_started)
 		return
@@ -2143,10 +4374,12 @@ func _publish_next_batch() -> void:
 		# A chunk whose native mountain visual (mask/roof/selector textures) is
 		# still budget-queued stays hidden: showing it now would flash a closed
 		# or stale-cavity roof for one or more frames on reload.
-		var native_debug: Dictionary = active_view.get_mountain_native_mask_debug_state()
-		if bool(native_debug.get("native_mask_visual_pending", false)):
+		if active_view.is_mountain_native_mask_visual_pending() \
+				or not active_view.is_object_blocking_presentation_ready() \
+				or _is_object_presentation_reveal_deferred(finalized_chunk):
 			_pending_chunk_visibility_after_mountain_visual[finalized_chunk] = true
 		else:
+			active_view.set_object_collision_active(true)
 			active_view.visible = true
 			EventBus.chunk_loaded.emit(finalized_chunk)
 		WorldPerfProbe.end("WorldStreamer.publish.finalize", publish_finalize_started)
@@ -2156,15 +4389,22 @@ func _publish_next_batch() -> void:
 func _finalize_pending_chunk_visibility(chunk_coord: Vector2i) -> void:
 	chunk_coord = _canonicalize_chunk_coord(chunk_coord)
 	if not _pending_chunk_visibility_after_mountain_visual.has(chunk_coord):
+		# A presentation may complete before terrain batch publication has reached
+		# its reveal gate. Expired guards have no remaining work to protect.
+		_is_object_presentation_reveal_deferred(chunk_coord)
 		return
 	var chunk_view: ChunkView = _chunk_views.get(chunk_coord, null) as ChunkView
 	if chunk_view == null:
 		_pending_chunk_visibility_after_mountain_visual.erase(chunk_coord)
+		_object_presentation_reveal_not_before_frame_by_chunk.erase(chunk_coord)
 		return
-	var native_debug: Dictionary = chunk_view.get_mountain_native_mask_debug_state()
-	if bool(native_debug.get("native_mask_visual_pending", false)):
+	if chunk_view.is_mountain_native_mask_visual_pending() \
+			or not chunk_view.is_object_blocking_presentation_ready() \
+			or _is_object_presentation_reveal_deferred(chunk_coord):
 		return
 	_pending_chunk_visibility_after_mountain_visual.erase(chunk_coord)
+	_object_presentation_reveal_not_before_frame_by_chunk.erase(chunk_coord)
+	chunk_view.set_object_collision_active(true)
 	chunk_view.visible = true
 	EventBus.chunk_loaded.emit(chunk_coord)
 
@@ -2239,17 +4479,44 @@ func _evict_outside_ring(max_count: int) -> void:
 		if chunk_coord == _active_publish_chunk or _is_chunk_desired(chunk_coord):
 			continue
 		var chunk_view: ChunkView = _chunk_views.get(chunk_coord) as ChunkView
+		var cached_committed_objects: bool = false
+		var committed_object_layer: WorldObjectPacketLayer = null
 		if chunk_view:
 			chunk_view.cancel_staged_mountain_roof_reveal_halo()
 			_remove_mountain_cavity_skylight_field_chunk(chunk_coord)
+			chunk_view.set_object_collision_active(false)
+			committed_object_layer = chunk_view.detach_committed_object_layer_for_hot_cache()
 			chunk_view.queue_free()
 		_chunk_views.erase(chunk_coord)
+		_object_presentation_reveal_not_before_frame_by_chunk.erase(chunk_coord)
+		if committed_object_layer != null:
+			cached_committed_objects = _cache_committed_object_layer(
+				chunk_coord,
+				committed_object_layer,
+			)
 		_mountain_roof_reveal_selector_wait_chunks.erase(chunk_coord)
-		_chunk_packets.erase(chunk_coord)
+		if not _is_chunk_source_desired(chunk_coord):
+			_store_warm_chunk_packet(
+				chunk_coord,
+				_base_chunk_packets.get(chunk_coord, { }) as Dictionary,
+			)
+			_base_chunk_packets.erase(chunk_coord)
+			_chunk_packets.erase(chunk_coord)
 		_requested_chunks.erase(chunk_coord)
 		_pending_publish_queue.erase(chunk_coord)
 		_pending_chunk_visibility_after_mountain_visual.erase(chunk_coord)
 		_drop_object_packet_visual_upload(chunk_coord)
+		var resident_entry: Dictionary = _get_current_hot_object_entry(chunk_coord)
+		if not resident_entry.is_empty() and not bool(resident_entry.get("ready", false)):
+			if _is_chunk_source_desired(chunk_coord):
+				_queue_object_packet_visual_upload(chunk_coord)
+			else:
+				_evict_hot_object_presentation(chunk_coord)
+		elif not cached_committed_objects \
+				and resident_entry.is_empty() \
+				and _is_chunk_source_desired(chunk_coord) \
+				and _object_presentation_results_by_chunk.has(chunk_coord):
+			_queue_hot_object_prestage(chunk_coord)
 		_drop_grass_scatter_visual_upload(chunk_coord)
 		_handle_cover_chunk_unloaded(chunk_coord)
 		_try_commit_mountain_roof_reveal_selector_generation()
@@ -2268,15 +4535,23 @@ func _has_pending_streaming_work() -> bool:
 		return true
 	if not _pending_chunk_visibility_after_mountain_visual.is_empty():
 		return true
-	if _packet_backend.has_pending_requests():
+	if _world_compute_backend.has_pending_requests():
 		return true
 	if _packet_backend.has_completed_packets():
 		return true
-	if _mountain_mask_backend.has_pending_requests():
-		return true
 	if _mountain_mask_backend.has_completed_mountain_halo_masks():
 		return true
+	if _grass_scatter_backend.has_completed_grass_scatter_buffers():
+		return true
+	if _object_presentation_backend.has_completed_object_presentation_buffers():
+		return true
+	if not _object_presentation_inflight_chunks.is_empty():
+		return true
+	if not _grass_scatter_inflight_chunks.is_empty():
+		return true
 	if not _mountain_native_mask_inflight_chunks.is_empty():
+		return true
+	if not _requested_chunks.is_empty():
 		return true
 	if not _pending_mountain_native_mask_visual_upload_chunks.is_empty():
 		return true
@@ -2285,6 +4560,8 @@ func _has_pending_streaming_work() -> bool:
 	if not _pending_terrain_edge_mask_visual_upload_chunks.is_empty():
 		return true
 	if not _pending_object_packet_visual_upload_chunks.is_empty():
+		return true
+	if not _pending_hot_object_prestage_chunks.is_empty():
 		return true
 	if not _pending_grass_scatter_visual_upload_chunks.is_empty():
 		return true
@@ -2404,6 +4681,8 @@ func _enqueue_chunk_if_needed(chunk_coord: Vector2i) -> void:
 		return
 	if _requested_chunks.has(chunk_coord) or _chunk_packets.has(chunk_coord):
 		return
+	if _restore_warm_chunk_packet(chunk_coord):
+		return
 	_requested_chunks[chunk_coord] = true
 	_packet_backend.queue_packet_request(
 		chunk_coord,
@@ -2411,6 +4690,7 @@ func _enqueue_chunk_if_needed(chunk_coord: Vector2i) -> void:
 		world_version,
 		_worldgen_settings_packed,
 		_generation_epoch,
+		_chunk_request_priority(chunk_coord),
 	)
 
 
@@ -2465,7 +4745,9 @@ func _refresh_loaded_packets_from_diffs() -> void:
 	for chunk_coord_variant: Variant in _chunk_packets.keys():
 		chunk_coords.append(chunk_coord_variant as Vector2i)
 	for chunk_coord: Vector2i in chunk_coords:
-		var base_packet: Dictionary = _chunk_packets.get(chunk_coord, { }) as Dictionary
+		var base_packet: Dictionary = _base_chunk_packets.get(chunk_coord, { }) as Dictionary
+		if base_packet.is_empty():
+			base_packet = _chunk_packets.get(chunk_coord, { }) as Dictionary
 		var refreshed_packet: Dictionary = _diff_store.apply_to_packet(base_packet)
 		_chunk_packets[chunk_coord] = refreshed_packet
 		_refresh_loaded_visuals_around_chunk_overrides(chunk_coord)
@@ -2474,9 +4756,10 @@ func _refresh_loaded_packets_from_diffs() -> void:
 		var chunk_view: ChunkView = _chunk_views.get(chunk_coord) as ChunkView
 		if chunk_view:
 			_track_roof_layer_metric(chunk_coord, _chunk_packets[chunk_coord] as Dictionary)
-			chunk_view.begin_apply(_chunk_packets[chunk_coord] as Dictionary, true)
-			_queue_object_packet_visual_upload(chunk_coord)
-			_queue_grass_scatter_visual_upload(chunk_coord)
+			# object_* arrays are immutable base output. Terrain-only diffs must
+			# preserve the already committed batch buffers and tree collision.
+			chunk_view.begin_apply(_chunk_packets[chunk_coord] as Dictionary, true, true)
+			_request_grass_scatter_build(chunk_coord)
 			_refresh_debug_visuals_for_chunk(chunk_coord)
 			if not _pending_publish_queue.has(chunk_coord):
 				_pending_publish_queue.append(chunk_coord)
@@ -2849,6 +5132,13 @@ func _sync_sun_lighting_from_time(force: bool = false) -> void:
 
 
 func _apply_sun_lighting_to_loaded_chunks() -> void:
+	# Tree/rock native batches share one catalog and the same ShaderMaterial
+	# instances across every chunk. Update those uniforms once per accepted sun
+	# change; per-chunk propagation below is only for chunk-owned legacy layers.
+	_layered_object_asset_catalog.set_sun_lighting(
+		_sun_shadow_length_px,
+		_sun_shadow_opacity,
+	)
 	for chunk_view_variant: Variant in _chunk_views.values():
 		var chunk_view: ChunkView = chunk_view_variant as ChunkView
 		if chunk_view == null:
@@ -3164,6 +5454,8 @@ func _request_mountain_native_mask_for_chunk(
 		if construction_roof_needed else PackedByteArray(),
 		halo_fields.get("dug_halo", PackedByteArray()) as PackedByteArray \
 		if construction_roof_needed else PackedByteArray(),
+		_chunk_request_priority(chunk_coord),
+		_mask_compute_priority_class(reason),
 	)
 
 
@@ -3194,7 +5486,21 @@ func _request_terrain_edge_mask_for_chunk(
 		revision,
 		reason,
 		&"terrain_edge",
+		PackedByteArray(),
+		PackedByteArray(),
+		_chunk_request_priority(chunk_coord),
+		_mask_compute_priority_class(reason),
 	)
+
+
+func _mask_compute_priority_class(reason: StringName) -> int:
+	match reason:
+		&"mining", &"torch_shadow_field":
+			return WorldChunkPacketBackend.PRIORITY_CLASS_INTERACTIVE
+		&"prefetch":
+			return WorldChunkPacketBackend.PRIORITY_CLASS_BACKGROUND
+		_:
+			return WorldChunkPacketBackend.PRIORITY_CLASS_REVEAL
 
 
 func _apply_ready_mountain_native_mask_to_chunk_view(
@@ -3792,8 +6098,8 @@ func _prepare_terrain_edge_mask_for_publish(chunk_coord: Vector2i, _packet: Dict
 
 func _reset_runtime_state() -> void:
 	_generation_epoch += 1
-	_packet_backend.clear_queued_work()
-	_mountain_mask_backend.clear_queued_work()
+	_world_compute_backend.clear_queued_work()
+	_clear_hot_object_presentation_cache()
 	_awaiting_new_game_spawn_result = false
 	_new_game_spawn_failed = false
 	_requested_chunks.clear()
@@ -3809,6 +6115,7 @@ func _reset_runtime_state() -> void:
 	_desired_cache_center_chunk = INVALID_CHUNK_COORD
 	_desired_cache_radius_chunks = -1
 	_desired_cache_source_radius_chunks = -1
+	_streaming_worker_demand_dirty = true
 	_mountain_mask_revision_by_chunk.clear()
 	_mountain_native_masks_by_chunk.clear()
 	_mountain_native_mask_inflight_chunks.clear()
@@ -3823,8 +6130,48 @@ func _reset_runtime_state() -> void:
 	_pending_terrain_edge_mask_visual_upload_set.clear()
 	_pending_object_packet_visual_upload_chunks.clear()
 	_pending_object_packet_visual_upload_set.clear()
+	_pending_object_packet_visual_upload_index_by_chunk.clear()
+	_object_packet_visual_queue_repair_needed = false
+	_object_packet_visual_queue_repair_cursor = 0
+	_object_packet_visual_enqueued_turn_by_chunk.clear()
+	_object_packet_visual_dispatch_turn = 0
+	_focused_object_packet_visual_upload_chunk = INVALID_CHUNK_COORD
+	_object_packet_visual_priority_dirty = true
+	_object_packet_visual_urgent_priority_dirty = false
+	_object_packet_visual_selection_phase_prepared = false
+	_object_packet_visual_priority_scan_active = false
+	_object_packet_visual_priority_scan_candidates.clear()
+	_object_packet_visual_priority_scan_cursor = 0
+	_object_packet_visual_priority_scan_best = INVALID_CHUNK_COORD
+	_object_presentation_reveal_not_before_frame_by_chunk.clear()
+	_pending_hot_object_prestage_chunks.clear()
+	_pending_hot_object_prestage_set.clear()
+	_object_presentation_revision_by_chunk.clear()
+	_object_presentation_next_revision = 0
+	_object_presentation_inflight_chunks.clear()
+	_object_presentation_results_by_chunk.clear()
+	_warm_object_presentation_cache.clear()
+	_warm_object_presentation_cache_bytes_by_chunk.clear()
+	_warm_object_presentation_cache_bytes = 0
+	_object_presentation_cache_hit_count_total = 0
+	_hot_object_presentation_cache_hit_count_total = 0
+	_hot_object_presentation_cache_eviction_count_total = 0
+	_object_presentation_worker_elapsed_ms_last = 0.0
+	_object_presentation_worker_elapsed_ms_max_total = 0.0
+	_object_presentation_request_to_complete_ms_last = 0.0
+	_object_presentation_request_to_complete_ms_max_total = 0.0
+	_object_presentation_retry_by_chunk.clear()
+	_object_presentation_terminal_fallback_by_chunk.clear()
+	_object_presentation_failure_count_total = 0
+	_object_presentation_terminal_failure_count = 0
 	_pending_grass_scatter_visual_upload_chunks.clear()
 	_pending_grass_scatter_visual_upload_set.clear()
+	_grass_scatter_revision_by_chunk.clear()
+	_grass_scatter_inflight_chunks.clear()
+	_grass_scatter_worker_elapsed_ms_last = 0.0
+	_grass_scatter_worker_elapsed_ms_max_total = 0.0
+	_grass_scatter_request_to_complete_ms_last = 0.0
+	_grass_scatter_request_to_complete_ms_max_total = 0.0
 	_mountain_native_mask_visual_upload_count_last_tick = 0
 	_mountain_native_mask_visible_republish_skip_count_total = 0
 	_mountain_surface_dig_visual_patch_skip_count_total = 0
@@ -3838,9 +6185,15 @@ func _reset_runtime_state() -> void:
 	for chunk_view_variant: Variant in _chunk_views.values():
 		var chunk_view: ChunkView = chunk_view_variant as ChunkView
 		if chunk_view:
+			chunk_view.set_object_collision_active(false)
 			chunk_view.queue_free()
 	_chunk_views.clear()
 	_chunk_packets.clear()
+	_base_chunk_packets.clear()
+	_warm_base_chunk_packet_cache.clear()
+	_warm_base_chunk_packet_cache_stamps.clear()
+	_warm_base_chunk_packet_cache_next_stamp = 0
+	_warm_packet_cache_hit_count_total = 0
 	if _mining_feedback_layer != null and is_instance_valid(_mining_feedback_layer):
 		_mining_feedback_layer.clear_feedback()
 	roof_layers_per_chunk_max = 0
@@ -3849,6 +6202,9 @@ func _reset_runtime_state() -> void:
 	_active_cover_component_id = 0
 	_reset_mountain_roof_reveal_presentation()
 	_did_warn_roof_layer_explosion = false
+	# New-world/reset startup is the loading boundary. Pay the bounded first-use
+	# envelope cost here, before any moving-player reveal deadline exists.
+	_warm_object_presentation_layer_pool()
 
 
 func _queue_new_game_spawn_resolution() -> void:
@@ -3930,6 +6286,7 @@ func _rebuild_desired_chunk_cache() -> void:
 		_desired_cache_center_chunk = INVALID_CHUNK_COORD
 		_desired_cache_radius_chunks = -1
 		_desired_cache_source_radius_chunks = -1
+		_streaming_worker_demand_dirty = true
 		return
 	var source_radius: int = _resolve_source_cache_radius_chunks()
 	if _desired_cache_center_chunk == _player_chunk_coord \
@@ -3945,6 +6302,7 @@ func _rebuild_desired_chunk_cache() -> void:
 	)
 	_desired_mountain_mask_chunk_coords.clear()
 	_desired_source_chunk_coords = _build_chunk_coords_for_radius(_player_chunk_coord, source_radius)
+	_streaming_worker_demand_dirty = true
 
 
 func _build_chunk_coords_for_radius(center_chunk: Vector2i, radius_chunks: int) -> Array[Vector2i]:
@@ -3977,6 +6335,17 @@ func _is_chunk_desired(chunk_coord: Vector2i) -> bool:
 		_wrapped_chunk_delta_abs(chunk_coord.x, _player_chunk_coord.x),
 		absi(chunk_coord.y - _player_chunk_coord.y),
 	) <= _current_stream_radius_chunks
+
+
+func _is_chunk_source_desired(chunk_coord: Vector2i) -> bool:
+	if _player_chunk_coord == INVALID_CHUNK_COORD:
+		return false
+	if _uses_finite_world_bounds() and not _world_bounds_settings.is_chunk_y_in_bounds(chunk_coord.y):
+		return false
+	return maxi(
+		_wrapped_chunk_delta_abs(chunk_coord.x, _player_chunk_coord.x),
+		absi(chunk_coord.y - _player_chunk_coord.y),
+	) <= _resolve_source_cache_radius_chunks()
 
 
 func _resolve_source_cache_radius_chunks() -> int:

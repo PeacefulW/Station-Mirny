@@ -4,6 +4,10 @@ extends Node2D
 const WorldDecorBatchLayer = preload("res://core/systems/world/world_decor_batch_layer.gd")
 const LayeredTreeObjectLayer = preload("res://core/systems/world/layered_tree_object_layer.gd")
 const LayeredRockObjectLayer = preload("res://core/systems/world/layered_rock_object_layer.gd")
+const LayeredTreeBatchLayer = preload("res://core/systems/world/layered_tree_batch_layer.gd")
+const LayeredRockBatchLayer = preload("res://core/systems/world/layered_rock_batch_layer.gd")
+const NativeDecorBatchLayer = preload("res://core/systems/world/native_decor_batch_layer.gd")
+const WorldLayeredObjectAssetCatalog = preload("res://core/systems/world/world_layered_object_asset_catalog.gd")
 const WorldVisualLightingProfile = preload("res://core/systems/world/world_visual_lighting_profile.gd")
 const TREE_BATCH_SHADER = preload("res://assets/shaders/tree_decor_atlas_batch.gdshader")
 const TREE_SHADOW_SHADER = preload("res://assets/shaders/tree_silhouette_shadow.gdshader")
@@ -15,17 +19,24 @@ const OBJECT_KIND_TREE: int = 4
 const OBJECT_KIND_SMALL_ROCK: int = 7
 const OBJECT_LOCAL_PX_QUANTUM: float = 4.0
 const OBJECT_COLLISION_LAYER: int = 2
+const NATIVE_MULTIMESH_BUFFER_STRIDE: int = 12
+const NATIVE_FLOAT_BYTE_SIZE: int = 4
 
 const LIVING_FLORA_FRAME_COLUMNS: int = 16
 const LIVING_FLORA_FRAME_ROWS: int = 4
 const LIVING_FLORA_FRAMES_PER_VIEW: int = 16
 const LIVING_FLORA_FRAME_COUNT: int = LIVING_FLORA_FRAME_COLUMNS * LIVING_FLORA_FRAME_ROWS
 const LIVING_FLORA_ANIMATION_FPS: float = 7.0
-const LIVING_FLORA_SHADOW_WIDTH_SCALE: float = 0.42
-const LIVING_FLORA_SHADOW_HEIGHT_SCALE: float = 0.13
-const LIVING_FLORA_SHADOW_CENTER_Y_SCALE: float = 0.32
-const LIVING_FLORA_SHADOW_MIN_WIDTH_PX: float = 10.0
-const LIVING_FLORA_SHADOW_MIN_HEIGHT_PX: float = 4.0
+const LIVING_FLORA_SHADOW_WIDTH_SCALE: float = \
+		WorldLayeredObjectAssetCatalog.LIVING_FLORA_SHADOW_WIDTH_SCALE
+const LIVING_FLORA_SHADOW_HEIGHT_SCALE: float = \
+		WorldLayeredObjectAssetCatalog.LIVING_FLORA_SHADOW_HEIGHT_SCALE
+const LIVING_FLORA_SHADOW_CENTER_Y_SCALE: float = \
+		WorldLayeredObjectAssetCatalog.LIVING_FLORA_SHADOW_CENTER_Y_SCALE
+const LIVING_FLORA_SHADOW_MIN_WIDTH_PX: float = \
+		WorldLayeredObjectAssetCatalog.LIVING_FLORA_SHADOW_MIN_WIDTH_PX
+const LIVING_FLORA_SHADOW_MIN_HEIGHT_PX: float = \
+		WorldLayeredObjectAssetCatalog.LIVING_FLORA_SHADOW_MIN_HEIGHT_PX
 
 const SPIKY_FLORA_FRAME_COLUMNS: int = 4
 const SPIKY_FLORA_FRAME_ROWS: int = 1
@@ -73,6 +84,10 @@ var _spiky_flora_batch_layer: WorldDecorBatchLayer = null
 var _tree_batch_layer: WorldDecorBatchLayer = null
 var _layered_tree_layer: LayeredTreeObjectLayer = null
 var _layered_small_rock_layer: LayeredRockObjectLayer = null
+var _layered_tree_batch_layer: LayeredTreeBatchLayer = null
+var _layered_small_rock_batch_layer: LayeredRockBatchLayer = null
+var _native_living_flora_batch_layer: NativeDecorBatchLayer = null
+var _native_spiky_flora_batch_layer: NativeDecorBatchLayer = null
 var _tree_collision_body: StaticBody2D = null
 var _tree_collision_shape_owner_ids: Array[int] = []
 var _tree_collider_count: int = 0
@@ -90,12 +105,63 @@ var _spiky_flora_count: int = 0
 var _tree_count: int = 0
 var _small_rock_count: int = 0
 var _world_origin_y: float = 0.0
+enum NativeApplyState {
+	IDLE,
+	RESET_PREVIOUS_COLLISIONS,
+	TREE_BUCKETS,
+	TREE_COLLISIONS,
+	LIVING_FLORA_BUFFERS,
+	SPIKY_FLORA_BUFFERS,
+	ROCK_BUCKETS,
+	RETIRE_UNUSED_VISUALS,
+	COMMIT_BLOCKING,
+	COMPLETE,
+}
+
+enum NativeBeginState {
+	IDLE,
+	HEADER,
+	TREE,
+	ROCK,
+	LIVING_FLORA,
+	SPIKY_FLORA,
+	FINALIZE,
+	COMPLETE,
+	FAILED,
+}
+var _native_apply_state: NativeApplyState = NativeApplyState.IDLE
+var _native_collision_records: PackedFloat32Array = PackedFloat32Array()
+var _native_collision_record_index: int = 0
+var _native_blocking_ready: bool = false
+var _native_presentation_complete: bool = false
+var _last_apply_created_visual_slot: bool = false
+var _native_begin_state: NativeBeginState = NativeBeginState.IDLE
+var _native_begin_result: Dictionary = { }
+var _native_begin_catalog: WorldLayeredObjectAssetCatalog = null
+var _native_begin_tree_count: int = 0
+var _native_begin_rock_count: int = 0
+var _native_begin_living_count: int = 0
+var _native_begin_spiky_count: int = 0
+var _native_begin_presented_count: int = 0
+var _native_begin_has_previous_collision_owners: bool = false
+var _native_begin_validated_float_count: int = 0
+var _native_asset_catalog: WorldLayeredObjectAssetCatalog = null
+var _native_payload_bytes: int = 0
+var _streaming_world_parented: bool = false
 
 
 func set_living_flora_atlas(atlas: Texture2D) -> void:
+	if _living_flora_atlas == atlas:
+		return
 	_living_flora_atlas = atlas
+	if _native_apply_state != NativeApplyState.IDLE:
+		_clear_batches()
+		return
 	if _living_flora_batch_layer != null and is_instance_valid(_living_flora_batch_layer):
 		_living_flora_batch_layer.clear_batches()
+	if _native_living_flora_batch_layer != null \
+			and is_instance_valid(_native_living_flora_batch_layer):
+		_native_living_flora_batch_layer.clear_batches()
 
 
 func set_spiky_flora_atlas(atlas: Texture2D) -> void:
@@ -106,12 +172,22 @@ func set_spiky_flora_atlas(atlas: Texture2D) -> void:
 
 
 func set_spiky_flora_atlases(atlases: Array[Texture2D]) -> void:
+	if _texture_banks_are_identical(_spiky_flora_atlases, atlases):
+		return
 	_spiky_flora_atlases = atlases.duplicate()
+	if _native_apply_state != NativeApplyState.IDLE:
+		_clear_batches()
+		return
 	if _spiky_flora_batch_layer != null and is_instance_valid(_spiky_flora_batch_layer):
 		_spiky_flora_batch_layer.clear_batches()
+	if _native_spiky_flora_batch_layer != null \
+			and is_instance_valid(_native_spiky_flora_batch_layer):
+		_native_spiky_flora_batch_layer.clear_batches()
 
 
 func set_tree_atlas(atlas: Texture2D) -> void:
+	if _tree_atlas == atlas:
+		return
 	_tree_atlas = atlas
 	if _tree_batch_layer != null and is_instance_valid(_tree_batch_layer):
 		_tree_batch_layer.clear_batches()
@@ -122,7 +198,10 @@ func set_layered_tree_asset_dir(asset_dir: String) -> void:
 
 
 func set_layered_tree_asset_dirs(asset_dirs: Array) -> void:
-	_layered_tree_asset_dirs = _normalize_layered_tree_asset_dirs(asset_dirs)
+	var normalized_dirs: Array[String] = _normalize_layered_tree_asset_dirs(asset_dirs)
+	if normalized_dirs == _layered_tree_asset_dirs:
+		return
+	_layered_tree_asset_dirs = normalized_dirs
 	_layered_tree_asset_dir = _layered_tree_asset_dirs[0] if not _layered_tree_asset_dirs.is_empty() else ""
 	if _layered_tree_layer != null and is_instance_valid(_layered_tree_layer):
 		if _layered_tree_asset_dirs.is_empty():
@@ -136,13 +215,25 @@ func set_layered_small_rock_asset_dir(asset_dir: String) -> void:
 
 
 func set_layered_small_rock_asset_dirs(asset_dirs: Array) -> void:
-	_layered_small_rock_asset_dirs = _normalize_layered_small_rock_asset_dirs(asset_dirs)
+	var normalized_dirs: Array[String] = _normalize_layered_small_rock_asset_dirs(asset_dirs)
+	if normalized_dirs == _layered_small_rock_asset_dirs:
+		return
+	_layered_small_rock_asset_dirs = normalized_dirs
 	_layered_small_rock_asset_dir = _layered_small_rock_asset_dirs[0] if not _layered_small_rock_asset_dirs.is_empty() else ""
 	if _layered_small_rock_layer != null and is_instance_valid(_layered_small_rock_layer):
 		if _layered_small_rock_asset_dirs.is_empty():
 			_layered_small_rock_layer.clear_instances()
 		else:
 			_layered_small_rock_layer.set_asset_dirs(_layered_small_rock_asset_dirs)
+
+
+static func _texture_banks_are_identical(lhs: Array[Texture2D], rhs: Array[Texture2D]) -> bool:
+	if lhs.size() != rhs.size():
+		return false
+	for index: int in range(lhs.size()):
+		if lhs[index] != rhs[index]:
+			return false
+	return true
 
 
 func set_sun_lighting(
@@ -158,6 +249,9 @@ func set_sun_lighting(
 			shadow_opacity,
 			shadow_softness_px,
 		)
+	# Native tree/rock batches use catalog-owned shared materials. WorldStreamer
+	# updates that catalog once per sun change; touching it once per chunk here
+	# multiplied identical RenderingServer uniform writes by the view count.
 	if _tree_batch_layer != null and is_instance_valid(_tree_batch_layer):
 		_tree_batch_layer.set_sun_lighting(
 			light_angle_deg,
@@ -191,10 +285,20 @@ func set_world_origin_y(world_origin_y: float) -> void:
 	_apply_world_origin_to_batch_layer(_living_flora_batch_layer)
 	_apply_world_origin_to_batch_layer(_spiky_flora_batch_layer)
 	_apply_world_origin_to_batch_layer(_tree_batch_layer)
+	if _native_living_flora_batch_layer != null \
+			and is_instance_valid(_native_living_flora_batch_layer):
+		_native_living_flora_batch_layer.set_world_origin_y(_world_origin_y)
+	if _native_spiky_flora_batch_layer != null \
+			and is_instance_valid(_native_spiky_flora_batch_layer):
+		_native_spiky_flora_batch_layer.set_world_origin_y(_world_origin_y)
 	if _layered_tree_layer != null and is_instance_valid(_layered_tree_layer):
 		_layered_tree_layer.set_world_origin_y(_world_origin_y)
 	if _layered_small_rock_layer != null and is_instance_valid(_layered_small_rock_layer):
 		_layered_small_rock_layer.set_world_origin_y(_world_origin_y)
+	if _layered_tree_batch_layer != null and is_instance_valid(_layered_tree_batch_layer):
+		_layered_tree_batch_layer.set_world_origin_y(_world_origin_y)
+	if _layered_small_rock_batch_layer != null and is_instance_valid(_layered_small_rock_batch_layer):
+		_layered_small_rock_batch_layer.set_world_origin_y(_world_origin_y)
 
 
 ## Перестановка полос объектного декора на player-relative лесенке.
@@ -203,15 +307,1238 @@ func update_ladder_z(anchor_stripe: int) -> void:
 		_living_flora_batch_layer.update_ladder_z(anchor_stripe)
 	if _spiky_flora_batch_layer != null and is_instance_valid(_spiky_flora_batch_layer):
 		_spiky_flora_batch_layer.update_ladder_z(anchor_stripe)
+	if _native_living_flora_batch_layer != null \
+			and is_instance_valid(_native_living_flora_batch_layer):
+		_native_living_flora_batch_layer.update_ladder_z(anchor_stripe)
+	if _native_spiky_flora_batch_layer != null \
+			and is_instance_valid(_native_spiky_flora_batch_layer):
+		_native_spiky_flora_batch_layer.update_ladder_z(anchor_stripe)
 	if _tree_batch_layer != null and is_instance_valid(_tree_batch_layer):
 		_tree_batch_layer.update_ladder_z(anchor_stripe)
 	if _layered_tree_layer != null and is_instance_valid(_layered_tree_layer):
 		_layered_tree_layer.update_ladder_z(anchor_stripe)
 	if _layered_small_rock_layer != null and is_instance_valid(_layered_small_rock_layer):
 		_layered_small_rock_layer.update_ladder_z(anchor_stripe)
+	if _layered_tree_batch_layer != null and is_instance_valid(_layered_tree_batch_layer):
+		_layered_tree_batch_layer.update_ladder_z(anchor_stripe)
+	if _layered_small_rock_batch_layer != null and is_instance_valid(_layered_small_rock_batch_layer):
+		_layered_small_rock_batch_layer.update_ladder_z(anchor_stripe)
+
+
+## Prepares the fixed object-family envelope before it enters the frame-budget
+## lane. This does not stage packet data, enable collision, or reveal visuals.
+## It only pays the first Node/RenderingServer allocation once in the bounded
+## WorldStreamer pool; subsequent packets reuse the same owners and slots.
+func prepare_presentation_envelope(
+		catalog: WorldLayeredObjectAssetCatalog,
+		initial_slots_per_family: int = 1,
+) -> bool:
+	if catalog == null or not catalog.is_ready():
+		return false
+	var tree_layer: LayeredTreeBatchLayer = _ensure_layered_tree_batch_layer(catalog)
+	var rock_layer: LayeredRockBatchLayer = _ensure_layered_small_rock_batch_layer(catalog)
+	if tree_layer == null or rock_layer == null:
+		return false
+	tree_layer.reserve_pool_slots(initial_slots_per_family)
+	rock_layer.reserve_pool_slots(initial_slots_per_family)
+	if _living_flora_atlas != null:
+		var living_layer: NativeDecorBatchLayer = _ensure_native_living_flora_batch_layer(catalog)
+		if living_layer == null:
+			return false
+		living_layer.reserve_pool_slots(initial_slots_per_family)
+	if not _spiky_flora_atlases.is_empty():
+		var spiky_layer: NativeDecorBatchLayer = _ensure_native_spiky_flora_batch_layer(catalog)
+		if spiky_layer == null:
+			return false
+		spiky_layer.reserve_pool_slots(initial_slots_per_family)
+	var collision_body: StaticBody2D = _ensure_tree_collision_body()
+	collision_body.collision_layer = 0
+	visible = false
+	return true
+
+
+## Runtime cold envelopes are constructed as explicit fixed-graph phases. One
+## call prepares at most one family (owner + depth-band roots), optional decor
+## family, or the collision owner. The streaming dispatcher stores the shell
+## between calls, so first use never turns acquire+begin into one large burst.
+func prepare_next_presentation_envelope_phase(
+		catalog: WorldLayeredObjectAssetCatalog,
+) -> bool:
+	if catalog == null or not catalog.is_ready():
+		return false
+	if _layered_tree_batch_layer == null \
+			or not is_instance_valid(_layered_tree_batch_layer) \
+			or not _layered_tree_batch_layer.is_presentation_envelope_fixed_graph_ready():
+		var tree_started_usec: int = WorldPerfProbe.begin()
+		var tree_layer: LayeredTreeBatchLayer = _ensure_layered_tree_batch_layer(catalog)
+		tree_layer.prepare_presentation_envelope_fixed_graph()
+		WorldPerfProbe.end(
+			"WorldStreamer.visual_upload.object_packet_envelope.tree_fixed",
+			tree_started_usec,
+		)
+		return true
+	if _layered_small_rock_batch_layer == null \
+			or not is_instance_valid(_layered_small_rock_batch_layer) \
+			or not _layered_small_rock_batch_layer.is_presentation_envelope_fixed_graph_ready():
+		var rock_started_usec: int = WorldPerfProbe.begin()
+		var rock_layer: LayeredRockBatchLayer = _ensure_layered_small_rock_batch_layer(catalog)
+		rock_layer.prepare_presentation_envelope_fixed_graph()
+		WorldPerfProbe.end(
+			"WorldStreamer.visual_upload.object_packet_envelope.rock_fixed",
+			rock_started_usec,
+		)
+		return true
+	if _living_flora_atlas != null \
+			and (_native_living_flora_batch_layer == null \
+					or not is_instance_valid(_native_living_flora_batch_layer) \
+					or not _native_living_flora_batch_layer \
+							.is_presentation_envelope_fixed_graph_ready()):
+		var living_started_usec: int = WorldPerfProbe.begin()
+		var living_layer: NativeDecorBatchLayer = _ensure_native_living_flora_batch_layer(catalog)
+		if living_layer == null:
+			return false
+		living_layer.prepare_presentation_envelope_fixed_graph()
+		WorldPerfProbe.end(
+			"WorldStreamer.visual_upload.object_packet_envelope.living_fixed",
+			living_started_usec,
+		)
+		return true
+	if not _spiky_flora_atlases.is_empty() \
+			and (_native_spiky_flora_batch_layer == null \
+					or not is_instance_valid(_native_spiky_flora_batch_layer) \
+					or not _native_spiky_flora_batch_layer \
+							.is_presentation_envelope_fixed_graph_ready()):
+		var spiky_started_usec: int = WorldPerfProbe.begin()
+		var spiky_layer: NativeDecorBatchLayer = _ensure_native_spiky_flora_batch_layer(catalog)
+		if spiky_layer == null:
+			return false
+		spiky_layer.prepare_presentation_envelope_fixed_graph()
+		WorldPerfProbe.end(
+			"WorldStreamer.visual_upload.object_packet_envelope.spiky_fixed",
+			spiky_started_usec,
+		)
+		return true
+	if _tree_collision_body == null or not is_instance_valid(_tree_collision_body):
+		var collision_started_usec: int = WorldPerfProbe.begin()
+		_ensure_tree_collision_body().collision_layer = 0
+		WorldPerfProbe.end(
+			"WorldStreamer.visual_upload.object_packet_envelope.collision_fixed",
+			collision_started_usec,
+		)
+		return true
+	return false
+
+
+func is_presentation_envelope_ready() -> bool:
+	if _layered_tree_batch_layer == null \
+			or not is_instance_valid(_layered_tree_batch_layer) \
+			or not _layered_tree_batch_layer.is_presentation_envelope_fixed_graph_ready():
+		return false
+	if _layered_small_rock_batch_layer == null \
+			or not is_instance_valid(_layered_small_rock_batch_layer) \
+			or not _layered_small_rock_batch_layer.is_presentation_envelope_fixed_graph_ready():
+		return false
+	if _living_flora_atlas != null \
+			and (_native_living_flora_batch_layer == null \
+					or not is_instance_valid(_native_living_flora_batch_layer) \
+					or not _native_living_flora_batch_layer \
+							.is_presentation_envelope_fixed_graph_ready()):
+		return false
+	if not _spiky_flora_atlases.is_empty() \
+			and (_native_spiky_flora_batch_layer == null \
+					or not is_instance_valid(_native_spiky_flora_batch_layer) \
+					or not _native_spiky_flora_batch_layer \
+							.is_presentation_envelope_fixed_graph_ready()):
+		return false
+	return _tree_collision_body != null and is_instance_valid(_tree_collision_body)
+
+
+## Starts the worker-prepared production path. No packet scan, resource load,
+## per-object Dictionary, or per-instance MultiMesh setter is allowed here.
+func begin_presentation_result(
+		result: Dictionary,
+		catalog: WorldLayeredObjectAssetCatalog,
+) -> bool:
+	if not begin_incremental_presentation_result(result, catalog):
+		return false
+	while has_pending_incremental_presentation_begin():
+		if not advance_incremental_presentation_begin_phase():
+			return false
+	return is_incremental_presentation_begin_complete()
+
+
+func begin_incremental_presentation_result(
+		result: Dictionary,
+		catalog: WorldLayeredObjectAssetCatalog,
+) -> bool:
+	if catalog == null or not catalog.is_ready() or not bool(result.get("success", false)):
+		push_error("WorldObjectPacketLayer: valid native result and boot-prepared catalog are required")
+		return false
+	_native_begin_result = result
+	_native_begin_catalog = catalog
+	_native_begin_validated_float_count = 0
+	_native_payload_bytes = 0
+	_native_begin_state = NativeBeginState.HEADER
+	_native_apply_state = NativeApplyState.IDLE
+	_native_blocking_ready = false
+	_native_presentation_complete = false
+	visible = false
+	return true
+
+
+func has_pending_incremental_presentation_begin() -> bool:
+	return _native_begin_state > NativeBeginState.IDLE \
+			and _native_begin_state < NativeBeginState.COMPLETE
+
+
+func is_incremental_presentation_begin_complete() -> bool:
+	return _native_begin_state == NativeBeginState.COMPLETE
+
+
+func has_incremental_presentation_begin_failed() -> bool:
+	return _native_begin_state == NativeBeginState.FAILED
+
+
+## Advances one validation/family-begin phase. No phase performs raw uploads,
+## creates colliders, or reveals the layer.
+func advance_incremental_presentation_begin_phase() -> bool:
+	match _native_begin_state:
+		NativeBeginState.HEADER:
+			return _advance_incremental_begin_header()
+		NativeBeginState.TREE:
+			return _advance_incremental_begin_tree()
+		NativeBeginState.ROCK:
+			return _advance_incremental_begin_rock()
+		NativeBeginState.LIVING_FLORA:
+			return _advance_incremental_begin_living()
+		NativeBeginState.SPIKY_FLORA:
+			return _advance_incremental_begin_spiky()
+		NativeBeginState.FINALIZE:
+			return _advance_incremental_begin_finalize()
+		_:
+			return false
+
+
+func _advance_incremental_begin_header() -> bool:
+	var result: Dictionary = _native_begin_result
+	var living_flora_count: int = maxi(0, int(result.get("living_flora_count", 0)))
+	var spiky_flora_count: int = maxi(0, int(result.get("spiky_flora_count", 0)))
+	var tree_count: int = maxi(0, int(result.get("tree_instance_count", 0)))
+	var rock_count: int = maxi(0, int(result.get("rock_instance_count", 0)))
+	var living_record_count: int = maxi(
+		0,
+		int(result.get("living_flora_record_count", living_flora_count)),
+	)
+	var spiky_record_count: int = maxi(
+		0,
+		int(result.get("spiky_flora_record_count", spiky_flora_count)),
+	)
+	var suppressed_count: int = maxi(0, int(result.get("suppressed_instance_count", 0)))
+	var ignored_count: int = maxi(0, int(result.get("ignored_instance_count", 0)))
+	if ignored_count > 0:
+		push_error(
+			"WorldObjectPacketLayer: native result contains %d unsupported object records" \
+					% ignored_count,
+		)
+		return _fail_incremental_presentation_begin()
+	if living_record_count < living_flora_count \
+			or spiky_record_count < spiky_flora_count \
+			or suppressed_count != (living_record_count - living_flora_count) \
+					+ (spiky_record_count - spiky_flora_count):
+		push_error("WorldObjectPacketLayer: native flora suppression metadata is inconsistent")
+		return _fail_incremental_presentation_begin()
+	var presented_object_count: int = living_flora_count + spiky_flora_count + tree_count + rock_count
+	var expected_object_count: int = presented_object_count + suppressed_count
+	if int(result.get("object_count", expected_object_count)) != expected_object_count:
+		push_error("WorldObjectPacketLayer: native family counts do not match object_count")
+		return _fail_incremental_presentation_begin()
+	var collision_value: Variant = result.get("tree_collision_records", null)
+	if not collision_value is PackedFloat32Array:
+		push_error("WorldObjectPacketLayer: native tree collision records have an invalid type")
+		return _fail_incremental_presentation_begin()
+	var collision_records: PackedFloat32Array = collision_value as PackedFloat32Array
+	if collision_records.size() != tree_count * 3:
+		push_error(
+			"WorldObjectPacketLayer: native tree collision record count does not match tree instances",
+		)
+		return _fail_incremental_presentation_begin()
+	_native_begin_validated_float_count = collision_records.size()
+
+	# Disable previous collision immediately, but retire recycled shape owners in
+	# bounded dispatcher slices. A dense pooled layer must not turn begin() into
+	# one O(previous tree count) PhysicsServer burst.
+	if _tree_collision_body != null and is_instance_valid(_tree_collision_body):
+		_tree_collision_body.collision_layer = 0
+	_tree_debug_rects.clear()
+	_clear_layered_tree_layer()
+	_clear_layered_small_rock_layer()
+	if _tree_batch_layer != null and is_instance_valid(_tree_batch_layer):
+		_tree_batch_layer.clear_batches()
+	if _living_flora_batch_layer != null and is_instance_valid(_living_flora_batch_layer):
+		_living_flora_batch_layer.clear_batches()
+	if _spiky_flora_batch_layer != null and is_instance_valid(_spiky_flora_batch_layer):
+		_spiky_flora_batch_layer.clear_batches()
+	if _tree_shadow_layer != null and is_instance_valid(_tree_shadow_layer):
+		_tree_shadow_layer.visible = false
+		_tree_shadow_layer.multimesh = null
+
+	_native_begin_tree_count = tree_count
+	_native_begin_rock_count = rock_count
+	_native_begin_living_count = living_flora_count
+	_native_begin_spiky_count = spiky_flora_count
+	_native_begin_presented_count = presented_object_count
+	_native_begin_has_previous_collision_owners = \
+			not _tree_collision_shape_owner_ids.is_empty()
+	_tree_count = _native_begin_tree_count
+	_small_rock_count = _native_begin_rock_count
+	_living_flora_count = _native_begin_living_count
+	_spiky_flora_count = _native_begin_spiky_count
+	# Worker results are immutable CPU-cache truth and may be shared by hot
+	# eviction/re-zoom transactions. Keep the packed array by reference, but never
+	# mutate it: cancellation below drops this layer's reference in O(1).
+	_native_collision_records = collision_records
+	_native_asset_catalog = _native_begin_catalog
+	_native_collision_record_index = 0
+	_native_begin_state = NativeBeginState.TREE
+	return true
+
+
+func _advance_incremental_begin_tree() -> bool:
+	var tree_float_count: int = _native_bucket_buffers_float_count(
+		_native_begin_result,
+		&"tree_atlas_bucket_buffers",
+		_native_begin_tree_count,
+	)
+	if tree_float_count < 0:
+		return _fail_incremental_presentation_begin()
+	_native_begin_validated_float_count += tree_float_count
+	var tree_layer: LayeredTreeBatchLayer = _ensure_layered_tree_batch_layer(
+		_native_begin_catalog,
+	)
+	if _native_begin_tree_count > 0:
+		if not tree_layer.begin_apply(_native_begin_result):
+			return _fail_incremental_presentation_begin()
+	else:
+		tree_layer.clear_batches()
+	_native_begin_state = NativeBeginState.ROCK
+	return true
+
+
+func _advance_incremental_begin_rock() -> bool:
+	var rock_float_count: int = _native_bucket_buffers_float_count(
+		_native_begin_result,
+		&"rock_atlas_bucket_buffers",
+		_native_begin_rock_count,
+	)
+	if rock_float_count < 0:
+		return _fail_incremental_presentation_begin()
+	_native_begin_validated_float_count += rock_float_count
+	var rock_layer: LayeredRockBatchLayer = _ensure_layered_small_rock_batch_layer(
+		_native_begin_catalog,
+	)
+	if _native_begin_rock_count > 0:
+		if not rock_layer.begin_apply(_native_begin_result):
+			return _fail_incremental_presentation_begin()
+	else:
+		rock_layer.clear_batches()
+	_native_begin_state = NativeBeginState.LIVING_FLORA
+	return true
+
+
+func _advance_incremental_begin_living() -> bool:
+	var living_float_count: int = _native_living_flora_buffers_float_count(
+		_native_begin_result,
+		_native_begin_living_count,
+	)
+	if living_float_count < 0:
+		return _fail_incremental_presentation_begin()
+	_native_begin_validated_float_count += living_float_count
+	if _native_begin_living_count > 0:
+		var living_layer: NativeDecorBatchLayer = _ensure_native_living_flora_batch_layer(
+			_native_begin_catalog,
+		)
+		var living_buckets: Array = _native_begin_result.get(
+			"living_flora_bucket_buffers",
+			[],
+		) as Array
+		var living_shadow: PackedFloat32Array = _native_begin_result.get(
+			"living_flora_shadow_buffer",
+			PackedFloat32Array(),
+		) as PackedFloat32Array
+		if living_layer == null or not living_layer.begin_apply(
+			[living_buckets],
+			living_shadow,
+			_native_begin_living_count,
+			_native_begin_living_count,
+		):
+			return _fail_incremental_presentation_begin()
+	elif _native_living_flora_batch_layer != null \
+			and is_instance_valid(_native_living_flora_batch_layer):
+		_native_living_flora_batch_layer.clear_batches()
+	_native_begin_state = NativeBeginState.SPIKY_FLORA
+	return true
+
+
+func _advance_incremental_begin_spiky() -> bool:
+	var spiky_float_count: int = _native_spiky_flora_buffers_float_count(
+		_native_begin_result,
+		_native_begin_spiky_count,
+	)
+	if spiky_float_count < 0:
+		return _fail_incremental_presentation_begin()
+	_native_begin_validated_float_count += spiky_float_count
+	if _native_begin_spiky_count > 0:
+		var spiky_layer: NativeDecorBatchLayer = _ensure_native_spiky_flora_batch_layer(
+			_native_begin_catalog,
+		)
+		var spiky_buckets: Array = _native_begin_result.get(
+			"spiky_flora_atlas_bucket_buffers",
+			[],
+		) as Array
+		if spiky_layer == null or not spiky_layer.begin_apply(
+			spiky_buckets,
+			PackedFloat32Array(),
+			_native_begin_spiky_count,
+			0,
+		):
+			return _fail_incremental_presentation_begin()
+	elif _native_spiky_flora_batch_layer != null \
+			and is_instance_valid(_native_spiky_flora_batch_layer):
+		_native_spiky_flora_batch_layer.clear_batches()
+	_native_begin_state = NativeBeginState.FINALIZE
+	return true
+
+
+func _advance_incremental_begin_finalize() -> bool:
+	# Every structural validator above already walks its bounded stripe table.
+	# Accumulate actual PackedFloat32Array sizes in those same passes, then make
+	# ABI/accounting metadata prove itself before any raw upload or reveal.
+	var buffer_float_count_value: Variant = _native_begin_result.get(
+		"buffer_float_count",
+		null,
+	)
+	if not buffer_float_count_value is int \
+			or int(buffer_float_count_value) != _native_begin_validated_float_count:
+		push_error(
+			"WorldObjectPacketLayer: native buffer_float_count does not match accepted buffers",
+		)
+		return _fail_incremental_presentation_begin()
+	var actual_payload_bytes: int = _native_begin_validated_float_count * NATIVE_FLOAT_BYTE_SIZE
+	var payload_bytes_value: Variant = _native_begin_result.get("payload_bytes", null)
+	if not payload_bytes_value is int or int(payload_bytes_value) != actual_payload_bytes:
+		push_error(
+			"WorldObjectPacketLayer: native payload_bytes does not match accepted buffers",
+		)
+		return _fail_incremental_presentation_begin()
+	_native_payload_bytes = actual_payload_bytes
+	# A chunk is revealed only after every authored object family is staged.
+	# Rocks do not block movement, but allowing them to finish after reveal makes
+	# a technically fast pipeline visibly pop assets into the player's view.
+	var has_pending_visual_retire: bool = _has_pending_visual_retire()
+	_native_blocking_ready = _native_begin_presented_count <= 0 \
+			and not _native_begin_has_previous_collision_owners \
+			and not has_pending_visual_retire
+	_native_presentation_complete = _native_blocking_ready
+	if _native_presentation_complete:
+		_native_apply_state = NativeApplyState.COMPLETE
+		visible = false
+	else:
+		_native_apply_state = _first_native_apply_state()
+		visible = false
+	_native_begin_result = { }
+	_native_begin_catalog = null
+	_native_begin_state = NativeBeginState.COMPLETE
+	return true
+
+
+func _fail_incremental_presentation_begin() -> bool:
+	# Earlier family phases may already retain COW buffer handles in their staged
+	# apply state. Drop every local reference; never mutate shared worker arrays.
+	cancel_pending_presentation_apply()
+	_native_begin_state = NativeBeginState.FAILED
+	visible = false
+	return false
+
+
+## One bounded main-thread slice. Returns true when it advanced work.
+func apply_next_presentation_slice(
+		visual_buffers_per_slice: int,
+		colliders_per_slice: int,
+		rock_stripes_per_slice: int,
+) -> bool:
+	_last_apply_created_visual_slot = false
+	match _native_apply_state:
+		NativeApplyState.RESET_PREVIOUS_COLLISIONS:
+			_remove_previous_tree_collision_slice(maxi(1, colliders_per_slice))
+			if _tree_collision_shape_owner_ids.is_empty():
+				_native_apply_state = _first_native_apply_state()
+			return true
+		NativeApplyState.TREE_BUCKETS:
+			if _layered_tree_batch_layer.has_pending_retire():
+				_layered_tree_batch_layer.retire_next_batch(maxi(1, visual_buffers_per_slice))
+				if _layered_tree_batch_layer.has_pending_retire():
+					return true
+			else:
+				var tree_pending: bool = _layered_tree_batch_layer.apply_next_batch(
+					maxi(1, visual_buffers_per_slice),
+				)
+				_last_apply_created_visual_slot = \
+						_layered_tree_batch_layer.did_last_slice_create_slot()
+				if tree_pending:
+					return true
+			if not _layered_tree_batch_layer.has_pending_retire():
+				_native_apply_state = NativeApplyState.TREE_COLLISIONS \
+						if not _native_collision_records.is_empty() \
+						else _first_native_flora_or_rock_state()
+			return true
+		NativeApplyState.TREE_COLLISIONS:
+			_apply_native_tree_collision_slice(maxi(1, colliders_per_slice))
+			if _native_collision_record_index * 3 >= _native_collision_records.size():
+				_native_apply_state = _first_native_flora_or_rock_state()
+			return true
+		NativeApplyState.LIVING_FLORA_BUFFERS:
+			if _native_living_flora_batch_layer.has_pending_retire():
+				_native_living_flora_batch_layer.retire_next_batch(
+					maxi(1, visual_buffers_per_slice),
+				)
+				if _native_living_flora_batch_layer.has_pending_retire():
+					return true
+			else:
+				var living_pending: bool = _native_living_flora_batch_layer.apply_next_batch(
+					maxi(1, visual_buffers_per_slice),
+				)
+				_last_apply_created_visual_slot = \
+						_native_living_flora_batch_layer.did_last_slice_create_slot()
+				if living_pending:
+					return true
+			if not _native_living_flora_batch_layer.has_pending_retire():
+				_native_apply_state = NativeApplyState.SPIKY_FLORA_BUFFERS \
+						if _spiky_flora_count > 0 else _native_rock_or_commit_state()
+			return true
+		NativeApplyState.SPIKY_FLORA_BUFFERS:
+			if _native_spiky_flora_batch_layer.has_pending_retire():
+				_native_spiky_flora_batch_layer.retire_next_batch(
+					maxi(1, visual_buffers_per_slice),
+				)
+				if _native_spiky_flora_batch_layer.has_pending_retire():
+					return true
+			else:
+				var spiky_pending: bool = _native_spiky_flora_batch_layer.apply_next_batch(
+					maxi(1, visual_buffers_per_slice),
+				)
+				_last_apply_created_visual_slot = \
+						_native_spiky_flora_batch_layer.did_last_slice_create_slot()
+				if spiky_pending:
+					return true
+			if not _native_spiky_flora_batch_layer.has_pending_retire():
+				_native_apply_state = _native_rock_or_commit_state()
+			return true
+		NativeApplyState.ROCK_BUCKETS:
+			if _layered_small_rock_batch_layer.has_pending_retire():
+				_layered_small_rock_batch_layer.retire_next_batch(maxi(1, rock_stripes_per_slice))
+				if _layered_small_rock_batch_layer.has_pending_retire():
+					return true
+			else:
+				var rock_pending: bool = _layered_small_rock_batch_layer.apply_next_batch(
+					maxi(1, rock_stripes_per_slice),
+				)
+				_last_apply_created_visual_slot = \
+						_layered_small_rock_batch_layer.did_last_slice_create_slot()
+				if rock_pending:
+					return true
+			if not _layered_small_rock_batch_layer.has_pending_retire():
+				_native_apply_state = NativeApplyState.RETIRE_UNUSED_VISUALS
+			return true
+		NativeApplyState.RETIRE_UNUSED_VISUALS:
+			if not _retire_next_unused_visual_slice(1):
+				_native_apply_state = NativeApplyState.COMMIT_BLOCKING
+			return true
+		NativeApplyState.COMMIT_BLOCKING:
+			_commit_native_object_presentation()
+			_native_apply_state = NativeApplyState.COMPLETE
+			_native_presentation_complete = true
+			return true
+		_:
+			return false
+
+
+func next_presentation_slice_requires_visual_slot_allocation() -> bool:
+	match _native_apply_state:
+		NativeApplyState.TREE_BUCKETS:
+			return not _layered_tree_batch_layer.has_pending_retire() \
+					and _layered_tree_batch_layer.next_batch_requires_slot_allocation()
+		NativeApplyState.LIVING_FLORA_BUFFERS:
+			return not _native_living_flora_batch_layer.has_pending_retire() \
+					and _native_living_flora_batch_layer.next_batch_requires_slot_allocation()
+		NativeApplyState.SPIKY_FLORA_BUFFERS:
+			return not _native_spiky_flora_batch_layer.has_pending_retire() \
+					and _native_spiky_flora_batch_layer.next_batch_requires_slot_allocation()
+		NativeApplyState.ROCK_BUCKETS:
+			return not _layered_small_rock_batch_layer.has_pending_retire() \
+					and _layered_small_rock_batch_layer.next_batch_requires_slot_allocation()
+		_:
+			return false
+
+
+func did_last_presentation_slice_create_visual_slot() -> bool:
+	return _last_apply_created_visual_slot
+
+
+func is_blocking_presentation_ready() -> bool:
+	return _native_blocking_ready
+
+
+func is_presentation_complete() -> bool:
+	return _native_presentation_complete
+
+
+## A completed native layer can remain GPU-resident outside the visible ring.
+## Only committed transactions qualify: caching a half-filled pool would make a
+## later zoom restore visually incomplete buffers as if they were authoritative.
+func is_hot_cache_eligible() -> bool:
+	return _native_apply_state == NativeApplyState.COMPLETE \
+			and _native_presentation_complete \
+			and _native_blocking_ready \
+			and _living_flora_count + _spiky_flora_count + _tree_count + _small_rock_count > 0
+
+
+## Exact committed residency after every slot/collider has been created.
+func get_hot_cache_weight() -> Dictionary:
+	return _build_hot_cache_weight(false)
+
+
+## Conservative reservation used while a hidden source-ring transaction is
+## still being sliced. It prevents several partial builds from exceeding node
+## or physics budgets before their final exact weight becomes available.
+func get_hot_cache_reservation_weight() -> Dictionary:
+	return _build_hot_cache_weight(true)
+
+
+## Conservative reservation for a shell whose fixed graph/begin transaction is
+## still being prepared. It accounts the final graph and expected packed
+## buffers before those resources exist, so incremental cold construction never
+## escapes the same cache limits as a fully begun transaction.
+func estimate_presentation_result_reservation_weight(result: Dictionary) -> Dictionary:
+	var tree_count: int = maxi(0, int(result.get("tree_instance_count", 0)))
+	var rock_count: int = maxi(0, int(result.get("rock_instance_count", 0)))
+	var living_count: int = maxi(0, int(result.get("living_flora_count", 0)))
+	var spiky_count: int = maxi(0, int(result.get("spiky_flora_count", 0)))
+	var tree_state: Dictionary = _family_debug_state(_layered_tree_batch_layer)
+	var rock_state: Dictionary = _family_debug_state(_layered_small_rock_batch_layer)
+	var living_state: Dictionary = _family_debug_state(_native_living_flora_batch_layer)
+	var spiky_state: Dictionary = _family_debug_state(_native_spiky_flora_batch_layer)
+	var tree_slots: int = maxi(
+		int(tree_state.get("pooled_slot_count", 0)),
+		mini(tree_count, WorldRuntimeConstants.DEPTH_STRIPES_PER_CHUNK),
+	)
+	var rock_slots: int = maxi(
+		int(rock_state.get("pooled_slot_count", 0)),
+		mini(rock_count, WorldRuntimeConstants.DEPTH_STRIPES_PER_CHUNK),
+	)
+	var living_slots: int = maxi(
+		int(living_state.get("pooled_slot_count", 0)),
+		mini(living_count, WorldRuntimeConstants.DEPTH_STRIPES_PER_CHUNK),
+	)
+	var spiky_slots: int = maxi(
+		int(spiky_state.get("pooled_slot_count", 0)),
+		mini(
+			spiky_count,
+			WorldRuntimeConstants.DEPTH_STRIPES_PER_CHUNK \
+					* WorldLayeredObjectAssetCatalog.SPIKY_ATLAS_BANK_COUNT,
+		),
+	)
+	# Family owner + DepthLadder owner/three bands are fixed. Living flora also
+	# owns one contact-shadow CanvasItem. Root + StaticBody are counted once.
+	var canvas_item_count: int = 1 + 1
+	canvas_item_count += maxi(int(tree_state.get("canvas_item_count", 0)), 5 + tree_slots * 4)
+	canvas_item_count += maxi(int(rock_state.get("canvas_item_count", 0)), 5 + rock_slots * 3)
+	if _living_flora_atlas != null:
+		canvas_item_count += maxi(
+			int(living_state.get("canvas_item_count", 0)),
+			6 + living_slots,
+		)
+	if not _spiky_flora_atlases.is_empty():
+		canvas_item_count += maxi(
+			int(spiky_state.get("canvas_item_count", 0)),
+			5 + spiky_slots,
+		)
+	if _collision_debug_layer != null and is_instance_valid(_collision_debug_layer):
+		canvas_item_count += 1
+	var tree_copies: int = maxi(
+		int(tree_state.get("resident_instance_count", 0)) * 2,
+		tree_count * 2,
+	)
+	var rock_copies: int = maxi(
+		int(rock_state.get("resident_instance_count", 0)) * 2,
+		rock_count * 2,
+	)
+	var living_copies: int = maxi(
+		int(living_state.get("resident_instance_count", 0)),
+		living_count,
+	)
+	var living_shadow_copies: int = maxi(
+		int(living_state.get("resident_shadow_instance_count", 0)),
+		living_count,
+	)
+	var spiky_copies: int = maxi(
+		int(spiky_state.get("resident_instance_count", 0)),
+		spiky_count,
+	)
+	return {
+		"payload_bytes": maxi(0, int(result.get("payload_bytes", 0))),
+		"gpu_buffer_bytes": (tree_copies + rock_copies + living_copies \
+				+ living_shadow_copies + spiky_copies) \
+				* NATIVE_MULTIMESH_BUFFER_STRIDE * 4,
+		"canvas_item_count": canvas_item_count,
+		"collider_count": maxi(_tree_collision_shape_owner_ids.size(), tree_count),
+	}
+
+
+func _family_debug_state(family: Node) -> Dictionary:
+	if family == null or not is_instance_valid(family) or not family.has_method("get_debug_state"):
+		return { }
+	return family.call("get_debug_state") as Dictionary
+
+
+func _build_hot_cache_weight(reserve_unallocated: bool) -> Dictionary:
+	var tree_state: Dictionary = { }
+	if _layered_tree_batch_layer != null and is_instance_valid(_layered_tree_batch_layer):
+		tree_state = _layered_tree_batch_layer.get_debug_state()
+	var rock_state: Dictionary = { }
+	if _layered_small_rock_batch_layer != null \
+			and is_instance_valid(_layered_small_rock_batch_layer):
+		rock_state = _layered_small_rock_batch_layer.get_debug_state()
+	var living_state: Dictionary = { }
+	if _native_living_flora_batch_layer != null \
+			and is_instance_valid(_native_living_flora_batch_layer):
+		living_state = _native_living_flora_batch_layer.get_debug_state()
+	var spiky_state: Dictionary = { }
+	if _native_spiky_flora_batch_layer != null \
+			and is_instance_valid(_native_spiky_flora_batch_layer):
+		spiky_state = _native_spiky_flora_batch_layer.get_debug_state()
+	var tree_slots: int = int(tree_state.get("pooled_slot_count", 0))
+	var rock_slots: int = int(rock_state.get("pooled_slot_count", 0))
+	var living_slots: int = int(living_state.get("pooled_slot_count", 0))
+	var spiky_slots: int = int(spiky_state.get("pooled_slot_count", 0))
+	if reserve_unallocated:
+		tree_slots = maxi(tree_slots, mini(_tree_count, WorldRuntimeConstants.DEPTH_STRIPES_PER_CHUNK))
+		rock_slots = maxi(rock_slots, mini(_small_rock_count, WorldRuntimeConstants.DEPTH_STRIPES_PER_CHUNK))
+		living_slots = maxi(
+			living_slots,
+			mini(_living_flora_count, WorldRuntimeConstants.DEPTH_STRIPES_PER_CHUNK),
+		)
+		spiky_slots = maxi(
+			spiky_slots,
+			mini(
+				_spiky_flora_count,
+				WorldRuntimeConstants.DEPTH_STRIPES_PER_CHUNK \
+						* WorldLayeredObjectAssetCatalog.SPIKY_ATLAS_BANK_COUNT,
+			),
+		)
+	# Count the complete resident CanvasItem graph, not only draw leaves: this
+	# includes the layer owner, family owners, DepthLadder root + three band roots,
+	# optional living contact-shadow owner, collision body, and debug overlay.
+	var canvas_item_count: int = 1
+	for family_state: Dictionary in [tree_state, rock_state, living_state, spiky_state]:
+		canvas_item_count += int(family_state.get("canvas_item_count", 0))
+	canvas_item_count += (tree_slots - int(tree_state.get("pooled_slot_count", 0))) * 4
+	canvas_item_count += (rock_slots - int(rock_state.get("pooled_slot_count", 0))) * 3
+	canvas_item_count += living_slots - int(living_state.get("pooled_slot_count", 0))
+	canvas_item_count += spiky_slots - int(spiky_state.get("pooled_slot_count", 0))
+	if _tree_collision_body != null and is_instance_valid(_tree_collision_body):
+		canvas_item_count += 1
+	if _collision_debug_layer != null and is_instance_valid(_collision_debug_layer):
+		canvas_item_count += 1
+	# Retirement can outlive logical counts. Resident counters follow the actual
+	# MultiMesh buffers so an evicted dense layer keeps its weight until each
+	# bounded reset slice really releases it.
+	var resident_tree_copies: int = int(tree_state.get("resident_instance_count", 0)) * 2
+	var resident_rock_copies: int = int(rock_state.get("resident_instance_count", 0)) * 2
+	var resident_living_copies: int = int(living_state.get("resident_instance_count", 0))
+	var resident_living_shadow_copies: int = int(
+		living_state.get("resident_shadow_instance_count", 0),
+	)
+	var resident_spiky_copies: int = int(spiky_state.get("resident_instance_count", 0))
+	var resident_spiky_shadow_copies: int = int(
+		spiky_state.get("resident_shadow_instance_count", 0),
+	)
+	var accounted_instance_copies: int = resident_tree_copies + resident_rock_copies \
+			+ resident_living_copies + resident_living_shadow_copies \
+			+ resident_spiky_copies + resident_spiky_shadow_copies
+	if reserve_unallocated:
+		# Production acquire only hands out fully-retired layers. Per-family max is
+		# also stable for defensive direct reuse and avoids a phantom 2x dense weight.
+		accounted_instance_copies = maxi(resident_tree_copies, _tree_count * 2) \
+				+ maxi(resident_rock_copies, _small_rock_count * 2) \
+				+ maxi(resident_living_copies, _living_flora_count) \
+				+ maxi(resident_living_shadow_copies, _living_flora_count) \
+				+ maxi(resident_spiky_copies, _spiky_flora_count) \
+				+ resident_spiky_shadow_copies
+	var gpu_buffer_bytes: int = \
+			accounted_instance_copies * NATIVE_MULTIMESH_BUFFER_STRIDE * 4
+	return {
+		"payload_bytes": _native_payload_bytes,
+		"gpu_buffer_bytes": gpu_buffer_bytes,
+		"canvas_item_count": canvas_item_count,
+		"collider_count": maxi(_tree_collision_shape_owner_ids.size(), _tree_count) \
+				if reserve_unallocated else _tree_collider_count,
+	}
+
+
+func set_hot_cache_resident(resident: bool) -> void:
+	if resident:
+		set_blocking_collision_active(false)
+	visible = not resident \
+			and _living_flora_count + _spiky_flora_count + _tree_count + _small_rock_count > 0
+
+
+func set_streaming_world_parented(world_parented: bool) -> void:
+	_streaming_world_parented = world_parented
+
+
+func is_streaming_world_parented() -> bool:
+	return _streaming_world_parented
+
+
+## configure_packet() is the compatibility renderer and normally owns its own
+## immediate lifecycle. Terminal worker recovery uses it under ChunkView's
+## atomic reveal gate, so collisions must be declared prepared yet remain off
+## until the parent view is actually published.
+func mark_legacy_fallback_ready_for_reveal() -> void:
+	_native_blocking_ready = true
+	_native_presentation_complete = true
+	if _tree_collision_body != null and is_instance_valid(_tree_collision_body):
+		_tree_collision_body.collision_layer = 0
+
+
+func get_raw_multimesh_upload_count_total() -> int:
+	var total: int = 0
+	for layer: Node in [
+		_layered_tree_batch_layer,
+		_layered_small_rock_batch_layer,
+		_native_living_flora_batch_layer,
+		_native_spiky_flora_batch_layer,
+	]:
+		if layer == null or not is_instance_valid(layer) or not layer.has_method("get_debug_state"):
+			continue
+		var state: Dictionary = layer.call("get_debug_state") as Dictionary
+		total += int(state.get("raw_multimesh_upload_count_total", 0))
+	return total
+
+
+## Physics activation belongs to the ChunkView reveal transaction. A prepared
+## object layer may sit under an invisible chunk while mountain visuals finish;
+## CanvasItem visibility does not disable StaticBody2D, so activating here
+## would create an invisible obstacle.
+func set_blocking_collision_active(active: bool) -> void:
+	if _tree_collision_body == null or not is_instance_valid(_tree_collision_body):
+		return
+	_tree_collision_body.collision_layer = OBJECT_COLLISION_LAYER \
+			if active and _native_blocking_ready else 0
+
+
+func has_pending_presentation_apply() -> bool:
+	return _native_apply_state != NativeApplyState.IDLE \
+			and _native_apply_state != NativeApplyState.COMPLETE
+
+
+func cancel_pending_presentation_apply() -> void:
+	_native_begin_state = NativeBeginState.IDLE
+	_native_begin_result = { }
+	_native_begin_catalog = null
+	_native_begin_validated_float_count = 0
+	_native_apply_state = NativeApplyState.IDLE
+	# Do not clear(): this may alias tree_collision_records in a warm worker result.
+	_native_collision_records = PackedFloat32Array()
+	_native_collision_record_index = 0
+	_native_payload_bytes = 0
+	_native_blocking_ready = false
+	_native_presentation_complete = false
+	if _layered_tree_batch_layer != null and is_instance_valid(_layered_tree_batch_layer):
+		_layered_tree_batch_layer.cancel_pending_apply()
+	if _layered_small_rock_batch_layer != null and is_instance_valid(_layered_small_rock_batch_layer):
+		_layered_small_rock_batch_layer.cancel_pending_apply()
+	if _native_living_flora_batch_layer != null \
+			and is_instance_valid(_native_living_flora_batch_layer):
+		_native_living_flora_batch_layer.cancel_pending_apply()
+	if _native_spiky_flora_batch_layer != null \
+			and is_instance_valid(_native_spiky_flora_batch_layer):
+		_native_spiky_flora_batch_layer.cancel_pending_apply()
+	if _tree_collision_body != null and is_instance_valid(_tree_collision_body):
+		_tree_collision_body.collision_layer = 0
+
+
+## Starts an O(1) recycle transaction. Buffer/collider destruction belongs to
+## the streamer's separate retire dispatcher and this layer is not reusable
+## until has_pending_pool_retire() becomes false.
+func begin_pool_retire() -> void:
+	cancel_pending_presentation_apply()
+	_living_flora_count = 0
+	_spiky_flora_count = 0
+	_tree_count = 0
+	_small_rock_count = 0
+	_native_payload_bytes = 0
+	visible = false
+
+
+func has_pending_pool_retire() -> bool:
+	return _has_pending_visual_retire() or not _tree_collision_shape_owner_ids.is_empty()
+
+
+## Advances exactly one family-slot phase or one collider-owner slice.
+func retire_next_pool_slice(max_visual_slots: int, max_colliders: int) -> bool:
+	if _retire_next_unused_visual_slice(maxi(1, max_visual_slots)):
+		return true
+	if not _tree_collision_shape_owner_ids.is_empty():
+		_remove_previous_tree_collision_slice(maxi(1, max_colliders))
+		return true
+	return false
+
+
+func get_retained_residency_weight() -> Dictionary:
+	return _build_hot_cache_weight(false)
+
+
+## Once buffers/colliders are empty, overflow disposal removes one slot group
+## per dispatcher callback before the remaining fixed graph is freed.
+func shrink_pool_next_slot_group() -> bool:
+	for family: Node in [
+		_native_spiky_flora_batch_layer,
+		_native_living_flora_batch_layer,
+		_layered_small_rock_batch_layer,
+		_layered_tree_batch_layer,
+	]:
+		if family != null and is_instance_valid(family) \
+				and bool(family.call("shrink_pool_next_slot")):
+			return true
+	return false
+
+
+func _first_native_apply_state() -> NativeApplyState:
+	if not _tree_collision_shape_owner_ids.is_empty():
+		return NativeApplyState.RESET_PREVIOUS_COLLISIONS
+	if _tree_count > 0:
+		return NativeApplyState.TREE_BUCKETS
+	return _first_native_flora_or_rock_state()
+
+
+func _first_native_flora_or_rock_state() -> NativeApplyState:
+	if _living_flora_count > 0:
+		return NativeApplyState.LIVING_FLORA_BUFFERS
+	if _spiky_flora_count > 0:
+		return NativeApplyState.SPIKY_FLORA_BUFFERS
+	return _native_rock_or_commit_state()
+
+
+func _native_rock_or_commit_state() -> NativeApplyState:
+	return NativeApplyState.ROCK_BUCKETS \
+			if _small_rock_count > 0 else NativeApplyState.RETIRE_UNUSED_VISUALS
+
+
+func _has_pending_visual_retire() -> bool:
+	for family: Node in [
+		_layered_tree_batch_layer,
+		_native_living_flora_batch_layer,
+		_native_spiky_flora_batch_layer,
+		_layered_small_rock_batch_layer,
+	]:
+		if family != null and is_instance_valid(family) \
+				and bool(family.call("has_pending_retire")):
+			return true
+	return false
+
+
+## One call touches at most one family and that family releases at most the
+## requested number of slot groups. This is shared by sparse replacement and
+## pool retirement.
+func _retire_next_unused_visual_slice(max_slots: int) -> bool:
+	for family: Node in [
+		_layered_tree_batch_layer,
+		_native_living_flora_batch_layer,
+		_native_spiky_flora_batch_layer,
+		_layered_small_rock_batch_layer,
+	]:
+		if family == null or not is_instance_valid(family) \
+				or not bool(family.call("has_pending_retire")):
+			continue
+		family.call("retire_next_batch", maxi(1, max_slots))
+		return true
+	return false
+
+
+func _ensure_native_living_flora_batch_layer(
+		catalog: WorldLayeredObjectAssetCatalog,
+) -> NativeDecorBatchLayer:
+	if _native_living_flora_batch_layer == null \
+			or not is_instance_valid(_native_living_flora_batch_layer):
+		_native_living_flora_batch_layer = NativeDecorBatchLayer.new()
+		_native_living_flora_batch_layer.name = "NativeLivingFloraBatchLayer"
+		add_child(_native_living_flora_batch_layer)
+	var atlases: Array[Texture2D] = [_living_flora_atlas]
+	if not _native_living_flora_batch_layer.configure(
+		atlases,
+		catalog.get_unit_quad_mesh(),
+		catalog.get_living_flora_material(),
+		catalog.get_classic_decor_shadow_material(),
+	):
+		return null
+	_native_living_flora_batch_layer.set_world_origin_y(_world_origin_y)
+	return _native_living_flora_batch_layer
+
+
+func _ensure_native_spiky_flora_batch_layer(
+		catalog: WorldLayeredObjectAssetCatalog,
+) -> NativeDecorBatchLayer:
+	if _native_spiky_flora_batch_layer == null \
+			or not is_instance_valid(_native_spiky_flora_batch_layer):
+		_native_spiky_flora_batch_layer = NativeDecorBatchLayer.new()
+		_native_spiky_flora_batch_layer.name = "NativeSpikyFloraBatchLayer"
+		add_child(_native_spiky_flora_batch_layer)
+	if not _native_spiky_flora_batch_layer.configure(
+		_spiky_flora_atlases,
+		catalog.get_unit_quad_mesh(),
+		catalog.get_spiky_flora_material(),
+	):
+		return null
+	_native_spiky_flora_batch_layer.set_world_origin_y(_world_origin_y)
+	return _native_spiky_flora_batch_layer
+
+
+func _ensure_layered_tree_batch_layer(
+		catalog: WorldLayeredObjectAssetCatalog,
+) -> LayeredTreeBatchLayer:
+	if _layered_tree_batch_layer == null or not is_instance_valid(_layered_tree_batch_layer):
+		_layered_tree_batch_layer = LayeredTreeBatchLayer.new()
+		_layered_tree_batch_layer.name = "LayeredTreeBatchLayer"
+		add_child(_layered_tree_batch_layer)
+	_layered_tree_batch_layer.configure_catalog(catalog)
+	_layered_tree_batch_layer.set_world_origin_y(_world_origin_y)
+	return _layered_tree_batch_layer
+
+
+func _native_bucket_buffers_float_count(
+		result: Dictionary,
+		key: StringName,
+		expected_instance_count: int,
+) -> int:
+	var value: Variant = result.get(key, null)
+	if not value is Array:
+		push_error("WorldObjectPacketLayer: native result is missing %s" % key)
+		return -1
+	var buffers: Array = value as Array
+	var float_count: int = _native_bucket_array_float_count(buffers, str(key))
+	if float_count < 0:
+		return -1
+	if float_count / NATIVE_MULTIMESH_BUFFER_STRIDE != expected_instance_count:
+		push_error(
+			"WorldObjectPacketLayer: %s instance total does not match native metadata" % key,
+		)
+		return -1
+	return float_count
+
+
+func _native_living_flora_buffers_float_count(
+		result: Dictionary,
+		expected_instance_count: int,
+) -> int:
+	var bucket_value: Variant = result.get("living_flora_bucket_buffers", null)
+	var shadow_value: Variant = result.get("living_flora_shadow_buffer", null)
+	if not bucket_value is Array or not shadow_value is PackedFloat32Array:
+		push_error("WorldObjectPacketLayer: native living-flora buffers have invalid types")
+		return -1
+	var buckets: Array = bucket_value as Array
+	var shadow_buffer: PackedFloat32Array = shadow_value as PackedFloat32Array
+	if expected_instance_count <= 0:
+		if not buckets.is_empty() or not shadow_buffer.is_empty():
+			push_error("WorldObjectPacketLayer: zero living-flora count must use lazy empty payloads")
+			return -1
+		return 0
+	if _living_flora_atlas == null:
+		push_error("WorldObjectPacketLayer: living-flora packet requires a prepared atlas")
+		return -1
+	var bucket_float_count: int = _native_bucket_array_float_count(
+		buckets,
+		"living_flora_bucket_buffers",
+	)
+	if bucket_float_count < 0:
+		return -1
+	if bucket_float_count / NATIVE_MULTIMESH_BUFFER_STRIDE != expected_instance_count:
+		push_error("WorldObjectPacketLayer: living-flora instance total does not match metadata")
+		return -1
+	if shadow_buffer.size() % NATIVE_MULTIMESH_BUFFER_STRIDE != 0 \
+			or shadow_buffer.size() / NATIVE_MULTIMESH_BUFFER_STRIDE != expected_instance_count:
+		push_error("WorldObjectPacketLayer: living-flora shadow count does not match metadata")
+		return -1
+	return bucket_float_count + shadow_buffer.size()
+
+
+func _native_spiky_flora_buffers_float_count(
+		result: Dictionary,
+		expected_instance_count: int,
+) -> int:
+	var value: Variant = result.get("spiky_flora_atlas_bucket_buffers", null)
+	if not value is Array:
+		push_error("WorldObjectPacketLayer: native spiky-flora atlas buffers have an invalid type")
+		return -1
+	var atlas_buckets: Array = value as Array
+	var bank_count: int = int(result.get("spiky_flora_atlas_bank_count", -1))
+	if expected_instance_count <= 0:
+		if not atlas_buckets.is_empty() or bank_count != 0:
+			push_error("WorldObjectPacketLayer: zero spiky-flora count must use lazy empty payloads")
+			return -1
+		return 0
+	if bank_count != WorldLayeredObjectAssetCatalog.SPIKY_ATLAS_BANK_COUNT \
+			or atlas_buckets.size() != bank_count \
+			or _spiky_flora_atlases.size() != bank_count:
+		push_error("WorldObjectPacketLayer: spiky-flora atlas bank contract mismatch")
+		return -1
+	for atlas: Texture2D in _spiky_flora_atlases:
+		if atlas == null:
+			push_error("WorldObjectPacketLayer: spiky-flora atlas bank contains a null texture")
+			return -1
+	var float_count: int = 0
+	for atlas_index: int in range(atlas_buckets.size()):
+		if not atlas_buckets[atlas_index] is Array:
+			push_error("WorldObjectPacketLayer: spiky-flora atlas %d has an invalid table" % atlas_index)
+			return -1
+		var buckets: Array = atlas_buckets[atlas_index] as Array
+		var atlas_float_count: int = _native_bucket_array_float_count(
+			buckets,
+			"spiky_flora_atlas_%d" % atlas_index,
+		)
+		if atlas_float_count < 0:
+			return -1
+		float_count += atlas_float_count
+	if float_count / NATIVE_MULTIMESH_BUFFER_STRIDE != expected_instance_count:
+		push_error("WorldObjectPacketLayer: spiky-flora instance total does not match metadata")
+		return -1
+	return float_count
+
+
+func _native_bucket_array_float_count(buffers: Array, label: String) -> int:
+	if buffers.size() != WorldRuntimeConstants.DEPTH_STRIPES_PER_CHUNK:
+		push_error(
+			"WorldObjectPacketLayer: %s must contain %d depth stripes" % [
+				label,
+				WorldRuntimeConstants.DEPTH_STRIPES_PER_CHUNK,
+			],
+		)
+		return -1
+	var float_count: int = 0
+	for stripe_index: int in range(buffers.size()):
+		if not buffers[stripe_index] is PackedFloat32Array:
+			push_error(
+				"WorldObjectPacketLayer: %s stripe %d has an invalid type" \
+						% [label, stripe_index],
+			)
+			return -1
+		var buffer: PackedFloat32Array = buffers[stripe_index] as PackedFloat32Array
+		if buffer.size() % NATIVE_MULTIMESH_BUFFER_STRIDE != 0:
+			push_error(
+				"WorldObjectPacketLayer: %s stripe %d violates raw buffer stride" \
+						% [label, stripe_index],
+			)
+			return -1
+		float_count += buffer.size()
+	return float_count
+
+
+func _ensure_layered_small_rock_batch_layer(
+		catalog: WorldLayeredObjectAssetCatalog,
+) -> LayeredRockBatchLayer:
+	if _layered_small_rock_batch_layer == null \
+			or not is_instance_valid(_layered_small_rock_batch_layer):
+		_layered_small_rock_batch_layer = LayeredRockBatchLayer.new()
+		_layered_small_rock_batch_layer.name = "LayeredSmallRockBatchLayer"
+		add_child(_layered_small_rock_batch_layer)
+	_layered_small_rock_batch_layer.configure_catalog(catalog)
+	_layered_small_rock_batch_layer.set_world_origin_y(_world_origin_y)
+	return _layered_small_rock_batch_layer
+
+
+func _apply_native_tree_collision_slice(max_colliders: int) -> void:
+	var collision_started_usec: int = WorldPerfProbe.begin()
+	var body: StaticBody2D = _ensure_tree_collision_body()
+	body.collision_layer = 0
+	var record_count: int = _native_collision_records.size() / 3
+	var end_index: int = mini(_native_collision_record_index + max_colliders, record_count)
+	while _native_collision_record_index < end_index:
+		var offset: int = _native_collision_record_index * 3
+		var position := Vector2(
+			_native_collision_records[offset],
+			_native_collision_records[offset + 1],
+		)
+		var radius: float = _native_collision_records[offset + 2]
+		var shape: CircleShape2D = _native_asset_catalog.get_tree_collision_shape(radius) \
+				if _native_asset_catalog != null else null
+		if shape == null:
+			shape = CircleShape2D.new()
+			shape.radius = radius
+		var owner_id: int = body.create_shape_owner(body)
+		body.shape_owner_add_shape(owner_id, shape)
+		body.shape_owner_set_transform(owner_id, Transform2D(0.0, position))
+		_tree_collision_shape_owner_ids.append(owner_id)
+		if _debug_collisions_visible:
+			_tree_debug_rects.append(
+				Rect2(position - Vector2.ONE * radius, Vector2.ONE * radius * 2.0),
+			)
+		_native_collision_record_index += 1
+	_tree_collider_count = _tree_collision_shape_owner_ids.size()
+	WorldPerfProbe.end(
+		"WorldObjectPacketLayer.collider_create_slice",
+		collision_started_usec,
+	)
+
+
+func _remove_previous_tree_collision_slice(max_colliders: int) -> void:
+	if _tree_collision_shape_owner_ids.is_empty():
+		_tree_collider_count = 0
+		return
+	if _tree_collision_body == null or not is_instance_valid(_tree_collision_body):
+		_tree_collision_shape_owner_ids.clear()
+		_tree_collider_count = 0
+		return
+	var remove_count: int = mini(maxi(1, max_colliders), _tree_collision_shape_owner_ids.size())
+	for remove_index: int in range(remove_count):
+		var owner_id: int = _tree_collision_shape_owner_ids.pop_back()
+		_tree_collision_body.remove_shape_owner(owner_id)
+	_tree_collider_count = _tree_collision_shape_owner_ids.size()
+
+
+func _commit_native_object_presentation() -> void:
+	var commit_started_usec: int = WorldPerfProbe.begin()
+	for family: Node in [
+		_layered_tree_batch_layer,
+		_native_living_flora_batch_layer,
+		_native_spiky_flora_batch_layer,
+		_layered_small_rock_batch_layer,
+	]:
+		if family != null and is_instance_valid(family):
+			family.call("commit_staged_slots")
+	if _tree_collision_body != null and is_instance_valid(_tree_collision_body):
+		_tree_collision_body.collision_layer = 0
+	visible = _living_flora_count + _spiky_flora_count + _tree_count + _small_rock_count > 0
+	_native_blocking_ready = true
+	_sync_collision_debug_layer()
+	WorldPerfProbe.end("WorldObjectPacketLayer.commit", commit_started_usec)
 
 
 func configure_packet(packet: Dictionary) -> void:
+	# Isolated compatibility tests still exercise the synchronous legacy path.
+	# It must explicitly retire a previously staged native transaction so the two
+	# presentation owners can never overlap.
+	cancel_pending_presentation_apply()
+	if _native_living_flora_batch_layer != null \
+			and is_instance_valid(_native_living_flora_batch_layer):
+		_native_living_flora_batch_layer.clear_batches()
+	if _native_spiky_flora_batch_layer != null \
+			and is_instance_valid(_native_spiky_flora_batch_layer):
+		_native_spiky_flora_batch_layer.clear_batches()
+	if _layered_tree_batch_layer != null and is_instance_valid(_layered_tree_batch_layer):
+		_layered_tree_batch_layer.clear_batches()
+	if _layered_small_rock_batch_layer != null \
+			and is_instance_valid(_layered_small_rock_batch_layer):
+		_layered_small_rock_batch_layer.clear_batches()
 	_living_flora_count = 0
 	_spiky_flora_count = 0
 	_tree_count = 0
@@ -300,12 +1627,30 @@ func configure_packet(packet: Dictionary) -> void:
 
 
 func get_debug_state() -> Dictionary:
+	var tree_batch_state: Dictionary = { }
+	if _layered_tree_batch_layer != null and is_instance_valid(_layered_tree_batch_layer):
+		tree_batch_state = _layered_tree_batch_layer.get_debug_state()
+	var rock_batch_state: Dictionary = { }
+	if _layered_small_rock_batch_layer != null and is_instance_valid(_layered_small_rock_batch_layer):
+		rock_batch_state = _layered_small_rock_batch_layer.get_debug_state()
+	var living_batch_state: Dictionary = { }
+	if _native_living_flora_batch_layer != null \
+			and is_instance_valid(_native_living_flora_batch_layer):
+		living_batch_state = _native_living_flora_batch_layer.get_debug_state()
+	var spiky_batch_state: Dictionary = { }
+	if _native_spiky_flora_batch_layer != null \
+			and is_instance_valid(_native_spiky_flora_batch_layer):
+		spiky_batch_state = _native_spiky_flora_batch_layer.get_debug_state()
 	return {
 		"living_flora_count": _living_flora_count,
 		"spiky_flora_count": _spiky_flora_count,
 		"tree_count": _tree_count,
 		"small_rock_count": _small_rock_count,
 		"tree_collider_count": _tree_collider_count,
+		"previous_tree_collider_cleanup_remaining": _tree_collision_shape_owner_ids.size() \
+				if _native_apply_state == NativeApplyState.RESET_PREVIOUS_COLLISIONS else 0,
+		"tree_collision_layer": _tree_collision_body.collision_layer \
+				if _tree_collision_body != null and is_instance_valid(_tree_collision_body) else 0,
 		"small_rock_uses_collision": false,
 		"tree_contact_shadow_enabled": TREE_CONTACT_SHADOW_ENABLED,
 		"uses_layered_tree_runtime": _uses_layered_tree_runtime(),
@@ -316,6 +1661,16 @@ func get_debug_state() -> Dictionary:
 		"layered_small_rock_asset_count": _layered_small_rock_asset_dirs.size(),
 		"layered_small_rock_count": _layered_small_rock_instance_count(),
 		"layered_small_rock_shadow_count": _layered_small_rock_shadow_instance_count(),
+		"uses_native_presentation_buffers": _native_apply_state != NativeApplyState.IDLE,
+		"native_apply_state": NativeApplyState.keys()[_native_apply_state],
+		"native_begin_state": NativeBeginState.keys()[_native_begin_state],
+		"native_blocking_ready": _native_blocking_ready,
+		"native_presentation_complete": _native_presentation_complete,
+		"raw_multimesh_upload_count_total": get_raw_multimesh_upload_count_total(),
+		"tree_batch": tree_batch_state,
+		"rock_batch": rock_batch_state,
+		"living_flora_batch": living_batch_state,
+		"spiky_flora_batch": spiky_batch_state,
 	}
 
 
@@ -335,7 +1690,12 @@ func _append_living_flora(
 		position,
 		Vector2.ONE * size_px,
 		frame_index,
-		Color(tint_factor, tint_factor, tint_factor, 0.96),
+		Color(
+			tint_factor,
+			tint_factor,
+			tint_factor,
+			WorldLayeredObjectAssetCatalog.LIVING_FLORA_ALPHA,
+		),
 		0.0,
 		phase,
 		size_px / 64.0,
@@ -349,10 +1709,13 @@ func _append_living_flora(
 		position + Vector2(0.0, size_px * LIVING_FLORA_SHADOW_CENTER_Y_SCALE),
 		shadow_size,
 		0,
-		Color(1.0, 1.0, 1.0, 0.58),
+		Color(1.0, 1.0, 1.0, WorldLayeredObjectAssetCatalog.LIVING_FLORA_SHADOW_ALPHA),
 		0.0,
 		phase,
-		maxf(size_px / 96.0, 0.36),
+		maxf(
+			size_px / WorldLayeredObjectAssetCatalog.LIVING_FLORA_SHADOW_SIZE_DIVISOR,
+			WorldLayeredObjectAssetCatalog.LIVING_FLORA_SHADOW_MIN_SCALE,
+		),
 	)
 	_living_flora_count += 1
 
@@ -374,7 +1737,12 @@ func _append_spiky_flora(
 		position,
 		Vector2.ONE * size_px,
 		frame_index,
-		Color(tint_factor, tint_factor, tint_factor, 0.98),
+		Color(
+			tint_factor,
+			tint_factor,
+			tint_factor,
+			WorldLayeredObjectAssetCatalog.SPIKY_FLORA_ALPHA,
+		),
 		0.0,
 		phase,
 		size_px / 64.0,
@@ -783,6 +2151,7 @@ func _sync_tree_collision(collision_records: Array[Dictionary]) -> void:
 	_tree_debug_rects = _debug_rects_from_records(collision_records) if TREE_COLLISION_ENABLED else []
 	if TREE_COLLISION_ENABLED and not collision_records.is_empty():
 		var body: StaticBody2D = _ensure_tree_collision_body()
+		body.collision_layer = OBJECT_COLLISION_LAYER
 		for record: Dictionary in collision_records:
 			var shape := CircleShape2D.new()
 			shape.radius = float(record.get("radius", 12.0))
@@ -833,6 +2202,8 @@ func set_debug_collisions_visible(enabled: bool) -> void:
 	if enabled == _debug_collisions_visible:
 		return
 	_debug_collisions_visible = enabled
+	if enabled and _tree_debug_rects.is_empty() and not _native_collision_records.is_empty():
+		_tree_debug_rects = _debug_rects_from_packed_collision_records(_native_collision_records)
 	if not enabled:
 		if _collision_debug_layer != null and is_instance_valid(_collision_debug_layer):
 			_collision_debug_layer.visible = false
@@ -840,6 +2211,15 @@ func set_debug_collisions_visible(enabled: bool) -> void:
 	if _collision_debug_layer != null and is_instance_valid(_collision_debug_layer):
 		_collision_debug_layer.visible = true
 	_sync_collision_debug_layer()
+
+
+static func _debug_rects_from_packed_collision_records(records: PackedFloat32Array) -> Array[Rect2]:
+	var rects: Array[Rect2] = []
+	for offset: int in range(0, records.size() - 2, 3):
+		var position := Vector2(records[offset], records[offset + 1])
+		var radius: float = records[offset + 2]
+		rects.append(Rect2(position - Vector2.ONE * radius, Vector2.ONE * radius * 2.0))
+	return rects
 
 
 func _ensure_collision_debug_layer() -> ObjectCollisionDebugLayer:
@@ -866,12 +2246,26 @@ func _clear_batches() -> void:
 	_small_rock_count = 0
 	_clear_tree_collision_shapes()
 	_tree_debug_rects = []
+	_native_apply_state = NativeApplyState.IDLE
+	# Drop the immutable worker-result alias without mutating cache truth.
+	_native_collision_records = PackedFloat32Array()
+	_native_collision_record_index = 0
+	_native_blocking_ready = false
+	_native_presentation_complete = false
+	if _tree_collision_body != null and is_instance_valid(_tree_collision_body):
+		_tree_collision_body.collision_layer = 0
 	_sync_collision_debug_layer()
 	visible = false
 	if _living_flora_batch_layer != null and is_instance_valid(_living_flora_batch_layer):
 		_living_flora_batch_layer.clear_batches()
 	if _spiky_flora_batch_layer != null and is_instance_valid(_spiky_flora_batch_layer):
 		_spiky_flora_batch_layer.clear_batches()
+	if _native_living_flora_batch_layer != null \
+			and is_instance_valid(_native_living_flora_batch_layer):
+		_native_living_flora_batch_layer.clear_batches()
+	if _native_spiky_flora_batch_layer != null \
+			and is_instance_valid(_native_spiky_flora_batch_layer):
+		_native_spiky_flora_batch_layer.clear_batches()
 	if _tree_batch_layer != null and is_instance_valid(_tree_batch_layer):
 		_tree_batch_layer.clear_batches()
 	if _tree_shadow_layer != null and is_instance_valid(_tree_shadow_layer):
@@ -879,6 +2273,10 @@ func _clear_batches() -> void:
 		_tree_shadow_layer.multimesh = null
 	_clear_layered_tree_layer()
 	_clear_layered_small_rock_layer()
+	if _layered_tree_batch_layer != null and is_instance_valid(_layered_tree_batch_layer):
+		_layered_tree_batch_layer.clear_batches()
+	if _layered_small_rock_batch_layer != null and is_instance_valid(_layered_small_rock_batch_layer):
+		_layered_small_rock_batch_layer.clear_batches()
 
 
 func _layered_tree_asset_dir_for_variant(frame_index: int) -> String:

@@ -7,6 +7,8 @@ const WorldTileSetFactory = preload("res://core/systems/world/world_tile_set_fac
 const TerrainPresentationRegistry = preload("res://core/systems/world/terrain_presentation_registry.gd")
 const ChunkDebugVisualLayer = preload("res://core/systems/world/chunk_debug_visual_layer.gd")
 const WorldObjectPacketLayer = preload("res://core/systems/world/world_object_packet_layer.gd")
+const WorldLayeredObjectAssetCatalog = preload("res://core/systems/world/world_layered_object_asset_catalog.gd")
+const DepthLadderBandRoot = preload("res://core/systems/world/depth_ladder_band_root.gd")
 const MOUNTAIN_COVER_SHADER = preload("res://assets/shaders/mountain_cover_overlay.gdshader")
 const MOUNTAIN_TOP_MASK_UNDERLAY_SHADER = preload("res://assets/shaders/mountain_top_mask_underlay.gdshader")
 const MOUNTAIN_FOOTHILL_OVERLAY_SHADER = preload("res://assets/shaders/mountain_foothill_overlay.gdshader")
@@ -143,6 +145,7 @@ var _mountain_active_floor_halo_bytes: PackedByteArray = PackedByteArray()
 var _mountain_active_floor_halo_image: Image = null
 var _mountain_active_floor_halo_texture: ImageTexture = null
 var _mountain_active_floor_halo_side: int = 0
+var _mountain_active_floor_halo_nonzero_count: int = 0
 var _mountain_active_floor_halo_visual_dirty: bool = false
 # A resolver refresh is uploaded into a texture that is deliberately not bound
 # to the roof material. WorldStreamer commits every affected chunk together
@@ -152,11 +155,13 @@ var _mountain_staged_floor_halo_image: Image = null
 var _mountain_staged_floor_halo_texture: ImageTexture = null
 var _mountain_staged_floor_halo_side: int = 0
 var _mountain_staged_floor_halo_generation: int = 0
+var _mountain_staged_floor_halo_nonzero_count: int = 0
 var _mountain_staged_floor_halo_visual_dirty: bool = false
 var _mountain_dug_halo_bytes: PackedByteArray = PackedByteArray()
 var _mountain_dug_halo_image: Image = null
 var _mountain_dug_halo_texture: ImageTexture = null
 var _mountain_dug_halo_side: int = 0
+var _mountain_dug_halo_nonzero_count: int = 0
 var _mountain_dug_halo_visual_dirty: bool = false
 var _mountain_rock_underlay_sprite: Sprite2D = null
 var _mountain_rock_underlay_material: ShaderMaterial = null
@@ -198,14 +203,21 @@ var _layered_tree_asset_dirs: Array[String] = []
 var _layered_small_rock_asset_dir: String = ""
 var _layered_small_rock_asset_dirs: Array[String] = []
 var _object_packet_layer: WorldObjectPacketLayer = null
+var _object_packet_layer_uses_external_parent: bool = false
 var _debug_object_collisions_visible: bool = false
 var _object_packet_visual_dirty: bool = false
 var _pending_object_packet_visual: Dictionary = { }
+var _pending_object_presentation_result: Dictionary = { }
+var _object_presentation_catalog: WorldLayeredObjectAssetCatalog = null
+var _object_packet_visual_started: bool = false
+var _object_presentation_apply_failure: String = ""
 var _grass_scatter_layers: Array[MultiMeshInstance2D] = []
 var _grass_shadow_atlas_layers: Array[MultiMeshInstance2D] = []
+var _grass_depth_ladder: DepthLadderBandRoot = null
 var _grass_shadow_layer: MultiMeshInstance2D = null
 var _grass_spore_layer: MultiMeshInstance2D = null
 var _grass_scatter_visual_dirty: bool = false
+var _pending_grass_scatter_result: Dictionary = { }
 const LADDER_ANCHOR_UNSET: int = 1 << 30
 var _applied_ladder_anchor_stripe: int = LADDER_ANCHOR_UNSET
 var _mountain_page_hit_mask: PackedByteArray = PackedByteArray()
@@ -233,7 +245,11 @@ func configure(new_chunk_coord: Vector2i) -> void:
 	_ensure_layers()
 
 
-func begin_apply(packet: Dictionary, defer_object_visual: bool = false) -> void:
+func begin_apply(
+		packet: Dictionary,
+		defer_object_visual: bool = false,
+		preserve_object_visual: bool = false,
+) -> void:
 	var step_started: int = WorldPerfProbe.begin()
 	var packet_world_seed: int = int(packet.get("world_seed", WorldRuntimeConstants.DEFAULT_WORLD_SEED))
 	var packet_world_version: int = int(packet.get("world_version", WorldRuntimeConstants.WORLD_VERSION))
@@ -256,6 +272,7 @@ func begin_apply(packet: Dictionary, defer_object_visual: bool = false) -> void:
 	_apply_index = 0
 	_bulk_apply_layers_pristine = not _has_applied_cells
 	visible = false
+	set_object_collision_active(false)
 	WorldPerfProbe.end("ChunkView.begin_apply.state", step_started)
 	step_started = WorldPerfProbe.begin()
 	_ensure_layers()
@@ -264,63 +281,247 @@ func begin_apply(packet: Dictionary, defer_object_visual: bool = false) -> void:
 	_sync_water_fill_visual()
 	WorldPerfProbe.end("ChunkView.begin_apply.sync_water_fill", step_started)
 	step_started = WorldPerfProbe.begin()
-	if defer_object_visual:
-		_pending_object_packet_visual = packet
+	if preserve_object_visual:
+		pass
+	elif defer_object_visual:
+		# Production presentation is staged from the worker result. Do not retain
+		# the full packet while waiting; this field remains only for the legacy
+		# synchronous path used by isolated compatibility tests.
+		_pending_object_packet_visual.clear()
+		# This Dictionary may still be owned by WorldStreamer's live/warm cache.
+		# Drop our reference; mutating it with clear() would corrupt that cache.
+		_pending_object_presentation_result = { }
 		_object_packet_visual_dirty = true
+		_object_packet_visual_started = false
+		_object_presentation_apply_failure = ""
+		if _object_packet_layer != null and is_instance_valid(_object_packet_layer):
+			_object_packet_layer.cancel_pending_presentation_apply()
 	else:
 		_sync_object_packet_visual(packet)
 	_grass_scatter_visual_dirty = true
+	_pending_grass_scatter_result.clear()
 	WorldPerfProbe.end("ChunkView.begin_apply.sync_objects", step_started)
 	step_started = WorldPerfProbe.begin()
-	_refresh_debug_solid_mask()
+	if _debug_solid_mask_visible:
+		_refresh_debug_solid_mask()
 	WorldPerfProbe.end("ChunkView.begin_apply.refresh_debug", step_started)
 
 
 func apply_pending_object_packet_visual() -> bool:
 	if not _object_packet_visual_dirty:
 		return false
-	var packet: Dictionary = _pending_object_packet_visual
-	_pending_object_packet_visual = { }
-	_object_packet_visual_dirty = false
-	_sync_object_packet_visual(packet)
-	# Свежие decor-ноды должны получить z лесенки при следующем апдейте.
-	_applied_ladder_anchor_stripe = LADDER_ANCHOR_UNSET
+	if not _object_packet_visual_started:
+		if _pending_object_presentation_result.is_empty() \
+				or _object_presentation_catalog == null:
+			return false
+		var layer: WorldObjectPacketLayer = _ensure_object_packet_layer()
+		layer.set_world_origin_y(position.y)
+		if not layer.begin_presentation_result(
+			_pending_object_presentation_result,
+			_object_presentation_catalog,
+		):
+			_pending_object_presentation_result = { }
+			_object_presentation_apply_failure = \
+					"native object presentation result failed main-thread contract validation"
+			layer.cancel_pending_presentation_apply()
+			return false
+		_pending_object_packet_visual.clear()
+		_pending_object_presentation_result = { }
+		_object_packet_visual_started = true
+		_apply_sun_lighting_to_object_packet_layer()
+		# New stripe slots inherit the anchor stored by their batch layer. Seed it
+		# once before the first slot is created; rewalking every already-created
+		# grass/object stripe after every tiny upload slice was an accidental
+		# O(loaded stripes) multiplier on this hot path.
+		if _applied_ladder_anchor_stripe != LADDER_ANCHOR_UNSET:
+			layer.update_ladder_z(_applied_ladder_anchor_stripe)
+		if layer.is_presentation_complete():
+			_object_packet_visual_dirty = false
+			_object_packet_visual_started = false
+		# Catalog/batch-owner setup is a real main-thread operation. Keep it in a
+		# separate scheduler slice instead of coupling it to the first GPU buffer
+		# assignment; the priority upload job guarantees the extra slice cannot be
+		# starved behind broad packet publication.
+		return true
+	var progressed: bool = _object_packet_layer.apply_next_presentation_slice(1, 4, 1)
+	if _object_packet_layer.is_presentation_complete():
+		_object_packet_visual_dirty = false
+		_object_packet_visual_started = false
+	return progressed
+
+
+func stage_object_presentation_result(
+		result: Dictionary,
+		catalog: WorldLayeredObjectAssetCatalog,
+) -> bool:
+	if not _object_packet_visual_dirty \
+			or _object_packet_visual_started \
+			or not _pending_object_presentation_result.is_empty() \
+			or catalog == null \
+			or not catalog.is_ready():
+		return false
+	# Own the staging envelope without copying its immutable packed payloads.
+	# This prevents local lifecycle resets from aliasing the streamer's cache.
+	_pending_object_presentation_result = result.duplicate(false)
+	_object_presentation_catalog = catalog
+	_object_presentation_apply_failure = ""
 	return true
 
 
+func is_object_blocking_presentation_ready() -> bool:
+	if not _object_packet_visual_dirty:
+		return true
+	return _object_packet_visual_started \
+			and _object_packet_layer != null \
+			and _object_packet_layer.is_blocking_presentation_ready()
+
+
+func has_pending_object_presentation_apply() -> bool:
+	return _object_packet_visual_dirty
+
+
+func has_staged_object_presentation_result() -> bool:
+	return _object_packet_visual_started or not _pending_object_presentation_result.is_empty()
+
+
+func is_object_presentation_complete() -> bool:
+	return not _object_packet_visual_dirty
+
+
+## Transfers a fully committed native object layer to WorldStreamer's bounded
+## hot cache without destroying its MultiMeshes/collision shapes. Terrain and
+## mountain state remain owned by this ChunkView and are never cached here.
+func detach_committed_object_layer_for_hot_cache() -> WorldObjectPacketLayer:
+	if _object_packet_layer == null \
+			or not is_instance_valid(_object_packet_layer) \
+			or _object_packet_visual_dirty \
+			or not _object_packet_layer.is_hot_cache_eligible():
+		return null
+	var layer: WorldObjectPacketLayer = _object_packet_layer
+	layer.set_hot_cache_resident(true)
+	if layer.get_parent() == self:
+		remove_child(layer)
+	_object_packet_layer = null
+	_object_packet_layer_uses_external_parent = false
+	return layer
+
+
+## Restores a GPU-resident object layer into a fresh view. The caller validates
+## generation/revision/catalog keys before adoption; this method restores only
+## local ownership and reveal state, without scanning a packet or uploading a
+## MultiMesh buffer again.
+func adopt_committed_object_layer_from_hot_cache(layer: WorldObjectPacketLayer) -> bool:
+	if layer == null \
+			or not is_instance_valid(layer) \
+			or not layer.is_hot_cache_eligible() \
+		or (_object_packet_layer != null and is_instance_valid(_object_packet_layer)):
+		return false
+	var step_started: int = WorldPerfProbe.begin()
+	var previous_parent: Node = layer.get_parent()
+	_object_packet_layer_uses_external_parent = layer.is_streaming_world_parented() \
+			and previous_parent != null \
+			and previous_parent != self
+	if previous_parent == null:
+		add_child(layer)
+		_object_packet_layer_uses_external_parent = false
+	if not _object_packet_layer_uses_external_parent:
+		if layer.get_parent() != self:
+			if layer.get_parent() != null:
+				layer.get_parent().remove_child(layer)
+			add_child(layer)
+		layer.set_streaming_world_parented(false)
+	WorldPerfProbe.end("ChunkView.object_adopt.parent", step_started)
+	step_started = WorldPerfProbe.begin()
+	_object_packet_layer = layer
+	if not _object_packet_layer_uses_external_parent:
+		layer.position = Vector2.ZERO
+		_sync_object_packet_layer_sources(layer)
+	layer.set_world_origin_y(position.y)
+	layer.set_debug_collisions_visible(_debug_object_collisions_visible)
+	# Externally parented GPU layers do not inherit ChunkView.visible. Keep them
+	# hidden until the same atomic reveal call that enables blocking collision.
+	layer.set_hot_cache_resident(_object_packet_layer_uses_external_parent and not visible)
+	WorldPerfProbe.end("ChunkView.object_adopt.state", step_started)
+	step_started = WorldPerfProbe.begin()
+	_pending_object_packet_visual = { }
+	_pending_object_presentation_result = { }
+	_object_presentation_catalog = null
+	_object_packet_visual_dirty = false
+	_object_packet_visual_started = false
+	_object_presentation_apply_failure = ""
+	WorldPerfProbe.end("ChunkView.object_adopt.clear_staging", step_started)
+	step_started = WorldPerfProbe.begin()
+	_apply_sun_lighting_to_object_packet_layer()
+	WorldPerfProbe.end("ChunkView.object_adopt.lighting", step_started)
+	step_started = WorldPerfProbe.begin()
+	if _applied_ladder_anchor_stripe != LADDER_ANCHOR_UNSET:
+		layer.update_ladder_z(_applied_ladder_anchor_stripe)
+	WorldPerfProbe.end("ChunkView.object_adopt.ladder", step_started)
+	return true
+
+
+## Last-resort recovery for a deterministic native-contract failure. It is
+## intentionally outside the normal frame path: after bounded worker retries,
+## preserving authored objects through the proven compatibility renderer is
+## preferable to a permanently hidden chunk and an endless streaming poll.
+func apply_terminal_object_presentation_fallback(packet: Dictionary) -> bool:
+	if packet.is_empty():
+		return false
+	var layer: WorldObjectPacketLayer = _ensure_object_packet_layer()
+	_sync_object_packet_layer_sources(layer)
+	layer.set_world_origin_y(position.y)
+	layer.configure_packet(packet)
+	layer.mark_legacy_fallback_ready_for_reveal()
+	layer.set_blocking_collision_active(false)
+	_pending_object_packet_visual = { }
+	_pending_object_presentation_result = { }
+	_object_presentation_catalog = null
+	_object_packet_visual_dirty = false
+	_object_packet_visual_started = false
+	_object_presentation_apply_failure = ""
+	_apply_sun_lighting_to_object_packet_layer()
+	if _applied_ladder_anchor_stripe != LADDER_ANCHOR_UNSET:
+		layer.update_ladder_z(_applied_ladder_anchor_stripe)
+	return true
+
+
+func set_object_collision_active(active: bool) -> void:
+	if _object_packet_layer != null and is_instance_valid(_object_packet_layer):
+		if _object_packet_layer_uses_external_parent:
+			_object_packet_layer.set_hot_cache_resident(not active)
+		_object_packet_layer.set_blocking_collision_active(active)
+
+
+func take_object_presentation_apply_failure() -> String:
+	var failure: String = _object_presentation_apply_failure
+	_object_presentation_apply_failure = ""
+	return failure
+
+
+func stage_grass_scatter_result(result: Dictionary) -> bool:
+	if not _grass_scatter_visual_dirty or not _pending_grass_scatter_result.is_empty():
+		return false
+	_pending_grass_scatter_result = result
+	return true
+
+
+func has_pending_grass_scatter_visual() -> bool:
+	return _grass_scatter_visual_dirty
+
+
 func apply_pending_grass_scatter_visual(
-		world_core: Object,
-		grass_params: PackedFloat32Array,
 		grass_atlas: Texture2D,
 		grass_material: ShaderMaterial,
 		grass_shadow_atlas: Texture2D,
 		grass_shadow_atlas_material: ShaderMaterial,
 		shadow_material: ShaderMaterial,
 		spore_material: ShaderMaterial,
-		mountain_solid_halo: PackedByteArray,
-		mountain_solid_halo_radius_tiles: int,
 ) -> bool:
-	if not _grass_scatter_visual_dirty:
+	if not _grass_scatter_visual_dirty or _pending_grass_scatter_result.is_empty():
 		return false
+	var result: Dictionary = _pending_grass_scatter_result
+	_pending_grass_scatter_result = { }
 	_grass_scatter_visual_dirty = false
-	assert(
-		world_core != null and world_core.has_method("build_grass_scatter_buffer"),
-		"WorldCore.build_grass_scatter_buffer required - build GDExtension first",
-	)
-	var result: Dictionary = world_core.call(
-		"build_grass_scatter_buffer",
-		_pending_world_seed,
-		chunk_coord,
-		_pending_terrain_ids,
-		_pending_lake_flags,
-		mountain_solid_halo,
-		mountain_solid_halo_radius_tiles,
-		grass_params,
-	) as Dictionary
-	assert(
-		not result.has("error"),
-		"build_grass_scatter_buffer failed: %s" % str(result.get("error", "")),
-	)
 	var has_shadow_atlas: bool = grass_shadow_atlas != null and grass_shadow_atlas_material != null
 	if not has_shadow_atlas:
 		_apply_grass_blob_layer(
@@ -351,6 +552,8 @@ func apply_pending_grass_scatter_visual(
 			if layer != null and is_instance_valid(layer):
 				layer.visible = false
 				layer.multimesh = null
+				if _grass_depth_ladder != null and is_instance_valid(_grass_depth_ladder):
+					_grass_depth_ladder.unregister_item(layer)
 			if shadow_atlas_layer != null and is_instance_valid(shadow_atlas_layer):
 				shadow_atlas_layer.visible = false
 				shadow_atlas_layer.multimesh = null
@@ -358,6 +561,7 @@ func apply_pending_grass_scatter_visual(
 		if layer == null or not is_instance_valid(layer):
 			layer = _create_grass_scatter_layer(stripe_index, grass_atlas, grass_material)
 			_grass_scatter_layers[stripe_index] = layer
+		_ensure_grass_depth_ladder().register_item(layer, stripe_index, 0)
 		var multimesh: MultiMesh = layer.multimesh
 		if multimesh == null or multimesh.instance_count != stripe_count:
 			multimesh = MultiMesh.new()
@@ -384,30 +588,21 @@ func apply_pending_grass_scatter_visual(
 		elif shadow_atlas_layer != null and is_instance_valid(shadow_atlas_layer):
 			shadow_atlas_layer.visible = false
 			shadow_atlas_layer.multimesh = null
-	# Свежие полосы должны получить z лесенки даже при неизменном якоре.
-	var anchor_to_reapply: int = _applied_ladder_anchor_stripe
-	_applied_ladder_anchor_stripe = LADDER_ANCHOR_UNSET
-	if anchor_to_reapply != LADDER_ANCHOR_UNSET:
-		update_mid_ladder_z(anchor_to_reapply)
+	# Fresh stripe nodes register in the already-anchored band owner and receive
+	# their exact z immediately; no O(64) anchor rewalk is required after upload.
 	return true
 
 
-## Перестановка всех mid-полос чанка (трава + объектный декор) на
-## player-relative depth-лесенке. Дёшево: присваивания z существующим нодам.
+## Rebase mid-полос чанка on the player-relative depth ladder. Grass uses one
+## linear-root z write plus at most two clamp-boundary migrations per 16 px;
+## object batch owners use the same contract. No buffer rebuild is involved.
 func update_mid_ladder_z(anchor_stripe: int) -> void:
 	if anchor_stripe == _applied_ladder_anchor_stripe:
 		return
 	_applied_ladder_anchor_stripe = anchor_stripe
-	var chunk_stripe_base: int = floori(position.y / float(WorldRuntimeConstants.DEPTH_STRIPE_PX))
-	for stripe_index: int in range(_grass_scatter_layers.size()):
-		var layer: MultiMeshInstance2D = _grass_scatter_layers[stripe_index]
-		if layer == null or not is_instance_valid(layer):
-			continue
-		layer.z_index = WorldRuntimeConstants.z_for_stripe_vs_anchor(
-			chunk_stripe_base + stripe_index,
-			anchor_stripe,
-			false,
-		)
+	var grass_depth_ladder: DepthLadderBandRoot = _ensure_grass_depth_ladder()
+	grass_depth_ladder.set_world_origin_y(position.y)
+	grass_depth_ladder.update_anchor(anchor_stripe)
 	if _object_packet_layer != null and is_instance_valid(_object_packet_layer):
 		_object_packet_layer.update_ladder_z(anchor_stripe)
 
@@ -442,11 +637,15 @@ func get_grass_scatter_debug_state() -> Dictionary:
 		if layer_visible_count < 0:
 			layer_visible_count = layer.multimesh.instance_count
 		visible_instance_count += layer_visible_count
+	var depth_ladder_state: Dictionary = { }
+	if _grass_depth_ladder != null and is_instance_valid(_grass_depth_ladder):
+		depth_ladder_state = _grass_depth_ladder.get_debug_state()
 	return {
 		"instance_count": instance_count,
 		"visible_instance_count": visible_instance_count,
 		"visible": layer_visible,
 		"pending": _grass_scatter_visual_dirty,
+		"depth_ladder": depth_ladder_state,
 	}
 
 
@@ -522,8 +721,19 @@ func _create_grass_scatter_layer(
 	layer.texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS
 	layer.texture = grass_atlas
 	layer.material = grass_material
-	add_child(layer)
 	return layer
+
+
+func _ensure_grass_depth_ladder() -> DepthLadderBandRoot:
+	if _grass_depth_ladder != null and is_instance_valid(_grass_depth_ladder):
+		return _grass_depth_ladder
+	_grass_depth_ladder = DepthLadderBandRoot.new()
+	_grass_depth_ladder.name = "GrassDepthLadder"
+	add_child(_grass_depth_ladder)
+	_grass_depth_ladder.set_world_origin_y(position.y)
+	if _applied_ladder_anchor_stripe != LADDER_ANCHOR_UNSET:
+		_grass_depth_ladder.update_anchor(_applied_ladder_anchor_stripe)
+	return _grass_depth_ladder
 
 
 func _create_grass_shadow_atlas_layer(
@@ -607,7 +817,8 @@ func apply_runtime_cell(
 				_pending_mountain_flags[index] = mountain_flags
 	if _should_suppress_mountain_visual(index, terrain_id):
 		_clear_mountain_visual_cell(local_coord)
-		_refresh_debug_solid_mask()
+		if _debug_solid_mask_visible:
+			_refresh_debug_solid_mask()
 		return
 	_sync_water_fill_visual()
 	if _should_render_as_organic_ground_underlay(index, terrain_id):
@@ -615,7 +826,8 @@ func apply_runtime_cell(
 	else:
 		_apply_cell(local_coord, terrain_id, terrain_atlas_index)
 	_apply_water_patch_around(local_coord)
-	_refresh_debug_solid_mask()
+	if _debug_solid_mask_visible:
+		_refresh_debug_solid_mask()
 
 
 func set_mountain_tile_visuals_enabled(enabled: bool) -> void:
@@ -627,9 +839,12 @@ func set_mountain_tile_visuals_enabled(enabled: bool) -> void:
 
 
 func set_debug_overlays(grid_visible: bool, solid_mask_visible: bool, contour_visible: bool) -> void:
+	var solid_mask_just_enabled: bool = solid_mask_visible and not _debug_solid_mask_visible
 	_debug_grid_visible = grid_visible
 	_debug_solid_mask_visible = solid_mask_visible
 	_debug_contour_visible = contour_visible
+	if solid_mask_just_enabled:
+		_refresh_debug_solid_mask()
 	_sync_debug_layer()
 
 
@@ -1028,6 +1243,7 @@ func apply_mountain_native_mask_data(
 		if _mountain_dug_halo_side != dug_halo_side \
 				or _mountain_dug_halo_bytes != normalized_dug_halo:
 			_mountain_dug_halo_bytes = normalized_dug_halo
+			_mountain_dug_halo_nonzero_count = _count_nonzero_mask_bytes(normalized_dug_halo)
 			_mountain_dug_halo_side = dug_halo_side
 			_mountain_dug_halo_visual_dirty = true
 		# A freshly loaded/outside chunk still needs a valid zero-ownership
@@ -1037,6 +1253,7 @@ func apply_mountain_native_mask_data(
 				or _mountain_active_floor_halo_bytes.size() != dug_halo.size():
 			_mountain_active_floor_halo_bytes = PackedByteArray()
 			_mountain_active_floor_halo_bytes.resize(dug_halo.size())
+			_mountain_active_floor_halo_nonzero_count = 0
 			_mountain_active_floor_halo_side = dug_halo_side
 			_mountain_active_floor_halo_image = null
 			_mountain_active_floor_halo_visual_dirty = true
@@ -1115,6 +1332,7 @@ func stage_mountain_roof_reveal_halo(
 		_update_mountain_native_mask_pending_debug()
 		return true
 	_mountain_staged_floor_halo_bytes = normalized_halo
+	_mountain_staged_floor_halo_nonzero_count = _count_nonzero_mask_bytes(normalized_halo)
 	_mountain_staged_floor_halo_side = halo_side
 	_mountain_staged_floor_halo_generation = generation
 	_mountain_staged_floor_halo_image = null
@@ -1139,6 +1357,7 @@ func commit_staged_mountain_roof_reveal_halo(generation: int) -> bool:
 	if not is_staged_mountain_roof_reveal_halo_ready(generation):
 		return false
 	_mountain_active_floor_halo_bytes = _mountain_staged_floor_halo_bytes
+	_mountain_active_floor_halo_nonzero_count = _mountain_staged_floor_halo_nonzero_count
 	_mountain_active_floor_halo_image = _mountain_staged_floor_halo_image
 	_mountain_active_floor_halo_texture = _mountain_staged_floor_halo_texture
 	_mountain_active_floor_halo_side = _mountain_staged_floor_halo_side
@@ -1149,7 +1368,7 @@ func commit_staged_mountain_roof_reveal_halo(generation: int) -> bool:
 	if _mountain_closed_roof_mask_material != null:
 		_mountain_closed_roof_mask_material.set_shader_parameter(
 			"roof_component_reveal_enabled",
-			1.0 if _count_nonzero_mask_bytes(_mountain_active_floor_halo_bytes) > 0 else 0.0,
+			1.0 if _mountain_active_floor_halo_nonzero_count > 0 else 0.0,
 		)
 		_mountain_closed_roof_mask_material.set_shader_parameter(
 			"active_floor_halo_texture",
@@ -1201,7 +1420,7 @@ func apply_pending_mountain_native_mask_visual(
 					== _mountain_top_mask_width * _mountain_top_mask_height \
 			and _mountain_sky_exposure_bytes.size() \
 					== _mountain_top_mask_width * _mountain_top_mask_height \
-			and _count_nonzero_mask_bytes(_mountain_dug_halo_bytes) > 0
+			and _mountain_dug_halo_nonzero_count > 0
 	if not construction_roof_needed:
 		_mountain_closed_roof_mask_visual_dirty = false
 		_mountain_dug_halo_visual_dirty = false
@@ -1609,7 +1828,7 @@ func _sync_mountain_closed_roof_visual(
 			and _mountain_dug_halo_texture != null \
 			and _mountain_active_floor_halo_side > 0 \
 			and _mountain_active_floor_halo_side == _mountain_dug_halo_side \
-			and _count_nonzero_mask_bytes(_mountain_dug_halo_bytes) > 0
+			and _mountain_dug_halo_nonzero_count > 0
 	if not roof_ready:
 		_hide_mountain_closed_roof_visual()
 		return
@@ -1651,7 +1870,7 @@ func _sync_mountain_closed_roof_visual(
 	material.set_shader_parameter("component_reveal_blend", _mountain_roof_reveal_blend)
 	material.set_shader_parameter(
 		"roof_component_reveal_enabled",
-		1.0 if _count_nonzero_mask_bytes(_mountain_active_floor_halo_bytes) > 0 else 0.0,
+		1.0 if _mountain_active_floor_halo_nonzero_count > 0 else 0.0,
 	)
 	material.set_shader_parameter("base_visual_mask_texture", _mountain_top_mask_texture)
 	material.set_shader_parameter("active_floor_halo_texture", _mountain_active_floor_halo_texture)
@@ -1700,12 +1919,14 @@ func _clear_mountain_closed_roof_state() -> void:
 	_mountain_sky_exposure_source_sample_count = 0
 	_mountain_sky_exposure_visual_dirty = false
 	_mountain_active_floor_halo_bytes = PackedByteArray()
+	_mountain_active_floor_halo_nonzero_count = 0
 	_mountain_active_floor_halo_image = null
 	_mountain_active_floor_halo_texture = null
 	_mountain_active_floor_halo_side = 0
 	_mountain_active_floor_halo_visual_dirty = false
 	_clear_staged_mountain_roof_reveal_halo()
 	_mountain_dug_halo_bytes = PackedByteArray()
+	_mountain_dug_halo_nonzero_count = 0
 	_mountain_dug_halo_image = null
 	_mountain_dug_halo_texture = null
 	_mountain_dug_halo_side = 0
@@ -1714,6 +1935,7 @@ func _clear_mountain_closed_roof_state() -> void:
 
 func _clear_staged_mountain_roof_reveal_halo() -> void:
 	_mountain_staged_floor_halo_bytes = PackedByteArray()
+	_mountain_staged_floor_halo_nonzero_count = 0
 	_mountain_staged_floor_halo_image = null
 	_mountain_staged_floor_halo_texture = null
 	_mountain_staged_floor_halo_side = 0
@@ -2270,13 +2492,9 @@ func get_mountain_native_mask_debug_state() -> Dictionary:
 	debug["sky_exposure_texture_ready"] = _mountain_sky_exposure_texture != null
 	debug["sky_exposure_reach_samples"] = _mountain_sky_exposure_reach_samples
 	debug["sky_exposure_source_sample_count"] = _mountain_sky_exposure_source_sample_count
-	debug["dug_halo_tile_count"] = _count_nonzero_mask_bytes(_mountain_dug_halo_bytes)
-	debug["active_floor_halo_tile_count"] = _count_nonzero_mask_bytes(
-		_mountain_active_floor_halo_bytes,
-	)
-	debug["staged_floor_halo_tile_count"] = _count_nonzero_mask_bytes(
-		_mountain_staged_floor_halo_bytes,
-	)
+	debug["dug_halo_tile_count"] = _mountain_dug_halo_nonzero_count
+	debug["active_floor_halo_tile_count"] = _mountain_active_floor_halo_nonzero_count
+	debug["staged_floor_halo_tile_count"] = _mountain_staged_floor_halo_nonzero_count
 	debug["staged_floor_halo_generation"] = _mountain_staged_floor_halo_generation
 	debug["staged_floor_halo_ready"] = is_staged_mountain_roof_reveal_halo_ready(
 		_mountain_staged_floor_halo_generation,
@@ -2308,6 +2526,17 @@ func get_mountain_native_mask_debug_state() -> Dictionary:
 			and _mountain_rock_underlay_sprite.visible
 	debug["chunk_coord"] = chunk_coord
 	return debug
+
+
+## Hot-path readiness probe. Unlike get_mountain_native_mask_debug_state(), it
+## never scans diagnostic halo buffers.
+func is_mountain_native_mask_visual_pending() -> bool:
+	return _mountain_top_mask_visual_dirty \
+			or _mountain_closed_roof_mask_visual_dirty \
+			or _mountain_sky_exposure_visual_dirty \
+			or _mountain_active_floor_halo_visual_dirty \
+			or _mountain_staged_floor_halo_generation > 0 \
+			or _mountain_dug_halo_visual_dirty
 
 
 func get_terrain_edge_mask_debug_state() -> Dictionary:
@@ -3142,11 +3371,7 @@ func _sync_object_packet_visual(packet: Dictionary) -> void:
 		_clear_object_packet_visual()
 		return
 	var layer: WorldObjectPacketLayer = _ensure_object_packet_layer()
-	layer.set_living_flora_atlas(_living_flora_atlas)
-	layer.set_spiky_flora_atlases(_spiky_flora_atlases)
-	layer.set_tree_atlas(_tree_atlas)
-	layer.set_layered_tree_asset_dirs(_layered_tree_asset_dirs)
-	layer.set_layered_small_rock_asset_dirs(_layered_small_rock_asset_dirs)
+	_sync_object_packet_layer_sources(layer)
 	_object_packet_layer.set_world_origin_y(position.y)
 	layer.configure_packet(packet)
 	_apply_sun_lighting_to_object_packet_layer()
@@ -3156,14 +3381,32 @@ func _ensure_object_packet_layer() -> WorldObjectPacketLayer:
 	if _object_packet_layer != null and is_instance_valid(_object_packet_layer):
 		return _object_packet_layer
 	_object_packet_layer = WorldObjectPacketLayer.new()
+	_object_packet_layer_uses_external_parent = false
+	_object_packet_layer.set_streaming_world_parented(false)
 	_object_packet_layer.name = "WorldObjectPacketLayer"
 	_object_packet_layer.z_as_relative = false
 	_object_packet_layer.z_index = 0
 	_object_packet_layer.texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS
 	add_child(_object_packet_layer)
+	# Source setters commonly run while the packet layer is still lazy. Native
+	# presentation may create it much later, after worker buffers are staged, so
+	# creation must replay every stored source before validating those buffers.
+	# Otherwise enabling living/spiky flora would turn a valid worker result into
+	# a terminal missing-atlas failure and leave the whole chunk reveal-gated.
+	_sync_object_packet_layer_sources(_object_packet_layer)
 	_object_packet_layer.set_world_origin_y(position.y)
 	_object_packet_layer.set_debug_collisions_visible(_debug_object_collisions_visible)
 	return _object_packet_layer
+
+
+func _sync_object_packet_layer_sources(layer: WorldObjectPacketLayer) -> void:
+	if layer == null or not is_instance_valid(layer):
+		return
+	layer.set_living_flora_atlas(_living_flora_atlas)
+	layer.set_spiky_flora_atlases(_spiky_flora_atlases)
+	layer.set_tree_atlas(_tree_atlas)
+	layer.set_layered_tree_asset_dirs(_layered_tree_asset_dirs)
+	layer.set_layered_small_rock_asset_dirs(_layered_small_rock_asset_dirs)
 
 
 func _clear_object_packet_visual() -> void:

@@ -5,7 +5,7 @@ status: approved
 owner: engineering+design
 source_of_truth: true
 version: 1.10
-last_updated: 2026-07-09
+last_updated: 2026-07-14
 related_docs:
   - multiplayer_and_modding.md
   - ../../05_adrs/0003-immutable-base-plus-runtime-diff.md
@@ -79,7 +79,7 @@ saved). See `WeatherSaveData` in `packet_schemas.md`.
   chunk-diff shape, so old saves stay load-compatible.
 
 Current world generation extension:
-- `world.json` now records `world_version: 62` for the current finite-world
+- `world.json` now records `world_version: 63` for the current finite-world
   foundation baseline with `64`-tile substrate cells, native high-resolution
   overview, Lake Generation L2 packet output (`TERRAIN_LAKE_BED_SHALLOW`,
   `TERRAIN_LAKE_BED_DEEP`, and `lake_flags`), and the 2026-05-03
@@ -212,9 +212,11 @@ Current world generation extension:
   `worldgen_settings.plains_small_rocks` with cluster radius/count, intra-cluster
   distance, and edge/rocky/path bias fields.
 - Current native visual object packet fields for flora, trees, and small rocks
-  are immutable generated presentation records plus loaded base-collision proofs
-  where `object_flags` requests them.
-  They are regenerated from `world_seed + chunk_coord + world_version` plus the
+  are immutable generated presentation records. Current emitters keep
+  `object_flags` at `0`; loaded tree-trunk collision derives from
+  `object_kind == 4` and native `tree_collision_records`, while small rocks have
+  no collision. Records are regenerated from
+  `world_seed + chunk_coord + world_version` plus the
   frozen `worldgen_settings` profile data. Object records themselves are not
   stored in `world.json` or per-chunk diff files.
 - `WorldRuntimeConstants.WORLD_VERSION` is therefore `63` for current saves;
@@ -316,7 +318,7 @@ Confirmed `world.json` shape in the current worldgen code path:
   "world_rebuild_frozen": false,
   "world_scene_present": true,
   "world_seed": 131071,
-  "world_version": 62,
+  "world_version": 63,
   "worldgen_settings": {
     "world_bounds": {
       "width_tiles": 4096,

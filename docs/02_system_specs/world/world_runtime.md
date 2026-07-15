@@ -76,15 +76,17 @@ V0 explicitly does not include:
 - connector requests
 - forward lobe / velocity-biased streaming
 - hidden preload experiments
-- node reuse pools unless profiling later proves they are immediately required
+- general-purpose or unbounded node reuse pools; the narrow bounded
+  object-presentation envelope pool is authorized by the amendment below
 - a broad native framework or multi-class native API
 
 ### Narrow Visual Object Presentation Amendment
 
 `World Object Placement V0` authorizes one narrow exception to the original
 decor/placement exclusion: a `plains`-only generated object presentation layer
-owned by `ChunkView`, plus explicit loaded base-collision proofs for large
-blocking decor.
+scheduled and retained by `WorldStreamer` through `WorldObjectPacketLayer`.
+`ChunkView` adopts the completed layer by reference for atomic reveal, including
+chunk-scoped trunk collision derived for current tree records.
 
 This amendment does not add gameplay placements to `ChunkPacketV0`, harvesting,
 resource yield, save diffs, commands, events, or non-`plains` biome placement.
@@ -93,6 +95,78 @@ flora, trees, and visual-only small rock proofs. The visual layer is derived
 presentation from the already loaded chunk packet and must remain bounded by
 chunk-level batches, sparse layered object roots, and shader uniforms, not CPU
 draw operations per object.
+
+Chunk reveal is coherent for the current layered object families: tree channel
+batches, small-rock channel batches, and tree trunk shape owners are staged
+incrementally while hidden, then enabled in one main-thread commit. Empty depth
+buckets are skipped without consuming an upload slice; visible asset pop-in is
+not an accepted substitute for a shorter queue. Prepared tree shapes remain on
+collision layer `0` until the owning chunk itself becomes visible, because
+Canvas visibility does not disable physics.
+
+The object upload lane is completion-biased. Reveal-frontier/live transactions
+always precede source-padding prestage, and the selected atomic transaction
+keeps the lane until `COMPLETE` unless a higher urgency class or genuinely
+closer same-class reveal deadline arrives. Enqueue detects that preemption in
+O(1); equal/lower priority dirtiness waits for the focused transaction instead
+of repeatedly rescanning and starving uploads. The unique-token visual queue is
+hard-capped to the current plus outgoing source windows, removes tokens through
+an O(1) swap index, and refreshes its bounded priority snapshot incrementally in
+a standalone callback. Worker completion only enqueues a lightweight prestage envelope;
+hidden `Node`/RenderingServer allocation is created one transaction at a time
+inside the separately budgeted object presentation job. Incomplete hidden work
+is discarded immediately after it leaves source demand. A bounded GPU-resident
+hot cache complements (but does not replace) the packed CPU warm cache: a
+completed layer can survive temporary zoom/radius eviction and return with zero
+raw `MultiMesh.buffer` uploads. Promoted layers stay on the world presentation
+root and `ChunkView` owns their reveal/collision state by reference, avoiding a
+reveal-frame CanvasItem reparent while preserving identical world transforms.
+The dispatcher never performs raw apply and reveal in one callback: one APPLY
+phase may consume several predictively bounded sub-slices, then a
+later FINALIZE phase adopts the completed world-parented layer and releases
+visibility plus collision atomically. The process-frame reveal guard also
+prevents the mountain visual job from bypassing that boundary later in the same
+frame. A small bounded boot/recycle pool owns first-use family envelopes and
+their first stripe resources outside the moving-player deadline. Every envelope
+also prepares the fixed depth-band roots and optional living contact-shadow
+graph. After the boot pool is exhausted, the cold transaction persists across
+explicit callbacks: bare shell, tree fixed bands, rock fixed bands, optional
+flora fixed graphs, collision owner, then incremental family begin. A missing
+per-stripe visual slot is an allocation-only callback; its packed visual/shadow
+buffer is uploaded in a later warmed callback. The latest depth-ladder anchor is
+rebased once after `COMPLETE` in its own callback before adoption/reveal, so a
+moving player cannot combine a band migration with raw upload or cause hidden
+staging to chase every anchor stripe.
+An incomplete presentation that is the only reveal transaction for a live hidden
+chunk is counted as transient visible-ring working set, not reusable hot-cache
+residency. Trimming skips it instead of evicting and recursively restaging the
+same reservation; after `COMPLETE`, promotion or normal eviction restores the
+configured residency cap. Cached worker payloads remain immutable across this
+lifecycle: recycle drops packed-array aliases and never clears the source arrays.
+Committed residency weights count all retained CanvasItem owners and release
+inactive dense `MultiMesh` buffers after sparse reuse before recording exact GPU
+bytes. Active, retiring, and pooled graphs all participate in the same
+conservative residency totals. Eviction only enqueues retirement; a separate
+lane performs exactly one visual-slot/collider/reset/pool-shrink operation per
+callback and never chains the next operation. Source-only prestage retains its
+token under retirement or budget pressure and retries autonomously, while live
+reveal work bypasses that admission backpressure. Only fully cleaned layers may
+enter the bounded pool, whose overflow shrinks one resource at a time.
+
+Layered visual batches use `QuadMesh`, whose primitive V axis is opposite the
+PNG/Canvas top-left convention. Every layered trunk/foliage/albedo/snow shader
+must convert `UV.y` exactly once before atlas, mask, wind, and top-factor
+sampling. The custom projected-shadow mesh already owns Canvas-oriented UVs and
+must not receive that conversion. This is a visual identity contract, not LOD.
+
+Layered tree/rock materials belong to the boot-prepared shared asset catalog,
+not to individual chunks. A sun-state change updates those shared shader
+uniforms once in `WorldStreamer`; chunk iteration is reserved for legacy or
+truly chunk-owned materials. Catalog setters are idempotent so a repeated
+identical state cannot multiply RenderingServer writes by the loaded view count.
+Pooled/cold batch layers read the current catalog season and sun values when
+configured; their compatibility setters update only local visibility/state and
+must never write shared catalog uniforms.
 
 Only approved tree trunks expose collision in the current proof. Their collision
 must be chunk-scoped through one `StaticBody2D` with shape owners per loaded
@@ -134,9 +208,9 @@ direction rule as layered trees.
 | Save/load required? | Yes, for per-chunk tile overrides only |
 | Deterministic? | Yes, base packet is pure `f(seed, coord, world_version)` |
 | Must work on unloaded chunks? | Yes, diff store remains authoritative when a chunk is not loaded |
-| C++ compute or main-thread apply? | Generation in C++; publish/apply on main thread only |
+| C++ compute or main-thread apply? | Canonical generation and transient object/grass buffer packing in C++ workers; bounded scene/GPU/physics apply on the main thread only |
 | Dirty unit | `16 x 16` chunk for generation, one tile for authoritative mutation, one chunk object packet for visual object placement, bounded local visual patch for adjacency-dependent terrain presentation, bounded cell batches for publish |
-| Single owner | `WorldCore` owns canonical base output; `WorldDiffStore` owns persisted overrides; `ChunkView` owns only presentation |
+| Single owner | `WorldCore` owns canonical base output; `WorldDiffStore` owns persisted overrides; `WorldStreamer` owns streaming/presentation scheduling, caches, pool, and retirement; `ChunkView` owns chunk terrain and the adopted reveal/collision reference |
 | 10x / 100x scale path | More chunks increase queued packet generation and sliced publish work; they do not expand the interactive mutation path |
 | Main-thread blocking risk | Allowed only for bounded apply slices; heavy generation stays off-thread |
 | Hidden GDScript fallback? | Forbidden; native world core is required |
@@ -163,7 +237,7 @@ Required fields:
 |---|---|---|
 | `chunk_coord` | `Vector2i` | canonical chunk coordinate |
 | `world_seed` | `int` | copied into the packet for validation/debug |
-| `world_version` | `int` | first V0 runtime value starts at `1`; current active contract is `59` |
+| `world_version` | `int` | first V0 runtime value starts at `1`; current active contract is `63` |
 | `terrain_ids` | `PackedInt32Array` | length `256`, one terrain id per local tile |
 | `terrain_atlas_indices` | `PackedInt32Array` | length `256`, derived presentation atlas index per local tile |
 | `walkable_flags` | `PackedByteArray` | length `256`, `1 = walkable`, `0 = blocked` |
@@ -178,13 +252,14 @@ Approved additive visual object fields:
 | `object_size_px` | `PackedByteArray` | rendered sprite size in pixels |
 | `object_atlas_index` | `PackedByteArray` | prepared atlas bank index for the family; spiky flora index `1` is the small static brown seaweed biofield object; tree and small rock use index `0` |
 | `object_variant` | `PackedByteArray` | atlas frame / animation view variant; small rock selects the layered asset directory |
-| `object_flags` | `PackedByteArray` | visual/physics proof flags; bit `0` = blocking base-collision proof |
+| `object_flags` | `PackedByteArray` | reserved; current packets write `0`. Tree collision derives from `object_kind == 4`/native tree collision records, never from bit `0`; small rocks have none |
 | `object_tint` | `PackedByteArray` | `0..255` presentation tint scalar |
 | `object_phase` | `PackedByteArray` | `0..255` deterministic animation phase |
 
-All visual object arrays must have identical length. They are derived immutable
-base output for presentation and explicit base-collision proofs only;
-they are not saved as gameplay object state.
+All visual object arrays must have identical length and are immutable generated
+presentation records. Loaded tree-trunk collision derives from current
+`object_kind == 4` records, not from `object_flags`; the arrays are not saved as
+gameplay object state.
 
 `terrain_atlas_indices` rules:
 - it is derived presentation metadata, not authoritative terrain state
@@ -203,6 +278,20 @@ Forbidden packet fields in V0:
 - precomputed decor batch buffers
 - connector requests
 - seasonal or weather state
+
+`ObjectPresentationBufferResult` is not a packet field. It is a transient,
+revision-tagged worker result derived from the approved `object_*` arrays and is
+documented separately in `meta/packet_schemas.md`. Keeping it outside
+`ChunkPacketV1` preserves the canonical native packet boundary above.
+The worker result contains ready raw stripe buffers for living flora, both
+spiky-flora atlas banks, trees, and small rocks plus derived living shadows and
+tree collision descriptors. Runtime publication validates and incrementally
+stages all of them before the owning chunk is revealed; it never rescans the
+packet to rebuild flora on the main thread.
+The worker receives enable flags derived from actually prepared flora sources.
+Known living/spiky records are suppressed with zero presentation payload when
+their sources are disabled, so canonical placement may stay stable without
+changing current visuals or blocking chunk reveal.
 
 ### Terrain Palette
 
@@ -235,6 +324,30 @@ Rules:
 - no per-tile callbacks
 - the live runtime uses one native packet boundary only; no single-chunk helper
   API remains
+
+The same native class also exposes narrow synchronous pure-compute presentation
+helpers such as `build_object_presentation_buffers(...)`. They are invoked only
+on worker-local `WorldCore` instances. They do not generate placement truth,
+touch Resources/Nodes/GPU state, or add fields to the canonical chunk packet.
+
+Packet, mountain-mask, grass, and object-presentation requests share one
+distance-aware worker pool. Its size is derived from logical CPU count while
+reserving main/render capacity and is capped independently of the number of
+compute kinds. Interactive/reveal work precedes streaming/background work;
+dispatch-turn aging prevents starvation within one priority class. Cross-class
+ordering uses a bounded weighted-fair quota: interactive work is never delayed,
+while a sustained reveal flood yields one oldest streaming request after five
+reveal request dispatches; sustained non-background work likewise yields one
+oldest background request after 31 request dispatches. Every detached packet-
+batch member counts separately toward that debt. Thus source prefetch retains a finite
+latency bound for vehicle travel without allowing aged low-priority work to form
+a burst ahead of the visible frontier.
+Source-padding object packing is streaming class and is promoted to reveal class
+when the chunk enters the visible/publish frontier. Native packet batches are
+bounded, require exact settings equality, and may combine only requests on the
+same priority frontier. An incompatible exact-priority request closes that FIFO
+frontier, so a far or later-compatible batch cannot delay a newly urgent mining
+mask or chunk-reveal presentation job.
 
 Implementation shape is intentionally flat:
 - keep native sources directly under `gdextension/src/`
@@ -446,7 +559,38 @@ Rules:
 - no transport-aware lead
 - no hidden second preload ring
 - candidate chunks are ordered by simple distance from the player
-- chunk lifecycle stays minimal: `absent -> queued -> generating -> ready -> visible -> evicted`
+- queued packet requests are coalesced by `(epoch, chunk_coord)`. Replacement
+  swaps the complete generation snapshot (seed, version, exact settings and
+  priority) while preserving enqueue age/FIFO sequence; it never combines old
+  generation inputs with a new request
+- priority selection and packet-batch detachment each make one linear queue pass
+  under the shared mutex. A batch requires exact native `PackedFloat32Array`
+  settings equality and one priority frontier; an incompatible exact-priority
+  request is a stable FIFO barrier
+- weighted-fair debt is charged for every request in a native batch, and a batch
+  stops at the remaining quota boundary. A fairness grant is exactly one request
+  and cannot open another batch
+- object-presentation enqueue retains ref-counted copy-on-write `PackedArray`
+  snapshots in O(1) relative to payload size. Producer and worker only read them
+  through completion; rebinding is safe, mutating shared ownership violates the
+  contract
+- queued requests have distance priority refreshed when the desired source
+  bubble changes and are removed before compute when no longer relevant
+- work already executing cannot be cancelled; its epoch-tagged result is
+  accepted only against current demand, otherwise it may enter the bounded
+  warm base-packet cache
+- chunk lifecycle stays minimal: `absent -> queued -> generating -> ready ->
+  visible -> evicted/warm-cached`
+
+The streamer owns one bounded LRU-style warm cache of **immutable native base
+packets**. Its capacity is the maximum viewport source-bubble footprint
+(`121` chunks with the current radius contract). It is derived runtime state:
+never saved, never authoritative, and cleared on world reset. A cache hit moves
+the base packet back into the resident source set and reapplies the current
+`WorldDiffStore` before publish; diff-applied packets are never stored as the
+base. The cache does not retain `ChunkView` nodes or GPU presentation resources.
+This makes zoom-in/zoom-out and short backtracking avoid redundant native world
+generation without turning the cache into a second preload ring.
 
 ### Publish / Apply Rules
 
@@ -463,6 +607,9 @@ Main-thread publish rules:
 - worker threads must not emit scene-dependent events
 - `TileMapLayer.clear()` is forbidden on runtime mutation paths
 - TileMap autotiling / neighbour-solving APIs are forbidden on runtime hot paths
+- publish/visibility readiness checks must be O(1); diagnostic halo counts are
+  maintained when the halo changes and must not be rescanned during ordinary
+  chunk publication
 
 Single-tile mutation rules:
 - write one override into `WorldDiffStore`
