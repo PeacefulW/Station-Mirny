@@ -4,7 +4,7 @@ doc_type: system_spec
 status: approved
 owner: engineering+design
 source_of_truth: true
-version: 1.4
+version: 1.8
 last_updated: 2026-07-15
 related_docs:
   - ../../00_governance/ENGINEERING_STANDARDS.md
@@ -56,11 +56,14 @@ orange biofield cores. Wind strength is one shared truth: when later systems
 - Native (`WorldCore`) grass scatter buffer build per chunk: deterministic tuft
   placement sampled from the same aperiodic world fields the ground shader
   uses (`grass_density`, `orange_region`, `rock_region`).
-- Output format: a ready interleaved `MultiMesh` 2D buffer (transform + color)
-  applied on the main thread with a single `multimesh.buffer` assignment.
-- A thin `ChunkView` grass scatter layer: low grass only, split into the shared
-  16 px depth-ladder stripes so it interleaves exactly with the player and
-  object decor; no collision and no save state.
+- Output format: ready interleaved `MultiMesh` 2D buffers (transform + color).
+  Each packed phase reaches the GPU through one `multimesh.buffer` assignment;
+  a full page stages its bounded stripe/fixed-pass phases across callbacks and
+  exposes them only at the later atomic commit.
+- A world-owned full-LOD grass render-page layer: fixed `4 x 1` chunk pages,
+  split into the shared 16 px depth-ladder stripes so grass interleaves exactly
+  with the player and object decor; no collision and no save state. Profiles
+  that author fractional zoom LOD retain the legacy chunk-owned layer.
 - Grass tuft atlas (albedo + directional shadow) baked as PNG assets by the
   Blender tool pipeline (`tools/grass_atlas`, since v1.1; previously the
   GDScript tuft painter), preloaded at runtime.
@@ -107,12 +110,12 @@ blockers for the V0 contract.
 | Canonical world data, runtime overlay, or visual only? | Wind state is environment runtime local state (ADR-0007 layer 3), presentation-only consumers in V0. Grass scatter is visual only. Canonical terrain ids and walkability are untouched. |
 | Save/load required? | No. Wind reconstructs on load (ADR-0007: only slow world state persists; V0 has none). Grass is derived. |
 | Deterministic? | Grass placement: yes — pure function of seed, world version, chunk, and authored params. Wind animation: intentionally non-deterministic visual drift, never read by gameplay in V0. |
-| Must it work on unloaded chunks? | Grass buffers exist only for loaded chunk views. Placement is derivable for any chunk on demand. |
-| C++ compute or main-thread apply? | Tuft placement and buffer packing in C++; main thread only assigns the finished buffer; the shader animates. |
-| Dirty unit | Wind: one global state struct. Grass: one chunk scatter buffer. |
-| Single owner | Wind state: `WindRuntime`. Grass placement: `WorldCore` native build. Grass scene apply: chunk grass scatter layer. |
-| 10x / 100x scale path | More tufts stay in one buffer per chunk (no per-instance calls); more wind consumers read the same globals (no per-consumer broadcast). |
-| Main-thread blocking risk | Buffer assignment is one bounded copy per chunk through the existing decorative visual upload path. |
+| Must it work on unloaded chunks? | Placement remains derivable per chunk. A bounded world-owned GPU hot cache may retain completed render pages after their chunk views leave the visible ring; it is transient and cleared on world reset. |
+| C++ compute or main-thread apply? | Tuft placement and page-buffer merge/packing in C++ workers; the main thread only stages bounded raw-buffer assignments and atomically commits a completed page; shaders animate and mask inactive page slots. |
+| Dirty unit | Wind: one global state struct. Grass placement: one chunk scatter result. Full-LOD presentation: one contributor slot inside a fixed `4 x 1` render page; scene commit unit: one complete page revision. |
+| Single owner | Wind state: `WindRuntime`. Grass placement and page merge: `WorldCore` native helpers. Scheduling, demand, revisions, and cache: `WorldStreamer`. Scene/GPU apply: `GrassRenderPage`. |
+| 10x / 100x scale path | Tufts stay in native-packed buffers and four horizontal chunks share each set of 64 depth stripes. Page count grows with the bounded source window, never with total world size or per-instance script work. More wind consumers read the same globals. |
+| Main-thread blocking risk | Each callback performs at most one bounded raw-buffer upload phase. A page stays on its previous front resources until every staging phase is ready, then commits atomically. No native merge or instance walk runs on the main thread. |
 | Hidden fallback? | Forbidden. No GDScript placement fallback when native is unavailable; fail explicitly. |
 | Could it become heavy later? | Yes (denser grass, more consumers) — which is why placement is native-first and wind is globals-first now. |
 | Whole-world prepass or local compute only? | Local per-chunk compute only. |
@@ -280,8 +283,11 @@ authored data:
   layered tree shadows). The shadow pass is fixed below the complete depth
   ladder (`Z_GRASS_SHADOW + 1`), so full-detail grass does not need one shadow
   CanvasItem per depth stripe. Native worker output includes one flat
-  `directional_shadow_buffer`; `ChunkView` uploads it into one bounded
-  `MultiMeshInstance2D` per chunk (`overlay_exact` material with wind zeroed).
+  `directional_shadow_buffer`. In the full-LOD path, native page merge rebases
+  and concatenates those chunk contributors and `GrassRenderPage` uploads one
+  bounded `MultiMeshInstance2D` for the page (`overlay_exact` material with wind
+  zeroed). `ChunkView` remains the upload owner only for the legacy
+  fractional-LOD path.
   Grass albedo remains per-stripe and its exact player/object ordering is
   unchanged. If an authored profile enables fractional zoom LOD, runtime uses
   the retained legacy per-stripe shadow path for that profile from publication
@@ -450,7 +456,7 @@ PNGs; runtime atlas painting is forbidden. Contract checks:
 | Wind behaviour curve | `WorldVisualWindProfile` |
 | Grass placement compute | `WorldCore` (C++) |
 | Grass buffer request/refresh scheduling | `WorldStreamer` + shared distance-aware `WorldChunkPacketBackend` worker pool |
-| Grass scene apply + layer lifecycle | chunk grass scatter layer inside `ChunkView` |
+| Grass scene apply + layer lifecycle | full-LOD world-owned `GrassRenderPage`; legacy fractional-LOD chunk layer inside `ChunkView` |
 | Grass look + wind response | shared grass shader family + authored material set |
 
 ### Flow
@@ -461,21 +467,45 @@ PNGs; runtime atlas painting is forbidden. Contract checks:
    `WorldChunkPacketBackend` pool. Each worker owns its own `WorldCore`; neither
    native placement nor buffer packing runs from the main-thread visual job.
    Requests are coalesced by chunk, carry `(epoch, revision, priority)`, and
-   queued stale revisions are removed when visible demand changes.
-3. Native returns the finished buffer. `WorldStreamer` rejects stale
-   epoch/revision results; the visual upload job assigns a current result to the
-   chunk's grass `MultiMesh` stripes through bounded raw-buffer phases. For the
-   current authored full-detail LOD envelope it also assigns the flat directional
-   shadow payload in one separate bounded phase; this never loops over instances
-   on the main thread. Native placement rejects
+   queued stale revisions are removed when visible demand changes. A request
+   may retain an already-derived explicit mountain halo, or pass a fixed 3x3
+   row-major window of shallow immutable packet envelopes. In the latter mode
+   that same worker derives `remaining_halo` through
+   `WorldCore.build_chunk_halo_fields` immediately before scatter packing;
+   GDScript only assembles/checks the nine fixed envelope slots and never scans
+   or deep-copies their packed channels.
+3. Native returns the finished per-chunk scatter result. For the current
+   authored full-detail LOD envelope, `WorldStreamer` retains that immutable
+   result as one contributor of a fixed `4 x 1` page and queues a coalesced
+   native `build_grass_render_page_buffer` worker request. The native merge
+   orders contributors by slot and changes only transform `origin.x` by
+   `slot * chunk_size_px`; basis, Y, color, instance order, and the 64 stripe
+   identities are preserved exactly. GDScript never traverses instance floats.
+   Page demand has three independent masks. `active` means its `ChunkView` has
+   passed blocking reveal and may be shown; `prestage` means the chunk is in the
+   visible ring but is still hidden by another blocking presentation; `source`
+   is the wider warm padding ring. Active/prestage slots are mandatory for a
+   reveal-priority merge. Source-only slots are optional in that merge when
+   already exact; a page with only source demand waits for all required source
+   contributors so it performs one useful warm merge instead of repeated
+   partial uploads. Mutations coalesce until one backend sync per streaming
+   tick.
+4. `WorldStreamer` rejects stale epoch/page/chunk revisions. The visual upload
+   job assigns at most one raw page-buffer phase per callback into unattached
+   staging `MultiMesh` resources. Existing front resources remain visible until
+   all 64 albedo stripes and the applicable shadow/spore pass are staged; one
+   later commit swaps the complete page. A changed contributor is hidden by the
+   page slot mask until its required revision is committed, while unaffected
+   slots keep their old front. Native placement rejects
    candidates inside mountain-edge clearance (`WorldCore.build_grass_scatter_buffer`
-   takes the same cross-chunk `mountain_solid_halo` `WorldStreamer` already
-   builds for the mountain mask, not just the chunk's own tiles — see
+   consumes the same cross-chunk `remaining_halo` contract as mountain
+   presentation, supplied either from the current explicit cache or derived
+   from the fixed packet window on the grass worker — see
    `mountain_object_occlusion.md` and `packet_schemas.md`), so decorative grass
    cannot peek from under the organic runtime mountain mask.
-4. Every frame, `WindRuntime` advances wind state and writes the three global
+5. Every frame, `WindRuntime` advances wind state and writes the five global
    uniforms once.
-5. The grass shader animates vertices from globals + per-instance data. No
+6. The grass shader animates vertices from globals + per-instance data. No
    per-frame CPU work touches grass.
 
 ### Z-order and layering: the player-relative mid-layer depth ladder
@@ -497,14 +527,17 @@ than the screen at gameplay zooms) stripes pin to the ladder edges where
 relative errors are no longer distinguishable.
 
 `WorldStreamer` owns the anchor and broadcasts only its changed stripe. Each
-chunk-local batch owner realizes the exact clamped formula through a shared
+page or legacy chunk batch owner realizes the exact clamped formula through a shared
 three-band rebase (`DepthLadderBandRoot`): fixed north/south clamp roots plus
 one linear root. A normal 16 px anchor step writes the linear root z once and
 migrates only stripe nodes crossing the clamp boundaries; it never walks all
 64 stripes and never rebuilds a buffer. Newly uploaded non-empty stripes
 register in their current band and inherit the already-applied anchor. Native
 returns the tuft buffer pre-split per chunk-local stripe (`bucket_buffers`, sparse
-`MultiMeshInstance2D` nodes per non-empty stripe). Mountain presentation sits
+`MultiMeshInstance2D` nodes per non-empty stripe). A full-LOD page has one
+stripe node for the same world-row stripe across up to four horizontal chunks;
+it therefore preserves exact Y ordering while removing redundant horizontal
+CanvasItems. Mountain presentation sits
 BELOW the whole ladder (`Z_MOUNTAIN_TOP/PAGE = 19`, construction-only
 `Z_MOUNTAIN_ROOF = 20`, ladder base `21`; see
 `mountain_object_occlusion.md`): trees/rocks/player always draw over the
@@ -541,26 +574,45 @@ with this feature on or off.
 ## Performance Class
 
 - Wind update: `interactive`-frame work, O(1) (a few trig/noise evaluations +
-  3 global uniform writes).
+  5 global uniform writes).
 - Grass build: `background` native compute per chunk.
 - Grass shares the bounded worker pool with packet, mask, and object-presentation
   compute. Priority classes and weighted fairness protect reveal and streaming
   progress. Grass builds may execute concurrently on different worker-local
   `WorldCore` instances and remain bounded by the configured pool size.
-- Grass apply: bounded main-thread publish (one buffer assignment per chunk)
-  on the decorative visual upload path.
-- Full-detail directional-shadow apply: one additional bounded raw buffer
-  assignment and one fixed-z CanvasItem per chunk, instead of one shadow draw
-  per non-empty depth stripe. With `S` non-empty stripes the grass+directional
-  shadow draw-item count changes from `2*S` to `S+1`; the albedo `S` and its
-  exact depth ordering are unchanged.
+- Grass page merge: `background` native compute over at most four immutable
+  contributor handles. Work is coalesced by `(epoch, page_coord)` and stale
+  page/chunk revisions are rejected; no page merge scans or copies payloads in
+  GDScript.
+- Cross-chunk grass halo: `background` native compute over exactly nine shallow
+  immutable packet envelopes on the same worker as scatter packing. The main
+  thread copies only the fixed envelope shells; packed channels remain shared
+  handles. Malformed count/type/native output yields one failed request with
+  epoch/revision metadata and no hidden fallback.
+- Grass apply: bounded main-thread publish. Cold page configuration owns exactly
+  five CanvasItems (page, ladder, and three band roots) and uploads no buffer.
+  Every later callback allocates at most one CanvasItem and at most one
+  `MultiMesh`, or performs at most one raw page-buffer upload; a callback that
+  allocates performs no upload. A separate O(1) atomic commit follows.
+  Front/staging reuse bounds each stripe to at most two `MultiMesh` resources.
+- Full-detail render ownership: a fixed `4 x 1` page owns at most 64 albedo
+  stripe CanvasItems, one mutually exclusive directional- or contact-shadow
+  CanvasItem, and the authored optional spore pass, instead of repeating those
+  owners per horizontal chunk. Four dense contributors therefore change the albedo plus
+  directional-shadow graph from `4 * 65 = 260` to `65` without changing any
+  depth stripe or instance payload.
 - Depth-anchor rebase: O(loaded chunk batch owners) root writes plus only the
   active nodes crossing either clamp boundary (at most two stripe boundaries
   per 16 px step per owner), independent of the 64-stripe table and instance
   density. Its effective z is exactly `z_for_stripe_vs_anchor`; mountain and
   fixed shadow layers are outside these roots.
 - Target scale: thousands of tufts per dense chunk, dozens of loaded chunks;
-  authored per-chunk instance cap bounds worst-case buffer size.
+  authored per-chunk instance cap bounds contributor size and four contributors
+  bound one page. At radius four, 81 chunks occupy at most 27 aligned `4 x 1`
+  pages (`5184 -> 1728` theoretical albedo stripe owners before sparse empty
+  stripes; directional shadows `81 -> 27`). For the current maximum source
+  window, transition-safe residency is derived as `5` page columns by `12`
+  rows, hence a bounded `60`-page cap; it is never sized from world extent.
 - Zoom LOD (Iteration 3): the native buffer is importance-ordered (large
   tufts first, small detail last), so far zoom trims the tail through one
   `visible_instance_count` write per chunk — no rebuild, no per-instance
@@ -569,7 +621,9 @@ with this feature on or off.
   `lod_min_fraction = 1.0` disables trimming entirely (the current authored
   default after visual review: pop-out of small tufts read worse than the
   fill-rate cost).
-- Escalation path: lower authored densities; band split tuning.
+- Escalation path: a direction/velocity-aware forward lobe that extends the
+  existing symmetric source window and visible-ring page prestage for vehicles;
+  authored density/fill-rate tuning only after page batching is measured.
 
 ## Modding / Extension Points
 
@@ -603,11 +657,19 @@ V0 is acceptable when:
   GDScript loop over tuft instances (static check);
 - grass publish goes through the bounded decorative path and never blocks
   chunk reveal;
-- with the checked-in full-detail LOD profile, a committed grass chunk owns at
-  most one visible directional-shadow draw layer regardless of its number of
-  non-empty albedo stripes; a synthetic 64-stripe result therefore proves
-  `128 -> 65` grass+directional-shadow draw layers without changing albedo
-  stripe count or z values;
+- with the checked-in full-detail LOD profile, four dense neighbouring chunk
+  results commit into one page owning exactly 64 albedo stripes and at most one
+  directional-shadow draw layer; a synthetic contract test proves `260 -> 65`,
+  negative-X floor page math, exact world-stripe Z values, deterministic slot
+  order, and bit-for-bit preservation of every payload float except rebased X;
+- page publication is atomic: the previous front remains unchanged until the
+  final commit, stale page/chunk revisions cannot replace it, and a dirty slot
+  remains masked until its required revision is committed;
+- exact front-buffer residency is queryable independently from shader
+  visibility: active masking belongs to reveal, while prestaged/hidden slots may
+  already satisfy their exact committed revision;
+- a zoom-out/zoom-in round trip over the bounded hot-cache window performs zero
+  native grass recomputes, zero page merges, and zero raw page-buffer uploads;
 - the grass atlases (albedo + directional shadow) are checked-in PNGs
   produced by the Blender bake pipeline (`tools/grass_atlas`); no runtime
   atlas painting;
@@ -759,16 +821,16 @@ feature thinner than the sampled radius — worse at *larger* radii, not better.
 
 - Native clearance now reads `mountain_solid_halo` (per-tile solid bytes,
   `halo_side = chunk_size_tiles + 2*halo_radius_tiles`), the same cross-chunk
-  halo `WorldStreamer._build_mountain_solid_halo` already builds from the 3x3
-  neighbouring chunks for the mountain mask itself — no new computation, just
-  reuse of an existing per-chunk-cached array.
+  `remaining_halo` used by the mountain mask. Runtime may reuse an already
+  derived packed halo or let the grass worker derive it from the same fixed 3x3
+  packet window; neither mode performs a packet scan on the main thread.
 - `has_grass_mountain_clearance` now scans every halo tile inside a filled
   disk of radius `GRASS_MOUNTAIN_CLEARANCE_PX` around the candidate instead of
   8 ring points, so a thin mountain feature cannot be skipped over.
 - `build_grass_scatter_buffer` signature gained `mountain_halo` +
   `mountain_halo_radius_tiles` params (see `packet_schemas.md`); the
-  `WorldStreamer` call site passes `_get_cached_mountain_solid_halo(chunk_coord)`
-  (already computed for the mountain mask) straight through.
+  worker backend passes either the explicit cached halo or the exact
+  `remaining_halo` returned by worker-local `build_chunk_halo_fields`.
 - Verified via `tools/tmp_grass_mountain_overlap_probe.gd` (windowed, deleted
   after use): sampled every rendered tuft's sprite span against the mountain's
   solid mask at multiple world locations/densities; overlap count went from a
@@ -804,6 +866,81 @@ the shadow pass never participates in the depth ladder.
   wind deformation, placement, mining invalidation, and save semantics are
   unchanged.
 
+### Iteration 7 — Full-LOD world-owned grass render pages — IMPLEMENTED / STRUCTURALLY VERIFIED
+
+The F4 performance capture (`20260715_152917_487`) is GPU/render bound: clean
+frames average `23.585 ms`, viewport GPU averages `23.003 ms`, and frame/GPU
+correlation is `0.968`. Chunk-local full-detail grass still repeats the same 64
+world-row CanvasItem stripes for every horizontal chunk, so reducing worker or
+dispatcher time cannot recover the missing frame budget by itself.
+
+- Fixed page geometry is `4 x 1` chunks. Page X uses mathematical floor
+  division (including negative chunk coordinates); slot is always `0..3`.
+- The authoritative scatter result remains the immutable per-chunk native
+  `GrassScatterBufferResult`. A second pure native worker helper merges up to
+  four contributors into `GrassRenderPageBufferResult`; it changes only local
+  transform X and returns O(1) count/byte metadata.
+- `GrassRenderPage` is a presentation owner, not world truth. It owns 64 exact
+  depth stripes and flat shadow/spore passes under the existing
+  `DepthLadderBandRoot`, stages into unattached back resources, and swaps the
+  complete revision atomically.
+- Page-local material clones carry an active-slot bit mask. Shaders derive the
+  slot from the instance transform origin; they never encode slot identity in
+  color, so existing atlas/tint/wind payloads remain unchanged. Legacy material
+  default `page_slot_mask = -1` preserves the old output.
+- The page cache is independent from `ChunkView`. Slot visibility follows
+  current chunk reveal plus required contributor revision; page resources may
+  remain warm across zoom eviction and are cleared on world reset.
+- Demand is explicitly three-tier: revealed `active`, hidden-visible-ring
+  `prestage`, and outer warm `source`. Active/prestage contributors never wait
+  for an unavailable optional source slot; pure-source pages remain
+  all-or-nothing. `is_chunk_committed` reports exact front residency rather than
+  shader visibility, so a hidden prestaged slot is not misdiagnosed as missing.
+- The cache capacity is derived from the bounded source-window footprint and its
+  one-step transition envelope (`5 x 12 = 60` pages for the current radii).
+  A hot zoom round trip restores slot masks without scatter recompute, native
+  page merge, raw upload, or resource reallocation.
+- Traversal distance must not grow coordinator state. A page entry with zero
+  `active`, `prestage`, and `source` demand is removed as soon as it owns no
+  resident payload; request/ready/retry/eviction bookkeeping is retired before
+  erasure. Invalidation and inactive updates for an absent page are no-ops, so
+  they cannot create nonresident tombstones behind the player.
+- Demand zero is also a cancellation barrier for unpublished presentation.
+  A completed result that has not started upload is removed from the ready lane;
+  an in-progress back-buffer transaction is canceled without mutating the
+  committed front. If no exact committed slot remains reusable, the payload is
+  released and the entry is pruned immediately. Otherwise only that exact front
+  remains as an ordinary bounded LRU resident; stale work never has to finish a
+  GPU upload merely to become evictable.
+- LRU retirement uses one exact ticket per entry and a monotonic queue cursor,
+  never `Array.pop_front()`. Cancel/reschedule reuses the still-live ticket;
+  exact ticket matching makes a stale physical record harmless if the same page
+  coordinate is later recreated. One visual callback examines at most eight
+  physical records. Physical capacity is
+  `clamp(max_resident_pages + 16, 16, 256)`, independent from world extent.
+- Evicted page Nodes are cleared of pending/front/back GPU payload, detached
+  from the scene tree, and retained in a pool of at most four reusable shells.
+  Reuse preserves the already-created CanvasItem graph without allocating a new
+  shell. Manager clear, reconfiguration, and world-epoch reset free both
+  resident pages and every detached pooled shell.
+- Cold shell setup is explicitly bounded at five CanvasItems. Hot visual phases
+  admit at most one CanvasItem allocation and one `MultiMesh` allocation, or one
+  raw-buffer assignment, with every allocation callback separated from upload
+  and the complete front swapped atomically.
+- The page path is selected only for the checked-in full-detail LOD envelope.
+  Any profile with fractional LOD keeps the existing chunk-owned implementation
+  until an independently specified page-compatible LOD contract exists.
+- This iteration does not add a forward lobe or transport policy. Predictive
+  source-frontier scheduling is the next iteration after the page renderer is
+  measured and visually accepted.
+
+Native/backend/page/manager and zoom-roundtrip contracts structurally verify
+the invariants above. The pruning, cursor queue, and shell pool bound coordinator
+work and lifetime state; they do not establish an FPS improvement or a stable
+60 FPS result. Required runtime acceptance still includes a post-Iteration-7
+windowed F4 comparison, visual identity pass, continuous traversal, mountain
+digging, and vehicle-speed acceptance.
+
 ## Required Updates
 
 - `docs/README.md` and `docs/02_system_specs/README.md`: link this spec (done
@@ -812,6 +949,13 @@ the shadow pass never participates in the depth ladder.
   (Iteration 2; done). Signature + clearance mechanism updated again for
   Iteration 5 (cross-chunk halo) and the Iteration 6 flat directional-shadow
   buffer; done.
+- `packet_schemas.md`: add `GrassRenderPageBufferResult` and its worker metadata
+  in Iteration 7 (done).
+- `system_api.md`: add the pure native
+  `build_grass_render_page_buffer(...)` helper in Iteration 7 (done).
+- `packet_schemas.md` + `system_api.md`: document the optional fixed 3x3
+  immutable worker-halo input, completion metadata, and
+  `build_chunk_halo_fields(...)` helper (done).
 - `system_api.md`: required only if `WindRuntime` exposes a public read/API.
   `get_wind_gustiness()` and debug override entries are documented.
 - `event_contracts.md`, `commands.md`: not required in V0 (no events, no

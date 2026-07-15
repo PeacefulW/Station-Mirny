@@ -25,6 +25,7 @@ var _completed_overviews: Array[Dictionary] = []
 var _completed_mountain_rasters: Array[Dictionary] = []
 var _completed_mountain_halo_masks: Array[Dictionary] = []
 var _completed_grass_scatter_buffers: Array[Dictionary] = []
+var _completed_grass_render_pages: Array[Dictionary] = []
 var _completed_object_presentation_buffers: Array[Dictionary] = []
 var _completed_result_head_by_queue: Dictionary = {}
 var _worker_should_exit: bool = false
@@ -165,6 +166,11 @@ func sync_packet_requests(epoch: int, priority_by_coord: Dictionary) -> Array[Ve
 	return removed_coords
 
 
+## Grass input uses the same immutable-owner contract as object presentation:
+## enqueue retains ref-counted PackedArray handles in O(1). When the explicit
+## halo is empty, callers may append a fixed row-major 3x3 packet window. The
+## outer array and packet dictionaries are copied shallowly; their packed
+## channels remain immutable handles and are derived only on the worker.
 func queue_grass_scatter_request(
 		chunk_coord: Vector2i,
 		seed: int,
@@ -177,16 +183,25 @@ func queue_grass_scatter_request(
 		revision: int,
 		priority: int = 0,
 		priority_class: int = PRIORITY_CLASS_STREAMING,
+		halo_packets_3x3: Array = [],
 ) -> void:
+	var owned_halo_packets: Array = []
+	owned_halo_packets.resize(halo_packets_3x3.size())
+	for packet_index: int in range(halo_packets_3x3.size()):
+		var packet_variant: Variant = halo_packets_3x3[packet_index]
+		owned_halo_packets[packet_index] = \
+				(packet_variant as Dictionary).duplicate(false) \
+				if packet_variant is Dictionary else packet_variant
 	var request := {
 		"kind": "grass_scatter",
 		"coord": chunk_coord,
 		"seed": seed,
-		"terrain_ids": terrain_ids.duplicate(),
-		"lake_flags": lake_flags.duplicate(),
-		"mountain_solid_halo": mountain_solid_halo.duplicate(),
+		"terrain_ids": terrain_ids,
+		"lake_flags": lake_flags,
+		"mountain_solid_halo": mountain_solid_halo,
 		"mountain_solid_halo_radius_tiles": maxi(0, mountain_solid_halo_radius_tiles),
-		"grass_params": grass_params.duplicate(),
+		"halo_packets_3x3": owned_halo_packets,
+		"grass_params": grass_params,
 		"epoch": epoch,
 		"revision": revision,
 		"priority": priority,
@@ -235,6 +250,108 @@ func sync_grass_scatter_requests(epoch: int, revision_and_priority_by_coord: Dic
 	_consume_cancelled_request_permits_locked(removed_coords.size())
 	_request_mutex.unlock()
 	return removed_coords
+
+
+## Queues a pure native merge of up to four immutable chunk-local grass
+## results into one fixed horizontal render page. The outer Array and each
+## contributor envelope are copied shallowly so a caller may safely rebind or
+## mutate its dictionaries after this call; PackedArray payloads remain shared
+## under the same immutable-owner contract as object presentation results.
+func queue_grass_render_page_request(
+		page_coord: Vector2i,
+		contributors: Array,
+		page_width_chunks: int,
+		chunk_size_px: float,
+		epoch: int,
+		page_revision: int,
+		priority: int = 0,
+		priority_class: int = PRIORITY_CLASS_STREAMING,
+) -> void:
+	var owned_contributors: Array = []
+	owned_contributors.resize(contributors.size())
+	for contributor_index: int in range(contributors.size()):
+		var contributor_variant: Variant = contributors[contributor_index]
+		owned_contributors[contributor_index] = \
+				(contributor_variant as Dictionary).duplicate(false) \
+				if contributor_variant is Dictionary else contributor_variant
+	var request := {
+		"kind": "grass_render_page",
+		"page_coord": page_coord,
+		"contributors": owned_contributors,
+		"page_width_chunks": page_width_chunks,
+		"chunk_size_px": chunk_size_px,
+		"epoch": epoch,
+		"page_revision": page_revision,
+		"priority": priority,
+		"priority_class": priority_class,
+		"queued_msec": Time.get_ticks_msec(),
+	}
+	_request_mutex.lock()
+	for request_index: int in range(_pending_requests.size()):
+		var queued_request: Dictionary = _pending_requests[request_index] as Dictionary
+		if str(queued_request.get("kind", "")) != "grass_render_page" \
+				or int(queued_request.get("epoch", -1)) != epoch \
+				or (queued_request.get("page_coord", Vector2i.ZERO) as Vector2i) \
+						!= page_coord:
+			continue
+		request["enqueued_turn"] = int(
+			queued_request.get("enqueued_turn", _request_dispatch_turn)
+		)
+		request["enqueue_sequence"] = int(
+			queued_request.get("enqueue_sequence", _next_request_enqueue_sequence)
+		)
+		_pending_requests[request_index] = request
+		_reset_fairness_debt_without_waiters_locked()
+		_request_mutex.unlock()
+		return
+	request["enqueued_turn"] = _request_dispatch_turn
+	request["enqueue_sequence"] = _claim_request_enqueue_sequence_locked()
+	_pending_requests.append(request)
+	_request_semaphore.post()
+	_request_mutex.unlock()
+
+
+## Reconciles only queued page merges. A worker-owned request may still finish;
+## its epoch/page_revision metadata lets WorldStreamer reject it without ever
+## exposing stale buffers. Pending requests are coalesced by fixed page key.
+func sync_grass_render_page_requests(
+		epoch: int,
+		revision_and_priority_by_page: Dictionary,
+) -> Array[Vector2i]:
+	var removed_pages: Array[Vector2i] = []
+	_request_mutex.lock()
+	var retained: Array[Dictionary] = []
+	for request: Dictionary in _pending_requests:
+		if str(request.get("kind", "")) != "grass_render_page" \
+				or int(request.get("epoch", -1)) != epoch:
+			retained.append(request)
+			continue
+		var page_coord: Vector2i = request.get(
+			"page_coord",
+			Vector2i.ZERO,
+		) as Vector2i
+		var current: Dictionary = revision_and_priority_by_page.get(
+			page_coord,
+			{},
+		) as Dictionary
+		if current.is_empty() \
+				or int(current.get("page_revision", -1)) \
+						!= int(request.get("page_revision", -2)):
+			removed_pages.append(page_coord)
+			continue
+		request["priority"] = int(current.get("priority", 0))
+		request["priority_class"] = int(
+			current.get(
+				"priority_class",
+				request.get("priority_class", PRIORITY_CLASS_STREAMING),
+			)
+		)
+		retained.append(request)
+	_pending_requests = retained
+	_reset_fairness_debt_without_waiters_locked()
+	_consume_cancelled_request_permits_locked(removed_pages.size())
+	_request_mutex.unlock()
+	return removed_pages
 
 
 ## Queues pure object-packet decoding/bucketing for a worker-local WorldCore.
@@ -533,6 +650,17 @@ func drain_completed_grass_scatter_buffers(max_count: int) -> Array[Dictionary]:
 	return drained
 
 
+func drain_completed_grass_render_pages(max_count: int) -> Array[Dictionary]:
+	_result_mutex.lock()
+	var drained: Array[Dictionary] = _drain_result_queue_locked(
+		_completed_grass_render_pages,
+		&"grass_render_pages",
+		max_count,
+	)
+	_result_mutex.unlock()
+	return drained
+
+
 func drain_completed_object_presentation_buffers(max_count: int) -> Array[Dictionary]:
 	_result_mutex.lock()
 	var drained: Array[Dictionary] = _drain_result_queue_locked(
@@ -561,6 +689,7 @@ func clear_queued_work() -> void:
 	_completed_mountain_rasters.clear()
 	_completed_mountain_halo_masks.clear()
 	_completed_grass_scatter_buffers.clear()
+	_completed_grass_render_pages.clear()
 	_completed_object_presentation_buffers.clear()
 	_completed_result_head_by_queue.clear()
 	_result_mutex.unlock()
@@ -616,6 +745,16 @@ func has_completed_grass_scatter_buffers() -> bool:
 	var has_completed: bool = _result_queue_has_unread_locked(
 		_completed_grass_scatter_buffers,
 		&"grass_scatter",
+	)
+	_result_mutex.unlock()
+	return has_completed
+
+
+func has_completed_grass_render_pages() -> bool:
+	_result_mutex.lock()
+	var has_completed: bool = _result_queue_has_unread_locked(
+		_completed_grass_render_pages,
+		&"grass_render_pages",
 	)
 	_result_mutex.unlock()
 	return has_completed
@@ -1059,19 +1198,44 @@ func _process_mountain_halo_mask_request(worker_world_core: Object, request: Dic
 func _process_grass_scatter_request(worker_world_core: Object, request: Dictionary) -> void:
 	var started_msec: int = Time.get_ticks_msec()
 	var result: Dictionary = { }
-	if not worker_world_core.has_method("build_grass_scatter_buffer"):
+	var mountain_halo: PackedByteArray = request.get(
+		"mountain_solid_halo",
+		PackedByteArray(),
+	) as PackedByteArray
+	var halo_packets: Array = request.get("halo_packets_3x3", []) as Array
+	var halo_source: StringName = &"explicit"
+	var halo_derived: bool = false
+	var halo_derivation_ms: int = 0
+	if mountain_halo.is_empty() and not halo_packets.is_empty():
+		halo_source = &"worker_3x3"
+		var halo_started_msec: int = Time.get_ticks_msec()
+		var halo_result: Dictionary = _derive_grass_mountain_halo_on_worker(
+			worker_world_core,
+			halo_packets,
+			int(request.get("mountain_solid_halo_radius_tiles", 0)),
+		)
+		halo_derivation_ms = Time.get_ticks_msec() - halo_started_msec
+		if bool(halo_result.get("success", false)):
+			mountain_halo = halo_result.get(
+				"remaining_halo",
+				PackedByteArray(),
+			) as PackedByteArray
+			halo_derived = true
+		else:
+			result = halo_result
+	if result.is_empty() and not worker_world_core.has_method("build_grass_scatter_buffer"):
 		result = {
 			"success": false,
 			"message": "WorldCore.build_grass_scatter_buffer is unavailable in this build.",
 		}
-	else:
+	elif result.is_empty():
 		var result_variant: Variant = worker_world_core.call(
 			"build_grass_scatter_buffer",
 			int(request.get("seed", 0)),
 			request.get("coord", Vector2i.ZERO) as Vector2i,
 			request.get("terrain_ids", PackedInt32Array()) as PackedInt32Array,
 			request.get("lake_flags", PackedByteArray()) as PackedByteArray,
-			request.get("mountain_solid_halo", PackedByteArray()) as PackedByteArray,
+			mountain_halo,
 			int(request.get("mountain_solid_halo_radius_tiles", 0)),
 			request.get("grass_params", PackedFloat32Array()) as PackedFloat32Array,
 		)
@@ -1089,6 +1253,9 @@ func _process_grass_scatter_request(worker_world_core: Object, request: Dictiona
 	result["epoch"] = int(request.get("epoch", -1))
 	result["revision"] = int(request.get("revision", -1))
 	result["target_chunk"] = request.get("coord", Vector2i.ZERO) as Vector2i
+	result["mountain_halo_source"] = halo_source
+	result["mountain_halo_derived"] = halo_derived
+	result["mountain_halo_derivation_ms"] = halo_derivation_ms
 	result["queued_msec"] = int(request.get("queued_msec", started_msec))
 	result["worker_started_msec"] = started_msec
 	result["worker_elapsed_ms"] = completed_msec - started_msec
@@ -1096,6 +1263,108 @@ func _process_grass_scatter_request(worker_world_core: Object, request: Dictiona
 	result["request_to_complete_ms"] = completed_msec - int(request.get("queued_msec", started_msec))
 	_result_mutex.lock()
 	_completed_grass_scatter_buffers.append(result)
+	_result_mutex.unlock()
+
+
+## Validates only the fixed envelope boundary in GDScript. Full packed-channel
+## types and exact 256-cell shapes stay inside native build_chunk_halo_fields,
+## so the worker performs one bounded derivation and the main thread performs
+## no packet scan or PackedArray copy.
+func _derive_grass_mountain_halo_on_worker(
+		worker_world_core: Object,
+		halo_packets_3x3: Array,
+		halo_radius_tiles: int,
+) -> Dictionary:
+	if halo_packets_3x3.size() != 9:
+		return {
+			"success": false,
+			"message": "Grass scatter worker halo requires exactly nine packet envelopes.",
+		}
+	for packet_index: int in range(halo_packets_3x3.size()):
+		if not halo_packets_3x3[packet_index] is Dictionary:
+			return {
+				"success": false,
+				"message": "Grass scatter worker halo packet %d is not a Dictionary or void boundary envelope." % packet_index,
+			}
+	if not worker_world_core.has_method("build_chunk_halo_fields"):
+		return {
+			"success": false,
+			"message": "WorldCore.build_chunk_halo_fields is unavailable in this build.",
+		}
+	var halo_variant: Variant = worker_world_core.call(
+		"build_chunk_halo_fields",
+		halo_packets_3x3,
+		halo_radius_tiles,
+	)
+	if not halo_variant is Dictionary:
+		return {
+			"success": false,
+			"message": "Native chunk halo builder returned non-dictionary result.",
+		}
+	var halo_result: Dictionary = halo_variant as Dictionary
+	if not bool(halo_result.get("success", false)):
+		return {
+			"success": false,
+			"message": "Grass scatter worker halo derivation failed: %s" % str(
+				halo_result.get("message", "unknown native halo error"),
+			),
+		}
+	var remaining_variant: Variant = halo_result.get("remaining_halo", null)
+	if not remaining_variant is PackedByteArray \
+			or (remaining_variant as PackedByteArray).is_empty():
+		return {
+			"success": false,
+			"message": "Native chunk halo builder returned an invalid remaining_halo.",
+		}
+	return {
+		"success": true,
+		"remaining_halo": remaining_variant as PackedByteArray,
+	}
+
+
+func _process_grass_render_page_request(
+		worker_world_core: Object,
+		request: Dictionary,
+) -> void:
+	var started_msec: int = Time.get_ticks_msec()
+	var result: Dictionary = { }
+	if not worker_world_core.has_method("build_grass_render_page_buffer"):
+		result = {
+			"success": false,
+			"message": "WorldCore.build_grass_render_page_buffer is unavailable in this build.",
+		}
+	else:
+		var result_variant: Variant = worker_world_core.call(
+			"build_grass_render_page_buffer",
+			request.get("contributors", []) as Array,
+			int(request.get("page_width_chunks", 0)),
+			float(request.get("chunk_size_px", 0.0)),
+		)
+		if result_variant is Dictionary:
+			result = result_variant as Dictionary
+			result["success"] = not result.has("error")
+			if result.has("error"):
+				result["message"] = str(
+					result.get("error", "Native grass render-page merge failed.")
+				)
+		else:
+			result = {
+				"success": false,
+				"message": "Native grass render-page builder returned non-dictionary result.",
+			}
+	var completed_msec: int = Time.get_ticks_msec()
+	result["epoch"] = int(request.get("epoch", -1))
+	result["page_revision"] = int(request.get("page_revision", -1))
+	result["page_coord"] = request.get("page_coord", Vector2i.ZERO) as Vector2i
+	result["queued_msec"] = int(request.get("queued_msec", started_msec))
+	result["worker_started_msec"] = started_msec
+	result["worker_elapsed_ms"] = completed_msec - started_msec
+	result["queue_wait_ms"] = started_msec \
+			- int(request.get("queued_msec", started_msec))
+	result["request_to_complete_ms"] = completed_msec \
+			- int(request.get("queued_msec", started_msec))
+	_result_mutex.lock()
+	_completed_grass_render_pages.append(result)
 	_result_mutex.unlock()
 
 
@@ -1355,6 +1624,9 @@ func _worker_loop() -> void:
 			continue
 		if str(base_request.get("kind", "packet")) == "grass_scatter":
 			_process_grass_scatter_request(worker_world_core, base_request)
+			continue
+		if str(base_request.get("kind", "packet")) == "grass_render_page":
+			_process_grass_render_page_request(worker_world_core, base_request)
 			continue
 		if str(base_request.get("kind", "packet")) == "object_presentation":
 			_process_object_presentation_request(worker_world_core, base_request)

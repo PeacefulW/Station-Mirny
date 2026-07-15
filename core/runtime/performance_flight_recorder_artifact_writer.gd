@@ -114,6 +114,13 @@ func _calculate_trace_statistics(
 	var render_object_index: int = columns.find("render_objects")
 	var object_queue_index: int = columns.find("object_upload_queue")
 	var visibility_index: int = columns.find("visibility_wait")
+	var grass_page_inflight_index: int = columns.find("grass_page_inflight")
+	var grass_page_ready_cpu_index: int = columns.find("grass_page_ready_cpu")
+	var grass_page_upload_queue_index: int = columns.find("grass_page_upload_queue")
+	var grass_page_resident_index: int = columns.find("grass_page_resident")
+	var grass_page_active_slots_index: int = columns.find("grass_page_active_slots")
+	var grass_page_worker_ms_index: int = columns.find("grass_page_worker_ms")
+	var grass_page_latency_ms_index: int = columns.find("grass_page_latency_ms")
 	var player_x_index: int = columns.find("player_x")
 	var player_y_index: int = columns.find("player_y")
 	var frames: Array[float] = []
@@ -126,6 +133,13 @@ func _calculate_trace_statistics(
 	var max_render_objects: int = 0
 	var max_object_queue: int = 0
 	var max_visibility_wait: int = 0
+	var max_grass_page_inflight: int = 0
+	var max_grass_page_ready_cpu: int = 0
+	var max_grass_page_upload_queue: int = 0
+	var max_grass_page_resident: int = 0
+	var max_grass_page_active_slots: int = 0
+	var max_grass_page_worker_ms: float = 0.0
+	var max_grass_page_latency_ms: float = 0.0
 	var start_position: Vector2 = Vector2.ZERO
 	var end_position: Vector2 = Vector2.ZERO
 	for sample_index: int in range(sample_count):
@@ -155,6 +169,34 @@ func _calculate_trace_statistics(
 			max_visibility_wait,
 			int(trace_data[offset + visibility_index]),
 		)
+		max_grass_page_inflight = maxi(
+			max_grass_page_inflight,
+			int(trace_data[offset + grass_page_inflight_index]),
+		)
+		max_grass_page_ready_cpu = maxi(
+			max_grass_page_ready_cpu,
+			int(trace_data[offset + grass_page_ready_cpu_index]),
+		)
+		max_grass_page_upload_queue = maxi(
+			max_grass_page_upload_queue,
+			int(trace_data[offset + grass_page_upload_queue_index]),
+		)
+		max_grass_page_resident = maxi(
+			max_grass_page_resident,
+			int(trace_data[offset + grass_page_resident_index]),
+		)
+		max_grass_page_active_slots = maxi(
+			max_grass_page_active_slots,
+			int(trace_data[offset + grass_page_active_slots_index]),
+		)
+		max_grass_page_worker_ms = maxf(
+			max_grass_page_worker_ms,
+			trace_data[offset + grass_page_worker_ms_index],
+		)
+		max_grass_page_latency_ms = maxf(
+			max_grass_page_latency_ms,
+			trace_data[offset + grass_page_latency_ms_index],
+		)
 		if trace_data[offset + taint_index] > 0.5:
 			continue
 		var frame_ms: float = trace_data[offset + frame_index]
@@ -180,6 +222,13 @@ func _calculate_trace_statistics(
 		"max_render_objects": max_render_objects,
 		"max_object_upload_queue": max_object_queue,
 		"max_visibility_wait": max_visibility_wait,
+		"max_grass_page_inflight": max_grass_page_inflight,
+		"max_grass_page_ready_cpu": max_grass_page_ready_cpu,
+		"max_grass_page_upload_queue": max_grass_page_upload_queue,
+		"max_grass_page_resident": max_grass_page_resident,
+		"max_grass_page_active_slots": max_grass_page_active_slots,
+		"max_grass_page_worker_ms": max_grass_page_worker_ms,
+		"max_grass_page_latency_ms": max_grass_page_latency_ms,
 		"straight_line_distance_px": start_position.distance_to(end_position),
 		"start_position": {"x": start_position.x, "y": start_position.y},
 		"end_position": {"x": end_position.x, "y": end_position.y},

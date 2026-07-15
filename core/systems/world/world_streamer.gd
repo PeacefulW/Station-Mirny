@@ -15,6 +15,8 @@ const Autotile47 = preload("res://core/systems/tiles/autotile_47.gd")
 const MountainPlateau2DRasterLayer = preload("res://core/systems/world/mountain_plateau_2d_raster_layer.gd")
 const MiningFeedbackLayer = preload("res://core/systems/world/mining_feedback_layer.gd")
 const WorldChunkPacketBackend = preload("res://core/systems/world/world_chunk_packet_backend.gd")
+const GrassRenderPage = preload("res://core/systems/world/grass_render_page.gd")
+const GrassRenderPageManager = preload("res://core/systems/world/grass_render_page_manager.gd")
 const WorldDiffStore = preload("res://core/systems/world/world_diff_store.gd")
 const WorldRuntimeConstants = preload("res://core/systems/world/world_runtime_constants.gd")
 const WorldVisualLightingProfile = preload("res://core/systems/world/world_visual_lighting_profile.gd")
@@ -50,6 +52,7 @@ const MAX_PACKET_RESULTS_PER_TICK: int = 8
 # the full worker burst, so result throughput remains high over a publish cycle.
 const MAX_PACKET_RESULTS_WHILE_PUBLISH_WAITING: int = 2
 const MAX_GRASS_SCATTER_RESULTS_PER_TICK: int = 12
+const MAX_GRASS_RENDER_PAGE_RESULTS_PER_TICK: int = 12
 const MAX_GRASS_SCATTER_RETRIES_PER_TICK: int = 2
 const GRASS_SCATTER_MAX_BACKGROUND_INFLIGHT: int = WORLD_COMPUTE_MAX_WORKERS * 2
 const GRASS_SCATTER_RETRY_BASE_DELAY_MSEC: int = 125
@@ -66,6 +69,10 @@ const MAX_MOUNTAIN_NATIVE_MASK_RETRIES_PER_TICK: int = 2
 # mask requests for a bounded number of queued chunks per tick.
 const PUBLISH_QUEUE_SCAN_LIMIT: int = 8
 const PUBLISH_MASK_PREFETCH_PER_TICK: int = 1
+# Reveal normally completes from the mountain/object callbacks. This bounded
+# safety lane closes lost wakeups (for example an expired one-frame guard) while
+# keeping the streaming callback independent from the visible-ring size.
+const MAX_PENDING_CHUNK_VISIBILITY_RETRIES_PER_TICK: int = 4
 # Active terrain batches may opportunistically warm the next halo only when the
 # preceding worker-result integration was cheap. A cold idle publisher ignores
 # this threshold after at most one deferred tick, guaranteeing forward progress
@@ -163,6 +170,20 @@ const MASK_MINING_SEARCH_RADIUS_TILES: int = 3
 const MAX_VIEWPORT_STREAM_RADIUS_CHUNKS: int = 4
 const WARM_PACKET_CACHE_SIDE_CHUNKS: int = MAX_VIEWPORT_STREAM_RADIUS_CHUNKS * 2 + 3
 const WARM_PACKET_CACHE_MAX_CHUNKS: int = WARM_PACKET_CACHE_SIDE_CHUNKS * WARM_PACKET_CACHE_SIDE_CHUNKS
+# A max-radius source window is 11x11 chunks. Four horizontal chunks share a
+# render page; arbitrary page alignment and a wrapped-X split add at most one
+# page column. One outgoing row remains warm; horizontal movement already shares
+# three of each page's four slots. A zoom round trip reuses a strict subset of
+# the max window. The cache remains independent from unbounded world space.
+const GRASS_RENDER_PAGE_CACHE_COLUMNS_MAX: int = ceili(
+	float(WARM_PACKET_CACHE_SIDE_CHUNKS + GrassRenderPage.PAGE_WIDTH_CHUNKS - 1) \
+			/ float(GrassRenderPage.PAGE_WIDTH_CHUNKS)
+) + 1
+const GRASS_RENDER_PAGE_CACHE_ROWS_MAX: int = WARM_PACKET_CACHE_SIDE_CHUNKS + 1
+const GRASS_RENDER_PAGE_CACHE_MAX_PAGES: int = \
+		GRASS_RENDER_PAGE_CACHE_COLUMNS_MAX * GRASS_RENDER_PAGE_CACHE_ROWS_MAX
+const GRASS_SOURCE_PREFETCH_MAX_REQUESTS_PER_TICK: int = 4
+const GRASS_SOURCE_PREFETCH_SCAN_LIMIT: int = 16
 # At most the current source window plus one outgoing window may retain visual
 # tokens during reconciliation/teleport. This hard cap makes the priority-scan
 # snapshot allocation itself bounded; hidden overflow keeps its lightweight
@@ -281,6 +302,7 @@ var _packet_backend: WorldChunkPacketBackend = _world_compute_backend
 var _mountain_mask_backend: WorldChunkPacketBackend = _world_compute_backend
 var _grass_scatter_backend: WorldChunkPacketBackend = _world_compute_backend
 var _object_presentation_backend: WorldChunkPacketBackend = _world_compute_backend
+var _grass_render_page_manager: GrassRenderPageManager = GrassRenderPageManager.new()
 var _world_compute_worker_count: int = 0
 var _layered_object_asset_catalog: WorldLayeredObjectAssetCatalog = WorldLayeredObjectAssetCatalog.new()
 var _awaiting_new_game_spawn_result: bool = false
@@ -377,6 +399,12 @@ var _pending_mountain_native_mask_visual_upload_set: Dictionary = { }
 # stays hidden. This prevents one CLOSED frame when loading/restoring the
 # player inside a cavity while visual work is budgeted.
 var _pending_chunk_visibility_after_mountain_visual: Dictionary = { }
+# The dense retry ring is indexed and removed by swap in O(1). A blocked chunk
+# keeps one token until reveal/eviction; traversal distance therefore cannot
+# grow this coordinator state or create a stale FIFO tail.
+var _pending_chunk_visibility_retry_slots: Array[Vector2i] = []
+var _pending_chunk_visibility_retry_slot_by_chunk: Dictionary = { }
+var _pending_chunk_visibility_retry_cursor: int = 0
 var _pending_terrain_edge_mask_visual_upload_chunks: Array[Vector2i] = []
 var _pending_terrain_edge_mask_visual_upload_set: Dictionary = { }
 var _pending_object_packet_visual_upload_chunks: Array[Vector2i] = []
@@ -484,6 +512,8 @@ var _grass_lod_min_zoom: float = 0.18
 var _grass_lod_min_fraction: float = 0.35
 var _grass_lod_fraction: float = 1.0
 var _grass_directional_shadow_consolidation_enabled: bool = false
+var _grass_render_pages_enabled: bool = false
+var _grass_source_prefetch_cursor: int = 0
 var _ladder_anchor_stripe: int = LADDER_ANCHOR_UNSET
 var _mountain_native_mask_visual_upload_count_total: int = 0
 var _mountain_native_mask_visual_upload_count_last_tick: int = 0
@@ -530,6 +560,7 @@ func _ready() -> void:
 	# Resolve textures/materials before the first streamed publish. Lazy source
 	# creation here used to charge shader/material setup to publish.begin.
 	_ensure_grass_scatter_sources()
+	_configure_grass_render_pages()
 	ChunkView.prewarm_tile_pattern_records()
 	_prewarm_chunk_view_cache()
 	assert(
@@ -621,6 +652,7 @@ func _exit_tree() -> void:
 	if _object_presentation_retire_job_id and FrameBudgetDispatcher:
 		FrameBudgetDispatcher.unregister_job(_object_presentation_retire_job_id)
 	_clear_hot_object_presentation_cache()
+	_grass_render_page_manager.clear()
 	_world_compute_backend.stop()
 
 
@@ -816,6 +848,9 @@ func get_mountain_contour_debug_state(chunk_coord: Vector2i) -> Dictionary:
 func get_perf_hud_snapshot() -> Dictionary:
 	var mountain_uploads: int = _pending_mountain_native_mask_visual_upload_chunks.size()
 	var terrain_uploads: int = _pending_terrain_edge_mask_visual_upload_chunks.size()
+	var grass_page_state: Dictionary = \
+			_grass_render_page_manager.get_debug_state() \
+			if _grass_render_pages_enabled else { }
 	var mask_retries: int = (
 		_mountain_native_mask_retry_by_chunk.size()
 		+ _combined_halo_build_retry_by_chunk.size()
@@ -848,6 +883,19 @@ func get_perf_hud_snapshot() -> Dictionary:
 		"grass_latency_ms": _grass_scatter_request_to_complete_ms_last,
 		"grass_warm_cache": _warm_grass_scatter_cache.size(),
 		"grass_warm_cache_bytes": _warm_grass_scatter_cache_bytes,
+		"grass_page_inflight": int(grass_page_state.get("inflight_pages", 0)),
+		"grass_page_ready_cpu": int(grass_page_state.get("ready_visual_pages", 0)),
+		"grass_page_upload_queue": int(grass_page_state.get("visual_upload_queue", 0)),
+		"grass_page_resident": int(grass_page_state.get("resident_pages", 0)),
+		"grass_page_active_slots": int(grass_page_state.get("active_slots", 0)),
+		"grass_page_worker_ms": float(grass_page_state.get("worker_elapsed_ms_last", 0.0)),
+		"grass_page_latency_ms": float(
+			grass_page_state.get("request_to_complete_ms_last", 0.0),
+		),
+		"grass_page_cache_hits_total": int(
+			grass_page_state.get("cache_hit_count_total", 0),
+		),
+		"grass_page_evictions_total": int(grass_page_state.get("eviction_count_total", 0)),
 		"mountain_mask_inflight": _mountain_native_mask_inflight_chunks.size(),
 		"terrain_mask_inflight": _terrain_edge_mask_inflight_chunks.size(),
 		"mountain_mask_upload_queue": mountain_uploads,
@@ -910,6 +958,9 @@ func get_mountain_mask_runtime_debug_state() -> Dictionary:
 		var hot_entry: Dictionary = entry_variant as Dictionary
 		if bool(hot_entry.get("ready", false)):
 			hot_object_ready_count += 1
+	var grass_render_page_debug: Dictionary = \
+			_grass_render_page_manager.get_debug_state() \
+			if _grass_render_pages_enabled else { }
 	var snapshot: Dictionary = _last_mountain_mask_result.duplicate(true)
 	snapshot["stream_radius_chunks"] = _current_stream_radius_chunks
 	snapshot["page_source_radius_chunks"] = MOUNTAIN_MASK_SOURCE_RADIUS_CHUNKS
@@ -1079,6 +1130,46 @@ func get_mountain_mask_runtime_debug_state() -> Dictionary:
 	snapshot["grass_scatter_warm_cache_count"] = _warm_grass_scatter_cache.size()
 	snapshot["grass_scatter_warm_cache_bytes"] = _warm_grass_scatter_cache_bytes
 	snapshot["grass_scatter_cache_hit_count_total"] = _grass_scatter_cache_hit_count_total
+	snapshot["grass_render_pages_enabled"] = _grass_render_pages_enabled
+	snapshot["grass_render_page_resident_count"] = int(
+		grass_render_page_debug.get("resident_pages", 0),
+	)
+	snapshot["grass_render_page_active_slot_count"] = int(
+		grass_render_page_debug.get("active_slots", 0),
+	)
+	snapshot["grass_render_page_inflight_count"] = int(
+		grass_render_page_debug.get("inflight_pages", 0),
+	)
+	snapshot["grass_render_page_ready_visual_count"] = int(
+		grass_render_page_debug.get("ready_visual_pages", 0),
+	)
+	snapshot["grass_render_page_visual_upload_queue_count"] = int(
+		grass_render_page_debug.get("visual_upload_queue", 0),
+	)
+	snapshot["grass_render_page_native_request_count_total"] = int(
+		grass_render_page_debug.get("native_request_count_total", 0),
+	)
+	snapshot["grass_render_page_native_merge_complete_count_total"] = int(
+		grass_render_page_debug.get("native_merge_complete_count_total", 0),
+	)
+	snapshot["grass_render_page_raw_upload_count_total"] = int(
+		grass_render_page_debug.get("raw_upload_count_total", 0),
+	)
+	snapshot["grass_render_page_commit_count_total"] = int(
+		grass_render_page_debug.get("commit_count_total", 0),
+	)
+	snapshot["grass_render_page_cache_hit_count_total"] = int(
+		grass_render_page_debug.get("cache_hit_count_total", 0),
+	)
+	snapshot["grass_render_page_eviction_count_total"] = int(
+		grass_render_page_debug.get("eviction_count_total", 0),
+	)
+	snapshot["grass_render_page_worker_elapsed_ms_last"] = float(
+		grass_render_page_debug.get("worker_elapsed_ms_last", 0.0),
+	)
+	snapshot["grass_render_page_request_to_complete_ms_last"] = float(
+		grass_render_page_debug.get("request_to_complete_ms_last", 0.0),
+	)
 	snapshot["hot_chunk_view_cache_count"] = _hot_chunk_view_cache.size()
 	snapshot["hot_chunk_view_cache_capacity"] = HOT_CHUNK_VIEW_CACHE_MAX_ENTRIES
 	snapshot["hot_chunk_view_cache_hit_count_total"] = _hot_chunk_view_cache_hit_count_total
@@ -2109,18 +2200,44 @@ func _streaming_tick() -> bool:
 	timing_step_usec = _record_streaming_step_timing(timing_records, "retry_objects", timing_step_usec)
 	_drain_completed_grass_scatter_buffers(MAX_GRASS_SCATTER_RESULTS_PER_TICK)
 	timing_step_usec = _record_streaming_step_timing(timing_records, "drain_grass", timing_step_usec)
+	if _grass_render_pages_enabled:
+		_grass_render_page_manager.drain_completed(
+			MAX_GRASS_RENDER_PAGE_RESULTS_PER_TICK,
+		)
+	timing_step_usec = _record_streaming_step_timing(
+		timing_records,
+		"drain_grass_pages",
+		timing_step_usec,
+	)
 	_retry_failed_grass_scatter_builds(MAX_GRASS_SCATTER_RETRIES_PER_TICK)
 	timing_step_usec = _record_streaming_step_timing(timing_records, "retry_grass", timing_step_usec)
 	_drain_completed_native_masks(MAX_MOUNTAIN_NATIVE_MASK_RESULTS_PER_TICK)
 	timing_step_usec = _record_streaming_step_timing(timing_records, "drain_native_masks", timing_step_usec)
 	_retry_failed_mountain_native_masks(MAX_MOUNTAIN_NATIVE_MASK_RETRIES_PER_TICK)
 	timing_step_usec = _record_streaming_step_timing(timing_records, "retry_native_masks", timing_step_usec)
+	_retry_pending_chunk_visibility(MAX_PENDING_CHUNK_VISIBILITY_RETRIES_PER_TICK)
+	timing_step_usec = _record_streaming_step_timing(
+		timing_records,
+		"retry_visibility",
+		timing_step_usec,
+	)
 	_publish_next_batch(
 		publish_queue_was_waiting,
 		idle_publish_was_waiting \
 				or packet_integrate_elapsed_usec <= PUBLISH_PREFETCH_PACKET_HEADROOM_USEC,
 	)
 	timing_step_usec = _record_streaming_step_timing(timing_records, "publish", timing_step_usec)
+	_prefetch_source_grass_scatter(
+		GRASS_SOURCE_PREFETCH_MAX_REQUESTS_PER_TICK,
+		GRASS_SOURCE_PREFETCH_SCAN_LIMIT,
+	)
+	if _grass_render_pages_enabled:
+		_grass_render_page_manager.flush_dirty_requests()
+	timing_step_usec = _record_streaming_step_timing(
+		timing_records,
+		"grass_page_schedule",
+		timing_step_usec,
+	)
 	_evict_outside_ring(1)
 	timing_step_usec = _record_streaming_step_timing(timing_records, "evict", timing_step_usec)
 	_end_mountain_native_mask_tick_metrics()
@@ -2842,6 +2959,37 @@ func _stage_ready_object_presentation(chunk_coord: Vector2i, chunk_view: ChunkVi
 	return true
 
 
+## A recycled ChunkView can still own its bounded local presentation envelope.
+## In that case hot-layer adoption is expected to reject a second owner. Keep
+## the immutable worker result and continue it through the existing local layer
+## instead of dropping the only reveal token.
+func _restore_live_object_presentation_after_failed_hot_promotion(
+		chunk_coord: Vector2i,
+		chunk_view: ChunkView,
+) -> bool:
+	if chunk_view == null:
+		return false
+	if chunk_view.is_object_blocking_presentation_ready():
+		return true
+	if chunk_view.has_pending_object_presentation_apply() \
+			and chunk_view.has_staged_object_presentation_result():
+		return true
+	var result: Dictionary = _object_presentation_results_by_chunk.get(
+		chunk_coord,
+		{ },
+	) as Dictionary
+	if result.is_empty() \
+			or not chunk_view.stage_object_presentation_result(
+				result,
+				_layered_object_asset_catalog,
+			):
+		return false
+	_drop_hot_object_prestage(chunk_coord)
+	_object_packet_visual_priority_dirty = true
+	_queue_object_packet_visual_upload(chunk_coord)
+	return true
+
+
 ## Streaming/publish-side handoff for a view that just became a reveal frontier.
 ## This method is deliberately queue-only: it is also the re-entry point for a
 ## terminal fallback whose previous view disappeared before its dispatcher turn.
@@ -2871,6 +3019,13 @@ func _invalidate_grass_scatter(chunk_coord: Vector2i) -> void:
 	_grass_scatter_retry_by_chunk.erase(chunk_coord)
 	_grass_scatter_next_revision += 1
 	_grass_scatter_revision_by_chunk[chunk_coord] = _grass_scatter_next_revision
+	if _grass_render_pages_enabled:
+		# Active stale grass disappears immediately through the page slot mask;
+		# neighbouring slots keep their already-committed front buffer.
+		_grass_render_page_manager.invalidate_chunk(
+			chunk_coord,
+			_grass_scatter_next_revision,
+		)
 
 
 func _current_grass_scatter_revision(chunk_coord: Vector2i) -> int:
@@ -2880,11 +3035,30 @@ func _current_grass_scatter_revision(chunk_coord: Vector2i) -> int:
 	return int(_grass_scatter_revision_by_chunk.get(chunk_coord, -1))
 
 
+func _set_grass_render_page_chunk_active(
+		chunk_coord: Vector2i,
+		active: bool,
+) -> bool:
+	if not _grass_render_pages_enabled:
+		return false
+	var revision: int = _current_grass_scatter_revision(chunk_coord)
+	_grass_render_page_manager.set_chunk_active(
+		chunk_coord,
+		active,
+		revision,
+		_chunk_request_priority(chunk_coord),
+	)
+	return active and _grass_render_page_manager.is_chunk_committed(
+		chunk_coord,
+		revision,
+	)
+
+
 func _stage_cached_grass_scatter(
 		chunk_coord: Vector2i,
-		chunk_view: ChunkView,
+		chunk_view: ChunkView = null,
 ) -> bool:
-	if chunk_view == null or not _grass_scatter_results_by_chunk.has(chunk_coord):
+	if not _grass_scatter_results_by_chunk.has(chunk_coord):
 		return false
 	var result: Dictionary = _grass_scatter_results_by_chunk.get(chunk_coord, { }) as Dictionary
 	if result.is_empty() \
@@ -2892,6 +3066,14 @@ func _stage_cached_grass_scatter(
 			or int(result.get("revision", -1)) \
 					!= int(_grass_scatter_revision_by_chunk.get(chunk_coord, -2)):
 		_grass_scatter_results_by_chunk.erase(chunk_coord)
+		return false
+	if _grass_render_pages_enabled:
+		return _grass_render_page_manager.accept_chunk_result(
+			chunk_coord,
+			result,
+			_chunk_request_priority(chunk_coord),
+		)
+	if chunk_view == null:
 		return false
 	if chunk_view.stage_grass_scatter_result(result):
 		_queue_grass_scatter_visual_upload(chunk_coord)
@@ -2905,7 +3087,8 @@ func _request_grass_scatter_build(chunk_coord: Vector2i) -> void:
 	var packet: Dictionary = _chunk_packets.get(chunk_coord, { }) as Dictionary
 	if packet.is_empty() or not _is_chunk_source_desired(chunk_coord):
 		return
-	if chunk_view != null and _stage_cached_grass_scatter(chunk_coord, chunk_view):
+	if (_grass_render_pages_enabled or chunk_view != null) \
+			and _stage_cached_grass_scatter(chunk_coord, chunk_view):
 		return
 	if _grass_scatter_results_by_chunk.has(chunk_coord):
 		return
@@ -2919,12 +3102,22 @@ func _request_grass_scatter_build(chunk_coord: Vector2i) -> void:
 	var revision: int = _current_grass_scatter_revision(chunk_coord)
 	if int(_grass_scatter_inflight_chunks.get(chunk_coord, -1)) == revision:
 		return
-	if not _has_loaded_mountain_halo_sources(chunk_coord):
-		return
 	_ensure_grass_scatter_sources()
+	var mountain_halo: Dictionary = _mountain_solid_halo_cache.get(
+		chunk_coord,
+		{ },
+	) as Dictionary
+	var halo_packets_3x3: Array = []
+	if not _is_runtime_halo_cache_entry_current(
+		mountain_halo,
+		_get_mountain_mask_revision(chunk_coord),
+	):
+		mountain_halo = { }
+		halo_packets_3x3 = _collect_grass_halo_packets_3x3(chunk_coord)
+		if halo_packets_3x3.is_empty():
+			return
 	_grass_scatter_inflight_chunks[chunk_coord] = revision
 	_streaming_worker_demand_dirty = true
-	var mountain_halo: Dictionary = _get_cached_mountain_solid_halo(chunk_coord)
 	_grass_scatter_backend.queue_grass_scatter_request(
 		chunk_coord,
 		int(packet.get("world_seed", world_seed)),
@@ -2936,7 +3129,42 @@ func _request_grass_scatter_build(chunk_coord: Vector2i) -> void:
 		_generation_epoch,
 		revision,
 		_chunk_request_priority(chunk_coord),
+		_grass_scatter_compute_priority_class(chunk_coord),
+		halo_packets_3x3,
 	)
+
+
+func _collect_grass_halo_packets_3x3(chunk_coord: Vector2i) -> Array:
+	var packets_3x3: Array = []
+	packets_3x3.resize(9)
+	var packet_index: int = 0
+	for source_offset_y: int in range(-1, 2):
+		for source_offset_x: int in range(-1, 2):
+			var source_coord: Vector2i = chunk_coord + Vector2i(
+				source_offset_x,
+				source_offset_y,
+			)
+			if _uses_finite_world_bounds() \
+					and not _world_bounds_settings.is_chunk_y_in_bounds(source_coord.y):
+				packets_3x3[packet_index] = { "halo_source_present": false }
+				packet_index += 1
+				continue
+			source_coord = _canonicalize_chunk_coord(source_coord)
+			var source_packet: Dictionary = _chunk_packets.get(source_coord, { }) as Dictionary
+			if source_packet.is_empty():
+				return []
+			packets_3x3[packet_index] = source_packet
+			packet_index += 1
+	return packets_3x3
+
+
+func _grass_scatter_compute_priority_class(chunk_coord: Vector2i) -> int:
+	if _is_chunk_desired(chunk_coord) \
+			or _chunk_views.has(chunk_coord) \
+			or _pending_publish_queue.has(chunk_coord) \
+			or chunk_coord == _active_publish_chunk:
+		return WorldChunkPacketBackend.PRIORITY_CLASS_REVEAL
+	return WorldChunkPacketBackend.PRIORITY_CLASS_STREAMING
 
 
 func _drop_grass_scatter_visual_upload(chunk_coord: Vector2i) -> void:
@@ -3046,6 +3274,9 @@ func _drain_completed_grass_scatter_buffers(max_count: int) -> void:
 			_store_warm_grass_scatter(chunk_coord, result)
 		else:
 			continue
+		if _grass_render_pages_enabled:
+			_stage_cached_grass_scatter(chunk_coord)
+			continue
 		var chunk_view: ChunkView = _chunk_views.get(chunk_coord, null) as ChunkView
 		if chunk_view == null or not _is_chunk_desired(chunk_coord):
 			continue
@@ -3076,6 +3307,37 @@ func _retry_failed_grass_scatter_builds(max_count: int) -> void:
 		var revision: int = _current_grass_scatter_revision(chunk_coord)
 		if int(_grass_scatter_inflight_chunks.get(chunk_coord, -1)) == revision:
 			continue
+		_request_grass_scatter_build(chunk_coord)
+		if int(_grass_scatter_inflight_chunks.get(chunk_coord, -1)) == revision:
+			queued_count += 1
+
+
+func _prefetch_source_grass_scatter(max_requests: int, scan_limit: int) -> void:
+	if max_requests <= 0 or scan_limit <= 0 \
+			or _desired_source_chunk_coords.is_empty():
+		return
+	var queued_count: int = 0
+	var inspected_count: int = 0
+	var source_count: int = _desired_source_chunk_coords.size()
+	while inspected_count < mini(scan_limit, source_count) \
+			and queued_count < max_requests:
+		var index: int = _grass_source_prefetch_cursor % source_count
+		_grass_source_prefetch_cursor = (_grass_source_prefetch_cursor + 1) % source_count
+		inspected_count += 1
+		var chunk_coord: Vector2i = _desired_source_chunk_coords[index]
+		if not _chunk_packets.has(chunk_coord) \
+				or not _is_chunk_source_desired(chunk_coord):
+			continue
+		if _grass_scatter_results_by_chunk.has(chunk_coord):
+			if _grass_render_pages_enabled:
+				_stage_cached_grass_scatter(chunk_coord)
+			continue
+		var revision: int = _current_grass_scatter_revision(chunk_coord)
+		if int(_grass_scatter_inflight_chunks.get(chunk_coord, -1)) == revision:
+			continue
+		# A cached halo is reused directly. Otherwise the request passes nine
+		# immutable packet envelopes and derives the identical field on its worker;
+		# this bounded scan never invokes halo construction on the main frame.
 		_request_grass_scatter_build(chunk_coord)
 		if int(_grass_scatter_inflight_chunks.get(chunk_coord, -1)) == revision:
 			queued_count += 1
@@ -3196,10 +3458,41 @@ func _ensure_grass_scatter_sources() -> void:
 			_grass_lod_min_fraction >= 0.9999
 
 
+func _configure_grass_render_pages() -> void:
+	# Page ownership is a static authored-envelope choice. A fractional grass LOD
+	# still uses the legacy per-chunk path because truncating page-wide buffers
+	# would change the exact per-chunk importance ordering at distant zoom.
+	_grass_render_pages_enabled = _grass_lod_min_fraction >= 0.9999
+	if not _grass_render_pages_enabled:
+		_grass_render_page_manager.clear()
+		return
+	var configured: bool = _grass_render_page_manager.configure(
+		self,
+		_grass_scatter_backend,
+		_grass_scatter_atlas,
+		_grass_scatter_material,
+		_grass_shadow_atlas,
+		_grass_shadow_atlas_material,
+		_grass_shadow_material,
+		_grass_spore_material,
+		GRASS_RENDER_PAGE_CACHE_MAX_PAGES,
+	)
+	assert(configured, "Grass render-page manager configuration failed")
+	_grass_render_page_manager.set_epoch(_generation_epoch)
+
+
 ## Exactly one bounded GPU phase per callback. FrameBudgetDispatcher may call
 ## this again while its measured/predicted lane still fits; every phase
 ## boundary remains visible to the budget instead of one 64-stripe black box.
 func _grass_scatter_visual_apply_tick() -> bool:
+	if _grass_render_pages_enabled:
+		var page_started: int = WorldPerfProbe.begin()
+		_grass_render_page_manager.apply_next_visual_phase()
+		WorldPerfProbe.end(
+			"WorldStreamer.visual_upload.grass_scatter_phase",
+			page_started,
+		)
+		return _grass_render_page_manager.has_pending_visual_upload()
 	var chunk_coord: Vector2i = _take_next_grass_scatter_visual_upload()
 	if chunk_coord == INVALID_CHUNK_COORD:
 		return false
@@ -3668,13 +3961,30 @@ func _object_presentation_visual_apply_tick() -> bool:
 					"WorldStreamer.visual_upload.object_packet_adopt",
 					adopt_started,
 				)
-				_drop_object_packet_visual_upload(chunk_coord)
 				if promoted:
+					_drop_object_packet_visual_upload(chunk_coord)
 					var reveal_started: int = WorldPerfProbe.begin()
 					_finalize_pending_chunk_visibility(chunk_coord)
 					WorldPerfProbe.end(
 						"WorldStreamer.visual_upload.object_packet_reveal",
 						reveal_started,
+					)
+				elif _restore_live_object_presentation_after_failed_hot_promotion(
+					chunk_coord,
+					chunk_view,
+				):
+					# The current unique token now owns the local bounded apply. If the
+					# view was already complete, close the gate immediately; otherwise
+					# the next object callback advances the retained worker result.
+					if chunk_view.is_object_blocking_presentation_ready():
+						_drop_object_packet_visual_upload(chunk_coord)
+						_finalize_pending_chunk_visibility(chunk_coord)
+				else:
+					_drop_object_packet_visual_upload(chunk_coord)
+					_record_object_presentation_failure(
+						chunk_coord,
+						int(_object_presentation_revision_by_chunk.get(chunk_coord, -1)),
+						"completed hot presentation could not transfer to the live view",
 					)
 				WorldPerfProbe.end(
 					"WorldStreamer.visual_upload.object_packet_finalize",
@@ -3884,6 +4194,8 @@ func _update_mid_ladder_anchor() -> void:
 		var chunk_view: ChunkView = _chunk_views.get(chunk_coord, null) as ChunkView
 		if chunk_view != null:
 			chunk_view.update_mid_ladder_z(anchor_stripe)
+	if _grass_render_pages_enabled:
+		_grass_render_page_manager.update_anchor(anchor_stripe)
 
 
 func _chunk_depth_ladder_can_change(
@@ -5035,15 +5347,81 @@ func _publish_next_batch(
 		if active_view.is_mountain_native_mask_visual_pending() \
 				or not active_view.is_object_blocking_presentation_ready() \
 				or _is_object_presentation_reveal_deferred(finalized_chunk):
-			_pending_chunk_visibility_after_mountain_visual[finalized_chunk] = true
+			_queue_pending_chunk_visibility(finalized_chunk)
 		else:
-			if active_view.has_pending_grass_scatter_visual():
+			var grass_is_ready: bool = not active_view.has_pending_grass_scatter_visual()
+			if _grass_render_pages_enabled:
+				grass_is_ready = _set_grass_render_page_chunk_active(
+					finalized_chunk,
+					true,
+				)
+			if not grass_is_ready:
 				_chunk_reveal_with_pending_grass_count_total += 1
 			active_view.set_object_collision_active(true)
 			active_view.visible = true
 			EventBus.chunk_loaded.emit(finalized_chunk)
 		WorldPerfProbe.end("WorldStreamer.publish.finalize", publish_finalize_started)
 		_active_publish_chunk = INVALID_CHUNK_COORD
+
+
+func _queue_pending_chunk_visibility(chunk_coord: Vector2i) -> void:
+	chunk_coord = _canonicalize_chunk_coord(chunk_coord)
+	_pending_chunk_visibility_after_mountain_visual[chunk_coord] = true
+	if _pending_chunk_visibility_retry_slot_by_chunk.has(chunk_coord):
+		return
+	_pending_chunk_visibility_retry_slot_by_chunk[chunk_coord] = \
+			_pending_chunk_visibility_retry_slots.size()
+	_pending_chunk_visibility_retry_slots.append(chunk_coord)
+
+
+func _drop_pending_chunk_visibility(chunk_coord: Vector2i) -> void:
+	chunk_coord = _canonicalize_chunk_coord(chunk_coord)
+	_pending_chunk_visibility_after_mountain_visual.erase(chunk_coord)
+	_object_presentation_reveal_not_before_frame_by_chunk.erase(chunk_coord)
+	if not _pending_chunk_visibility_retry_slot_by_chunk.has(chunk_coord):
+		return
+	var removed_index: int = int(
+		_pending_chunk_visibility_retry_slot_by_chunk.get(chunk_coord, -1),
+	)
+	_pending_chunk_visibility_retry_slot_by_chunk.erase(chunk_coord)
+	if removed_index < 0 \
+			or removed_index >= _pending_chunk_visibility_retry_slots.size():
+		return
+	var last_index: int = _pending_chunk_visibility_retry_slots.size() - 1
+	if removed_index != last_index:
+		var moved_coord: Vector2i = _pending_chunk_visibility_retry_slots[last_index]
+		_pending_chunk_visibility_retry_slots[removed_index] = moved_coord
+		_pending_chunk_visibility_retry_slot_by_chunk[moved_coord] = removed_index
+	_pending_chunk_visibility_retry_slots.pop_back()
+	if _pending_chunk_visibility_retry_slots.is_empty():
+		_pending_chunk_visibility_retry_cursor = 0
+	elif _pending_chunk_visibility_retry_cursor \
+			>= _pending_chunk_visibility_retry_slots.size():
+		_pending_chunk_visibility_retry_cursor = 0
+
+
+## Event callbacks remain the zero-latency fast path. This round-robin only
+## revisits a fixed number of explicit wait tokens, so an expired frame guard or
+## a callback that observed another blocker cannot strand a hidden ChunkView.
+func _retry_pending_chunk_visibility(max_count: int) -> void:
+	if max_count <= 0 or _pending_chunk_visibility_retry_slots.is_empty():
+		return
+	var initial_count: int = _pending_chunk_visibility_retry_slots.size()
+	var probed_count: int = 0
+	while probed_count < max_count \
+			and probed_count < initial_count \
+			and not _pending_chunk_visibility_retry_slots.is_empty():
+		if _pending_chunk_visibility_retry_cursor \
+				>= _pending_chunk_visibility_retry_slots.size():
+			_pending_chunk_visibility_retry_cursor = 0
+		var chunk_coord: Vector2i = _pending_chunk_visibility_retry_slots[
+			_pending_chunk_visibility_retry_cursor
+		]
+		_pending_chunk_visibility_retry_cursor = (
+			_pending_chunk_visibility_retry_cursor + 1
+		) % _pending_chunk_visibility_retry_slots.size()
+		probed_count += 1
+		_finalize_pending_chunk_visibility(chunk_coord)
 
 
 func _finalize_pending_chunk_visibility(chunk_coord: Vector2i) -> void:
@@ -5055,16 +5433,25 @@ func _finalize_pending_chunk_visibility(chunk_coord: Vector2i) -> void:
 		return
 	var chunk_view: ChunkView = _chunk_views.get(chunk_coord, null) as ChunkView
 	if chunk_view == null:
-		_pending_chunk_visibility_after_mountain_visual.erase(chunk_coord)
-		_object_presentation_reveal_not_before_frame_by_chunk.erase(chunk_coord)
+		_drop_pending_chunk_visibility(chunk_coord)
+		return
+	# Desired demand is the reveal authority. Keep the token while an outgoing
+	# view awaits bounded eviction so a quick zoom/traversal reversal can resume
+	# it, but never publish stale pixels, collision, or chunk_loaded meanwhile.
+	if not _is_chunk_desired(chunk_coord):
 		return
 	if chunk_view.is_mountain_native_mask_visual_pending() \
 			or not chunk_view.is_object_blocking_presentation_ready() \
 			or _is_object_presentation_reveal_deferred(chunk_coord):
 		return
-	_pending_chunk_visibility_after_mountain_visual.erase(chunk_coord)
-	_object_presentation_reveal_not_before_frame_by_chunk.erase(chunk_coord)
-	if chunk_view.has_pending_grass_scatter_visual():
+	_drop_pending_chunk_visibility(chunk_coord)
+	var grass_is_ready: bool = not chunk_view.has_pending_grass_scatter_visual()
+	if _grass_render_pages_enabled:
+		grass_is_ready = _set_grass_render_page_chunk_active(
+			chunk_coord,
+			true,
+		)
+	if not grass_is_ready:
 		_chunk_reveal_with_pending_grass_count_total += 1
 	chunk_view.set_object_collision_active(true)
 	chunk_view.visible = true
@@ -5262,6 +5649,10 @@ func _evict_outside_ring(max_count: int) -> void:
 		var cached_committed_objects: bool = false
 		var committed_object_layer: WorldObjectPacketLayer = null
 		if chunk_view:
+			if _grass_render_pages_enabled:
+				# Slot masking happens before ChunkView/cache mutation, so a page can
+				# never leave grass visible after its terrain owner disappears.
+				_set_grass_render_page_chunk_active(chunk_coord, false)
 			chunk_view.cancel_staged_mountain_roof_reveal_halo()
 			_remove_mountain_cavity_skylight_field_chunk(chunk_coord)
 			chunk_view.set_object_collision_active(false)
@@ -5269,7 +5660,6 @@ func _evict_outside_ring(max_count: int) -> void:
 		_chunk_views.erase(chunk_coord)
 		if chunk_view:
 			_cache_chunk_view(chunk_coord, chunk_view)
-		_object_presentation_reveal_not_before_frame_by_chunk.erase(chunk_coord)
 		if committed_object_layer != null:
 			cached_committed_objects = _cache_committed_object_layer(
 				chunk_coord,
@@ -5285,7 +5675,7 @@ func _evict_outside_ring(max_count: int) -> void:
 			_chunk_packets.erase(chunk_coord)
 		_requested_chunks.erase(chunk_coord)
 		_pending_publish_queue.erase(chunk_coord)
-		_pending_chunk_visibility_after_mountain_visual.erase(chunk_coord)
+		_drop_pending_chunk_visibility(chunk_coord)
 		_drop_object_packet_visual_upload(chunk_coord)
 		var resident_entry: Dictionary = _get_current_hot_object_entry(chunk_coord)
 		if not resident_entry.is_empty() and not bool(resident_entry.get("ready", false)):
@@ -5298,7 +5688,8 @@ func _evict_outside_ring(max_count: int) -> void:
 				and _is_chunk_source_desired(chunk_coord) \
 				and _object_presentation_results_by_chunk.has(chunk_coord):
 			_queue_hot_object_prestage(chunk_coord)
-		_drop_grass_scatter_visual_upload(chunk_coord)
+		if not _grass_render_pages_enabled:
+			_drop_grass_scatter_visual_upload(chunk_coord)
 		_handle_cover_chunk_unloaded(chunk_coord)
 		_try_commit_mountain_roof_reveal_selector_generation()
 		_forget_mountain_mask(chunk_coord, true, true)
@@ -5324,6 +5715,9 @@ func _has_pending_streaming_work() -> bool:
 		return true
 	if _grass_scatter_backend.has_completed_grass_scatter_buffers():
 		return true
+	if _grass_render_pages_enabled \
+			and _grass_scatter_backend.has_completed_grass_render_pages():
+		return true
 	if _object_presentation_backend.has_completed_object_presentation_buffers():
 		return true
 	if not _object_presentation_inflight_chunks.is_empty():
@@ -5345,6 +5739,9 @@ func _has_pending_streaming_work() -> bool:
 	if not _pending_hot_object_prestage_chunks.is_empty():
 		return true
 	if not _pending_grass_scatter_visual_upload_chunks.is_empty():
+		return true
+	if _grass_render_pages_enabled \
+			and _grass_render_page_manager.has_pending_visual_upload():
 		return true
 	for chunk_coord_variant: Variant in _chunk_views.keys():
 		if not _is_chunk_desired(chunk_coord_variant as Vector2i):
@@ -5976,6 +6373,8 @@ func _can_preserve_cached_chunk_view_grass(
 		cached: Dictionary,
 		chunk_coord: Vector2i,
 ) -> bool:
+	if _grass_render_pages_enabled:
+		return false
 	var preserve_grass: bool = bool(cached.get("exact", false)) \
 			and bool(cached.get("grass_committed", false)) \
 			and int(cached.get("epoch", -1)) == _generation_epoch \
@@ -7082,6 +7481,8 @@ func _prepare_terrain_edge_mask_for_publish(chunk_coord: Vector2i, _packet: Dict
 func _reset_runtime_state() -> void:
 	_generation_epoch += 1
 	_world_compute_backend.clear_queued_work()
+	if _grass_render_pages_enabled:
+		_grass_render_page_manager.set_epoch(_generation_epoch)
 	_clear_hot_object_presentation_cache()
 	_awaiting_new_game_spawn_result = false
 	_new_game_spawn_failed = false
@@ -7110,6 +7511,9 @@ func _reset_runtime_state() -> void:
 	_pending_mountain_native_mask_visual_upload_chunks.clear()
 	_pending_mountain_native_mask_visual_upload_set.clear()
 	_pending_chunk_visibility_after_mountain_visual.clear()
+	_pending_chunk_visibility_retry_slots.clear()
+	_pending_chunk_visibility_retry_slot_by_chunk.clear()
+	_pending_chunk_visibility_retry_cursor = 0
 	_pending_terrain_edge_mask_visual_upload_chunks.clear()
 	_pending_terrain_edge_mask_visual_upload_set.clear()
 	_pending_object_packet_visual_upload_chunks.clear()
@@ -7169,6 +7573,7 @@ func _reset_runtime_state() -> void:
 	_grass_scatter_worker_elapsed_ms_max_total = 0.0
 	_grass_scatter_request_to_complete_ms_last = 0.0
 	_grass_scatter_request_to_complete_ms_max_total = 0.0
+	_grass_source_prefetch_cursor = 0
 	_chunk_reveal_with_pending_grass_count_total = 0
 	_mountain_native_mask_visual_upload_count_last_tick = 0
 	_mountain_native_mask_visible_republish_skip_count_total = 0
@@ -7292,6 +7697,10 @@ func _rebuild_desired_chunk_cache() -> void:
 		_desired_cache_radius_chunks = -1
 		_desired_cache_source_radius_chunks = -1
 		_streaming_worker_demand_dirty = true
+		_grass_source_prefetch_cursor = 0
+		if _grass_render_pages_enabled:
+			_grass_render_page_manager.set_source_demand(_desired_source_chunk_coords, { })
+			_grass_render_page_manager.set_prestage_demand(_desired_visible_chunk_coords)
 		return
 	var source_radius: int = _resolve_source_cache_radius_chunks()
 	if _desired_cache_center_chunk == _player_chunk_coord \
@@ -7307,6 +7716,16 @@ func _rebuild_desired_chunk_cache() -> void:
 	)
 	_desired_mountain_mask_chunk_coords.clear()
 	_desired_source_chunk_coords = _build_chunk_coords_for_radius(_player_chunk_coord, source_radius)
+	_grass_source_prefetch_cursor = 0
+	if _grass_render_pages_enabled:
+		var grass_page_priorities: Dictionary = { }
+		for source_coord: Vector2i in _desired_source_chunk_coords:
+			grass_page_priorities[source_coord] = _chunk_request_priority(source_coord)
+		_grass_render_page_manager.set_source_demand(
+			_desired_source_chunk_coords,
+			grass_page_priorities,
+		)
+		_grass_render_page_manager.set_prestage_demand(_desired_visible_chunk_coords)
 	_streaming_worker_demand_dirty = true
 
 

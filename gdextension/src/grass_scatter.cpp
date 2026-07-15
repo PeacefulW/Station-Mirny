@@ -8,6 +8,7 @@
 
 #include <godot_cpp/variant/string.hpp>
 #include <godot_cpp/variant/variant.hpp>
+#include <godot_cpp/variant/packed_int64_array.hpp>
 
 using namespace godot;
 
@@ -580,6 +581,223 @@ Dictionary build_buffer(
 	if (truncated > 0) {
 		result["truncated_count"] = truncated;
 	}
+	return result;
+}
+
+Dictionary build_render_page_buffer(
+		const Array &p_contributors,
+		int64_t p_page_width_chunks,
+		float p_chunk_size_px) {
+	Dictionary result;
+	Array empty_buckets;
+	empty_buckets.resize(DEPTH_STRIPES_PER_CHUNK);
+	for (int32_t stripe = 0; stripe < DEPTH_STRIPES_PER_CHUNK; stripe++) {
+		empty_buckets[stripe] = PackedFloat32Array();
+	}
+	PackedInt64Array empty_revisions;
+	const int32_t page_width = static_cast<int32_t>(p_page_width_chunks);
+	if (page_width > 0 && page_width <= 4) {
+		empty_revisions.resize(page_width);
+		for (int32_t slot = 0; slot < page_width; slot++) {
+			empty_revisions.set(slot, -1);
+		}
+	}
+	result["bucket_buffers"] = empty_buckets;
+	result["directional_shadow_buffer"] = PackedFloat32Array();
+	result["shadow_buffer"] = PackedFloat32Array();
+	result["spore_buffer"] = PackedFloat32Array();
+	result["contributor_revisions"] = empty_revisions;
+	result["contributor_mask"] = 0;
+	result["instance_count"] = 0;
+	result["directional_shadow_count"] = 0;
+	result["shadow_count"] = 0;
+	result["spore_count"] = 0;
+	result["non_empty_bucket_count"] = 0;
+	result["buffer_float_count"] = 0;
+	result["payload_bytes"] = 0;
+
+	if (page_width <= 0 || page_width > 4) {
+		result["error"] = "grass_render_page: page_width_chunks must be in [1, 4]";
+		return result;
+	}
+	if (!std::isfinite(p_chunk_size_px) || p_chunk_size_px <= 0.0f) {
+		result["error"] = "grass_render_page: chunk_size_px must be finite and positive";
+		return result;
+	}
+
+	struct Contributor {
+		int32_t slot = -1;
+		int64_t revision = -1;
+		Array buckets;
+		PackedFloat32Array directional;
+		PackedFloat32Array shadow;
+		PackedFloat32Array spore;
+	};
+	std::vector<Contributor> contributors;
+	contributors.reserve(static_cast<size_t>(p_contributors.size()));
+	bool occupied[4] = { false, false, false, false };
+	for (int64_t index = 0; index < p_contributors.size(); index++) {
+		if (p_contributors[index].get_type() != Variant::DICTIONARY) {
+			result["error"] = "grass_render_page: contributor must be a Dictionary";
+			return result;
+		}
+		Dictionary source = p_contributors[index];
+		Contributor contributor;
+		contributor.slot = static_cast<int32_t>(static_cast<int64_t>(source.get("slot", -1)));
+		contributor.revision = static_cast<int64_t>(source.get("revision", -1));
+		if (contributor.slot < 0 || contributor.slot >= page_width || occupied[contributor.slot]) {
+			result["error"] = "grass_render_page: contributor slot is invalid or duplicated";
+			return result;
+		}
+		if (contributor.revision < 0) {
+			result["error"] = "grass_render_page: contributor revision must be non-negative";
+			return result;
+		}
+		occupied[contributor.slot] = true;
+		contributor.buckets = source.get("bucket_buffers", Array());
+		if (contributor.buckets.size() != DEPTH_STRIPES_PER_CHUNK) {
+			result["error"] = "grass_render_page: contributor bucket count is not 64";
+			return result;
+		}
+		const Variant directional_value = source.get(
+				"directional_shadow_buffer",
+				PackedFloat32Array());
+		const Variant shadow_value = source.get("shadow_buffer", PackedFloat32Array());
+		const Variant spore_value = source.get("spore_buffer", PackedFloat32Array());
+		if (directional_value.get_type() != Variant::PACKED_FLOAT32_ARRAY ||
+				shadow_value.get_type() != Variant::PACKED_FLOAT32_ARRAY ||
+				spore_value.get_type() != Variant::PACKED_FLOAT32_ARRAY) {
+			result["error"] = "grass_render_page: flat contributor stream is not PackedFloat32Array";
+			return result;
+		}
+		contributor.directional = directional_value;
+		contributor.shadow = shadow_value;
+		contributor.spore = spore_value;
+		if ((contributor.directional.size() % 12) != 0 ||
+				(contributor.shadow.size() % 12) != 0 ||
+				(contributor.spore.size() % 12) != 0) {
+			result["error"] = "grass_render_page: flat contributor buffer is not a 12-float instance stream";
+			return result;
+		}
+		int64_t contributor_bucket_float_count = 0;
+		for (int32_t stripe = 0; stripe < DEPTH_STRIPES_PER_CHUNK; stripe++) {
+			if (contributor.buckets[stripe].get_type() != Variant::PACKED_FLOAT32_ARRAY) {
+				result["error"] = "grass_render_page: bucket is not PackedFloat32Array";
+				return result;
+			}
+			PackedFloat32Array bucket = contributor.buckets[stripe];
+			if ((bucket.size() % 12) != 0) {
+				result["error"] = "grass_render_page: bucket is not a 12-float instance stream";
+				return result;
+			}
+			contributor_bucket_float_count += bucket.size();
+		}
+		if (contributor.directional.size() != contributor_bucket_float_count) {
+			result["error"] = "grass_render_page: directional stream must match all albedo instances";
+			return result;
+		}
+		contributors.push_back(contributor);
+	}
+	std::sort(
+			contributors.begin(),
+			contributors.end(),
+			[](const Contributor &p_a, const Contributor &p_b) {
+				return p_a.slot < p_b.slot;
+			});
+
+	PackedInt64Array contributor_revisions;
+	contributor_revisions.resize(page_width);
+	for (int32_t slot = 0; slot < page_width; slot++) {
+		contributor_revisions.set(slot, -1);
+	}
+	int64_t contributor_mask = 0;
+	for (const Contributor &contributor : contributors) {
+		contributor_revisions.set(contributor.slot, contributor.revision);
+		contributor_mask |= int64_t(1) << contributor.slot;
+	}
+
+	auto append_rebased = [](
+			const PackedFloat32Array &p_source,
+			float p_x_offset,
+			float *p_target,
+			int64_t &r_target_offset) {
+		const float *source = p_source.ptr();
+		for (int64_t source_offset = 0; source_offset < p_source.size(); source_offset += 12) {
+			std::copy(source + source_offset, source + source_offset + 12, p_target + r_target_offset);
+			p_target[r_target_offset + 3] += p_x_offset;
+			r_target_offset += 12;
+		}
+	};
+
+	Array merged_buckets;
+	merged_buckets.resize(DEPTH_STRIPES_PER_CHUNK);
+	int64_t buffer_float_count = 0;
+	int64_t instance_count = 0;
+	int64_t non_empty_bucket_count = 0;
+	for (int32_t stripe = 0; stripe < DEPTH_STRIPES_PER_CHUNK; stripe++) {
+		int64_t stripe_float_count = 0;
+		for (const Contributor &contributor : contributors) {
+			PackedFloat32Array source = contributor.buckets[stripe];
+			stripe_float_count += source.size();
+		}
+		PackedFloat32Array merged;
+		merged.resize(stripe_float_count);
+		float *target = stripe_float_count > 0 ? merged.ptrw() : nullptr;
+		int64_t target_offset = 0;
+		for (const Contributor &contributor : contributors) {
+			PackedFloat32Array source = contributor.buckets[stripe];
+			append_rebased(
+					source,
+					static_cast<float>(contributor.slot) * p_chunk_size_px,
+					target,
+					target_offset);
+		}
+		merged_buckets[stripe] = merged;
+		buffer_float_count += stripe_float_count;
+		instance_count += stripe_float_count / 12;
+		if (stripe_float_count > 0) {
+			non_empty_bucket_count++;
+		}
+	}
+
+	auto merge_flat = [&contributors, &append_rebased, p_chunk_size_px](auto p_member) {
+		int64_t float_count = 0;
+		for (const Contributor &contributor : contributors) {
+			const PackedFloat32Array &source = contributor.*p_member;
+			float_count += source.size();
+		}
+		PackedFloat32Array merged;
+		merged.resize(float_count);
+		float *target = float_count > 0 ? merged.ptrw() : nullptr;
+		int64_t target_offset = 0;
+		for (const Contributor &contributor : contributors) {
+			const PackedFloat32Array &source = contributor.*p_member;
+			append_rebased(
+					source,
+					static_cast<float>(contributor.slot) * p_chunk_size_px,
+					target,
+					target_offset);
+		}
+		return merged;
+	};
+	PackedFloat32Array directional = merge_flat(&Contributor::directional);
+	PackedFloat32Array shadow = merge_flat(&Contributor::shadow);
+	PackedFloat32Array spore = merge_flat(&Contributor::spore);
+	buffer_float_count += directional.size() + shadow.size() + spore.size();
+
+	result["bucket_buffers"] = merged_buckets;
+	result["directional_shadow_buffer"] = directional;
+	result["shadow_buffer"] = shadow;
+	result["spore_buffer"] = spore;
+	result["contributor_revisions"] = contributor_revisions;
+	result["contributor_mask"] = contributor_mask;
+	result["instance_count"] = instance_count;
+	result["directional_shadow_count"] = directional.size() / 12;
+	result["shadow_count"] = shadow.size() / 12;
+	result["spore_count"] = spore.size() / 12;
+	result["non_empty_bucket_count"] = non_empty_bucket_count;
+	result["buffer_float_count"] = buffer_float_count;
+	result["payload_bytes"] = buffer_float_count * static_cast<int64_t>(sizeof(float));
 	return result;
 }
 

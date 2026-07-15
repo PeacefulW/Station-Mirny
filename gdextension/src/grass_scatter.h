@@ -2,6 +2,7 @@
 #define STATION_MIRNY_GRASS_SCATTER_H
 
 #include <godot_cpp/variant/dictionary.hpp>
+#include <godot_cpp/variant/array.hpp>
 #include <godot_cpp/variant/packed_byte_array.hpp>
 #include <godot_cpp/variant/packed_float32_array.hpp>
 #include <godot_cpp/variant/packed_int32_array.hpp>
@@ -108,6 +109,17 @@ godot::Dictionary build_buffer(
 		const godot::PackedByteArray &p_mountain_halo,
 		int64_t p_mountain_halo_radius_tiles,
 		const godot::PackedFloat32Array &p_params);
+
+// Merges up to four immutable chunk-local grass results into one fixed 4x1
+// render page. Contributors are dictionaries containing `slot`, `revision`
+// and the packed arrays returned by build_buffer(). The worker preserves every
+// transform/color float bit-for-bit except transform origin.x (index 3), which
+// receives slot * chunk_size_px. GDScript therefore never walks or copies
+// instance payloads on the main thread.
+godot::Dictionary build_render_page_buffer(
+		const godot::Array &p_contributors,
+		int64_t p_page_width_chunks,
+		float p_chunk_size_px);
 
 // Плотность травы поля в мировой точке (та же формула sample_fields, что красит
 // землю и сеет пучки), включая macro-mass модуляцию покрытия. Деревья растут

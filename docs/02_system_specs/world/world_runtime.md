@@ -4,7 +4,7 @@ doc_type: system_spec
 status: approved
 owner: engineering
 source_of_truth: true
-version: 1.9
+version: 1.12
 last_updated: 2026-07-15
 related_docs:
   - ../../README.md
@@ -140,7 +140,20 @@ COMPLETE/cache commit, and FINALIZE always yield; a hard callback cap also
 protects zero-resolution timer cases. The
 process-frame reveal guard prevents both a repeated object callback and the
 mountain visual job from bypassing the APPLY-to-FINALIZE boundary later in the
-same frame. A small bounded boot/recycle pool owns first-use family envelopes and
+same frame. Hidden chunk reveal remains event-driven on the fast path, but its
+transient wait membership also owns one O(1)-deduplicated token in a dense
+round-robin retry ring. The existing streaming job rechecks at most four such
+tokens per tick before starting new publication; it never scans the pending
+dictionary or the loaded view set. Retry reveal is valid only while the chunk
+remains in current target demand; an outgoing token stays hidden until bounded
+eviction or a quick demand re-entry. Reveal, eviction, and world reset remove
+the token in O(1), so an expired frame guard or a producer callback that observed
+a different blocker cannot strand a chunk and travel distance cannot grow a stale
+retry tail. If a completed hot object layer cannot be adopted because a recycled
+`ChunkView` already owns its local envelope, the retained immutable worker result
+is staged into that local envelope and the same unique upload token continues the
+bounded apply. A failed adoption may not discard the only continuation owner.
+A small bounded boot/recycle pool owns first-use family envelopes and
 their first stripe resources outside the moving-player deadline. Every envelope
 also prepares the fixed depth-band roots and optional living contact-shadow
 graph. After the boot pool is exhausted, the cold transaction persists across
@@ -231,8 +244,8 @@ direction rule as layered trees.
 | Deterministic? | Yes, base packet is pure `f(seed, coord, world_version)` |
 | Must work on unloaded chunks? | Yes, diff store remains authoritative when a chunk is not loaded |
 | C++ compute or main-thread apply? | Canonical generation and transient object/grass buffer packing in C++ workers; bounded scene/GPU/physics apply on the main thread only |
-| Dirty unit | `16 x 16` chunk for generation, one tile for authoritative mutation, one chunk object packet for visual object placement, bounded local visual patch for adjacency-dependent terrain presentation, bounded cell batches for publish |
-| Single owner | `WorldCore` owns canonical base output; `WorldDiffStore` owns persisted overrides; `WorldStreamer` owns streaming/presentation scheduling, caches, pool, and retirement; `ChunkView` owns chunk terrain and the adopted reveal/collision reference |
+| Dirty unit | `16 x 16` chunk for generation, one tile for authoritative mutation, one chunk object packet for visual object placement, one chunk contributor inside a fixed `4 x 1` full-LOD grass render page, bounded local visual patch for adjacency-dependent terrain presentation, bounded cell batches for publish |
+| Single owner | `WorldCore` owns canonical base output and pure transient packing; `WorldDiffStore` owns persisted overrides; `WorldStreamer` owns streaming/presentation scheduling, caches, pool, and retirement; `ChunkView` owns chunk terrain and the adopted reveal/collision reference; `GrassRenderPage` owns full-LOD grass page GPU apply only |
 | 10x / 100x scale path | More chunks increase queued packet generation and sliced publish work; they do not expand the interactive mutation path |
 | Main-thread blocking risk | Allowed only for bounded apply slices; heavy generation stays off-thread |
 | Hidden GDScript fallback? | Forbidden; native world core is required |
@@ -348,7 +361,8 @@ Rules:
   API remains
 
 The same native class also exposes narrow synchronous pure-compute presentation
-helpers such as `build_object_presentation_buffers(...)`. They are invoked only
+helpers such as `build_object_presentation_buffers(...)` and
+`build_grass_render_page_buffer(...)`. They are invoked only
 on worker-local `WorldCore` instances. They do not generate placement truth,
 touch Resources/Nodes/GPU state, or add fields to the canonical chunk packet.
 
@@ -364,6 +378,20 @@ oldest background request after 31 request dispatches. Every detached packet-
 batch member counts separately toward that debt. Thus source prefetch retains a finite
 latency bound for vehicle travel without allowing aged low-priority work to form
 a burst ahead of the visible frontier.
+
+Full-LOD grass presentation uses a world-owned fixed `4 x 1` page manager with
+three demand tiers. `active` slots belong to revealed chunk views; `prestage`
+slots belong to the visible ring but remain hidden behind another blocking
+presentation; `source` slots belong to the wider symmetric warm ring. Active
+and prestage revisions are mandatory reveal-priority contributors, while ready
+source slots are optional additions; a source-only page waits for its complete
+required mask to avoid repeated partial uploads. Demand mutations coalesce into
+one backend synchronization per streaming tick. Exact front-buffer residency is
+independent from shader active masking, allowing a hidden prestaged slot and a
+hot zoom restore to be ready without being drawn. Page residency is a bounded
+LRU derived from the source-window transition footprint and is cleared on world
+epoch/reset. Grass remains decorative and never blocks terrain reveal.
+
 Source-padding object packing is streaming class and is promoted to reveal class
 when the chunk enters the visible/publish frontier. Native packet batches are
 bounded, require exact settings equality, and may combine only requests on the
@@ -386,7 +414,8 @@ V0 introduces only three world runtime roles:
 | Orchestrator | `WorldStreamer` | stream ring, request packets, receive results, schedule publish, expose compatibility reads/mutation |
 | State | `WorldDiffStore` | store per-chunk tile overrides, feed save/load |
 | View | `ChunkView` | own one chunk root and one local `TileMapLayer` |
-| Visual bridge | `WorldStreamer` + `ChunkView` | own chunk-scoped 2D mountain native masks, publish derived mask textures, and keep old page work out of normal streaming |
+| Visual bridge | `WorldStreamer` + `ChunkView` | own chunk-scoped 2D mountain native masks and publish derived mask textures; mountain FHD page work stays out of normal streaming |
+| Full-LOD grass view | `GrassRenderPage` under `WorldStreamer` scheduling | own a fixed `4 x 1` derived grass page, bounded front/back GPU resources, slot revision mask, and exact depth stripes; never own terrain or placement truth |
 
 V0 does not add:
 - a separate publish queue object
@@ -632,6 +661,9 @@ Main-thread publish rules:
 - publish/visibility readiness checks must be O(1); diagnostic halo counts are
   maintained when the halo changes and must not be rescanned during ordinary
   chunk publication
+- blocking reveal callbacks are the immediate fast path; the bounded retry ring
+  may inspect at most four explicitly waiting chunks per streaming tick and must
+  not iterate all pending or loaded chunks
 
 Single-tile mutation rules:
 - write one override into `WorldDiffStore`
@@ -732,6 +764,8 @@ V0 is invalid if it:
   same `world_seed + chunk_coord + world_version`
 - [ ] no worker thread touches the active scene tree
 - [ ] single-tile mutation does not trigger full chunk rebuild or full chunk redraw
+- [ ] a chunk whose mountain/object/frame blockers clear cannot remain hidden
+  after its bounded reveal retry turn, and `chunk_loaded` is emitted exactly once
 
 ## Files That May Be Touched In The First Implementation Task
 

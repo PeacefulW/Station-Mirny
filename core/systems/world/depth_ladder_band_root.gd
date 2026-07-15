@@ -113,6 +113,10 @@ func is_presentation_envelope_ready() -> bool:
 	return true
 
 
+func get_canvas_item_count() -> int:
+	return 1 + _band_roots.size()
+
+
 func update_anchor(anchor_stripe: int) -> void:
 	_last_root_z_writes = 0
 	_last_boundary_migrations = 0
@@ -132,7 +136,7 @@ func get_debug_state() -> Dictionary:
 	return {
 		"anchor_stripe": _anchor_stripe,
 		"chunk_stripe_base": _chunk_stripe_base,
-		"canvas_item_count": 1 + _band_roots.size(),
+		"canvas_item_count": get_canvas_item_count(),
 		"registered_item_count": _item_entries.size(),
 		"last_root_z_writes": _last_root_z_writes,
 		"last_boundary_migrations": _last_boundary_migrations,

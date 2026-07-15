@@ -4,12 +4,13 @@ doc_type: system_spec
 status: approved
 owner: engineering
 source_of_truth: true
-version: 1.2
+version: 1.4
 last_updated: 2026-07-15
 related_docs:
   - ../../00_governance/ENGINEERING_STANDARDS.md
   - ../../05_adrs/0001-runtime-work-and-dirty-update-foundation.md
   - ../world/world_runtime.md
+  - ../world/wind_and_grass_scatter_presentation.md
   - ui_ux_foundation.md
 ---
 
@@ -126,12 +127,45 @@ process/physics monitors, canvas draw/object counts, player position, camera
 zoom, the tracked `WorldPerfProbe` phases, and the latest low-rate streaming
 context.
 
+### Grass render-page telemetry
+
+The full-LOD grass render-page path extends the F4 trace append-only. Existing
+column names and indexes remain unchanged; these seven columns are appended in
+this exact order:
+
+1. `grass_page_inflight`
+2. `grass_page_ready_cpu`
+3. `grass_page_upload_queue`
+4. `grass_page_resident`
+5. `grass_page_active_slots`
+6. `grass_page_worker_ms`
+7. `grass_page_latency_ms`
+
+The first five fields are fixed-size queue/cache counters from the latest O(1)
+streaming snapshot. `grass_page_worker_ms` is the most recent native merge time;
+`grass_page_latency_ms` is the most recent request-to-ready latency. Session
+statistics include a maximum for every appended column so a trace can be
+triaged from `session.json` before opening the CSV.
+
+The event/F2 sidecar keeps the complete sanitized streaming snapshot. Therefore
+cumulative diagnostics such as `grass_page_cache_hits_total` and
+`grass_page_evictions_total` remain available there without becoming additional
+per-frame F4 columns.
+
 ## UI Contract
 
 - The normal survival HUD remains minimal; diagnostics stay hidden by default.
 - The F3 panel footer advertises `F2` and `F4` without adding another card.
 - While recording, one restrained red `REC mm:ss` indicator appears in the
   existing performance panel.
+- The detailed F3 panel shows one grass-page row in `merge / GPU / cache` order,
+  mapped to `grass_page_inflight`, `grass_page_upload_queue`, and
+  `grass_page_resident` respectively.
+- The compact queue total includes `visibility_wait`, both object presentation
+  lanes, and both the legacy chunk grass upload queue and render-page upload
+  queue. The two grass presentation modes are mutually exclusive, so their sum
+  does not double-count work. A non-zero reveal wait may never be displayed as
+  `QUEUES 0` merely because its producer queues have already drained.
 - A short localized toast confirms capture/record completion and shows the
   absolute artifact directory.
 - `Performance.TIME_PROCESS` is labelled as whole-frame time, never as pure CPU
@@ -162,12 +196,15 @@ context.
 - [ ] `F2` writes one non-empty PNG and one sidecar record after frame draw
 - [ ] `F4` records and stops one bounded session without requiring the F3 HUD
 - [ ] the trace contains viewport CPU/GPU and streaming context columns
+- [ ] the trace appends exactly seven grass-page columns without changing any
+      legacy column index, and `session.json` contains their maxima
 - [ ] sustained 30 FPS creates one plateau event, not a screenshot storm
 - [ ] capture-tainted frames cannot recursively trigger captures
 - [ ] active F4 data survives recorder shutdown or scene replacement
 - [ ] smoke tests use an isolated `user://test_artifacts/` root and cannot evict
       player captures
 - [ ] HUD and recorder observation reference counts coexist correctly
+- [ ] compact and detailed HUD report the same non-zero `visibility_wait`
 - [ ] RU and EN text coverage is complete
 - [ ] a real manual windowed play session produces parseable artifacts
 

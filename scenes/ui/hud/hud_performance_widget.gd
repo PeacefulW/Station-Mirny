@@ -12,7 +12,7 @@ enum DisplayMode {
 
 const UPDATE_INTERVAL_SECONDS: float = 0.25
 const COMPACT_SIZE: Vector2 = Vector2(460.0, 168.0)
-const DETAILED_SIZE: Vector2 = Vector2(610.0, 536.0)
+const DETAILED_SIZE: Vector2 = Vector2(610.0, 556.0)
 const PANEL_POSITION: Vector2 = Vector2(12.0, 108.0)
 const OBJECT_QUEUE_WARNING: int = 56
 const OBJECT_QUEUE_CRITICAL: int = 96
@@ -309,6 +309,11 @@ func _build_details() -> void:
 	_add_grid_pair(queue_grid, "UI_PERF_METRIC_GRASS", "grass")
 	_add_grid_pair(queue_grid, "UI_PERF_METRIC_MASKS", "masks")
 	_add_grid_pair(queue_grid, "UI_PERF_METRIC_CACHES", "caches")
+	_add_wide_metric_row(
+		_details,
+		"UI_PERF_METRIC_GRASS_PAGES",
+		"grass_pages",
+	)
 
 	_add_separator(_details)
 	_add_section_title(_details, "UI_PERF_SECTION_RENDER")
@@ -372,9 +377,11 @@ func _refresh_summary() -> void:
 	var resident_views: int = int(_last_stream_snapshot.get("resident_views", 0))
 	var desired_chunks: int = int(_last_stream_snapshot.get("desired_visible_chunks", 0))
 	var queue_total: int = int(_last_stream_snapshot.get("publish_queue", 0)) \
+			+ int(_last_stream_snapshot.get("visibility_wait", 0)) \
 			+ int(_last_stream_snapshot.get("object_upload_queue", 0)) \
 			+ int(_last_stream_snapshot.get("object_prestage_queue", 0)) \
-			+ int(_last_stream_snapshot.get("grass_upload_queue", 0))
+			+ int(_last_stream_snapshot.get("grass_upload_queue", 0)) \
+			+ int(_last_stream_snapshot.get("grass_page_upload_queue", 0))
 	var summary_format: String = _localize(
 		"UI_PERF_SUMMARY",
 		"STREAM %.2f ms   •   IN SCENE %d/%d   •   QUEUES %d",
@@ -424,6 +431,18 @@ func _refresh_queue_values() -> void:
 			int(s.get("grass_upload_queue", 0)),
 			int(s.get("grass_inflight", 0)),
 			int(s.get("grass_ready_cpu", 0)),
+		],
+	)
+	var grass_page_format: String = _localize(
+		"UI_PERF_GRASS_PAGE_ROW",
+		"merge %d  •  GPU %d  •  cache %d",
+	)
+	_set_value(
+		"grass_pages",
+		grass_page_format % [
+			int(s.get("grass_page_inflight", 0)),
+			int(s.get("grass_page_upload_queue", 0)),
+			int(s.get("grass_page_resident", 0)),
 		],
 	)
 	var mask_inflight: int = int(s.get("mountain_mask_inflight", 0)) \
@@ -698,6 +717,25 @@ func _add_grid_pair(grid: GridContainer, label_key: String, value_key: String) -
 	value.custom_minimum_size.x = 120.0
 	value.clip_text = true
 	grid.add_child(value)
+	_value_labels[value_key] = value
+
+
+func _add_wide_metric_row(
+		parent: VBoxContainer,
+		label_key: String,
+		value_key: String,
+	) -> void:
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 9)
+	row.mouse_filter = MOUSE_FILTER_IGNORE
+	parent.add_child(row)
+	var label: Label = _make_localized_label(label_key, 10, TEXT_SECONDARY_COLOR)
+	label.custom_minimum_size.x = 150.0
+	row.add_child(label)
+	var value: Label = _make_label("—", 10, TEXT_PRIMARY_COLOR)
+	value.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	value.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	row.add_child(value)
 	_value_labels[value_key] = value
 
 

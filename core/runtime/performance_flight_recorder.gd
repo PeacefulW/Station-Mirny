@@ -26,7 +26,7 @@ const MAX_EVENT_RECORDS: int = 64
 const CAPTURE_TAINT_FRAMES: int = 3
 const RENDER_MEASUREMENT_WARMUP_FRAMES: int = 3
 const INVALID_TASK_ID: int = -1
-const TRACE_STRIDE: int = 57
+const TRACE_STRIDE: int = 64
 
 const TRACE_COLUMNS: Array[String] = [
 	"frame",
@@ -86,6 +86,13 @@ const TRACE_COLUMNS: Array[String] = [
 	"object_latency_ms",
 	"grass_worker_ms",
 	"grass_latency_ms",
+	"grass_page_inflight",
+	"grass_page_ready_cpu",
+	"grass_page_upload_queue",
+	"grass_page_resident",
+	"grass_page_active_slots",
+	"grass_page_worker_ms",
+	"grass_page_latency_ms",
 ]
 
 const LIVE_OP_KEYS: Dictionary = {
@@ -420,6 +427,13 @@ func _record_frame(delta: float) -> void:
 		float(_context_snapshot.get("object_latency_ms", 0.0)),
 		float(_context_snapshot.get("grass_worker_ms", 0.0)),
 		float(_context_snapshot.get("grass_latency_ms", 0.0)),
+		float(_context_snapshot.get("grass_page_inflight", 0)),
+		float(_context_snapshot.get("grass_page_ready_cpu", 0)),
+		float(_context_snapshot.get("grass_page_upload_queue", 0)),
+		float(_context_snapshot.get("grass_page_resident", 0)),
+		float(_context_snapshot.get("grass_page_active_slots", 0)),
+		float(_context_snapshot.get("grass_page_worker_ms", 0.0)),
+		float(_context_snapshot.get("grass_page_latency_ms", 0.0)),
 	]
 	for column_index: int in range(TRACE_STRIDE):
 		_trace_data[row + column_index] = values[column_index]

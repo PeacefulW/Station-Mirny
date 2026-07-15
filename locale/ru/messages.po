@@ -1119,6 +1119,12 @@ msgstr "Объекты GPU / stage / worker"
 msgid "UI_PERF_METRIC_GRASS"
 msgstr "Трава GPU / worker / CPU"
 
+msgid "UI_PERF_METRIC_GRASS_PAGES"
+msgstr "Страницы травы"
+
+msgid "UI_PERF_GRASS_PAGE_ROW"
+msgstr "merge %d  •  GPU %d  •  cache %d"
+
 msgid "UI_PERF_METRIC_MASKS"
 msgstr "Маски worker / GPU / retry"
 

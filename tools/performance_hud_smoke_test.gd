@@ -9,6 +9,74 @@ const PerformanceArtifactWriterScript = preload(
 	"res://core/runtime/performance_flight_recorder_artifact_writer.gd"
 )
 const TEST_CAPTURE_ROOT: String = "user://test_artifacts/performance_hud_smoke_test"
+const LEGACY_TRACE_COLUMNS: Array[String] = [
+	"frame",
+	"elapsed_ms",
+	"frame_ms",
+	"fps",
+	"frame_total_monitor_ms",
+	"physics_ms",
+	"viewport_cpu_ms",
+	"viewport_gpu_ms",
+	"frame_setup_cpu_ms",
+	"draw_calls",
+	"render_objects",
+	"render_primitives",
+	"player_x",
+	"player_y",
+	"velocity_x",
+	"velocity_y",
+	"camera_zoom",
+	"player_chunk_x",
+	"player_chunk_y",
+	"stream_radius",
+	"resident_views",
+	"desired_visible_chunks",
+	"desired_source_chunks",
+	"packet_count",
+	"requested_packets",
+	"publish_queue",
+	"visibility_wait",
+	"object_upload_queue",
+	"object_prestage_queue",
+	"object_inflight",
+	"object_ready_cpu",
+	"grass_upload_queue",
+	"grass_inflight",
+	"grass_ready_cpu",
+	"mask_inflight",
+	"mask_upload_queue",
+	"mask_retry_queue",
+	"dispatcher_ms",
+	"streaming_job_ms",
+	"packet_integrate_ms",
+	"publish_begin_ms",
+	"publish_apply_ms",
+	"publish_finalize_ms",
+	"object_upload_ms",
+	"grass_upload_ms",
+	"mountain_visual_ms",
+	"capture_tainted",
+	"postprocess_enabled",
+	"warm_packet_cache",
+	"hot_view_cache",
+	"object_hot_cache",
+	"object_warm_cache",
+	"grass_warm_cache",
+	"object_worker_ms",
+	"object_latency_ms",
+	"grass_worker_ms",
+	"grass_latency_ms",
+]
+const GRASS_PAGE_TRACE_COLUMNS: Array[String] = [
+	"grass_page_inflight",
+	"grass_page_ready_cpu",
+	"grass_page_upload_queue",
+	"grass_page_resident",
+	"grass_page_active_slots",
+	"grass_page_worker_ms",
+	"grass_page_latency_ms",
+]
 
 var _failed: bool = false
 
@@ -16,7 +84,7 @@ var _failed: bool = false
 class FakePerfSource extends Node:
 	func get_perf_hud_snapshot() -> Dictionary:
 		return {
-			"resident_views": 49,
+			"resident_views": 47,
 			"desired_visible_chunks": 81,
 			"packet_count": 121,
 			"requested_packets": 3,
@@ -28,6 +96,15 @@ class FakePerfSource extends Node:
 			"grass_upload_queue": 2,
 			"grass_inflight": 4,
 			"grass_ready_cpu": 11,
+			"grass_page_inflight": 5,
+			"grass_page_ready_cpu": 7,
+			"grass_page_upload_queue": 3,
+			"grass_page_resident": 19,
+			"grass_page_active_slots": 11,
+			"grass_page_worker_ms": 1.25,
+			"grass_page_latency_ms": 8.5,
+			"grass_page_cache_hits_total": 17,
+			"grass_page_evictions_total": 2,
 			"mountain_mask_inflight": 7,
 			"terrain_mask_inflight": 5,
 			"mountain_mask_upload_queue": 2,
@@ -56,6 +133,7 @@ func _init() -> void:
 func _run() -> void:
 	_remove_test_directory(TEST_CAPTURE_ROOT)
 	_test_static_contract()
+	_test_trace_schema_contract()
 	_test_metrics_contract()
 	await _test_live_observer_contract()
 	_test_recorder_retention_contract()
@@ -109,11 +187,45 @@ func _test_static_contract() -> void:
 		"UI_PERF_HINT_MORE",
 		"UI_PERF_RECORDING_SAVED",
 		"UI_PERF_EVENT_LIMIT_REACHED",
+		"UI_PERF_METRIC_GRASS_PAGES",
+		"UI_PERF_GRASS_PAGE_ROW",
 	]:
 		_assert(
 			ru_locale.contains(localization_key) and en_locale.contains(localization_key),
 			"Performance HUD localization key missing: %s" % localization_key,
 		)
+
+
+func _test_trace_schema_contract() -> void:
+	var columns: Array[String] = PerformanceFlightRecorder.TRACE_COLUMNS
+	_assert(
+		PerformanceFlightRecorder.TRACE_STRIDE == 64 and columns.size() == 64,
+		"F4 trace stride must contain the 57 legacy and seven page columns.",
+	)
+	for column_index: int in range(LEGACY_TRACE_COLUMNS.size()):
+		_assert(
+			columns[column_index] == LEGACY_TRACE_COLUMNS[column_index],
+			"Legacy F4 column index changed at %d." % column_index,
+		)
+	for page_index: int in range(GRASS_PAGE_TRACE_COLUMNS.size()):
+		var column_index: int = LEGACY_TRACE_COLUMNS.size() + page_index
+		_assert(
+			columns[column_index] == GRASS_PAGE_TRACE_COLUMNS[page_index],
+			"Grass-page F4 columns must be append-only and ordered.",
+		)
+	var grass_page_column_count: int = 0
+	for column_name: String in columns:
+		if column_name.begins_with("grass_page_"):
+			grass_page_column_count += 1
+	_assert(
+		grass_page_column_count == GRASS_PAGE_TRACE_COLUMNS.size(),
+		"F4 must append exactly seven grass_page_* columns.",
+	)
+	_assert(
+		not columns.has("grass_page_cache_hits_total")
+				and not columns.has("grass_page_evictions_total"),
+		"Cumulative page-cache counters belong in sidecars, not per-frame CSV.",
+	)
 
 
 func _test_metrics_contract() -> void:
@@ -263,11 +375,20 @@ func _test_recorder_observer_contract() -> void:
 	get_root().add_child(recorder)
 	recorder.setup(source, null, TEST_CAPTURE_ROOT)
 	await process_frame
+	recorder._refresh_context_snapshot()
+	var diagnostic: Dictionary = recorder._build_diagnostic_snapshot(&"manual")
+	var diagnostic_streaming: Dictionary = diagnostic.get("streaming", { }) as Dictionary
+	_assert(
+		int(diagnostic_streaming.get("grass_page_cache_hits_total", -1)) == 17
+				and int(diagnostic_streaming.get("grass_page_evictions_total", -1)) == 2,
+		"F2/event sidecars must retain cumulative grass-page cache counters.",
+	)
 	var baseline_observers: int = WorldPerfProbe.get_live_observer_count()
 	_assert(recorder.start_recording(), "Flight recorder must start from idle.")
 	await process_frame
 	await process_frame
 	var active_state: Dictionary = recorder.get_ui_state()
+	var session_directory: String = String(active_state.get("artifact_directory", ""))
 	_assert(
 		bool(active_state.get("recording", false))
 				and int(active_state.get("sample_count", 0)) > 0,
@@ -291,6 +412,45 @@ func _test_recorder_observer_contract() -> void:
 		WorldPerfProbe.get_live_observer_count() == baseline_observers,
 		"Stopping the recorder must release its independent live observer.",
 	)
+	var trace_file: FileAccess = FileAccess.open(
+		session_directory.path_join("trace.csv"),
+		FileAccess.READ,
+	)
+	_assert(trace_file != null, "F4 trace artifact must be readable.")
+	if trace_file != null:
+		var trace_header: PackedStringArray = trace_file.get_csv_line()
+		trace_file.close()
+		_assert(
+			trace_header.size() == PerformanceFlightRecorder.TRACE_STRIDE,
+			"F4 CSV header must match its append-only stride.",
+		)
+		for column_index: int in range(trace_header.size()):
+			_assert(
+				trace_header[column_index] == PerformanceFlightRecorder.TRACE_COLUMNS[column_index],
+				"F4 artifact header must preserve the in-memory schema order.",
+			)
+	var session_variant: Variant = JSON.parse_string(
+		FileAccess.get_file_as_string(session_directory.path_join("session.json")),
+	)
+	var session: Dictionary = session_variant as Dictionary
+	var statistics: Dictionary = session.get("statistics", { }) as Dictionary
+	var expected_maxima: Dictionary = {
+		"max_grass_page_inflight": 5.0,
+		"max_grass_page_ready_cpu": 7.0,
+		"max_grass_page_upload_queue": 3.0,
+		"max_grass_page_resident": 19.0,
+		"max_grass_page_active_slots": 11.0,
+		"max_grass_page_worker_ms": 1.25,
+		"max_grass_page_latency_ms": 8.5,
+	}
+	for statistic_name: String in expected_maxima:
+		_assert(
+			is_equal_approx(
+				float(statistics.get(statistic_name, -1.0)),
+				float(expected_maxima[statistic_name]),
+			),
+			"Session summary maximum missing or incorrect: %s" % statistic_name,
+		)
 	recorder.queue_free()
 	source.queue_free()
 	await process_frame
@@ -451,13 +611,26 @@ func _test_widget_contract() -> void:
 		"Compact-to-detailed switching must not leave the panel transparent.",
 	)
 	_assert(
-		(detailed.get("panel_size", Vector2.ZERO) as Vector2).x >= 600.0,
-		"Detailed HUD must expand to the readable diagnostics width.",
+		(detailed.get("panel_size", Vector2.ZERO) as Vector2).x >= 600.0
+				and (detailed.get("panel_size", Vector2.ZERO) as Vector2).y >= 550.0,
+		"Detailed HUD must expand to fit the readable grass-page diagnostics row.",
 	)
 	var stream_snapshot: Dictionary = detailed.get("stream_snapshot", { }) as Dictionary
 	_assert(
-		int(stream_snapshot.get("resident_views", 0)) == 49,
+		int(stream_snapshot.get("resident_views", 0)) == 47,
 		"Widget must consume the lightweight streamer snapshot.",
+	)
+	var grass_page_value: Label = widget._value_labels.get("grass_pages", null) as Label
+	_assert(
+		grass_page_value != null
+				and grass_page_value.text.contains("merge 5")
+				and grass_page_value.text.contains("GPU 3")
+				and grass_page_value.text.contains("cache 19"),
+		"Detailed HUD must show grass pages in merge / GPU / cache order.",
+	)
+	_assert(
+		widget._summary_label.text.ends_with("49"),
+		"Compact queue total must include the independent page upload queue.",
 	)
 
 	var hidden_mode: int = widget.cycle_display_mode()
@@ -473,6 +646,32 @@ func _test_widget_contract() -> void:
 	)
 	widget.queue_free()
 	source.queue_free()
+	await process_frame
+
+	var pressure_source := PressurePerfSource.new()
+	get_root().add_child(pressure_source)
+	var pressure_widget: HudPerformanceWidget = \
+			PerformanceHudWidget.new() as HudPerformanceWidget
+	get_root().add_child(pressure_widget)
+	pressure_widget.set_performance_source(pressure_source)
+	pressure_widget.cycle_display_mode()
+	pressure_widget.call("_refresh_presentation")
+	_assert(
+		pressure_widget._summary_label.text.ends_with("12"),
+		"Compact queue total must expose visibility_wait even when every work queue is zero.",
+	)
+	pressure_widget.cycle_display_mode()
+	pressure_widget.call("_refresh_presentation")
+	var visibility_wait_value: Label = pressure_widget._value_labels.get(
+		"visibility_wait",
+		null,
+	) as Label
+	_assert(
+		visibility_wait_value != null and visibility_wait_value.text == "12",
+		"Detailed HUD and compact summary must report the same reveal backlog.",
+	)
+	pressure_widget.queue_free()
+	pressure_source.queue_free()
 	await process_frame
 
 

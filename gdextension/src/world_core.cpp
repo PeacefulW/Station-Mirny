@@ -2100,6 +2100,7 @@ void WorldCore::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("build_mountain_skylight_exposure", "closed_roof_mask", "live_mask", "width", "height", "step_px", "reach_samples"), &WorldCore::build_mountain_skylight_exposure);
 	ClassDB::bind_method(D_METHOD("build_chunk_halo_fields", "packets_3x3", "halo_radius_tiles"), &WorldCore::build_chunk_halo_fields);
 	ClassDB::bind_method(D_METHOD("build_grass_scatter_buffer", "seed", "chunk_coord", "terrain_ids", "lake_flags", "mountain_halo", "mountain_halo_radius_tiles", "params"), &WorldCore::build_grass_scatter_buffer);
+	ClassDB::bind_method(D_METHOD("build_grass_render_page_buffer", "contributors", "page_width_chunks", "chunk_size_px"), &WorldCore::build_grass_render_page_buffer);
 	ClassDB::bind_method(D_METHOD("build_object_presentation_buffers", "object_kind", "object_local_x_px_q4", "object_local_y_px_q4", "object_size_px", "object_atlas_index", "object_variant", "object_flags", "object_tint", "object_phase", "tree_metrics", "rock_metrics", "params"), &WorldCore::build_object_presentation_buffers);
 	ClassDB::bind_method(D_METHOD("build_mountain_plateau_raster_image", "packets", "target_chunk", "preset", "top_image", "face_image"), &WorldCore::build_mountain_plateau_raster_image);
 	ClassDB::bind_method(D_METHOD("resolve_world_foundation_spawn_tile", "seed", "world_version", "settings_packed"), &WorldCore::resolve_world_foundation_spawn_tile);
@@ -2111,6 +2112,13 @@ void WorldCore::_bind_methods() {
 
 Dictionary WorldCore::build_grass_scatter_buffer(int64_t p_seed, Vector2i p_chunk_coord, PackedInt32Array p_terrain_ids, PackedByteArray p_lake_flags, PackedByteArray p_mountain_halo, int64_t p_mountain_halo_radius_tiles, PackedFloat32Array p_params) {
 	return grass_scatter::build_buffer(p_seed, p_chunk_coord.x, p_chunk_coord.y, p_terrain_ids, p_lake_flags, p_mountain_halo, p_mountain_halo_radius_tiles, p_params);
+}
+
+Dictionary WorldCore::build_grass_render_page_buffer(Array p_contributors, int64_t p_page_width_chunks, double p_chunk_size_px) {
+	return grass_scatter::build_render_page_buffer(
+			p_contributors,
+			p_page_width_chunks,
+			static_cast<float>(p_chunk_size_px));
 }
 
 Dictionary WorldCore::build_chunk_halo_fields(Array p_packets_3x3, int64_t p_halo_radius_tiles) {

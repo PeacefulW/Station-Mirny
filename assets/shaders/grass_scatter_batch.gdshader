@@ -39,6 +39,12 @@ uniform float intra_tuft_flutter = 0.05;
 uniform float gust_contrast_low = 0.42;
 uniform float gust_contrast_high = 0.80;
 uniform float alpha_cutoff = 0.02;
+// Render-page visibility. -1 is the legacy sentinel: every instance remains
+// active, independent of its world position. Non-negative/other signed masks
+// address the 32 slots of the underlying uint bit pattern.
+uniform int page_slot_mask = -1;
+uniform float page_origin_x = 0.0;
+uniform float page_slot_width_px = 1024.0;
 // Макро-вариация поля: крупные апериодичные пятна «рыжее <-> желтее» и
 // «сочное <-> сухое», чтобы ковёр дышал, а не был однотонным.
 uniform float macro_field_scale_px = 2600.0;
@@ -55,6 +61,22 @@ uniform float debug_gust_view = 0.0;
 varying vec4 instance_data;
 varying float gust_value;
 varying vec2 v_world_pos;
+varying float page_slot_active;
+
+float is_page_slot_active(vec2 instance_world_origin) {
+	if (page_slot_mask == -1) {
+		return 1.0;
+	}
+	float slot_value = floor(
+		(instance_world_origin.x - page_origin_x) / max(page_slot_width_px, 1.0)
+	);
+	if (slot_value < 0.0 || slot_value >= 32.0) {
+		return 0.0;
+	}
+	uint slot_index = uint(slot_value);
+	uint active_bits = uint(page_slot_mask);
+	return (active_bits & (uint(1) << slot_index)) != uint(0) ? 1.0 : 0.0;
+}
 
 float hash12(vec2 p) {
 	vec3 p3 = fract(vec3(p.xyx) * 0.1031);
@@ -80,6 +102,8 @@ float gradient_noise(vec2 p) {
 
 void vertex() {
 	instance_data = COLOR;
+	vec2 instance_world_origin = (MODEL_MATRIX * vec4(0.0, 0.0, 0.0, 1.0)).xy;
+	page_slot_active = is_page_slot_active(instance_world_origin);
 	vec2 world_pos = (MODEL_MATRIX * vec4(VERTEX, 0.0, 1.0)).xy;
 	v_world_pos = world_pos;
 	vec2 dir = normalize(wind_direction + vec2(0.0001, 0.0));
@@ -154,6 +178,9 @@ void vertex() {
 }
 
 void fragment() {
+	if (page_slot_active < 0.5) {
+		discard;
+	}
 	if (debug_gust_view > 0.5) {
 		COLOR = vec4(gust_value, gust_value, gust_value, 1.0);
 	} else {

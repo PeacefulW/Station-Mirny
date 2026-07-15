@@ -22,6 +22,8 @@ func _run() -> void:
 	_test_shared_compute_priority_contract()
 	await _test_backend_start_stop_restart()
 	_test_object_visual_queue_completion_priority()
+	await _test_pending_visibility_retry_is_bounded_and_monotonic()
+	await _test_failed_hot_promotion_restages_local_result()
 	_test_object_visual_lane_budgeted_continuation()
 	_test_object_visual_queue_cap_and_live_tick_preemption()
 	_test_object_result_drain_is_cpu_only()
@@ -372,6 +374,247 @@ func _test_object_visual_queue_completion_priority() -> void:
 		streamer._take_next_object_packet_visual_upload() == hidden_near_coord,
 		"hidden prestage runs after the live frontier drains",
 	)
+	streamer.free()
+
+
+func _test_pending_visibility_retry_is_bounded_and_monotonic() -> void:
+	var streamer_script: Script = load("res://core/systems/world/world_streamer.gd") as Script
+	var streamer: Node = streamer_script.new() as Node
+	var coord := Vector2i(3, 2)
+	streamer._player_chunk_coord = coord
+	streamer._current_stream_radius_chunks = 0
+	var view: ChunkView = ChunkView.new()
+	view.visible = false
+	streamer.add_child(view)
+	streamer._chunk_views[coord] = view
+	var loaded_coords: Array[Vector2i] = []
+	var on_chunk_loaded := func(loaded_coord: Vector2i) -> void:
+		if loaded_coord == coord:
+			loaded_coords.append(loaded_coord)
+	var event_bus: Node = get_root().get_node_or_null("EventBus")
+	_expect(event_bus != null, "EventBus autoload must exist for reveal event checks")
+	if event_bus != null:
+		event_bus.connect(&"chunk_loaded", on_chunk_loaded)
+
+	streamer._queue_pending_chunk_visibility(coord)
+	streamer._queue_pending_chunk_visibility(coord)
+	_expect(
+		streamer._pending_chunk_visibility_retry_slots.size() == 1 \
+				and streamer._pending_chunk_visibility_retry_slot_by_chunk.size() == 1,
+		"pending visibility retry must deduplicate one live chunk in O(1)",
+	)
+	streamer._player_chunk_coord = coord + Vector2i(8, 0)
+	streamer._finalize_pending_chunk_visibility(coord)
+	_expect(
+		streamer._pending_chunk_visibility_after_mountain_visual.has(coord) \
+				and not view.visible and loaded_coords.is_empty(),
+		"an outgoing wait token cannot reveal stale pixels, collision, or events",
+	)
+	streamer._player_chunk_coord = coord
+	view._mountain_top_mask_visual_dirty = true
+	streamer._retry_pending_chunk_visibility(1)
+	_expect(
+		streamer._pending_chunk_visibility_after_mountain_visual.has(coord) \
+				and not view.visible and loaded_coords.is_empty(),
+		"mountain visual readiness remains a hard reveal blocker",
+	)
+	view._mountain_top_mask_visual_dirty = false
+	view._object_packet_visual_dirty = true
+	streamer._retry_pending_chunk_visibility(1)
+	_expect(
+		streamer._pending_chunk_visibility_after_mountain_visual.has(coord) \
+				and not view.visible and loaded_coords.is_empty(),
+		"object presentation readiness remains a hard reveal blocker",
+	)
+	view._object_packet_visual_dirty = false
+	streamer._defer_object_presentation_reveal(coord)
+	streamer._finalize_pending_chunk_visibility(coord)
+	_expect(
+		streamer._pending_chunk_visibility_after_mountain_visual.has(coord) \
+				and not view.visible and loaded_coords.is_empty(),
+		"the process-frame guard cannot be bypassed by the last producer callback",
+	)
+	await process_frame
+	streamer._retry_pending_chunk_visibility(1)
+	_expect(
+		not streamer._pending_chunk_visibility_after_mountain_visual.has(coord) \
+				and view.visible and loaded_coords.size() == 1,
+		"bounded retry must close a lost wakeup exactly once after all blockers clear",
+	)
+	streamer._finalize_pending_chunk_visibility(coord)
+	_expect(loaded_coords.size() == 1, "a completed reveal cannot emit chunk_loaded twice")
+	_expect(
+		streamer._pending_chunk_visibility_retry_slots.is_empty() \
+				and streamer._pending_chunk_visibility_retry_slot_by_chunk.is_empty(),
+		"terminal reveal must release its retry token without a stale traversal tail",
+	)
+	if event_bus != null:
+		event_bus.disconnect(&"chunk_loaded", on_chunk_loaded)
+	streamer.free()
+
+	var bounded_streamer: Node = streamer_script.new() as Node
+	var retry_limit: int = bounded_streamer.MAX_PENDING_CHUNK_VISIBILITY_RETRIES_PER_TICK
+	bounded_streamer._player_chunk_coord = Vector2i(0, 20)
+	bounded_streamer._current_stream_radius_chunks = retry_limit + 2
+	for index: int in range(retry_limit + 2):
+		var ready_coord := Vector2i(index, 20)
+		var ready_view: ChunkView = ChunkView.new()
+		ready_view.visible = false
+		bounded_streamer.add_child(ready_view)
+		bounded_streamer._chunk_views[ready_coord] = ready_view
+		bounded_streamer._queue_pending_chunk_visibility(ready_coord)
+	bounded_streamer._retry_pending_chunk_visibility(retry_limit)
+	_expect(
+		bounded_streamer._pending_chunk_visibility_after_mountain_visual.size() == 2,
+		"one retry callback may finalize only its fixed per-tick chunk bound",
+	)
+	bounded_streamer._retry_pending_chunk_visibility(retry_limit)
+	_expect(
+		bounded_streamer._pending_chunk_visibility_after_mountain_visual.is_empty() \
+				and bounded_streamer._pending_chunk_visibility_retry_slots.is_empty(),
+		"dense retry ring drains without scanning or retaining resolved coordinates",
+	)
+	var cursor_streamer: Node = streamer_script.new() as Node
+	cursor_streamer._player_chunk_coord = Vector2i(0, 40)
+	cursor_streamer._current_stream_radius_chunks = 4
+	for index: int in range(4):
+		var cursor_coord := Vector2i(index, 40)
+		var cursor_view: ChunkView = ChunkView.new()
+		cursor_view.visible = false
+		cursor_view._object_packet_visual_dirty = index != 2
+		cursor_streamer.add_child(cursor_view)
+		cursor_streamer._chunk_views[cursor_coord] = cursor_view
+		cursor_streamer._queue_pending_chunk_visibility(cursor_coord)
+	cursor_streamer._pending_chunk_visibility_retry_cursor = 2
+	cursor_streamer._drop_pending_chunk_visibility(Vector2i(0, 40))
+	cursor_streamer._retry_pending_chunk_visibility(1)
+	_expect(
+		not cursor_streamer._pending_chunk_visibility_after_mountain_visual.has(
+			Vector2i(2, 40),
+		),
+		"swap-removing an earlier slot must preserve the cursor's next logical probe",
+	)
+	var streamer_source: String = FileAccess.get_file_as_string(
+		"res://core/systems/world/world_streamer.gd",
+	)
+	_expect(
+		not streamer_source.contains(
+			"_pending_chunk_visibility_after_mountain_visual.keys()",
+		) \
+				and streamer_source.contains(
+					"_retry_pending_chunk_visibility(MAX_PENDING_CHUNK_VISIBILITY_RETRIES_PER_TICK)",
+				),
+		"streaming must run the bounded visibility retry without scanning the pending dictionary",
+	)
+	cursor_streamer.free()
+	bounded_streamer.free()
+
+
+func _test_failed_hot_promotion_restages_local_result() -> void:
+	var streamer_script: Script = load("res://core/systems/world/world_streamer.gd") as Script
+	var streamer: Node = streamer_script.new() as Node
+	streamer._generation_epoch = 91
+	var coord := Vector2i(5, 3)
+	var revision: int = 44
+	streamer._player_chunk_coord = coord
+	streamer._object_presentation_revision_by_chunk[coord] = revision
+
+	var view: ChunkView = ChunkView.new()
+	streamer._configure_chunk_view(view, coord)
+	streamer._chunk_views[coord] = view
+	var local_layer: WorldObjectPacketLayer = view._ensure_object_packet_layer()
+	local_layer.cancel_pending_presentation_apply()
+	view._object_packet_visual_dirty = true
+	view._object_packet_visual_started = false
+	view.visible = false
+
+	var result: Dictionary = _make_live_object_completion(streamer, coord, revision)
+	streamer._object_presentation_results_by_chunk[coord] = result
+	var hot_layer: WorldObjectPacketLayer = WorldObjectPacketLayer.new()
+	streamer.add_child(hot_layer)
+	_expect(
+		hot_layer.prepare_presentation_envelope(
+			streamer._layered_object_asset_catalog,
+			0,
+		),
+		"failed-promotion fixture prepares the completed hot envelope",
+	)
+	_expect(
+		hot_layer.begin_presentation_result(
+			result,
+			streamer._layered_object_asset_catalog,
+		),
+		"failed-promotion fixture accepts the retained worker result",
+	)
+	var completion_guard: int = 64
+	while hot_layer.has_pending_presentation_apply() and completion_guard > 0:
+		hot_layer.apply_next_presentation_slice(1, 4, 1)
+		completion_guard -= 1
+	_expect(
+		completion_guard > 0 and hot_layer.is_presentation_complete(),
+		"failed-promotion fixture reaches one valid committed hot layer",
+	)
+	var weight: Dictionary = hot_layer.get_hot_cache_weight()
+	streamer._add_hot_object_entry(
+		coord,
+		{
+			"layer": hot_layer,
+			"epoch": streamer._generation_epoch,
+			"revision": revision,
+			"catalog_generation": streamer._layered_object_asset_catalog.get_catalog_generation(),
+			"ready": true,
+			"gpu_buffer_bytes": int(weight.get("gpu_buffer_bytes", 0)),
+			"canvas_item_count": int(weight.get("canvas_item_count", 0)),
+			"collider_count": int(weight.get("collider_count", 0)),
+		},
+	)
+	streamer._queue_pending_chunk_visibility(coord)
+	streamer._queue_object_packet_visual_upload(coord)
+	var loaded_coords: Array[Vector2i] = []
+	var on_chunk_loaded := func(loaded_coord: Vector2i) -> void:
+		if loaded_coord == coord:
+			loaded_coords.append(loaded_coord)
+	var event_bus: Node = get_root().get_node_or_null("EventBus")
+	_expect(event_bus != null, "EventBus autoload must exist for promote recovery checks")
+	if event_bus != null:
+		event_bus.connect(&"chunk_loaded", on_chunk_loaded)
+
+	_advance_object_presentation_work_phase(streamer)
+	_expect(
+		not streamer._hot_object_presentation_layers.has(coord) \
+				and view.has_staged_object_presentation_result() \
+				and streamer._pending_object_packet_visual_upload_set.has(coord) \
+				and streamer._pending_object_packet_visual_upload_chunks.count(coord) == 1,
+		"adopt=false must transfer the retained CPU result to the local view and keep one owner token",
+	)
+	_expect(
+		streamer._pending_chunk_visibility_after_mountain_visual.has(coord) \
+				and not view.visible and loaded_coords.is_empty() \
+				and (local_layer._tree_collision_body == null \
+						or local_layer._tree_collision_body.collision_layer == 0),
+		"failed hot adoption cannot reveal pixels or collision prematurely",
+	)
+
+	var reveal_guard: int = 96
+	while streamer._pending_chunk_visibility_after_mountain_visual.has(coord) \
+			and reveal_guard > 0:
+		_advance_object_presentation_work_phase(streamer)
+		await process_frame
+		reveal_guard -= 1
+	_expect(
+		reveal_guard > 0 \
+				and view.visible \
+				and loaded_coords.size() == 1 \
+				and not streamer._pending_object_packet_visual_upload_set.has(coord),
+		"local recovery must finish, reveal exactly once, and retire its upload token",
+	)
+	_expect(
+		local_layer._tree_collision_body.collision_layer \
+				== WorldObjectPacketLayer.OBJECT_COLLISION_LAYER,
+		"blocking collision activates only in the atomic reveal commit",
+	)
+	if event_bus != null:
+		event_bus.disconnect(&"chunk_loaded", on_chunk_loaded)
 	streamer.free()
 
 

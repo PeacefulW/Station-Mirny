@@ -4,8 +4,8 @@ doc_type: system_spec
 status: draft
 owner: engineering
 source_of_truth: true
-version: 1.7
-last_updated: 2026-07-14
+version: 1.10
+last_updated: 2026-07-15
 related_docs:
   - ../README.md
   - system_api.md
@@ -1222,6 +1222,26 @@ Returned by native
 Governing spec:
 `docs/02_system_specs/world/wind_and_grass_scatter_presentation.md`.
 
+`WorldChunkPacketBackend.queue_grass_scatter_request(...)` preserves the
+existing explicit-halo call shape and optionally accepts a final
+`halo_packets_3x3` worker input. The two legal modes are:
+
+- non-empty `mountain_halo`: use the explicit packed halo and ignore the
+  optional packet window
+- empty `mountain_halo` plus exactly nine row-major `(-1,-1)..(1,1)` packet
+  envelopes: worker-local `WorldCore.build_chunk_halo_fields(...)` derives
+  `remaining_halo`, then the same worker calls `build_grass_scatter_buffer`
+
+Each present envelope is a shallow immutable packet snapshot containing
+`terrain_ids`, `walkable_flags`, `mountain_id_per_tile`, `mountain_flags`, and
+`lake_flags`; each packed channel has exactly `CHUNK_SIZE * CHUNK_SIZE` cells.
+A finite north/south boundary occupies its fixed slot as
+`{ "halo_source_present": false }`. The queue owns shallow copies of the outer
+array and dictionaries but retains the packed channels by ref-counted handle;
+producer mutation before completion violates the immutable-owner contract.
+Malformed window count/type/channel shapes produce one failed completion and
+never enter a script fallback or retry loop inside the backend.
+
 ```text
 {
   "bucket_buffers": Array,                 # DEPTH_STRIPES_PER_CHUNK (64)
@@ -1261,6 +1281,11 @@ Governing spec:
   "epoch"?: int,
   "revision"?: int,
   "target_chunk"?: Vector2i,
+  "mountain_halo_source"?: StringName,    # `explicit` or `worker_3x3`
+  "mountain_halo_derived"?: bool,         # true only after successful native
+                                           # worker derivation
+  "mountain_halo_derivation_ms"?: int,    # bounded worker-local halo phase;
+                                           # included on success and failure
   "queued_msec"?: int,
   "worker_started_msec"?: int,
   "worker_elapsed_ms"?: int,
@@ -1281,25 +1306,29 @@ Current code notes:
   (`grass_scatter::sample_path`), not through the field grid. New params are
   appended so existing indices stay stable. Governing spec:
   `docs/02_system_specs/world/plains_ground_field_composition.md`
-- the buffer is presentation-only derived data assigned directly to a chunk
-  grass `MultiMesh`; it is never persisted and never enters `ChunkPacketV1`
+- the buffer is presentation-only derived data. The legacy fractional-LOD path
+  assigns it directly to chunk grass `MultiMesh` resources; the full-LOD path
+  retains it as one immutable contributor to native page merge. It is never
+  persisted and never enters `ChunkPacketV1`
 - the native call executes on a worker-local `WorldCore`; scene objects and GPU
   resources are touched only after the main thread validates `epoch + revision`
 - placement is deterministic for the same seed, chunk, inputs, and params;
-  origins are chunk-local pixels (the grass layer node sits at the chunk
-  origin)
+  origins are chunk-local pixels. The legacy layer sits at the chunk origin;
+  full-LOD page merge changes only transform `origin.x` by
+  `slot * chunk_size_px`
 - candidates reject mountain wall/foot terrain within the authored
   mountain-edge clearance (`GRASS_MOUNTAIN_CLEARANCE_PX`, `grass_scatter.cpp`)
   before instance emission, so presentation-only grass tufts cannot appear
   under the organic runtime mountain mask. The clearance check reads
   `mountain_halo` — a per-tile solid byte array, `halo_side x halo_side`
   (`halo_side = chunk_size_tiles + 2*mountain_halo_radius_tiles`), the SAME
-  layout `WorldStreamer._build_mountain_solid_halo` already builds from the 3x3
-  neighbouring chunks for the mountain mask itself (`world_streamer.gd`) — NOT
-  the chunk's own `terrain_ids` alone. A chunk-local-only check (pre-2026-07-04)
-  went blind for candidates near a chunk seam whose nearest mountain tile sat in
-  the *neighbouring* chunk, regardless of clearance distance; reusing the
-  existing cross-chunk halo fixes this with no new native computation. The
+  `remaining_halo` layout derived from the fixed 3x3 neighbouring packet
+  window for mountain presentation — NOT the chunk's own `terrain_ids` alone.
+  The backend may pass an existing explicit halo or derive it through
+  worker-local `build_chunk_halo_fields` immediately before scatter packing.
+  A chunk-local-only check (pre-2026-07-04) went blind for candidates near a
+  chunk seam whose nearest mountain tile sat in the *neighbouring* chunk,
+  regardless of clearance distance. The
   clearance test itself scans every halo tile within `clearance_px` (a filled
   disk at tile granularity), not a fixed ring of sample points at
   `clearance_px` — a ring can jump clean over a mountain feature thinner than
@@ -1319,7 +1348,8 @@ Current code notes:
   is the concatenation of the finalized stripe buckets in stripe order. It is
   worker-produced derived data: the main thread performs one bounded raw
   `MultiMesh.buffer` assignment and never flattens instance arrays in GDScript.
-  The checked-in full-LOD profile renders that one fixed-z batch; a profile
+  For the checked-in full-LOD profile this array is a page contributor; native
+  page merge rebases/concatenates it into one fixed-z batch per page. A profile
   whose authored LOD envelope permits `visible_instance_count < instance_count`
   keeps the legacy per-stripe shadow path so hidden tufts cannot leave orphan
   shadows. The mode is selected from profile data before publication, not in
@@ -1337,6 +1367,88 @@ Current code notes:
   admission uses this O(1) producer metadata and must not rescan 64 arrays.
 - an `error` key means the caller violated the input contract; consumers must
   fail explicitly instead of masking it
+
+### `GrassRenderPageBufferResult`
+
+Returned by native
+`WorldCore.build_grass_render_page_buffer(contributors, page_width_chunks, chunk_size_px)`.
+Governing spec:
+`docs/02_system_specs/world/wind_and_grass_scatter_presentation.md`,
+Iteration 7.
+
+The pure worker input contains at most four shallow immutable contributor
+envelopes. Each envelope references one already validated
+`GrassScatterBufferResult` without copying or traversing its packed floats in
+GDScript:
+
+```text
+{
+  "slot": int,                              # unique 0..page_width_chunks-1
+  "revision": int,                          # exact chunk scatter revision
+  "bucket_buffers": Array[PackedFloat32Array; 64],
+  "directional_shadow_buffer": PackedFloat32Array,
+  "shadow_buffer": PackedFloat32Array,
+  "spore_buffer": PackedFloat32Array,
+}
+```
+
+Native output:
+
+```text
+{
+  "bucket_buffers": Array[PackedFloat32Array; 64],
+  "directional_shadow_buffer": PackedFloat32Array,
+  "shadow_buffer": PackedFloat32Array,
+  "spore_buffer": PackedFloat32Array,
+  "contributor_revisions": PackedInt64Array, # page_width_chunks entries;
+                                               # -1 for an absent slot
+  "contributor_mask": int,
+  "instance_count": int,
+  "directional_shadow_count": int,
+  "shadow_count": int,
+  "spore_count": int,
+  "non_empty_bucket_count": int,
+  "buffer_float_count": int,
+  "payload_bytes": int,
+  "error": String,                           # contract violation only
+
+  # Added by WorldChunkPacketBackend after native compute:
+  "success"?: bool,
+  "message"?: String,
+  "epoch"?: int,
+  "page_revision"?: int,
+  "page_coord"?: Vector2i,
+  "queued_msec"?: int,
+  "worker_started_msec"?: int,
+  "worker_elapsed_ms"?: int,
+  "queue_wait_ms"?: int,
+  "request_to_complete_ms"?: int,
+}
+```
+
+Contract rules:
+
+- the production full-LOD page is fixed at `4 x 1` chunks; the helper accepts
+  widths `1..4` so partial/test envelopes remain structurally valid
+- contributors are emitted in ascending slot order regardless of request order
+- native changes only 2D transform `origin.x` (float index `3`) by
+  `slot * chunk_size_px`; basis, Y, color, per-stripe importance order, and all
+  other floats are copied exactly
+- all contributors share the same chunk Y row, so the 64 local bucket indices
+  remain the exact 64 global world-row stripes of the page
+- `payload_bytes == buffer_float_count * 4`; the main thread must use this
+  producer metadata instead of rescanning packed arrays
+- this result is transient derived presentation, never canonical packet truth,
+  gameplay state, collision, or save data
+- queued requests coalesce by `(epoch, page_coord)`. Runtime accepts a result
+  only when its `page_revision` and every required contributor revision still
+  match; stale worker completions never reach GPU staging. Required contributors
+  are `active | prestage` whenever that reveal mask is non-zero, otherwise the
+  complete source-only mask. Already exact optional source contributors may join
+  a reveal merge, but a later optional source arrival does not force a partial
+  page rebuild
+- malformed, duplicate-slot, or misaligned contributor payloads fail explicitly
+  through `error`; no GDScript merge fallback is allowed
 
 ## Not Currently Confirmed
 
