@@ -8,6 +8,13 @@ var _diffs_by_chunk: Dictionary = {}
 func clear() -> void:
 	_diffs_by_chunk.clear()
 
+func has_any_diffs() -> bool:
+	return not _diffs_by_chunk.is_empty()
+
+func has_chunk_overrides(chunk_coord: Vector2i) -> bool:
+	var chunk_diffs: Dictionary = _diffs_by_chunk.get(chunk_coord, {}) as Dictionary
+	return not chunk_diffs.is_empty()
+
 func set_tile_override(chunk_coord: Vector2i, local_coord: Vector2i, terrain_id: int, walkable: bool) -> void:
 	if not WorldRuntimeConstants.is_local_coord_valid(local_coord):
 		return
@@ -43,9 +50,14 @@ func apply_to_packet(packet: Dictionary) -> Dictionary:
 	var chunk_coord: Vector2i = packet.get("chunk_coord", Vector2i.ZERO) as Vector2i
 	var chunk_diffs: Dictionary = _diffs_by_chunk.get(chunk_coord, {}) as Dictionary
 	if chunk_diffs.is_empty():
-		return packet.duplicate(true)
+		# Packet payloads are immutable PackedArrays. Keep their COW references and
+		# own only the Dictionary envelope; deep duplication made every clean worker
+		# completion copy all terrain and object channels on the main thread.
+		return packet.duplicate(false)
 
-	var merged_packet: Dictionary = packet.duplicate(true)
+	# Only the two channels touched by runtime diffs need private COW buffers.
+	# All other immutable worker output remains shared with the base packet.
+	var merged_packet: Dictionary = packet.duplicate(false)
 	var terrain_ids: PackedInt32Array = (merged_packet.get("terrain_ids", PackedInt32Array()) as PackedInt32Array).duplicate()
 	var walkable_flags: PackedByteArray = (merged_packet.get("walkable_flags", PackedByteArray()) as PackedByteArray).duplicate()
 

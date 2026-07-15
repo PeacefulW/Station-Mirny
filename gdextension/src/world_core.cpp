@@ -36,6 +36,7 @@ constexpr int64_t CHUNK_SIZE = 16;
 constexpr int64_t CELL_COUNT = CHUNK_SIZE * CHUNK_SIZE;
 
 constexpr int64_t TERRAIN_PLAINS_GROUND = 0;
+constexpr int64_t TERRAIN_PLAINS_DUG = 2;
 constexpr int64_t TERRAIN_MOUNTAIN_WALL = 3;
 constexpr int64_t TERRAIN_MOUNTAIN_FOOT = 4;
 constexpr int64_t TERRAIN_LAKE_BED_SHALLOW = 5;
@@ -2097,6 +2098,7 @@ void WorldCore::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("build_mountain_contour_debug", "solid_halo", "chunk_size", "tile_size_px"), &WorldCore::build_mountain_contour_debug);
 	ClassDB::bind_method(D_METHOD("build_mountain_halo_mask", "solid_halo", "chunk_size", "tile_size_px", "pixels_per_tile", "origin_world_x", "origin_world_y"), &WorldCore::build_mountain_halo_mask);
 	ClassDB::bind_method(D_METHOD("build_mountain_skylight_exposure", "closed_roof_mask", "live_mask", "width", "height", "step_px", "reach_samples"), &WorldCore::build_mountain_skylight_exposure);
+	ClassDB::bind_method(D_METHOD("build_chunk_halo_fields", "packets_3x3", "halo_radius_tiles"), &WorldCore::build_chunk_halo_fields);
 	ClassDB::bind_method(D_METHOD("build_grass_scatter_buffer", "seed", "chunk_coord", "terrain_ids", "lake_flags", "mountain_halo", "mountain_halo_radius_tiles", "params"), &WorldCore::build_grass_scatter_buffer);
 	ClassDB::bind_method(D_METHOD("build_object_presentation_buffers", "object_kind", "object_local_x_px_q4", "object_local_y_px_q4", "object_size_px", "object_atlas_index", "object_variant", "object_flags", "object_tint", "object_phase", "tree_metrics", "rock_metrics", "params"), &WorldCore::build_object_presentation_buffers);
 	ClassDB::bind_method(D_METHOD("build_mountain_plateau_raster_image", "packets", "target_chunk", "preset", "top_image", "face_image"), &WorldCore::build_mountain_plateau_raster_image);
@@ -2109,6 +2111,162 @@ void WorldCore::_bind_methods() {
 
 Dictionary WorldCore::build_grass_scatter_buffer(int64_t p_seed, Vector2i p_chunk_coord, PackedInt32Array p_terrain_ids, PackedByteArray p_lake_flags, PackedByteArray p_mountain_halo, int64_t p_mountain_halo_radius_tiles, PackedFloat32Array p_params) {
 	return grass_scatter::build_buffer(p_seed, p_chunk_coord.x, p_chunk_coord.y, p_terrain_ids, p_lake_flags, p_mountain_halo, p_mountain_halo_radius_tiles, p_params);
+}
+
+Dictionary WorldCore::build_chunk_halo_fields(Array p_packets_3x3, int64_t p_halo_radius_tiles) {
+	auto failure = [](const String &p_message) {
+		Dictionary result;
+		result["success"] = false;
+		result["message"] = p_message;
+		return result;
+	};
+
+	if (p_packets_3x3.size() != 9) {
+		return failure("build_chunk_halo_fields requires exactly nine packets in row-major (-1,-1)..(1,1) order.");
+	}
+	if (p_halo_radius_tiles < 1 || p_halo_radius_tiles > CHUNK_SIZE) {
+		return failure("build_chunk_halo_fields halo_radius_tiles must be in the inclusive range [1, CHUNK_SIZE].");
+	}
+
+	struct HaloPacketFields {
+		bool present = true;
+		PackedInt32Array terrain_ids;
+		PackedByteArray walkable_flags;
+		PackedInt32Array mountain_ids;
+		PackedByteArray mountain_flags;
+		PackedByteArray lake_flags;
+	};
+	std::vector<HaloPacketFields> packets;
+	packets.reserve(9);
+
+	for (int64_t packet_index = 0; packet_index < 9; ++packet_index) {
+		const Variant packet_variant = p_packets_3x3[packet_index];
+		if (packet_variant.get_type() != Variant::DICTIONARY) {
+			return failure(String("build_chunk_halo_fields packet ") + String::num_int64(packet_index) + " is not a Dictionary.");
+		}
+		const Dictionary packet = packet_variant;
+		HaloPacketFields fields;
+		fields.present = static_cast<bool>(packet.get("halo_source_present", true));
+		if (!fields.present) {
+			// Finite north/south world borders intentionally contribute no halo
+			// samples, matching the former sparse GDScript builder. Keeping an
+			// explicit void slot preserves the fixed row-major 3x3 native ABI.
+			packets.push_back(fields);
+			continue;
+		}
+		const Variant terrain_variant = packet.get("terrain_ids", Variant());
+		const Variant walkable_variant = packet.get("walkable_flags", Variant());
+		const Variant mountain_ids_variant = packet.get("mountain_id_per_tile", Variant());
+		const Variant mountain_flags_variant = packet.get("mountain_flags", Variant());
+		const Variant lake_flags_variant = packet.get("lake_flags", Variant());
+		if (terrain_variant.get_type() != Variant::PACKED_INT32_ARRAY ||
+				walkable_variant.get_type() != Variant::PACKED_BYTE_ARRAY ||
+				mountain_ids_variant.get_type() != Variant::PACKED_INT32_ARRAY ||
+				mountain_flags_variant.get_type() != Variant::PACKED_BYTE_ARRAY ||
+				lake_flags_variant.get_type() != Variant::PACKED_BYTE_ARRAY) {
+			return failure(String("build_chunk_halo_fields packet ") + String::num_int64(packet_index) + " has a missing field or an invalid packed-array type.");
+		}
+
+		fields.terrain_ids = terrain_variant;
+		fields.walkable_flags = walkable_variant;
+		fields.mountain_ids = mountain_ids_variant;
+		fields.mountain_flags = mountain_flags_variant;
+		fields.lake_flags = lake_flags_variant;
+		if (fields.terrain_ids.size() != CELL_COUNT ||
+				fields.walkable_flags.size() != CELL_COUNT ||
+				fields.mountain_ids.size() != CELL_COUNT ||
+				fields.mountain_flags.size() != CELL_COUNT ||
+				fields.lake_flags.size() != CELL_COUNT) {
+			return failure(String("build_chunk_halo_fields packet ") + String::num_int64(packet_index) + " fields must each contain exactly CHUNK_SIZE * CHUNK_SIZE elements.");
+		}
+		packets.push_back(fields);
+	}
+
+	const int64_t halo_side = CHUNK_SIZE + p_halo_radius_tiles * 2;
+	const int64_t halo_cell_count = halo_side * halo_side;
+	PackedByteArray remaining_halo;
+	remaining_halo.resize(halo_cell_count);
+	PackedByteArray closed_halo;
+	closed_halo.resize(halo_cell_count);
+	PackedByteArray dug_halo;
+	dug_halo.resize(halo_cell_count);
+	PackedByteArray terrain_edge_solid_halo;
+	terrain_edge_solid_halo.resize(halo_cell_count);
+
+	int64_t remaining_count = 0;
+	int64_t closed_count = 0;
+	int64_t dug_count = 0;
+	int64_t terrain_edge_solid_count = 0;
+	for (int64_t halo_y = 0; halo_y < halo_side; ++halo_y) {
+		const int64_t local_y = halo_y - p_halo_radius_tiles;
+		const int64_t source_offset_y = local_y < 0 ? -1 : (local_y >= CHUNK_SIZE ? 1 : 0);
+		const int64_t source_y = local_y - source_offset_y * CHUNK_SIZE;
+		for (int64_t halo_x = 0; halo_x < halo_side; ++halo_x) {
+			const int64_t local_x = halo_x - p_halo_radius_tiles;
+			const int64_t source_offset_x = local_x < 0 ? -1 : (local_x >= CHUNK_SIZE ? 1 : 0);
+			const int64_t source_x = local_x - source_offset_x * CHUNK_SIZE;
+			const int64_t packet_index = (source_offset_y + 1) * 3 + source_offset_x + 1;
+			const HaloPacketFields &packet = packets[static_cast<size_t>(packet_index)];
+			if (!packet.present) {
+				continue;
+			}
+			const int64_t source_index = source_y * CHUNK_SIZE + source_x;
+			const int64_t halo_index = halo_y * halo_side + halo_x;
+			const int64_t terrain_id = packet.terrain_ids[source_index];
+
+			const bool water_present = (packet.lake_flags[source_index] & LAKE_FLAG_WATER_PRESENT) != 0;
+			const bool visible_lake_water = water_present &&
+					(terrain_id == TERRAIN_LAKE_BED_SHALLOW || terrain_id == TERRAIN_LAKE_BED_DEEP);
+			if (!visible_lake_water) {
+				terrain_edge_solid_halo.set(halo_index, 1);
+				++terrain_edge_solid_count;
+			}
+
+			const int64_t mountain_id = packet.mountain_ids[source_index];
+			const uint8_t mountain_flags = packet.mountain_flags[source_index];
+			const bool mountain_surface_owned = mountain_id > 0 &&
+					(mountain_flags & (MOUNTAIN_FLAG_WALL | MOUNTAIN_FLAG_FOOT)) != 0;
+			if (!mountain_surface_owned) {
+				continue;
+			}
+			const bool walkable = packet.walkable_flags[source_index] != 0;
+			if (!walkable && (terrain_id == TERRAIN_MOUNTAIN_WALL || terrain_id == TERRAIN_MOUNTAIN_FOOT)) {
+				remaining_halo.set(halo_index, 1);
+				closed_halo.set(halo_index, 1);
+				++remaining_count;
+				++closed_count;
+			} else if (walkable && terrain_id == TERRAIN_PLAINS_DUG) {
+				dug_halo.set(halo_index, 1);
+				closed_halo.set(halo_index, 1);
+				++dug_count;
+				++closed_count;
+			}
+		}
+	}
+
+	const int64_t terrain_edge_open_count = halo_cell_count - terrain_edge_solid_count;
+	Dictionary result;
+	result["success"] = true;
+	result["message"] = "";
+	result["halo_radius_tiles"] = p_halo_radius_tiles;
+	result["halo_side"] = halo_side;
+	result["halo_cell_count"] = halo_cell_count;
+	result["remaining_halo"] = remaining_halo;
+	result["closed_halo"] = closed_halo;
+	result["dug_halo"] = dug_halo;
+	result["terrain_edge_solid_halo"] = terrain_edge_solid_halo;
+	result["remaining_count"] = remaining_count;
+	result["closed_count"] = closed_count;
+	result["dug_count"] = dug_count;
+	result["terrain_edge_solid_count"] = terrain_edge_solid_count;
+	result["terrain_edge_open_count"] = terrain_edge_open_count;
+	result["has_any"] = remaining_count > 0;
+	result["has_closed"] = closed_count > 0;
+	result["has_dug"] = dug_count > 0;
+	result["has_terrain_edge_solid"] = terrain_edge_solid_count > 0;
+	result["has_terrain_edge_open"] = terrain_edge_open_count > 0;
+	result["has_shoreline"] = terrain_edge_solid_count > 0 && terrain_edge_open_count > 0;
+	return result;
 }
 
 Dictionary WorldCore::build_object_presentation_buffers(PackedByteArray p_object_kind, PackedByteArray p_object_local_x_px_q4, PackedByteArray p_object_local_y_px_q4, PackedByteArray p_object_size_px, PackedByteArray p_object_atlas_index, PackedByteArray p_object_variant, PackedByteArray p_object_flags, PackedByteArray p_object_tint, PackedByteArray p_object_phase, PackedFloat32Array p_tree_metrics, PackedFloat32Array p_rock_metrics, PackedFloat32Array p_params) {

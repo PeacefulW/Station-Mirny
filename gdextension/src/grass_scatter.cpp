@@ -304,6 +304,13 @@ Dictionary build_buffer(
 	Dictionary result;
 	result["bucket_buffers"] = Array();
 	result["instance_count"] = 0;
+	// Keep cache-accounting fields present on every exit path.  The payload is
+	// the exact byte size of all PackedFloat32Array contents returned below;
+	// Array/container overhead is intentionally not part of the transferable
+	// MultiMesh payload.
+	result["buffer_float_count"] = 0;
+	result["payload_bytes"] = 0;
+	result["non_empty_bucket_count"] = 0;
 	if (p_params.size() < PARAM_COUNT) {
 		result["error"] = "grass_scatter: params размер меньше PARAM_COUNT";
 		return result;
@@ -517,15 +524,22 @@ Dictionary build_buffer(
 	}
 
 	Array bucket_buffers;
+	int64_t buffer_float_count = 0;
+	int64_t non_empty_bucket_count = 0;
 	for (int32_t depth_stripe = 0; depth_stripe < DEPTH_STRIPES_PER_CHUNK; depth_stripe++) {
 		const std::vector<float> &large = large_buckets[depth_stripe];
 		const std::vector<float> &small = small_buckets[depth_stripe];
+		const int64_t bucket_float_count = static_cast<int64_t>(large.size() + small.size());
 		PackedFloat32Array buffer;
-		buffer.resize(static_cast<int64_t>(large.size() + small.size()));
+		buffer.resize(bucket_float_count);
 		float *out = buffer.ptrw();
 		std::copy(large.begin(), large.end(), out);
 		std::copy(small.begin(), small.end(), out + large.size());
 		bucket_buffers.append(buffer);
+		buffer_float_count += bucket_float_count;
+		if (bucket_float_count > 0) {
+			non_empty_bucket_count++;
+		}
 	}
 	result["bucket_buffers"] = bucket_buffers;
 	result["instance_count"] = emitted;
@@ -543,6 +557,10 @@ Dictionary build_buffer(
 		std::copy(spore_buf.begin(), spore_buf.end(), spore_packed.ptrw());
 	}
 	result["spore_buffer"] = spore_packed;
+	buffer_float_count += shadow_packed.size() + spore_packed.size();
+	result["buffer_float_count"] = buffer_float_count;
+	result["payload_bytes"] = buffer_float_count * static_cast<int64_t>(sizeof(float));
+	result["non_empty_bucket_count"] = non_empty_bucket_count;
 
 	if (truncated > 0) {
 		result["truncated_count"] = truncated;

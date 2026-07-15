@@ -81,6 +81,11 @@ constexpr int32_t DEPTH_STRIPES_PER_CHUNK = 64;
 // rendered below the grass ladder) and "spore_buffer" (sparse glowing motes
 // above strong orange_region cores, drifting on the wind globals). Both are
 // 12-float MultiMesh layouts; spore color packs (phase, drift_seed, _, alpha).
+// "buffer_float_count" is the exact total number of floats across all bucket,
+// shadow and spore buffers; "payload_bytes" is that count times sizeof(float),
+// and "non_empty_bucket_count" counts non-empty depth-stripe bucket buffers.
+// All three metadata keys are present and zero on validation failures/empty
+// results, allowing O(1) cache accounting without rescanning packed arrays.
 // p_mountain_halo: per-tile solid flags (WALL|FOOT, walkable=0, mountain_id>0),
 // halo_side x halo_side square (halo_side = chunk_size_tiles +
 // 2*p_mountain_halo_radius_tiles), chunk's own tile (0,0) at halo index

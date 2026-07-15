@@ -16,9 +16,15 @@ const WorldRuntimeConstants = preload("res://core/systems/world/world_runtime_co
 const WORLD_SCENE: PackedScene = preload("res://scenes/world/world_runtime_v0.tscn")
 const MAX_SCAN_RADIUS_CHUNKS: int = 18
 const MAX_SPAWN_WAIT_FRAMES: int = 1800
+const MAX_RUNTIME_STAND_WAIT_FRAMES: int = 1800
+## The live player harvest ray is 96 px and a tile is 32 px. Validate the
+## provisional packet-space neighbour against the organic native mask, then
+## stay inside the same real interaction reach when selecting a clear center.
+const MAX_RUNTIME_STAND_RADIUS_TILES: int = 3
+const INVALID_TILE_COORD: Vector2i = Vector2i(2147483647, 2147483647)
 const NEIGHBOR_OFFSETS: Array[Vector2i] = [Vector2i.LEFT, Vector2i.RIGHT, Vector2i.UP, Vector2i.DOWN]
 
-enum DevState { WAITING_SPAWN, READY, FAILED }
+enum DevState { WAITING_SPAWN, WAITING_RUNTIME_STAND, READY, FAILED }
 
 var _state: DevState = DevState.WAITING_SPAWN
 var _streamer: WorldStreamer = null
@@ -42,6 +48,8 @@ func _ready() -> void:
 func _process(_delta: float) -> void:
 	if _state == DevState.WAITING_SPAWN:
 		_tick_waiting_spawn()
+	elif _state == DevState.WAITING_RUNTIME_STAND:
+		_tick_waiting_runtime_stand()
 	_update_hud()
 
 
@@ -53,7 +61,7 @@ func _unhandled_input(event: InputEvent) -> void:
 		return
 	if key_event.keycode != KEY_T:
 		return
-	if _state == DevState.WAITING_SPAWN or _streamer == null or _player == null:
+	if _state != DevState.READY or _streamer == null or _player == null:
 		return
 	_teleport_to_nearest_mountain()
 	get_viewport().set_input_as_handled()
@@ -146,14 +154,76 @@ func _teleport_to_nearest_mountain() -> void:
 			])
 		return
 	_dig_target = spot
-	_player.global_position = WorldRuntimeConstants.tile_to_world_center(
-		spot.get("stand_tile", Vector2i.ZERO) as Vector2i,
+	_position_player_at_stand_tile(spot.get("stand_tile", Vector2i.ZERO) as Vector2i)
+	# Packet walkability is deliberately coarse. The organic native contour can
+	# extend into that nominally walkable neighbour, so READY is published only
+	# after the exact runtime mask validates (or replaces) the stand tile.
+	_wait_frames = 0
+	_state = DevState.WAITING_RUNTIME_STAND
+
+
+func _tick_waiting_runtime_stand() -> void:
+	if _streamer == null or _player == null:
+		return
+	_wait_frames += 1
+	var mountain_tile: Vector2i = _dig_target.get("mountain_tile", Vector2i.ZERO) as Vector2i
+	var target_sample: Dictionary = _streamer._sample_mountain_mask_hit(
+		WorldRuntimeConstants.tile_to_world_center(mountain_tile),
 	)
+	if not bool(target_sample.get("ready", false)) \
+			or not bool(target_sample.get("in_bounds", false)):
+		if _wait_frames > MAX_RUNTIME_STAND_WAIT_FRAMES:
+			_fail("native-маска цели не разрешилась за %d кадров" % MAX_RUNTIME_STAND_WAIT_FRAMES)
+		return
+	var stand_tile: Vector2i = _find_runtime_walkable_stand_tile(mountain_tile)
+	if stand_tile == INVALID_TILE_COORD:
+		if _wait_frames > MAX_RUNTIME_STAND_WAIT_FRAMES:
+			_fail("рядом с runtime-контуром горы нет свободной точки в радиусе добычи")
+		return
+	_dig_target["stand_tile"] = stand_tile
+	_position_player_at_stand_tile(stand_tile)
+	_state = DevState.READY
+
+
+func _find_runtime_walkable_stand_tile(mountain_tile: Vector2i) -> Vector2i:
+	var provisional: Vector2i = _dig_target.get("stand_tile", INVALID_TILE_COORD) as Vector2i
+	if provisional != INVALID_TILE_COORD and _is_runtime_stand_tile_walkable(provisional):
+		return provisional
+	var seen: Dictionary = { provisional: true }
+	var max_distance_sq: int = MAX_RUNTIME_STAND_RADIUS_TILES * MAX_RUNTIME_STAND_RADIUS_TILES
+	for radius: int in range(1, MAX_RUNTIME_STAND_RADIUS_TILES + 1):
+		for offset_y: int in range(-radius, radius + 1):
+			for offset_x: int in range(-radius, radius + 1):
+				if maxi(absi(offset_x), absi(offset_y)) != radius:
+					continue
+				var offset := Vector2i(offset_x, offset_y)
+				if offset.length_squared() > max_distance_sq:
+					continue
+				var candidate: Vector2i = mountain_tile + offset
+				if seen.has(candidate):
+					continue
+				seen[candidate] = true
+				if _is_runtime_stand_tile_walkable(candidate):
+					return candidate
+	return INVALID_TILE_COORD
+
+
+func _is_runtime_stand_tile_walkable(tile_coord: Vector2i) -> bool:
+	var world_pos: Vector2 = WorldRuntimeConstants.tile_to_world_center(tile_coord)
+	var hit_sample: Dictionary = _streamer._sample_mountain_mask_hit(world_pos)
+	if not bool(hit_sample.get("ready", false)) \
+			or not bool(hit_sample.get("in_bounds", false)) \
+			or bool(hit_sample.get("solid", false)):
+		return false
+	return _streamer.is_walkable_at_world(world_pos)
+
+
+func _position_player_at_stand_tile(stand_tile: Vector2i) -> void:
+	_player.global_position = WorldRuntimeConstants.tile_to_world_center(stand_tile)
 	var camera: Camera2D = _player.get_node_or_null("Camera2D") as Camera2D
 	if camera != null:
 		camera.reset_smoothing()
 		camera.force_update_scroll()
-	_state = DevState.READY
 
 
 ## Кольцевой скан чанков через WorldCore с теми же generation-входами, что
@@ -292,6 +362,8 @@ func _update_hud() -> void:
 	match _state:
 		DevState.WAITING_SPAWN:
 			_hud_label.text = "Рантайм-гора: ждём spawn мира… (%d кадров)" % _wait_frames
+		DevState.WAITING_RUNTIME_STAND:
+			_hud_label.text = "Рантайм-гора: ждём точную native-маску… (%d кадров)" % _wait_frames
 		DevState.FAILED:
 			_hud_label.text = "Рантайм-гора: ОШИБКА — %s" % _fail_reason
 		DevState.READY:

@@ -127,15 +127,19 @@ func _draw_chips(origin: Vector2, chips: Array, age: float) -> void:
 			+ Vector2(0.0, 120.0) * age * age
 		var size: float = float(chip.get("size", 3.0))
 		var angle: float = float(chip.get("angle", 0.0)) + float(chip.get("spin", 0.0)) * age
-		var right := Vector2(cos(angle), sin(angle))
-		var up := Vector2(-right.y, right.x)
+		# RenderingServer's canvas triangulator expects a clockwise winding here.
+		# Keep the vertices near the local origin and move them with a draw transform:
+		# triangulating a 3 px polygon at 100k+ world coordinates loses enough float
+		# precision to collapse valid chips and emit engine errors while mining.
 		var points := PackedVector2Array([
-			pos + right * size,
-			pos - right * size * 0.55 + up * size * 0.72,
-			pos - right * size * 0.45 - up * size * 0.58,
+			Vector2(size, 0.0),
+			Vector2(-size * 0.45, -size * 0.58),
+			Vector2(-size * 0.55, size * 0.72),
 		])
 		var light: float = float(chip.get("light", 0.75))
+		draw_set_transform(pos, angle)
 		draw_colored_polygon(points, Color(0.34 * light, 0.19 * light, 0.10 * light, 0.92 * fade))
+	draw_set_transform(Vector2.ZERO, 0.0)
 
 func _draw_decals(origin: Vector2, decals: Array, age: float) -> void:
 	var t: float = clampf(age / DECAL_DURATION, 0.0, 1.0)

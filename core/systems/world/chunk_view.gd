@@ -75,6 +75,15 @@ const MOUNTAIN_SCREE_TEXTURE_SCALE: float = 1.0
 const MOUNTAIN_SCREE_PATCH_SCALE_PX: float = 760.0
 const MOUNTAIN_SCREE_COVERAGE: float = 0.38
 
+enum GrassScatterApplyPhase {
+	IDLE,
+	PREPARE,
+	SHADOW_BLOB,
+	SPORE_BLOB,
+	STRIPES,
+	COMMIT,
+}
+
 var chunk_coord: Vector2i = Vector2i.ZERO
 
 var _base_layer: TileMapLayer = null
@@ -83,6 +92,7 @@ var _water_layer: TileMapLayer = null
 var _water_fill_sprite: Sprite2D = null
 var _water_fill_texture: ImageTexture = null
 var _water_fill_material: ShaderMaterial = null
+var _water_fill_sync_pending: bool = false
 var _debug_layer: ChunkDebugVisualLayer = null
 var roof_layers_by_mountain: Dictionary = { }
 var _roof_mask_images_by_mountain: Dictionary = { }
@@ -99,6 +109,9 @@ var _pending_world_version: int = WorldRuntimeConstants.WORLD_VERSION
 var _apply_index: int = 0
 var _has_applied_cells: bool = false
 var _bulk_apply_layers_pristine: bool = false
+var _bulk_pattern_apply_active: bool = false
+var _pending_base_pattern: TileMapPattern = null
+var _pending_overlay_pattern: TileMapPattern = null
 var _debug_grid_visible: bool = false
 var _debug_solid_mask_visible: bool = false
 var _debug_contour_visible: bool = false
@@ -218,6 +231,10 @@ var _grass_shadow_layer: MultiMeshInstance2D = null
 var _grass_spore_layer: MultiMeshInstance2D = null
 var _grass_scatter_visual_dirty: bool = false
 var _pending_grass_scatter_result: Dictionary = { }
+var _grass_scatter_apply_phase: int = GrassScatterApplyPhase.IDLE
+var _grass_scatter_apply_stripe: int = 0
+var _grass_scatter_apply_uses_shadow_atlas: bool = false
+var _grass_scatter_presentation_hidden: bool = false
 const LADDER_ANCHOR_UNSET: int = 1 << 30
 var _applied_ladder_anchor_stripe: int = LADDER_ANCHOR_UNSET
 var _mountain_page_hit_mask: PackedByteArray = PackedByteArray()
@@ -242,6 +259,10 @@ func _exit_tree() -> void:
 func configure(new_chunk_coord: Vector2i) -> void:
 	chunk_coord = new_chunk_coord
 	position = WorldRuntimeConstants.chunk_origin_px(chunk_coord)
+	if _grass_depth_ladder != null and is_instance_valid(_grass_depth_ladder):
+		_grass_depth_ladder.set_world_origin_y(position.y)
+	if _object_packet_layer != null and is_instance_valid(_object_packet_layer):
+		_object_packet_layer.set_world_origin_y(position.y)
 	_ensure_layers()
 
 
@@ -249,6 +270,8 @@ func begin_apply(
 		packet: Dictionary,
 		defer_object_visual: bool = false,
 		preserve_object_visual: bool = false,
+		preserve_grass_visual: bool = false,
+		preserve_terrain_cells: bool = false,
 ) -> void:
 	var step_started: int = WorldPerfProbe.begin()
 	var packet_world_seed: int = int(packet.get("world_seed", WorldRuntimeConstants.DEFAULT_WORLD_SEED))
@@ -269,17 +292,29 @@ func begin_apply(
 	# Even a chunk that is all mountain surface needs a foothill underlay,
 	# because the native mountain mask has organic transparent edges.
 	_skip_full_mountain_surface_apply = false
-	_apply_index = 0
-	_bulk_apply_layers_pristine = not _has_applied_cells
+	var reuse_terrain_cells: bool = preserve_terrain_cells \
+			and is_terrain_cell_presentation_committed()
+	_apply_index = _pending_terrain_ids.size() if reuse_terrain_cells else 0
+	_bulk_apply_layers_pristine = false if reuse_terrain_cells else not _has_applied_cells
+	# Production mountains are the exact native organic mask, not square roof
+	# tiles. Build base/overlay records into hidden patterns and commit each layer
+	# once; the compatibility tile renderer keeps the legacy cell path below.
+	_bulk_pattern_apply_active = not reuse_terrain_cells \
+			and not _mountain_tile_visuals_enabled \
+			and _pending_terrain_ids.size() == WorldRuntimeConstants.CHUNK_CELL_COUNT
+	_pending_base_pattern = TileMapPattern.new() if _bulk_pattern_apply_active else null
+	_pending_overlay_pattern = TileMapPattern.new() if _bulk_pattern_apply_active else null
 	visible = false
 	set_object_collision_active(false)
 	WorldPerfProbe.end("ChunkView.begin_apply.state", step_started)
 	step_started = WorldPerfProbe.begin()
 	_ensure_layers()
 	WorldPerfProbe.end("ChunkView.begin_apply.ensure_layers", step_started)
-	step_started = WorldPerfProbe.begin()
-	_sync_water_fill_visual()
-	WorldPerfProbe.end("ChunkView.begin_apply.sync_water_fill", step_started)
+	# Water-fill resource creation is a real GPU-side publish phase. Defer it to
+	# the first terrain batch so a cold Sprite/Material/ImageTexture allocation
+	# cannot stack on the same callback as ChunkView acquisition/configuration.
+	# Exact terrain reuse already owns the matching committed water presentation.
+	_water_fill_sync_pending = not reuse_terrain_cells
 	step_started = WorldPerfProbe.begin()
 	if preserve_object_visual:
 		pass
@@ -298,8 +333,18 @@ func begin_apply(
 			_object_packet_layer.cancel_pending_presentation_apply()
 	else:
 		_sync_object_packet_visual(packet)
-	_grass_scatter_visual_dirty = true
-	_pending_grass_scatter_result.clear()
+	if not preserve_grass_visual:
+		_grass_scatter_visual_dirty = true
+		# A pooled view may still own the previous coordinate's committed buffers.
+		# Hide them while the view itself is behind the reveal gate so stale grass
+		# can never flash if lower-priority upload work starts a frame later.
+		_hide_grass_scatter_presentation()
+		# A newer terrain revision cancels any hidden partial GPU transaction. Keep
+		# already allocated slots for reuse, but release the immutable result owner.
+		_pending_grass_scatter_result = { }
+		_grass_scatter_apply_phase = GrassScatterApplyPhase.IDLE
+		_grass_scatter_apply_stripe = 0
+		_grass_scatter_apply_uses_shadow_atlas = false
 	WorldPerfProbe.end("ChunkView.begin_apply.sync_objects", step_started)
 	step_started = WorldPerfProbe.begin()
 	if _debug_solid_mask_visible:
@@ -492,6 +537,43 @@ func set_object_collision_active(active: bool) -> void:
 		_object_packet_layer.set_blocking_collision_active(active)
 
 
+## Drops every coordinate-bound mask before this reusable view enters the pool.
+## Grass buffers are deliberately excluded: an exact epoch+revision hit may
+## retain them, while begin_apply() hides them immediately on generic reuse.
+func prepare_for_chunk_view_cache() -> void:
+	cancel_staged_mountain_roof_reveal_halo()
+	# Retain only empty GPU allocations in the bounded hot pool. Coordinate-
+	# bound bytes/state are cleared and every sprite is hidden; the next mask
+	# fully overwrites these RIDs behind the normal reveal gate.
+	clear_mountain_render_page(false, true)
+	clear_terrain_edge_mask(true)
+	if _grass_scatter_visual_dirty:
+		# A partial transaction is neither reusable nor covered by the warm CPU
+		# payload budget. Drop its immutable envelope and uploaded fragments while
+		# preserving fully committed graphs for validated exact-coordinate hits.
+		_pending_grass_scatter_result = { }
+		_grass_scatter_apply_phase = GrassScatterApplyPhase.IDLE
+		_grass_scatter_apply_stripe = 0
+		_grass_scatter_apply_uses_shadow_atlas = false
+		for layer: MultiMeshInstance2D in _grass_scatter_layers:
+			if layer != null and is_instance_valid(layer):
+				layer.visible = false
+				layer.multimesh = null
+				if _grass_depth_ladder != null and is_instance_valid(_grass_depth_ladder):
+					_grass_depth_ladder.unregister_item(layer)
+		for layer: MultiMeshInstance2D in _grass_shadow_atlas_layers:
+			if layer != null and is_instance_valid(layer):
+				layer.visible = false
+				layer.multimesh = null
+		if _grass_shadow_layer != null and is_instance_valid(_grass_shadow_layer):
+			_grass_shadow_layer.visible = false
+			_grass_shadow_layer.multimesh = null
+		if _grass_spore_layer != null and is_instance_valid(_grass_spore_layer):
+			_grass_spore_layer.visible = false
+			_grass_spore_layer.multimesh = null
+		_grass_scatter_presentation_hidden = true
+
+
 func take_object_presentation_apply_failure() -> String:
 	var failure: String = _object_presentation_apply_failure
 	_object_presentation_apply_failure = ""
@@ -499,9 +581,13 @@ func take_object_presentation_apply_failure() -> String:
 
 
 func stage_grass_scatter_result(result: Dictionary) -> bool:
-	if not _grass_scatter_visual_dirty or not _pending_grass_scatter_result.is_empty():
+	if not _grass_scatter_visual_dirty \
+			or not _pending_grass_scatter_result.is_empty() \
+			or _grass_scatter_apply_phase != GrassScatterApplyPhase.IDLE:
 		return false
-	_pending_grass_scatter_result = result
+	# Own only the small envelope. Packed arrays remain immutable worker output,
+	# so a shallow duplicate avoids copying the grass payload on the main thread.
+	_pending_grass_scatter_result = result.duplicate(false)
 	return true
 
 
@@ -509,7 +595,23 @@ func has_pending_grass_scatter_visual() -> bool:
 	return _grass_scatter_visual_dirty
 
 
-func apply_pending_grass_scatter_visual(
+func is_grass_scatter_presentation_committed() -> bool:
+	return not _grass_scatter_visual_dirty \
+			and _pending_grass_scatter_result.is_empty() \
+			and _grass_scatter_apply_phase == GrassScatterApplyPhase.IDLE
+
+
+func is_terrain_cell_presentation_committed() -> bool:
+	return _has_applied_cells \
+			and not _pending_terrain_ids.is_empty() \
+			and _apply_index >= _pending_terrain_ids.size() \
+			and not _bulk_pattern_apply_active
+
+
+## Advances exactly one bounded grass GPU phase. The caller may execute several
+## phases while its frame budget remains, but no callback can hide a 64-stripe
+## allocation/upload loop behind one nominally cheap operation.
+func apply_pending_grass_scatter_visual_phase(
 		grass_atlas: Texture2D,
 		grass_material: ShaderMaterial,
 		grass_shadow_atlas: Texture2D,
@@ -520,76 +622,75 @@ func apply_pending_grass_scatter_visual(
 	if not _grass_scatter_visual_dirty or _pending_grass_scatter_result.is_empty():
 		return false
 	var result: Dictionary = _pending_grass_scatter_result
-	_pending_grass_scatter_result = { }
-	_grass_scatter_visual_dirty = false
-	var has_shadow_atlas: bool = grass_shadow_atlas != null and grass_shadow_atlas_material != null
-	if not has_shadow_atlas:
-		_apply_grass_blob_layer(
-			result.get("shadow_buffer", PackedFloat32Array()) as PackedFloat32Array,
-			shadow_material,
-			WorldRuntimeConstants.Z_GRASS_SHADOW,
-			true,
-		)
-	else:
-		_apply_grass_blob_layer(PackedFloat32Array(), shadow_material, WorldRuntimeConstants.Z_GRASS_SHADOW, true)
-	_apply_grass_blob_layer(
-		result.get("spore_buffer", PackedFloat32Array()) as PackedFloat32Array,
-		spore_material,
-		WorldRuntimeConstants.Z_GRASS_SPORE,
-		false,
-	)
-	var instance_count: int = int(result.get("instance_count", 0))
-	var bucket_buffers: Array = result.get("bucket_buffers", []) as Array
-	_ensure_grass_scatter_layer_slots()
-	for stripe_index: int in range(_grass_scatter_layers.size()):
-		var layer: MultiMeshInstance2D = _grass_scatter_layers[stripe_index]
-		var shadow_atlas_layer: MultiMeshInstance2D = _grass_shadow_atlas_layers[stripe_index]
-		var buffer: PackedFloat32Array = PackedFloat32Array()
-		if instance_count > 0 and stripe_index < bucket_buffers.size():
-			buffer = bucket_buffers[stripe_index] as PackedFloat32Array
-		var stripe_count: int = buffer.size() / 12
-		if stripe_count <= 0:
-			if layer != null and is_instance_valid(layer):
-				layer.visible = false
-				layer.multimesh = null
-				if _grass_depth_ladder != null and is_instance_valid(_grass_depth_ladder):
-					_grass_depth_ladder.unregister_item(layer)
-			if shadow_atlas_layer != null and is_instance_valid(shadow_atlas_layer):
-				shadow_atlas_layer.visible = false
-				shadow_atlas_layer.multimesh = null
-			continue
-		if layer == null or not is_instance_valid(layer):
-			layer = _create_grass_scatter_layer(stripe_index, grass_atlas, grass_material)
-			_grass_scatter_layers[stripe_index] = layer
-		_ensure_grass_depth_ladder().register_item(layer, stripe_index, 0)
-		var multimesh: MultiMesh = layer.multimesh
-		if multimesh == null or multimesh.instance_count != stripe_count:
-			multimesh = MultiMesh.new()
-			var quad := QuadMesh.new()
-			quad.size = Vector2.ONE
-			multimesh.mesh = quad
-			multimesh.transform_format = MultiMesh.TRANSFORM_2D
-			multimesh.use_colors = true
-			multimesh.instance_count = stripe_count
-			layer.multimesh = multimesh
-		# Bounded apply: native уже отдал готовые interleaved буферы полос.
-		multimesh.buffer = buffer
-		layer.visible = true
-		if has_shadow_atlas:
-			if shadow_atlas_layer == null or not is_instance_valid(shadow_atlas_layer):
-				shadow_atlas_layer = _create_grass_shadow_atlas_layer(
+	match _grass_scatter_apply_phase:
+		GrassScatterApplyPhase.IDLE:
+			_grass_scatter_apply_phase = GrassScatterApplyPhase.PREPARE
+			return true
+		GrassScatterApplyPhase.PREPARE:
+			var phase_started: int = WorldPerfProbe.begin()
+			_ensure_grass_scatter_layer_slots()
+			_grass_scatter_apply_stripe = 0
+			_grass_scatter_apply_uses_shadow_atlas = \
+					grass_shadow_atlas != null and grass_shadow_atlas_material != null
+			_hide_grass_scatter_presentation()
+			_grass_scatter_apply_phase = GrassScatterApplyPhase.SHADOW_BLOB
+			WorldPerfProbe.end("ChunkView.grass.prepare", phase_started)
+			return true
+		GrassScatterApplyPhase.SHADOW_BLOB:
+			var phase_started: int = WorldPerfProbe.begin()
+			_stage_grass_blob_layer(
+				PackedFloat32Array() if _grass_scatter_apply_uses_shadow_atlas \
+				else result.get("shadow_buffer", PackedFloat32Array()) as PackedFloat32Array,
+				shadow_material,
+				WorldRuntimeConstants.Z_GRASS_SHADOW,
+				true,
+			)
+			_grass_scatter_apply_phase = GrassScatterApplyPhase.SPORE_BLOB
+			WorldPerfProbe.end("ChunkView.grass.shadow_blob", phase_started)
+			return true
+		GrassScatterApplyPhase.SPORE_BLOB:
+			var phase_started: int = WorldPerfProbe.begin()
+			_stage_grass_blob_layer(
+				result.get("spore_buffer", PackedFloat32Array()) as PackedFloat32Array,
+				spore_material,
+				WorldRuntimeConstants.Z_GRASS_SPORE,
+				false,
+			)
+			_grass_scatter_apply_phase = GrassScatterApplyPhase.STRIPES
+			WorldPerfProbe.end("ChunkView.grass.spore_blob", phase_started)
+			return true
+		GrassScatterApplyPhase.STRIPES:
+			# Empty native buckets with no stale allocation require no RenderingServer
+			# mutation. Skip them in this callback and stop after exactly one real
+			# upload/clear, retaining a bounded GPU phase without paying 64 callbacks
+			# for sparse chunks.
+			while _grass_scatter_apply_stripe < WorldRuntimeConstants.DEPTH_STRIPES_PER_CHUNK:
+				var stripe_index: int = _grass_scatter_apply_stripe
+				_grass_scatter_apply_stripe += 1
+				if not _grass_scatter_stripe_requires_stage(stripe_index, result):
+					continue
+				var phase_started: int = WorldPerfProbe.begin()
+				_stage_grass_scatter_stripe(
 					stripe_index,
+					result,
+					grass_atlas,
+					grass_material,
 					grass_shadow_atlas,
 					grass_shadow_atlas_material,
 				)
-				_grass_shadow_atlas_layers[stripe_index] = shadow_atlas_layer
-			shadow_atlas_layer.multimesh = multimesh
-			shadow_atlas_layer.visible = true
-		elif shadow_atlas_layer != null and is_instance_valid(shadow_atlas_layer):
-			shadow_atlas_layer.visible = false
-			shadow_atlas_layer.multimesh = null
-	# Fresh stripe nodes register in the already-anchored band owner and receive
-	# their exact z immediately; no O(64) anchor rewalk is required after upload.
+				WorldPerfProbe.end("ChunkView.grass.stripe", phase_started)
+				return true
+			_grass_scatter_apply_phase = GrassScatterApplyPhase.COMMIT
+			return true
+		GrassScatterApplyPhase.COMMIT:
+			var phase_started: int = WorldPerfProbe.begin()
+			_commit_grass_scatter_presentation()
+			_pending_grass_scatter_result = { }
+			_grass_scatter_visual_dirty = false
+			_grass_scatter_apply_phase = GrassScatterApplyPhase.IDLE
+			_grass_scatter_apply_stripe = 0
+			WorldPerfProbe.end("ChunkView.grass.commit", phase_started)
+			return true
 	return true
 
 
@@ -603,6 +704,18 @@ func update_mid_ladder_z(anchor_stripe: int) -> void:
 	var grass_depth_ladder: DepthLadderBandRoot = _ensure_grass_depth_ladder()
 	grass_depth_ladder.set_world_origin_y(position.y)
 	grass_depth_ladder.update_anchor(anchor_stripe)
+	if _object_packet_layer != null and is_instance_valid(_object_packet_layer):
+		_object_packet_layer.update_ladder_z(anchor_stripe)
+
+
+## Stores the current player-relative anchor before a recycled view adopts a
+## hot object layer. Unlike the movement update, this does not allocate an empty
+## grass ladder for a view whose grass transaction has not begun yet.
+func seed_mid_ladder_z(anchor_stripe: int) -> void:
+	_applied_ladder_anchor_stripe = anchor_stripe
+	if _grass_depth_ladder != null and is_instance_valid(_grass_depth_ladder):
+		_grass_depth_ladder.set_world_origin_y(position.y)
+		_grass_depth_ladder.update_anchor(anchor_stripe)
 	if _object_packet_layer != null and is_instance_valid(_object_packet_layer):
 		_object_packet_layer.update_ladder_z(anchor_stripe)
 
@@ -645,13 +758,78 @@ func get_grass_scatter_debug_state() -> Dictionary:
 		"visible_instance_count": visible_instance_count,
 		"visible": layer_visible,
 		"pending": _grass_scatter_visual_dirty,
+		"apply_phase": _grass_scatter_apply_phase,
+		"apply_stripe": _grass_scatter_apply_stripe,
+		"staged": not _pending_grass_scatter_result.is_empty(),
 		"depth_ladder": depth_ladder_state,
 	}
 
 
 ## Один MultiMesh-слой на чанк для теней (под лесенкой) или спор (над травой).
 ## Оба — простые interleaved 12-float буферы из native.
-func _apply_grass_blob_layer(
+func _stage_grass_scatter_stripe(
+		stripe_index: int,
+		result: Dictionary,
+		grass_atlas: Texture2D,
+		grass_material: ShaderMaterial,
+		grass_shadow_atlas: Texture2D,
+		grass_shadow_atlas_material: ShaderMaterial,
+) -> void:
+	var layer: MultiMeshInstance2D = _grass_scatter_layers[stripe_index]
+	var shadow_atlas_layer: MultiMeshInstance2D = _grass_shadow_atlas_layers[stripe_index]
+	var bucket_buffers: Array = result.get("bucket_buffers", []) as Array
+	var buffer := PackedFloat32Array()
+	if int(result.get("instance_count", 0)) > 0 and stripe_index < bucket_buffers.size():
+		buffer = bucket_buffers[stripe_index] as PackedFloat32Array
+	var stripe_count: int = buffer.size() / 12
+	if stripe_count <= 0:
+		if layer != null and is_instance_valid(layer):
+			layer.visible = false
+			layer.multimesh = null
+			if _grass_depth_ladder != null and is_instance_valid(_grass_depth_ladder):
+				_grass_depth_ladder.unregister_item(layer)
+		if shadow_atlas_layer != null and is_instance_valid(shadow_atlas_layer):
+			shadow_atlas_layer.visible = false
+			shadow_atlas_layer.multimesh = null
+		return
+	if layer == null or not is_instance_valid(layer):
+		layer = _create_grass_scatter_layer(stripe_index, grass_atlas, grass_material)
+		_grass_scatter_layers[stripe_index] = layer
+	layer.visible = false
+	_ensure_grass_depth_ladder().register_item(layer, stripe_index, 0)
+	var multimesh: MultiMesh = _prepare_grass_multimesh(layer.multimesh, stripe_count)
+	multimesh.buffer = buffer
+	layer.multimesh = multimesh
+	if _grass_scatter_apply_uses_shadow_atlas:
+		if shadow_atlas_layer == null or not is_instance_valid(shadow_atlas_layer):
+			shadow_atlas_layer = _create_grass_shadow_atlas_layer(
+				stripe_index,
+				grass_shadow_atlas,
+				grass_shadow_atlas_material,
+			)
+			_grass_shadow_atlas_layers[stripe_index] = shadow_atlas_layer
+		shadow_atlas_layer.multimesh = multimesh
+		shadow_atlas_layer.visible = false
+	elif shadow_atlas_layer != null and is_instance_valid(shadow_atlas_layer):
+		shadow_atlas_layer.visible = false
+		shadow_atlas_layer.multimesh = null
+
+
+func _grass_scatter_stripe_requires_stage(stripe_index: int, result: Dictionary) -> bool:
+	var bucket_buffers: Array = result.get("bucket_buffers", []) as Array
+	if int(result.get("instance_count", 0)) > 0 and stripe_index < bucket_buffers.size():
+		var buffer: PackedFloat32Array = bucket_buffers[stripe_index] as PackedFloat32Array
+		if not buffer.is_empty():
+			return true
+	var layer: MultiMeshInstance2D = _grass_scatter_layers[stripe_index]
+	if layer != null and is_instance_valid(layer) and layer.multimesh != null:
+		return true
+	var shadow_layer: MultiMeshInstance2D = _grass_shadow_atlas_layers[stripe_index]
+	return shadow_layer != null and is_instance_valid(shadow_layer) and shadow_layer.multimesh != null
+
+
+## Stages one flat shadow/spore payload while keeping the draw item hidden.
+func _stage_grass_blob_layer(
 		buffer: PackedFloat32Array,
 		material: ShaderMaterial,
 		z: int,
@@ -678,21 +856,69 @@ func _apply_grass_blob_layer(
 			_grass_shadow_layer = layer
 		else:
 			_grass_spore_layer = layer
-	var multimesh: MultiMesh = layer.multimesh
-	if multimesh == null or multimesh.instance_count != count:
+	var multimesh: MultiMesh = _prepare_grass_multimesh(layer.multimesh, count)
+	multimesh.buffer = buffer
+	layer.multimesh = multimesh
+	layer.visible = false
+
+
+func _hide_grass_scatter_presentation() -> void:
+	if _grass_scatter_presentation_hidden:
+		return
+	for layer: MultiMeshInstance2D in _grass_scatter_layers:
+		if layer != null and is_instance_valid(layer):
+			layer.visible = false
+	for layer: MultiMeshInstance2D in _grass_shadow_atlas_layers:
+		if layer != null and is_instance_valid(layer):
+			layer.visible = false
+	if _grass_shadow_layer != null and is_instance_valid(_grass_shadow_layer):
+		_grass_shadow_layer.visible = false
+	if _grass_spore_layer != null and is_instance_valid(_grass_spore_layer):
+		_grass_spore_layer.visible = false
+	_grass_scatter_presentation_hidden = true
+
+
+func _commit_grass_scatter_presentation() -> void:
+	for stripe_index: int in range(_grass_scatter_layers.size()):
+		var layer: MultiMeshInstance2D = _grass_scatter_layers[stripe_index]
+		var has_instances: bool = layer != null \
+				and is_instance_valid(layer) \
+				and layer.multimesh != null \
+				and layer.multimesh.instance_count > 0
+		if layer != null and is_instance_valid(layer):
+			layer.visible = has_instances
+		var shadow_atlas_layer: MultiMeshInstance2D = _grass_shadow_atlas_layers[stripe_index]
+		if shadow_atlas_layer != null and is_instance_valid(shadow_atlas_layer):
+			shadow_atlas_layer.visible = _grass_scatter_apply_uses_shadow_atlas \
+					and has_instances
+	if _grass_shadow_layer != null and is_instance_valid(_grass_shadow_layer):
+		_grass_shadow_layer.visible = not _grass_scatter_apply_uses_shadow_atlas \
+				and _grass_shadow_layer.multimesh != null \
+				and _grass_shadow_layer.multimesh.instance_count > 0
+	if _grass_spore_layer != null and is_instance_valid(_grass_spore_layer):
+		_grass_spore_layer.visible = _grass_spore_layer.multimesh != null \
+				and _grass_spore_layer.multimesh.instance_count > 0
+	_grass_scatter_presentation_hidden = false
+
+
+func _prepare_grass_multimesh(current: MultiMesh, count: int) -> MultiMesh:
+	var multimesh: MultiMesh = current
+	if multimesh == null:
 		multimesh = MultiMesh.new()
-		var quad := QuadMesh.new()
-		quad.size = Vector2.ONE
-		multimesh.mesh = quad
+		multimesh.mesh = _grass_unit_quad_mesh()
 		multimesh.transform_format = MultiMesh.TRANSFORM_2D
 		multimesh.use_colors = true
+	# Reusing the resource avoids repeated RID/QuadMesh construction on reload.
+	# visible_instance_count must be reset before a smaller backing allocation.
+	multimesh.visible_instance_count = -1
+	if multimesh.instance_count != count:
 		multimesh.instance_count = count
-		layer.multimesh = multimesh
-	multimesh.buffer = buffer
-	layer.visible = true
+	return multimesh
 
 
 static var _shared_grass_blob_texture: ImageTexture = null
+static var _shared_grass_unit_quad: QuadMesh = null
+static var _shared_tile_pattern_record_by_key: Dictionary = { }
 
 
 static func _grass_blob_unit_texture() -> Texture2D:
@@ -702,6 +928,86 @@ static func _grass_blob_unit_texture() -> Texture2D:
 	image.fill(Color.WHITE)
 	_shared_grass_blob_texture = ImageTexture.create_from_image(image)
 	return _shared_grass_blob_texture
+
+
+static func _grass_unit_quad_mesh() -> QuadMesh:
+	if _shared_grass_unit_quad != null:
+		return _shared_grass_unit_quad
+	_shared_grass_unit_quad = QuadMesh.new()
+	_shared_grass_unit_quad.size = Vector2.ONE
+	return _shared_grass_unit_quad
+
+
+static func _tile_pattern_record(terrain_id: int, atlas_index: int) -> Vector4i:
+	var key := Vector2i(terrain_id, atlas_index)
+	if _shared_tile_pattern_record_by_key.has(key):
+		return _shared_tile_pattern_record_by_key[key] as Vector4i
+	var atlas_coords: Vector2i = WorldTileSetFactory.get_atlas_coords(
+		terrain_id,
+		atlas_index,
+	)
+	var record := Vector4i(
+		1 if WorldTileSetFactory.uses_overlay_layer(terrain_id) else 0,
+		WorldTileSetFactory.get_source_id(terrain_id),
+		atlas_coords.x,
+		atlas_coords.y,
+	)
+	_shared_tile_pattern_record_by_key[key] = record
+	return record
+
+
+static func prewarm_tile_pattern_records() -> void:
+	# Loading-boundary warmup: source/material construction is already paid by
+	# WorldTileSetFactory; cache every authored autotile index so no new biome
+	# variant can create a registry/bootstrap hitch during vehicle movement.
+	for layer_id: StringName in [
+		TerrainPresentationRegistry.RENDER_LAYER_BASE,
+		TerrainPresentationRegistry.RENDER_LAYER_OVERLAY,
+	]:
+		for terrain_id: int in TerrainPresentationRegistry.get_terrain_ids_for_layer(layer_id):
+			for atlas_index: int in range(47):
+				_tile_pattern_record(terrain_id, atlas_index)
+
+
+## Loading-boundary warmup for the render-node/material path used by native
+## mountain masks. The dummy mask is never visible (the owner is hidden) and is
+## cleared immediately, while shader/material/node initialization is paid once
+## before movement and the correctly-sized texture allocations enter the hot
+## pool for later update().
+func prewarm_mountain_mask_visual_resources(
+		mask_side_px: int,
+		mask_step_px: float,
+		top_texture: Texture2D,
+		face_texture: Texture2D,
+		top_normal_texture: Texture2D,
+		face_normal_texture: Texture2D,
+		foothill_texture: Texture2D,
+		foothill_normal_texture: Texture2D,
+) -> void:
+	if mask_side_px <= 0 or mask_step_px <= 0.0 or top_texture == null:
+		return
+	var mask_image := Image.create(
+		mask_side_px,
+		mask_side_px,
+		false,
+		Image.FORMAT_L8,
+	)
+	mask_image.fill(Color.BLACK)
+	_mountain_top_mask_width = mask_side_px
+	_mountain_top_mask_height = mask_side_px
+	_upload_mountain_mask_texture(
+		mask_image,
+		top_texture,
+		face_texture,
+		0.70,
+		mask_step_px,
+		Vector2.ZERO,
+		top_normal_texture,
+		face_normal_texture,
+		foothill_texture,
+		foothill_normal_texture,
+	)
+	clear_mountain_render_page(false, true)
 
 
 func _ensure_grass_scatter_layer_slots() -> void:
@@ -753,8 +1059,15 @@ func _create_grass_shadow_atlas_layer(
 
 
 func apply_next_batch(batch_size: int) -> bool:
+	if _water_fill_sync_pending:
+		var water_sync_started: int = WorldPerfProbe.begin()
+		_sync_water_fill_visual()
+		_water_fill_sync_pending = false
+		WorldPerfProbe.end("ChunkView.publish.sync_water_fill", water_sync_started)
 	if _pending_terrain_ids.is_empty():
 		return false
+	if _bulk_pattern_apply_active:
+		return _apply_next_bulk_pattern_batch(batch_size)
 	if _skip_full_mountain_surface_apply:
 		_apply_index = _pending_terrain_ids.size()
 		_skip_full_mountain_surface_apply = false
@@ -784,6 +1097,65 @@ func apply_next_batch(batch_size: int) -> bool:
 		_bulk_apply_layers_pristine = false
 		return false
 	return true
+
+
+func _apply_next_bulk_pattern_batch(batch_size: int) -> bool:
+	var phase_started: int = WorldPerfProbe.begin()
+	var end_index: int = mini(
+		_apply_index + maxi(1, batch_size),
+		_pending_terrain_ids.size(),
+	)
+	for index: int in range(_apply_index, end_index):
+		var terrain_id: int = int(_pending_terrain_ids[index])
+		var terrain_atlas_index: int = 0
+		if index < _pending_terrain_atlas_indices.size():
+			terrain_atlas_index = int(_pending_terrain_atlas_indices[index])
+		if _should_suppress_mountain_visual(index, terrain_id) \
+				or _should_render_as_organic_ground_underlay(index, terrain_id):
+			terrain_id = WorldRuntimeConstants.TERRAIN_PLAINS_GROUND
+			terrain_atlas_index = 0
+		var local_coord: Vector2i = WorldRuntimeConstants.index_to_local(index)
+		var tile_record: Vector4i = _tile_pattern_record(terrain_id, terrain_atlas_index)
+		var target_pattern: TileMapPattern = _pending_overlay_pattern \
+				if tile_record.x != 0 \
+				else _pending_base_pattern
+		target_pattern.set_cell(
+			local_coord,
+			tile_record.y,
+			Vector2i(tile_record.z, tile_record.w),
+			0,
+		)
+	_apply_index = end_index
+	WorldPerfProbe.end("ChunkView.publish.pattern_build_batch", phase_started)
+	if _apply_index < _pending_terrain_ids.size():
+		return true
+	var commit_started: int = WorldPerfProbe.begin()
+	_commit_bulk_patterns()
+	WorldPerfProbe.end("ChunkView.publish.pattern_commit", commit_started)
+	_has_applied_cells = true
+	_bulk_apply_layers_pristine = false
+	_bulk_pattern_apply_active = false
+	_pending_base_pattern = null
+	_pending_overlay_pattern = null
+	return false
+
+
+func _commit_bulk_patterns() -> void:
+	# Omitted pattern cells must erase the previous revision, so clear once per
+	# layer before the exact source/atlas records are adopted atomically while the
+	# parent ChunkView is hidden.
+	_base_layer.clear()
+	_overlay_layer.clear()
+	_base_layer.set_pattern(Vector2i.ZERO, _pending_base_pattern)
+	_overlay_layer.set_pattern(Vector2i.ZERO, _pending_overlay_pattern)
+	if _water_layer != null and is_instance_valid(_water_layer):
+		_water_layer.clear()
+	for terrain_layers_variant: Variant in roof_layers_by_mountain.values():
+		var terrain_layers: Dictionary = terrain_layers_variant as Dictionary
+		for layer_variant: Variant in terrain_layers.values():
+			var layer: TileMapLayer = layer_variant as TileMapLayer
+			if layer != null and is_instance_valid(layer):
+				layer.clear()
 
 
 func apply_runtime_cell(
@@ -839,6 +1211,10 @@ func set_mountain_tile_visuals_enabled(enabled: bool) -> void:
 
 
 func set_debug_overlays(grid_visible: bool, solid_mask_visible: bool, contour_visible: bool) -> void:
+	if grid_visible == _debug_grid_visible \
+			and solid_mask_visible == _debug_solid_mask_visible \
+			and contour_visible == _debug_contour_visible:
+		return
 	var solid_mask_just_enabled: bool = solid_mask_visible and not _debug_solid_mask_visible
 	_debug_grid_visible = grid_visible
 	_debug_solid_mask_visible = solid_mask_visible
@@ -850,6 +1226,8 @@ func set_debug_overlays(grid_visible: bool, solid_mask_visible: bool, contour_vi
 
 ## Дев-оверлей коллизий объектного пакета (камни/валуны/деревья, F11).
 func set_debug_object_collisions_visible(enabled: bool) -> void:
+	if enabled == _debug_object_collisions_visible:
+		return
 	_debug_object_collisions_visible = enabled
 	if _object_packet_layer != null and is_instance_valid(_object_packet_layer):
 		_object_packet_layer.set_debug_collisions_visible(enabled)
@@ -861,6 +1239,11 @@ func apply_sun_lighting(
 		shadow_opacity: float,
 		shadow_softness_px: float,
 ) -> void:
+	if is_equal_approx(light_angle_deg, _sun_light_angle_deg) \
+			and is_equal_approx(shadow_length_px, _sun_shadow_length_px) \
+			and is_equal_approx(shadow_opacity, _sun_shadow_opacity) \
+			and is_equal_approx(shadow_softness_px, _sun_shadow_softness_px):
+		return
 	_sun_light_angle_deg = light_angle_deg
 	_sun_shadow_length_px = shadow_length_px
 	_sun_shadow_opacity = shadow_opacity
@@ -881,6 +1264,8 @@ func apply_sun_lighting(
 
 
 func set_living_flora_source(atlas: Texture2D) -> void:
+	if atlas == _living_flora_atlas:
+		return
 	_living_flora_atlas = atlas
 	if _object_packet_layer != null and is_instance_valid(_object_packet_layer):
 		_object_packet_layer.set_living_flora_atlas(_living_flora_atlas)
@@ -894,12 +1279,16 @@ func set_spiky_flora_source(atlas: Texture2D) -> void:
 
 
 func set_spiky_flora_sources(atlases: Array[Texture2D]) -> void:
+	if atlases == _spiky_flora_atlases:
+		return
 	_spiky_flora_atlases = atlases.duplicate()
 	if _object_packet_layer != null and is_instance_valid(_object_packet_layer):
 		_object_packet_layer.set_spiky_flora_atlases(_spiky_flora_atlases)
 
 
 func set_tree_source(atlas: Texture2D) -> void:
+	if atlas == _tree_atlas:
+		return
 	_tree_atlas = atlas
 	if _object_packet_layer != null and is_instance_valid(_object_packet_layer):
 		_object_packet_layer.set_tree_atlas(_tree_atlas)
@@ -910,6 +1299,8 @@ func set_layered_tree_asset_dir(asset_dir: String) -> void:
 
 
 func set_layered_tree_asset_dirs(asset_dirs: Array) -> void:
+	if asset_dirs == _layered_tree_asset_dirs:
+		return
 	_layered_tree_asset_dirs = _normalize_layered_tree_asset_dirs(asset_dirs)
 	_layered_tree_asset_dir = _layered_tree_asset_dirs[0] if not _layered_tree_asset_dirs.is_empty() else ""
 	if _object_packet_layer != null and is_instance_valid(_object_packet_layer):
@@ -921,6 +1312,8 @@ func set_layered_small_rock_asset_dir(asset_dir: String) -> void:
 
 
 func set_layered_small_rock_asset_dirs(asset_dirs: Array) -> void:
+	if asset_dirs == _layered_small_rock_asset_dirs:
+		return
 	_layered_small_rock_asset_dirs = _normalize_layered_tree_asset_dirs(asset_dirs)
 	_layered_small_rock_asset_dir = _layered_small_rock_asset_dirs[0] if not _layered_small_rock_asset_dirs.is_empty() else ""
 	if _object_packet_layer != null and is_instance_valid(_object_packet_layer):
@@ -1228,7 +1621,10 @@ func apply_mountain_native_mask_data(
 			_mountain_closed_roof_mask_visual_dirty = true
 			# The permanent foothill footprint belongs to the immutable CLOSED
 			# construction, not to the excavated live mask.
-			_clear_mountain_foothill_mask()
+			# Keep the same-size L8 allocation alive across construction/dug-mask
+			# refreshes. The immutable foothill footprint is recaptured below, so
+			# dropping the GPU object here only creates avoidable driver churn.
+			_clear_mountain_foothill_mask(true)
 		if mask_geometry_changed or _mountain_sky_exposure_bytes != sky_exposure:
 			_mountain_sky_exposure_bytes = sky_exposure.duplicate()
 			_mountain_sky_exposure_image = null
@@ -1280,7 +1676,9 @@ func apply_mountain_native_mask_data(
 		"chunk_coord": chunk_coord,
 		"native_mask_fill": true,
 		"native_mask_visual_pending": true,
-		"native_mask_visual_ready": _mountain_top_mask_texture != null,
+		# A retained texture is only an allocation target until the new bytes are
+		# uploaded. Pending and ready must never be true at the same time.
+		"native_mask_visual_ready": false,
 		"mask_size": Vector2i(mask_width, mask_height),
 		"solid_sample_count": int(mask_result.get("solid_sample_count", 0)),
 		"construction_roof_mask": has_construction_fields,
@@ -1290,7 +1688,10 @@ func apply_mountain_native_mask_data(
 
 
 func set_mountain_roof_reveal_blend(value: float) -> void:
-	_mountain_roof_reveal_blend = clampf(value, 0.0, 1.0)
+	var next_blend: float = clampf(value, 0.0, 1.0)
+	if is_equal_approx(next_blend, _mountain_roof_reveal_blend):
+		return
+	_mountain_roof_reveal_blend = next_blend
 	if _mountain_closed_roof_mask_material != null:
 		_mountain_closed_roof_mask_material.set_shader_parameter(
 			"component_reveal_blend",
@@ -1748,15 +2149,23 @@ func _upload_mountain_mask_texture(
 		foothill_texture: Texture2D = null,
 		foothill_normal_texture: Texture2D = null,
 ) -> void:
+	var phase_started: int = WorldPerfProbe.begin()
 	_capture_mountain_foothill_mask_if_needed(mask_image, mask_origin_world, mask_step_px)
+	WorldPerfProbe.end("ChunkView.mountain_upload.capture_foothill", phase_started)
+	phase_started = WorldPerfProbe.begin()
 	if _mountain_top_mask_texture != null \
 			and _mountain_top_mask_texture.get_width() == _mountain_top_mask_width \
 			and _mountain_top_mask_texture.get_height() == _mountain_top_mask_height:
 		_mountain_top_mask_texture.update(mask_image)
+		WorldPerfProbe.end("ChunkView.mountain_upload.top_texture_update", phase_started)
 	else:
 		_mountain_top_mask_texture = ImageTexture.create_from_image(mask_image)
+		WorldPerfProbe.end("ChunkView.mountain_upload.top_texture_create", phase_started)
+	phase_started = WorldPerfProbe.begin()
 	var sprite: Sprite2D = _ensure_mountain_top_mask_sprite()
 	var material: ShaderMaterial = _ensure_mountain_top_mask_material()
+	WorldPerfProbe.end("ChunkView.mountain_upload.ensure_nodes", phase_started)
+	phase_started = WorldPerfProbe.begin()
 	_mountain_top_mask_origin_world = mask_origin_world
 	_mountain_top_mask_step_px = mask_step_px
 	_mountain_top_mask_texture_scale = top_texture_scale
@@ -1808,8 +2217,13 @@ func _upload_mountain_mask_texture(
 	sprite.scale = Vector2.ONE * mask_step_px
 	sprite.texture = _mountain_top_mask_texture
 	sprite.visible = true
+	WorldPerfProbe.end("ChunkView.mountain_upload.bind_base", phase_started)
+	phase_started = WorldPerfProbe.begin()
 	_sync_mountain_rock_underlay_visual(foothill_texture, foothill_normal_texture)
+	WorldPerfProbe.end("ChunkView.mountain_upload.rock_underlay", phase_started)
+	phase_started = WorldPerfProbe.begin()
 	_sync_mountain_foothill_overlay_visual(foothill_texture, foothill_normal_texture)
+	WorldPerfProbe.end("ChunkView.mountain_upload.foothill_overlay", phase_started)
 
 
 func _sync_mountain_closed_roof_visual(
@@ -1955,7 +2369,17 @@ func _update_mountain_native_mask_pending_debug() -> void:
 			or _mountain_active_floor_halo_visual_dirty
 	_mountain_page_debug["native_mask_visual_pending"] = native_visual_pending
 	_mountain_page_debug["native_mask_visual_ready"] = \
-	_mountain_top_mask_texture != null and not native_visual_pending
+	_is_mountain_native_mask_active() \
+			and _mountain_top_mask_texture != null \
+			and not native_visual_pending
+
+
+func _is_mountain_native_mask_active() -> bool:
+	return _mountain_top_mask_width > 0 \
+			and _mountain_top_mask_height > 0 \
+			and _mountain_top_mask_step_px > 0.0 \
+			and _mountain_top_mask_bytes.size() \
+					== _mountain_top_mask_width * _mountain_top_mask_height
 
 
 func _square_l8_mask_side(mask_bytes: PackedByteArray) -> int:
@@ -2096,7 +2520,10 @@ func _upload_terrain_edge_mask_texture(
 	)
 
 
-func _clear_mountain_top_mask(preserve_foothill: bool = false) -> void:
+func _clear_mountain_top_mask(
+		preserve_foothill: bool = false,
+		preserve_gpu_allocations: bool = false,
+) -> void:
 	if _mountain_top_mask_sprite != null and is_instance_valid(_mountain_top_mask_sprite):
 		_mountain_top_mask_sprite.texture = null
 		_mountain_top_mask_sprite.visible = false
@@ -2104,9 +2531,10 @@ func _clear_mountain_top_mask(preserve_foothill: bool = false) -> void:
 		_mountain_top_mask_sprite.material = null
 	_clear_mountain_rock_underlay()
 	if not preserve_foothill:
-		_clear_mountain_foothill_mask()
+		_clear_mountain_foothill_mask(preserve_gpu_allocations)
 		_clear_mountain_foothill_overlay()
-	_mountain_top_mask_texture = null
+	if not preserve_gpu_allocations:
+		_mountain_top_mask_texture = null
 	_mountain_top_mask_image = null
 	_mountain_top_mask_bytes = PackedByteArray()
 	_mountain_top_mask_width = 0
@@ -2118,13 +2546,14 @@ func _clear_mountain_top_mask(preserve_foothill: bool = false) -> void:
 	_clear_mountain_closed_roof_state()
 
 
-func clear_terrain_edge_mask() -> void:
+func clear_terrain_edge_mask(preserve_gpu_allocation: bool = false) -> void:
 	if _terrain_edge_mask_sprite != null and is_instance_valid(_terrain_edge_mask_sprite):
 		_terrain_edge_mask_sprite.texture = null
 		_terrain_edge_mask_sprite.visible = false
 		_terrain_edge_mask_sprite.scale = Vector2.ONE
 		_terrain_edge_mask_sprite.material = null
-	_terrain_edge_mask_texture = null
+	if not preserve_gpu_allocation:
+		_terrain_edge_mask_texture = null
 	_terrain_edge_mask_image = null
 	_terrain_edge_mask_bytes = PackedByteArray()
 	_terrain_edge_mask_width = 0
@@ -2204,7 +2633,10 @@ func _apply_mountain_full_top_fill(top_texture: Texture2D, face_texture: Texture
 	)
 
 
-func clear_mountain_render_page(preserve_foothill: bool = false) -> void:
+func clear_mountain_render_page(
+		preserve_foothill: bool = false,
+		preserve_gpu_allocations: bool = false,
+) -> void:
 	if _mountain_page_sprite != null and is_instance_valid(_mountain_page_sprite):
 		_mountain_page_sprite.texture = null
 		_mountain_page_sprite.visible = false
@@ -2214,7 +2646,7 @@ func clear_mountain_render_page(preserve_foothill: bool = false) -> void:
 	_mountain_page_image = null
 	_mountain_page_normal_texture = null
 	_mountain_page_lit_texture = null
-	_clear_mountain_top_mask(preserve_foothill)
+	_clear_mountain_top_mask(preserve_foothill, preserve_gpu_allocations)
 	_mountain_page_hit_mask = PackedByteArray()
 	_mountain_page_hit_mask_width = 0
 	_mountain_page_hit_mask_height = 0
@@ -2409,7 +2841,15 @@ func _is_mountain_facade_band_solid(mask_x: int, mask_y: int) -> bool:
 
 
 func get_mountain_render_page_debug_state() -> Dictionary:
-	return _mountain_page_debug.duplicate(true)
+	var debug := _mountain_page_debug.duplicate(true)
+	var active: bool = _is_mountain_native_mask_active()
+	var pending: bool = is_mountain_native_mask_visual_pending()
+	debug["native_mask_visual_pending"] = pending
+	debug["native_mask_visual_ready"] = \
+			active and _mountain_top_mask_texture != null and not pending
+	debug["native_mask_gpu_allocation_retained"] = \
+			not active and _mountain_top_mask_texture != null
+	return debug
 
 
 ## Returns only already-uploaded presentation textures. MountainCavitySkylightField
@@ -2477,10 +2917,7 @@ func get_mountain_cavity_skylight_field_source() -> Dictionary:
 
 func get_mountain_native_mask_debug_state() -> Dictionary:
 	var debug := _mountain_page_debug.duplicate(true)
-	var active: bool = _mountain_top_mask_width > 0 \
-			and _mountain_top_mask_height > 0 \
-			and _mountain_top_mask_step_px > 0.0 \
-			and not _mountain_top_mask_bytes.is_empty()
+	var active: bool = _is_mountain_native_mask_active()
 	debug["native_mask_active"] = active
 	debug["mask_width"] = _mountain_top_mask_width
 	debug["mask_height"] = _mountain_top_mask_height
@@ -2509,9 +2946,11 @@ func get_mountain_native_mask_debug_state() -> Dictionary:
 			or _mountain_staged_floor_halo_generation > 0 \
 			or _mountain_dug_halo_visual_dirty
 	debug["roof_overlay_visual_pending"] = roof_visual_pending
-	debug["has_visual_texture"] = _mountain_top_mask_texture != null
+	debug["has_visual_texture"] = active and _mountain_top_mask_texture != null
+	debug["gpu_allocation_retained"] = not active and _mountain_top_mask_texture != null
 	debug["native_mask_visual_pending"] = _mountain_top_mask_visual_dirty or roof_visual_pending
-	debug["native_mask_visual_ready"] = _mountain_top_mask_texture != null \
+	debug["native_mask_visual_ready"] = active \
+			and _mountain_top_mask_texture != null \
 			and not _mountain_top_mask_visual_dirty \
 			and not roof_visual_pending
 	debug["foothill_mask_active"] = _mountain_foothill_mask_texture != null \
@@ -2543,16 +2982,20 @@ func get_terrain_edge_mask_debug_state() -> Dictionary:
 	var active: bool = _terrain_edge_mask_width > 0 \
 			and _terrain_edge_mask_height > 0 \
 			and _terrain_edge_mask_step_px > 0.0 \
-			and not _terrain_edge_mask_bytes.is_empty()
+			and _terrain_edge_mask_bytes.size() \
+					== _terrain_edge_mask_width * _terrain_edge_mask_height
 	return {
 		"terrain_edge_mask_active": active,
 		"mask_width": _terrain_edge_mask_width,
 		"mask_height": _terrain_edge_mask_height,
 		"mask_step_px": _terrain_edge_mask_step_px,
 		"mask_byte_count": _terrain_edge_mask_bytes.size(),
-		"has_visual_texture": _terrain_edge_mask_texture != null,
+		"has_visual_texture": active and _terrain_edge_mask_texture != null,
+		"gpu_allocation_retained": not active and _terrain_edge_mask_texture != null,
 		"visual_pending": _terrain_edge_mask_visual_dirty,
-		"visual_ready": _terrain_edge_mask_texture != null and not _terrain_edge_mask_visual_dirty,
+		"visual_ready": active \
+				and _terrain_edge_mask_texture != null \
+				and not _terrain_edge_mask_visual_dirty,
 		"grass_overlay_visible": _grass_blob_overlay_sprite != null \
 				and is_instance_valid(_grass_blob_overlay_sprite) \
 				and _grass_blob_overlay_sprite.visible,
@@ -2988,15 +3431,29 @@ func _capture_mountain_foothill_mask_if_needed(
 			or not is_equal_approx(_mountain_foothill_mask_step_px, mask_step_px)
 	if not needs_capture:
 		return
-	_mountain_foothill_mask_texture = ImageTexture.create_from_image(mask_image)
+	var reuses_texture: bool = _mountain_foothill_mask_texture != null \
+			and _mountain_foothill_mask_texture.get_width() == width \
+			and _mountain_foothill_mask_texture.get_height() == height
+	var texture_started: int = WorldPerfProbe.begin()
+	_mountain_foothill_mask_texture = _update_or_create_l8_texture(
+		_mountain_foothill_mask_texture,
+		mask_image,
+	)
+	WorldPerfProbe.end(
+		"ChunkView.mountain_upload.foothill_texture_update" \
+				if reuses_texture \
+				else "ChunkView.mountain_upload.foothill_texture_create",
+		texture_started,
+	)
 	_mountain_foothill_mask_width = width
 	_mountain_foothill_mask_height = height
 	_mountain_foothill_mask_origin_world = mask_origin_world
 	_mountain_foothill_mask_step_px = mask_step_px
 
 
-func _clear_mountain_foothill_mask() -> void:
-	_mountain_foothill_mask_texture = null
+func _clear_mountain_foothill_mask(preserve_gpu_allocation: bool = false) -> void:
+	if not preserve_gpu_allocation:
+		_mountain_foothill_mask_texture = null
 	_mountain_foothill_mask_width = 0
 	_mountain_foothill_mask_height = 0
 	_mountain_foothill_mask_origin_world = Vector2.ZERO
@@ -3514,7 +3971,7 @@ func _apply_water_cell(local_coord: Vector2i, index: int) -> void:
 
 func _sync_water_fill_visual() -> void:
 	var water_texture: Texture2D = _resolve_water_fill_texture()
-	if water_texture == null or not _pending_has_visible_water():
+	if water_texture == null:
 		# The fill is the under-water backdrop only; over dry chunks it would
 		# paint the whole chunk as a dark sea above the ground material.
 		if _water_fill_sprite != null and is_instance_valid(_water_fill_sprite):
@@ -3533,13 +3990,6 @@ func _sync_water_fill_visual() -> void:
 	sprite.position = Vector2.ZERO
 	sprite.scale = Vector2.ONE * chunk_size_px
 	sprite.visible = true
-
-
-func _pending_has_visible_water() -> bool:
-	for index: int in range(_pending_lake_flags.size()):
-		if (int(_pending_lake_flags[index]) & WorldRuntimeConstants.LAKE_FLAG_WATER_PRESENT) != 0:
-			return true
-	return false
 
 
 func _resolve_water_fill_texture() -> Texture2D:

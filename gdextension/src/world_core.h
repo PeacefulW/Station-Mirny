@@ -39,6 +39,7 @@ public:
 	Dictionary build_mountain_contour_debug(PackedByteArray p_solid_halo, int64_t p_chunk_size, int64_t p_tile_size_px);
 	Dictionary build_mountain_halo_mask(PackedByteArray p_solid_halo, int64_t p_chunk_size, int64_t p_tile_size_px, int64_t p_pixels_per_tile, double p_origin_world_x, double p_origin_world_y);
 	Dictionary build_mountain_skylight_exposure(PackedByteArray p_closed_roof_mask, PackedByteArray p_live_mask, int64_t p_width, int64_t p_height, double p_step_px, int64_t p_reach_samples);
+	Dictionary build_chunk_halo_fields(Array p_packets_3x3, int64_t p_halo_radius_tiles);
 	Dictionary build_grass_scatter_buffer(int64_t p_seed, Vector2i p_chunk_coord, PackedInt32Array p_terrain_ids, PackedByteArray p_lake_flags, PackedByteArray p_mountain_halo, int64_t p_mountain_halo_radius_tiles, PackedFloat32Array p_params);
 	Dictionary build_object_presentation_buffers(PackedByteArray p_object_kind, PackedByteArray p_object_local_x_px_q4, PackedByteArray p_object_local_y_px_q4, PackedByteArray p_object_size_px, PackedByteArray p_object_atlas_index, PackedByteArray p_object_variant, PackedByteArray p_object_flags, PackedByteArray p_object_tint, PackedByteArray p_object_phase, PackedFloat32Array p_tree_metrics, PackedFloat32Array p_rock_metrics, PackedFloat32Array p_params);
 	Dictionary build_mountain_plateau_raster_image(Array p_packets, Vector2i p_target_chunk, Dictionary p_preset, Ref<Image> p_top_image, Ref<Image> p_face_image);

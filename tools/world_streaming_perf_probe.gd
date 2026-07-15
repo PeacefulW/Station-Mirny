@@ -48,6 +48,13 @@ var _max_object_presentation_dispatch_ms: float = 0.0
 var _max_visual_ms: float = 0.0
 var _max_total_ms: float = 0.0
 var _max_publish_begin_ms: float = 0.0
+var _max_publish_begin_prefetch_ms: float = 0.0
+var _max_combined_halo_native_ms: float = 0.0
+var _max_prefetch_mountain_halo_ms: float = 0.0
+var _max_prefetch_mountain_request_ms: float = 0.0
+var _max_prefetch_terrain_halo_ms: float = 0.0
+var _max_prefetch_terrain_request_ms: float = 0.0
+var _max_prefetch_grass_request_ms: float = 0.0
 var _max_publish_begin_mountain_ready_ms: float = 0.0
 var _max_publish_begin_terrain_edge_prepare_ms: float = 0.0
 var _max_publish_begin_track_roof_ms: float = 0.0
@@ -57,6 +64,7 @@ var _max_publish_begin_apply_terrain_edge_mask_ms: float = 0.0
 var _max_publish_begin_chunk_begin_apply_ms: float = 0.0
 var _max_publish_apply_ms: float = 0.0
 var _max_publish_finalize_ms: float = 0.0
+var _max_packet_result_integrate_ms: float = 0.0
 var _max_visual_ensure_mountain_sources_ms: float = 0.0
 var _max_visual_ensure_terrain_sources_ms: float = 0.0
 var _max_mountain_visual_create_image_ms: float = 0.0
@@ -78,6 +86,12 @@ var _max_object_adopt_ladder_ms: float = 0.0
 var _max_visual_object_packet_envelope_ms: float = 0.0
 var _max_visual_object_packet_anchor_rebase_ms: float = 0.0
 var _max_visual_grass_scatter_ms: float = 0.0
+var _max_visual_grass_scatter_phase_ms: float = 0.0
+var _max_grass_prepare_ms: float = 0.0
+var _max_grass_stripe_ms: float = 0.0
+var _max_grass_commit_ms: float = 0.0
+var _max_pattern_build_batch_ms: float = 0.0
+var _max_pattern_commit_ms: float = 0.0
 var _max_chunk_begin_copy_packet_ms: float = 0.0
 var _max_chunk_begin_state_ms: float = 0.0
 var _max_chunk_begin_ensure_layers_ms: float = 0.0
@@ -97,6 +111,7 @@ var _combined_object_phase_frames: int = 0
 var _samples: int = 0
 var _object_presentation_breakdown_max: Dictionary = { }
 var _object_presentation_breakdown_samples: Dictionary = { }
+var _mountain_upload_breakdown_max: Dictionary = { }
 
 func _init() -> void:
 	call_deferred("_run")
@@ -213,6 +228,29 @@ func _step_frame(record_sample: bool) -> void:
 		"WorldStreamer.publish.begin",
 		0.0
 	)))
+	_max_publish_begin_prefetch_ms = maxf(_max_publish_begin_prefetch_ms, float(frame_ops.get(
+		"WorldStreamer.publish.begin.prefetch",
+		0.0
+	)))
+	_max_combined_halo_native_ms = maxf(_max_combined_halo_native_ms, float(frame_ops.get(
+		"WorldStreamer.publish.combined_halo_native",
+		0.0
+	)))
+	_max_prefetch_mountain_halo_ms = maxf(_max_prefetch_mountain_halo_ms, float(frame_ops.get(
+		"WorldStreamer.prefetch.mountain_halo", 0.0
+	)))
+	_max_prefetch_mountain_request_ms = maxf(_max_prefetch_mountain_request_ms, float(frame_ops.get(
+		"WorldStreamer.prefetch.mountain_request", 0.0
+	)))
+	_max_prefetch_terrain_halo_ms = maxf(_max_prefetch_terrain_halo_ms, float(frame_ops.get(
+		"WorldStreamer.prefetch.terrain_halo", 0.0
+	)))
+	_max_prefetch_terrain_request_ms = maxf(_max_prefetch_terrain_request_ms, float(frame_ops.get(
+		"WorldStreamer.prefetch.terrain_request", 0.0
+	)))
+	_max_prefetch_grass_request_ms = maxf(_max_prefetch_grass_request_ms, float(frame_ops.get(
+		"WorldStreamer.prefetch.grass_request", 0.0
+	)))
 	_max_publish_begin_mountain_ready_ms = maxf(_max_publish_begin_mountain_ready_ms, float(frame_ops.get(
 		"WorldStreamer.publish.begin.mountain_ready",
 		0.0
@@ -265,6 +303,21 @@ func _step_frame(record_sample: bool) -> void:
 		"ChunkView.mountain_visual.upload_texture",
 		0.0
 	)))
+	for mountain_upload_key: String in [
+		"ChunkView.mountain_upload.capture_foothill",
+		"ChunkView.mountain_upload.foothill_texture_create",
+		"ChunkView.mountain_upload.foothill_texture_update",
+		"ChunkView.mountain_upload.top_texture_create",
+		"ChunkView.mountain_upload.top_texture_update",
+		"ChunkView.mountain_upload.ensure_nodes",
+		"ChunkView.mountain_upload.bind_base",
+		"ChunkView.mountain_upload.rock_underlay",
+		"ChunkView.mountain_upload.foothill_overlay",
+	]:
+		_mountain_upload_breakdown_max[mountain_upload_key] = maxf(
+			float(_mountain_upload_breakdown_max.get(mountain_upload_key, 0.0)),
+			float(frame_ops.get(mountain_upload_key, 0.0)),
+		)
 	_max_terrain_edge_visual_create_image_ms = maxf(_max_terrain_edge_visual_create_image_ms, float(frame_ops.get(
 		"ChunkView.terrain_edge_visual.create_image",
 		0.0
@@ -349,6 +402,34 @@ func _step_frame(record_sample: bool) -> void:
 		"WorldStreamer.visual_upload.grass_scatter",
 		0.0
 	)))
+	_max_visual_grass_scatter_phase_ms = maxf(
+		_max_visual_grass_scatter_phase_ms,
+		float(frame_ops.get("WorldStreamer.visual_upload.grass_scatter_phase", 0.0)),
+	)
+	_max_grass_prepare_ms = maxf(
+		_max_grass_prepare_ms,
+		float(frame_ops.get("ChunkView.grass.prepare", 0.0)),
+	)
+	_max_grass_stripe_ms = maxf(
+		_max_grass_stripe_ms,
+		float(frame_ops.get("ChunkView.grass.stripe", 0.0)),
+	)
+	_max_grass_commit_ms = maxf(
+		_max_grass_commit_ms,
+		float(frame_ops.get("ChunkView.grass.commit", 0.0)),
+	)
+	_max_packet_result_integrate_ms = maxf(
+		_max_packet_result_integrate_ms,
+		float(frame_ops.get("WorldStreamer.packet_results.integrate_batch", 0.0)),
+	)
+	_max_pattern_build_batch_ms = maxf(
+		_max_pattern_build_batch_ms,
+		float(frame_ops.get("ChunkView.publish.pattern_build_batch", 0.0)),
+	)
+	_max_pattern_commit_ms = maxf(
+		_max_pattern_commit_ms,
+		float(frame_ops.get("ChunkView.publish.pattern_commit", 0.0)),
+	)
 	_max_chunk_begin_copy_packet_ms = maxf(_max_chunk_begin_copy_packet_ms, float(frame_ops.get(
 		"ChunkView.begin_apply.copy_packet",
 		0.0
@@ -361,10 +442,13 @@ func _step_frame(record_sample: bool) -> void:
 		"ChunkView.begin_apply.ensure_layers",
 		0.0
 	)))
-	_max_chunk_begin_sync_water_ms = maxf(_max_chunk_begin_sync_water_ms, float(frame_ops.get(
-		"ChunkView.begin_apply.sync_water_fill",
-		0.0
-	)))
+	_max_chunk_begin_sync_water_ms = maxf(
+		_max_chunk_begin_sync_water_ms,
+		maxf(
+			float(frame_ops.get("ChunkView.begin_apply.sync_water_fill", 0.0)),
+			float(frame_ops.get("ChunkView.publish.sync_water_fill", 0.0)),
+		),
+	)
 	_max_chunk_begin_sync_objects_ms = maxf(_max_chunk_begin_sync_objects_ms, float(frame_ops.get(
 		"ChunkView.begin_apply.sync_objects",
 		0.0
@@ -432,6 +516,15 @@ func _print_summary() -> void:
 		]
 	)
 	print(
+		"world_streaming_perf_probe_prefetch_breakdown: mountain_halo=%.3fms mountain_request=%.3fms terrain_halo=%.3fms terrain_request=%.3fms grass_request=%.3fms" % [
+			_max_prefetch_mountain_halo_ms,
+			_max_prefetch_mountain_request_ms,
+			_max_prefetch_terrain_halo_ms,
+			_max_prefetch_terrain_request_ms,
+			_max_prefetch_grass_request_ms,
+		]
+	)
+	print(
 		"world_streaming_perf_probe_worker_details: shared_workers=%d logical_cpus=%d grass_worker_max=%.3fms grass_request_to_complete_max=%.3fms object_worker_max=%.3fms object_request_to_complete_max=%.3fms warm_packet_cache=%d/%d warm_packet_hits=%d warm_object_cache=%d bytes=%d/%d hits=%d" % [
 			int(debug.get("world_compute_worker_count", 0)),
 			int(debug.get("world_compute_logical_processor_count", 0)),
@@ -471,6 +564,36 @@ func _print_summary() -> void:
 		]
 	)
 	print(
+		"world_streaming_perf_probe_publish_pipeline: max_packet_integrate=%.3fms max_prefetch=%.3fms max_combined_halo_native=%.3fms max_pattern_build_batch=%.3fms max_pattern_commit=%.3fms max_grass_phase=%.3fms max_grass_prepare=%.3fms max_grass_stripe=%.3fms max_grass_commit=%.3fms" % [
+			_max_packet_result_integrate_ms,
+			_max_publish_begin_prefetch_ms,
+			_max_combined_halo_native_ms,
+			_max_pattern_build_batch_ms,
+			_max_pattern_commit_ms,
+			_max_visual_grass_scatter_phase_ms,
+			_max_grass_prepare_ms,
+			_max_grass_stripe_ms,
+			_max_grass_commit_ms,
+		]
+	)
+	print(
+		"world_streaming_perf_probe_grass_cache: cpu_ready=%d warm=%d bytes=%d hits=%d gpu_views=%d/%d exact_hits=%d pool_reuses=%d grass_preserve_hits=%d terrain_preserve_hits=%d upload_queue=%d inflight=%d reveal_pending_grass=%d" % [
+			int(debug.get("grass_scatter_ready_cpu_count", 0)),
+			int(debug.get("grass_scatter_warm_cache_count", 0)),
+			int(debug.get("grass_scatter_warm_cache_bytes", 0)),
+			int(debug.get("grass_scatter_cache_hit_count_total", 0)),
+			int(debug.get("hot_chunk_view_cache_count", 0)),
+			int(debug.get("hot_chunk_view_cache_capacity", 0)),
+			int(debug.get("hot_chunk_view_cache_hit_count_total", 0)),
+			int(debug.get("hot_chunk_view_pool_reuse_count_total", 0)),
+			int(debug.get("hot_chunk_view_grass_preserve_hit_count_total", 0)),
+			int(debug.get("hot_chunk_view_terrain_preserve_hit_count_total", 0)),
+			int(debug.get("grass_scatter_visual_upload_queue_count", 0)),
+			int(debug.get("grass_scatter_inflight_count", 0)),
+			int(debug.get("chunk_reveal_with_pending_grass_count_total", 0)),
+		]
+	)
+	print(
 		"world_streaming_perf_probe_visual_details: max_ensure_mountain_sources=%.3fms max_ensure_terrain_sources=%.3fms max_mountain_create_image=%.3fms max_mountain_upload_texture=%.3fms max_terrain_edge_create_image=%.3fms max_terrain_edge_upload_texture=%.3fms max_object_packet_slice=%.3fms max_object_packet_cache_commit=%.3fms max_object_packet_finalize=%.3fms max_object_packet_adopt=%.3fms max_object_packet_adopt_cache_take=%.3fms max_object_packet_adopt_view=%.3fms max_object_packet_reveal=%.3fms max_object_packet_envelope=%.3fms max_object_packet_anchor_rebase=%.3fms max_object_dispatch=%.3fms max_object_phases_per_frame=%d combined_object_phase_frames=%d max_grass_scatter_apply=%.3fms" % [
 			_max_visual_ensure_mountain_sources_ms,
 			_max_visual_ensure_terrain_sources_ms,
@@ -492,6 +615,10 @@ func _print_summary() -> void:
 			_combined_object_phase_frames,
 			_max_visual_grass_scatter_ms,
 		]
+	)
+	print(
+		"world_streaming_perf_probe_mountain_upload_breakdown: %s" % \
+				JSON.stringify(_mountain_upload_breakdown_max),
 	)
 	print(
 		"world_streaming_perf_probe_chunk_begin_details: max_copy_packet=%.3fms max_state=%.3fms max_ensure_layers=%.3fms max_sync_water=%.3fms max_sync_objects=%.3fms max_refresh_debug=%.3fms" % [
