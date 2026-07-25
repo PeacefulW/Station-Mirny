@@ -257,7 +257,8 @@ var _requested_chunks: Dictionary = { }
 var _pending_publish_queue: Array[Vector2i] = []
 var _active_publish_chunk: Vector2i = INVALID_CHUNK_COORD
 var _player_chunk_coord: Vector2i = INVALID_CHUNK_COORD
-var _current_stream_radius_chunks: int = WorldRuntimeConstants.STREAM_RADIUS_CHUNKS
+## Camera-independent residency radius. See _resolve_stream_radius_chunks().
+var _current_stream_radius_chunks: int = MAX_VIEWPORT_STREAM_RADIUS_CHUNKS
 var _desired_source_chunk_coords: Array[Vector2i] = []
 var _desired_visible_chunk_coords: Array[Vector2i] = []
 var _desired_mountain_mask_chunk_coords: Array[Vector2i] = []
@@ -7805,7 +7806,7 @@ func _reset_runtime_state() -> void:
 	_combined_halo_build_retry_by_chunk.clear()
 	_active_publish_chunk = INVALID_CHUNK_COORD
 	_player_chunk_coord = INVALID_CHUNK_COORD
-	_current_stream_radius_chunks = WorldRuntimeConstants.STREAM_RADIUS_CHUNKS
+	_current_stream_radius_chunks = MAX_VIEWPORT_STREAM_RADIUS_CHUNKS
 	_desired_source_chunk_coords.clear()
 	_desired_visible_chunk_coords.clear()
 	_desired_mountain_mask_chunk_coords.clear()
@@ -8108,20 +8109,15 @@ func _resolve_source_cache_radius_chunks() -> int:
 	return _current_stream_radius_chunks + 1
 
 
+## Residency is deliberately camera-independent. The envelope is sized once for
+## the widest zoom the player may ever reach, so zooming can never create a
+## generation request, a publish, an eviction or a chunk lifetime change; it
+## only changes which already-resident chunks the renderer culls. Deriving the
+## radius from the live camera made every zoom-out a streaming burst and every
+## zoom-in an eviction burst, which is exactly the churn this system must not
+## have.
 func _resolve_stream_radius_chunks() -> int:
-	if _initial_loading_gate.is_active():
-		return MAX_VIEWPORT_STREAM_RADIUS_CHUNKS
-	var radius: int = WorldRuntimeConstants.STREAM_RADIUS_CHUNKS
-	var camera: Camera2D = get_viewport().get_camera_2d()
-	if camera != null and is_instance_valid(camera):
-		var zoom_x: float = maxf(camera.zoom.x, 0.05)
-		var zoom_y: float = maxf(camera.zoom.y, 0.05)
-		var viewport_size: Vector2 = get_viewport_rect().size
-		var visible_world_size := Vector2(viewport_size.x / zoom_x, viewport_size.y / zoom_y)
-		var chunk_size_px: float = float(WorldRuntimeConstants.CHUNK_SIZE * WorldRuntimeConstants.TILE_SIZE_PX)
-		var visible_radius_chunks: int = ceili(maxf(visible_world_size.x, visible_world_size.y) * 0.5 / chunk_size_px) + 1
-		radius = maxi(radius, visible_radius_chunks)
-	return mini(radius, MAX_VIEWPORT_STREAM_RADIUS_CHUNKS)
+	return MAX_VIEWPORT_STREAM_RADIUS_CHUNKS
 
 
 func _chunk_has_diff(chunk_coord: Vector2i) -> bool:
