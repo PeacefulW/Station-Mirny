@@ -693,6 +693,7 @@ func _build_session_payload() -> Dictionary:
 	_session_metadata["ended_at"] = Time.get_datetime_string_from_system(true)
 	_session_metadata["capture_count"] = _capture_count
 	_session_metadata["automatic_capture_count"] = _automatic_capture_count
+	_session_metadata["streaming_readiness"] = _get_streaming_readiness_snapshot()
 	return {
 		"columns": TRACE_COLUMNS,
 		"stride": TRACE_STRIDE,
@@ -740,7 +741,7 @@ func _build_diagnostic_snapshot(reason: StringName) -> Dictionary:
 		"player_chunk",
 		Vector2i.ZERO,
 	) as Vector2i
-	return {
+	var snapshot: Dictionary = {
 		"schema_version": 1,
 		"reason": String(reason),
 		"timestamp": Time.get_datetime_string_from_system(true),
@@ -782,6 +783,9 @@ func _build_diagnostic_snapshot(reason: StringName) -> Dictionary:
 		),
 		"environment": _build_environment_metadata(),
 	}
+	if reason == &"manual":
+		snapshot["streaming_readiness"] = _get_streaming_readiness_snapshot()
+	return snapshot
 
 
 func _build_environment_metadata() -> Dictionary:
@@ -805,6 +809,15 @@ func _build_environment_metadata() -> Dictionary:
 		if RenderingServer.has_method(method_name):
 			metadata[method_name] = RenderingServer.call(method_name)
 	return _sanitize_dictionary(metadata)
+
+
+func _get_streaming_readiness_snapshot() -> Dictionary:
+	if _streamer == null or not is_instance_valid(_streamer) \
+			or not _streamer.has_method("get_streaming_readiness_debug_snapshot"):
+		return { }
+	return _sanitize_dictionary(
+		_streamer.call("get_streaming_readiness_debug_snapshot") as Dictionary,
+	)
 
 
 func _begin_observation() -> void:

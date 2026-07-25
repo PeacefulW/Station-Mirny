@@ -15,6 +15,12 @@ const Autotile47 = preload("res://core/systems/tiles/autotile_47.gd")
 const MountainPlateau2DRasterLayer = preload("res://core/systems/world/mountain_plateau_2d_raster_layer.gd")
 const MiningFeedbackLayer = preload("res://core/systems/world/mining_feedback_layer.gd")
 const WorldChunkPacketBackend = preload("res://core/systems/world/world_chunk_packet_backend.gd")
+const WorldStreamingReadinessTracker = preload(
+	"res://core/systems/world/world_streaming_readiness_tracker.gd"
+)
+const WorldInitialLoadingGate = preload(
+	"res://core/systems/world/world_initial_loading_gate.gd"
+)
 const WorldDiffStore = preload("res://core/systems/world/world_diff_store.gd")
 const WorldRuntimeConstants = preload("res://core/systems/world/world_runtime_constants.gd")
 const WorldVisualLightingProfile = preload("res://core/systems/world/world_visual_lighting_profile.gd")
@@ -49,6 +55,9 @@ const MAX_PACKET_RESULTS_PER_TICK: int = 8
 # thread headroom for that start. Active four-slice terrain uploads still drain
 # the full worker burst, so result throughput remains high over a publish cycle.
 const MAX_PACKET_RESULTS_WHILE_PUBLISH_WAITING: int = 2
+## Initial readiness is sampled incrementally. Eight O(1) chunk probes keep the
+## loading gate bounded while revisiting the current 121-chunk target quickly.
+const INITIAL_LOADING_READINESS_CHECKS_PER_TICK: int = 8
 const MAX_GRASS_SCATTER_RESULTS_PER_TICK: int = 12
 const MAX_GRASS_SCATTER_RETRIES_PER_TICK: int = 2
 const GRASS_SCATTER_MAX_BACKGROUND_INFLIGHT: int = WORLD_COMPUTE_MAX_WORKERS * 2
@@ -225,6 +234,9 @@ var world_seed: int = WorldRuntimeConstants.DEFAULT_WORLD_SEED
 var world_version: int = WorldRuntimeConstants.WORLD_VERSION
 
 var _diff_store: WorldDiffStore = WorldDiffStore.new()
+var _readiness_tracker: WorldStreamingReadinessTracker = WorldStreamingReadinessTracker.new()
+var _initial_loading_gate: WorldInitialLoadingGate = WorldInitialLoadingGate.new()
+var _initial_loading_readiness_cursor: int = 0
 var _chunk_packets: Dictionary = { }
 ## Immutable native packets are kept separately from diff-applied runtime
 ## packets so a warm-cache hit can always reapply the current WorldDiffStore.
@@ -249,6 +261,8 @@ var _current_stream_radius_chunks: int = WorldRuntimeConstants.STREAM_RADIUS_CHU
 var _desired_source_chunk_coords: Array[Vector2i] = []
 var _desired_visible_chunk_coords: Array[Vector2i] = []
 var _desired_mountain_mask_chunk_coords: Array[Vector2i] = []
+var _terrain_packet_support_chunk_coords: Array[Vector2i] = []
+var _terrain_packet_support_chunk_set: Dictionary = { }
 var _desired_cache_center_chunk: Vector2i = INVALID_CHUNK_COORD
 var _desired_cache_radius_chunks: int = -1
 var _desired_cache_source_radius_chunks: int = -1
@@ -765,6 +779,22 @@ func get_world_version() -> int:
 	return world_version
 
 
+func get_initial_loading_state() -> Dictionary:
+	return _initial_loading_gate.get_state()
+
+
+func acknowledge_initial_world_presented() -> bool:
+	if not _initial_loading_gate.acknowledge_presented():
+		return false
+	var next_radius: int = _resolve_stream_radius_chunks()
+	if next_radius != _current_stream_radius_chunks:
+		_current_stream_radius_chunks = next_radius
+		_object_packet_visual_priority_dirty = true
+		_rebuild_desired_chunk_cache()
+	_streaming_worker_demand_dirty = true
+	return true
+
+
 func toggle_debug_tile_grid() -> bool:
 	_debug_tile_grid_visible = not _debug_tile_grid_visible
 	_apply_debug_overlay_visibility_to_loaded_chunks()
@@ -861,6 +891,355 @@ func get_perf_hud_snapshot() -> Dictionary:
 		"stream_radius": _current_stream_radius_chunks,
 		"player_chunk": _player_chunk_coord,
 	}
+
+
+func get_streaming_readiness_debug_snapshot() -> Dictionary:
+	var sampled_at_msec: int = Time.get_ticks_msec()
+	var coords: Array[Vector2i] = []
+	var seen: Dictionary = { }
+	for chunk_coord: Vector2i in _desired_source_chunk_coords:
+		_readiness_append_coord(coords, seen, chunk_coord)
+	coords.sort_custom(
+		func(a: Vector2i, b: Vector2i) -> bool:
+			var distance_a: int = _chunk_request_priority(a)
+			var distance_b: int = _chunk_request_priority(b)
+			return distance_a < distance_b \
+					if distance_a != distance_b \
+					else (a.x < b.x if a.x != b.x else a.y < b.y)
+	)
+	var entries: Array[Dictionary] = []
+	var stage_counts: Dictionary = { }
+	var reason_counts: Dictionary = { }
+	var missing_chunk_count: int = 0
+	for chunk_coord: Vector2i in coords:
+		var entry: Dictionary = _build_streaming_readiness_entry(
+			chunk_coord,
+			sampled_at_msec,
+		)
+		entries.append(entry)
+		var stage: String = String(entry.get("lifecycle_stage", ""))
+		stage_counts[stage] = int(stage_counts.get(stage, 0)) + 1
+		if not bool(entry.get("ready", false)):
+			missing_chunk_count += 1
+			var reason: String = String(entry.get("blocking_reason", ""))
+			reason_counts[reason] = int(reason_counts.get(reason, 0)) + 1
+	return {
+		"schema_version": 1,
+		"sampled_at_msec": sampled_at_msec,
+		"generation_epoch": _generation_epoch,
+		"player_chunk": _player_chunk_coord,
+		"desired_visible_count": _desired_visible_chunk_coords.size(),
+		"desired_source_count": _desired_source_chunk_coords.size(),
+		"missing_chunk_count": missing_chunk_count,
+		"stage_counts": stage_counts,
+		"reason_counts": reason_counts,
+		"entries": entries,
+		"terminal_history": _readiness_tracker.get_terminal_history(),
+	}
+
+
+func _readiness_append_coord(
+		coords: Array[Vector2i],
+		seen: Dictionary,
+		chunk_coord: Vector2i,
+) -> void:
+	chunk_coord = _canonicalize_chunk_coord(chunk_coord)
+	if chunk_coord == INVALID_CHUNK_COORD or seen.has(chunk_coord):
+		return
+	seen[chunk_coord] = true
+	coords.append(chunk_coord)
+
+
+func _readiness_layer(state: StringName, reason: StringName = &"") -> Dictionary:
+	return {"state": state, "reason": reason}
+
+
+func _build_streaming_readiness_entry(
+		chunk_coord: Vector2i,
+		now_msec: int,
+) -> Dictionary:
+	var visible_demand: bool = _is_chunk_desired(chunk_coord)
+	var source_demand: bool = _is_chunk_source_desired(chunk_coord)
+	var demand: StringName = &"visible" if visible_demand else (&"reserve" if source_demand else &"none")
+	var packet_resident: bool = _chunk_packets.has(chunk_coord)
+	var view: ChunkView = _chunk_views.get(chunk_coord, null) as ChunkView
+	if not source_demand:
+		return _build_retained_streaming_readiness_entry(chunk_coord, now_msec)
+	var layers: Dictionary = { }
+	if packet_resident:
+		layers[&"packet"] = _readiness_layer(&"ready", &"packet_resident")
+	elif _requested_chunks.has(chunk_coord):
+		layers[&"packet"] = _readiness_layer(&"waiting", &"packet_generation_inflight")
+	elif _warm_base_chunk_packet_cache.has(chunk_coord):
+		layers[&"packet"] = _readiness_layer(
+			&"waiting" if source_demand else &"retained",
+			&"packet_warm_cache_restore_pending" if source_demand else &"packet_warm_cache_retained",
+		)
+	elif source_demand:
+		layers[&"packet"] = _readiness_layer(&"waiting", &"packet_request_not_enqueued")
+	else:
+		layers[&"packet"] = _readiness_layer(&"evicted", &"packet_evicted")
+
+	if not packet_resident:
+		layers[&"terrain"] = _readiness_layer(&"waiting", &"terrain_waiting_for_packet")
+	elif view != null and view.is_terrain_cell_presentation_committed():
+		layers[&"terrain"] = _readiness_layer(&"ready", &"terrain_cells_committed")
+	elif chunk_coord == _active_publish_chunk:
+		layers[&"terrain"] = _readiness_layer(&"waiting", &"terrain_publish_applying")
+	elif _pending_publish_queue.has(chunk_coord):
+		layers[&"terrain"] = _readiness_layer(&"waiting", &"terrain_publish_queued")
+	elif source_demand and not visible_demand:
+		layers[&"terrain"] = _readiness_layer(&"waiting", &"terrain_reserve_not_materialized")
+	elif visible_demand:
+		layers[&"terrain"] = _readiness_layer(&"waiting", &"terrain_publish_not_queued")
+	else:
+		layers[&"terrain"] = _readiness_layer(&"retained", &"terrain_view_cache_retained") \
+				if _hot_chunk_view_cache.has(chunk_coord) \
+				else _readiness_layer(&"evicted", &"terrain_view_evicted")
+
+	var mountain_halo: Dictionary = _mountain_solid_halo_cache.get(chunk_coord, { }) as Dictionary
+	var mountain_result: Dictionary = _mountain_native_masks_by_chunk.get(chunk_coord, { }) as Dictionary
+	if not packet_resident:
+		layers[&"mountain_mask"] = _readiness_layer(&"waiting", &"mountain_mask_waiting_for_packet")
+	elif mountain_halo.is_empty():
+		layers[&"mountain_mask"] = _readiness_layer(&"waiting", &"mountain_halo_not_prepared")
+	elif not bool(mountain_halo.get("has_closed", false)):
+		layers[&"mountain_mask"] = _readiness_layer(&"not_applicable", &"no_mountain_surface")
+	elif _mountain_native_mask_retry_by_chunk.has(chunk_coord):
+		layers[&"mountain_mask"] = _readiness_layer(&"waiting", &"mountain_mask_retry_backoff")
+	elif _mountain_native_mask_inflight_chunks.has(chunk_coord):
+		layers[&"mountain_mask"] = _readiness_layer(&"waiting", &"mountain_mask_worker_inflight")
+	elif mountain_result.is_empty():
+		layers[&"mountain_mask"] = _readiness_layer(&"waiting", &"mountain_mask_request_not_enqueued")
+	elif view == null:
+		layers[&"mountain_mask"] = _readiness_layer(&"waiting", &"mountain_mask_reserve_visual_not_materialized")
+	elif view.is_mountain_native_mask_visual_pending():
+		layers[&"mountain_mask"] = _readiness_layer(&"waiting", &"mountain_mask_visual_upload")
+	else:
+		layers[&"mountain_mask"] = _readiness_layer(&"ready", &"mountain_mask_visual_ready")
+
+	var terrain_halo: Dictionary = _terrain_edge_solid_halo_cache.get(chunk_coord, { }) as Dictionary
+	var terrain_result: Dictionary = _terrain_edge_masks_by_chunk.get(chunk_coord, { }) as Dictionary
+	if not packet_resident:
+		layers[&"terrain_edge_mask"] = _readiness_layer(&"waiting", &"terrain_edge_waiting_for_packet")
+	elif terrain_halo.is_empty():
+		layers[&"terrain_edge_mask"] = _readiness_layer(&"waiting", &"terrain_edge_halo_not_prepared")
+	elif not bool(terrain_halo.get("has_shoreline", false)):
+		layers[&"terrain_edge_mask"] = _readiness_layer(&"not_applicable", &"no_shoreline")
+	elif _terrain_edge_mask_inflight_chunks.has(chunk_coord):
+		layers[&"terrain_edge_mask"] = _readiness_layer(&"waiting", &"terrain_edge_mask_worker_inflight")
+	elif terrain_result.is_empty():
+		layers[&"terrain_edge_mask"] = _readiness_layer(&"waiting", &"terrain_edge_mask_request_not_enqueued")
+	elif view == null:
+		layers[&"terrain_edge_mask"] = _readiness_layer(&"waiting", &"terrain_edge_reserve_visual_not_materialized")
+	else:
+		var edge_debug: Dictionary = view.get_terrain_edge_mask_debug_state()
+		layers[&"terrain_edge_mask"] = _readiness_layer(
+			&"waiting" if bool(edge_debug.get("visual_pending", false)) else &"ready",
+			&"terrain_edge_mask_visual_upload" \
+					if bool(edge_debug.get("visual_pending", false)) \
+					else &"terrain_edge_mask_visual_ready",
+		)
+
+	var hot_object_entry: Dictionary = _hot_object_presentation_layers.get(chunk_coord, { }) as Dictionary
+	if not packet_resident:
+		layers[&"objects"] = _readiness_layer(&"waiting", &"objects_waiting_for_packet")
+	elif _object_presentation_terminal_fallback_by_chunk.has(chunk_coord):
+		layers[&"objects"] = _readiness_layer(&"waiting", &"object_presentation_terminal_fallback")
+	elif _object_presentation_retry_by_chunk.has(chunk_coord):
+		layers[&"objects"] = _readiness_layer(&"waiting", &"object_presentation_retry_backoff")
+	elif view != null and view.is_object_presentation_complete():
+		layers[&"objects"] = _readiness_layer(&"ready", &"object_presentation_committed")
+	elif bool(hot_object_entry.get("ready", false)):
+		layers[&"objects"] = _readiness_layer(&"ready", &"object_hot_presentation_ready")
+	elif _pending_object_packet_visual_upload_set.has(chunk_coord) \
+			or not hot_object_entry.is_empty():
+		layers[&"objects"] = _readiness_layer(&"waiting", &"object_presentation_gpu_upload")
+	elif _object_presentation_results_by_chunk.has(chunk_coord):
+		layers[&"objects"] = _readiness_layer(&"waiting", &"object_presentation_cpu_ready_not_staged")
+	elif _object_presentation_inflight_chunks.has(chunk_coord):
+		layers[&"objects"] = _readiness_layer(&"waiting", &"object_presentation_worker_inflight")
+	else:
+		layers[&"objects"] = _readiness_layer(&"waiting", &"object_presentation_request_not_enqueued")
+
+	if not packet_resident:
+		layers[&"grass"] = _readiness_layer(&"waiting", &"grass_waiting_for_packet")
+	elif view != null and view.is_grass_scatter_presentation_committed():
+		layers[&"grass"] = _readiness_layer(&"ready", &"grass_presentation_committed")
+	elif _pending_grass_scatter_visual_upload_set.has(chunk_coord):
+		layers[&"grass"] = _readiness_layer(&"waiting", &"grass_gpu_upload")
+	elif _grass_scatter_results_by_chunk.has(chunk_coord):
+		layers[&"grass"] = _readiness_layer(&"waiting", &"grass_cpu_ready_not_staged")
+	elif _grass_scatter_retry_by_chunk.has(chunk_coord):
+		layers[&"grass"] = _readiness_layer(&"waiting", &"grass_retry_backoff")
+	elif _grass_scatter_inflight_chunks.has(chunk_coord):
+		layers[&"grass"] = _readiness_layer(&"waiting", &"grass_worker_inflight")
+	elif not source_demand and _warm_grass_scatter_cache.has(chunk_coord):
+		layers[&"grass"] = _readiness_layer(&"retained", &"grass_warm_cache_retained")
+	else:
+		layers[&"grass"] = _readiness_layer(&"waiting", &"grass_request_not_enqueued")
+
+	if view == null:
+		layers[&"roof_cavity"] = _readiness_layer(
+			&"waiting" if source_demand else &"evicted",
+			&"roof_cavity_reserve_not_materialized" if source_demand else &"roof_cavity_evicted",
+		)
+	elif view.is_mountain_native_mask_visual_pending():
+		layers[&"roof_cavity"] = _readiness_layer(&"waiting", &"roof_cavity_visual_upload")
+	else:
+		layers[&"roof_cavity"] = _readiness_layer(&"ready", &"roof_cavity_visual_ready")
+
+	if not visible_demand:
+		layers[&"visibility"] = _readiness_layer(&"not_applicable", &"outside_visible_demand")
+	elif view != null and view.visible:
+		layers[&"visibility"] = _readiness_layer(&"ready", &"chunk_visible")
+	elif _pending_chunk_visibility_after_mountain_visual.has(chunk_coord):
+		var visibility_reason: StringName = &"visibility_reveal_guard"
+		if view != null and view.is_mountain_native_mask_visual_pending():
+			visibility_reason = &"visibility_waiting_for_mountain_visual"
+		elif view != null and not view.is_object_blocking_presentation_ready():
+			visibility_reason = &"visibility_waiting_for_object_presentation"
+		elif int(Engine.get_process_frames()) < int(
+			_object_presentation_reveal_not_before_frame_by_chunk.get(chunk_coord, 0),
+		):
+			visibility_reason = &"visibility_waiting_for_next_frame_finalize"
+		layers[&"visibility"] = _readiness_layer(&"waiting", visibility_reason)
+	elif chunk_coord == _active_publish_chunk:
+		layers[&"visibility"] = _readiness_layer(&"waiting", &"visibility_waiting_for_terrain_publish")
+	elif _pending_publish_queue.has(chunk_coord):
+		layers[&"visibility"] = _readiness_layer(&"waiting", &"visibility_waiting_in_publish_queue")
+	else:
+		layers[&"visibility"] = _readiness_layer(&"waiting", &"visibility_view_not_created")
+
+	var terrain_ready: bool = _readiness_state_is_ready(layers.get(&"terrain", { }) as Dictionary)
+	var mountain_ready: bool = _readiness_state_is_ready(layers.get(&"mountain_mask", { }) as Dictionary)
+	var objects_ready: bool = _readiness_state_is_ready(layers.get(&"objects", { }) as Dictionary)
+	var gameplay_ready: bool = terrain_ready and mountain_ready and objects_ready
+	layers[&"gameplay"] = _readiness_layer(
+		&"ready" if gameplay_ready else &"waiting",
+		&"gameplay_layers_ready" if gameplay_ready else &"gameplay_dependency_pending",
+	)
+
+	var presentation_ready: bool = gameplay_ready
+	for layer_name: StringName in [
+		&"terrain_edge_mask", &"grass", &"roof_cavity",
+	]:
+		presentation_ready = presentation_ready \
+				and _readiness_state_is_ready(layers.get(layer_name, { }) as Dictionary)
+	var lifecycle_stage: StringName = &"requested"
+	if not source_demand:
+		lifecycle_stage = &"retained" if _readiness_has_retained_data(chunk_coord) else &"evicted"
+	elif packet_resident:
+		lifecycle_stage = &"generated"
+		if gameplay_ready:
+			lifecycle_stage = &"gameplay_ready"
+		if presentation_ready:
+			lifecycle_stage = &"reserve_ready" if not visible_demand else &"presentation_ready"
+		if visible_demand and view != null and view.visible:
+			lifecycle_stage = &"visible"
+	var timing: Dictionary = _readiness_tracker.observe(
+		chunk_coord,
+		lifecycle_stage,
+		layers,
+		now_msec,
+	)
+	var timed_layers: Dictionary = timing.get("layers", { }) as Dictionary
+	var blocking_layer: String = ""
+	var blocking_reason: String = ""
+	var blocking_elapsed_ms: int = 0
+	for layer_name: StringName in [
+		&"packet", &"terrain", &"mountain_mask", &"objects",
+		&"terrain_edge_mask", &"grass", &"roof_cavity", &"visibility",
+	]:
+		var layer: Dictionary = timed_layers.get(String(layer_name), { }) as Dictionary
+		if String(layer.get("state", "")) != "waiting":
+			continue
+		blocking_layer = String(layer_name)
+		blocking_reason = String(layer.get("reason", ""))
+		blocking_elapsed_ms = int(layer.get("elapsed_ms", 0))
+		break
+	var ready: bool = blocking_reason.is_empty() \
+			and lifecycle_stage in [&"reserve_ready", &"visible", &"retained"]
+	return {
+		"chunk_coord": chunk_coord,
+		"demand": String(demand),
+		"lifecycle_stage": String(lifecycle_stage),
+		"stage_elapsed_ms": int(timing.get("stage_elapsed_ms", 0)),
+		"ready": ready,
+		"blocking_layer": blocking_layer,
+		"blocking_reason": blocking_reason,
+		"blocking_elapsed_ms": blocking_elapsed_ms,
+		"layers": timed_layers,
+	}
+
+
+func _build_retained_streaming_readiness_entry(
+		chunk_coord: Vector2i,
+		now_msec: int,
+) -> Dictionary:
+	var layers: Dictionary = {
+		&"packet": _readiness_layer(
+			&"retained" if _warm_base_chunk_packet_cache.has(chunk_coord) else &"evicted",
+			&"packet_warm_cache_retained" \
+					if _warm_base_chunk_packet_cache.has(chunk_coord) else &"packet_evicted",
+		),
+		&"terrain": _readiness_layer(
+			&"retained" if _hot_chunk_view_cache.has(chunk_coord) else &"evicted",
+			&"terrain_view_cache_retained" \
+					if _hot_chunk_view_cache.has(chunk_coord) else &"terrain_view_evicted",
+		),
+		&"mountain_mask": _readiness_layer(&"evicted", &"mountain_mask_evicted"),
+		&"terrain_edge_mask": _readiness_layer(&"evicted", &"terrain_edge_mask_evicted"),
+		&"objects": _readiness_layer(
+			&"retained" if _hot_object_presentation_layers.has(chunk_coord) \
+					or _warm_object_presentation_cache.has(chunk_coord) else &"evicted",
+			&"object_presentation_retained" \
+					if _hot_object_presentation_layers.has(chunk_coord) \
+							or _warm_object_presentation_cache.has(chunk_coord) \
+					else &"object_presentation_evicted",
+		),
+		&"grass": _readiness_layer(
+			&"retained" if _warm_grass_scatter_cache.has(chunk_coord) \
+					or _hot_chunk_view_cache.has(chunk_coord) else &"evicted",
+			&"grass_presentation_retained" \
+					if _warm_grass_scatter_cache.has(chunk_coord) \
+							or _hot_chunk_view_cache.has(chunk_coord) \
+					else &"grass_presentation_evicted",
+		),
+		&"roof_cavity": _readiness_layer(&"evicted", &"roof_cavity_evicted"),
+		&"visibility": _readiness_layer(&"not_applicable", &"outside_visible_demand"),
+		&"gameplay": _readiness_layer(&"retained", &"outside_source_demand"),
+	}
+	var timing: Dictionary = _readiness_tracker.observe(
+		chunk_coord,
+		&"retained",
+		layers,
+		now_msec,
+	)
+	return {
+		"chunk_coord": chunk_coord,
+		"demand": "none",
+		"lifecycle_stage": "retained",
+		"stage_elapsed_ms": int(timing.get("stage_elapsed_ms", 0)),
+		"ready": true,
+		"blocking_layer": "",
+		"blocking_reason": "",
+		"blocking_elapsed_ms": 0,
+		"layers": timing.get("layers", { }),
+	}
+
+
+func _readiness_state_is_ready(layer: Dictionary) -> bool:
+	var state: String = String(layer.get("state", "waiting"))
+	return state == "ready" or state == "not_applicable" or state == "retained"
+
+
+func _readiness_has_retained_data(chunk_coord: Vector2i) -> bool:
+	return _warm_base_chunk_packet_cache.has(chunk_coord) \
+			or _hot_chunk_view_cache.has(chunk_coord) \
+			or _hot_object_presentation_layers.has(chunk_coord) \
+			or _warm_object_presentation_cache.has(chunk_coord) \
+			or _warm_grass_scatter_cache.has(chunk_coord)
 
 
 func get_mountain_mask_runtime_debug_state() -> Dictionary:
@@ -2123,6 +2502,12 @@ func _streaming_tick() -> bool:
 	timing_step_usec = _record_streaming_step_timing(timing_records, "publish", timing_step_usec)
 	_evict_outside_ring(1)
 	timing_step_usec = _record_streaming_step_timing(timing_records, "evict", timing_step_usec)
+	_advance_initial_loading_readiness(INITIAL_LOADING_READINESS_CHECKS_PER_TICK)
+	timing_step_usec = _record_streaming_step_timing(
+		timing_records,
+		"initial_loading",
+		timing_step_usec,
+	)
 	_end_mountain_native_mask_tick_metrics()
 	_report_streaming_step_timing(timing_records, timing_started_usec)
 	return false
@@ -2130,6 +2515,12 @@ func _streaming_tick() -> bool:
 
 func _queue_mountain_native_mask_visual_upload(chunk_coord: Vector2i) -> void:
 	chunk_coord = _canonicalize_chunk_coord(chunk_coord)
+	_readiness_tracker.mark_layer(
+		chunk_coord,
+		&"mountain_mask",
+		&"waiting",
+		&"mountain_mask_visual_upload",
+	)
 	if _pending_mountain_native_mask_visual_upload_set.has(chunk_coord):
 		return
 	_pending_mountain_native_mask_visual_upload_set[chunk_coord] = true
@@ -2151,6 +2542,12 @@ func _drop_mountain_native_mask_visual_upload(chunk_coord: Vector2i) -> void:
 
 func _queue_terrain_edge_mask_visual_upload(chunk_coord: Vector2i) -> void:
 	chunk_coord = _canonicalize_chunk_coord(chunk_coord)
+	_readiness_tracker.mark_layer(
+		chunk_coord,
+		&"terrain_edge_mask",
+		&"waiting",
+		&"terrain_edge_mask_visual_upload",
+	)
 	if _pending_terrain_edge_mask_visual_upload_set.has(chunk_coord):
 		return
 	_pending_terrain_edge_mask_visual_upload_set[chunk_coord] = true
@@ -2172,6 +2569,12 @@ func _drop_terrain_edge_mask_visual_upload(chunk_coord: Vector2i) -> void:
 
 func _queue_object_packet_visual_upload(chunk_coord: Vector2i) -> void:
 	chunk_coord = _canonicalize_chunk_coord(chunk_coord)
+	_readiness_tracker.mark_layer(
+		chunk_coord,
+		&"objects",
+		&"waiting",
+		&"object_presentation_gpu_upload",
+	)
 	if _pending_object_packet_visual_upload_set.has(chunk_coord):
 		_mark_object_packet_visual_urgent_preemption(chunk_coord)
 		return
@@ -2563,6 +2966,12 @@ func _hidden_object_prestage_is_backpressured() -> bool:
 
 func _queue_grass_scatter_visual_upload(chunk_coord: Vector2i) -> void:
 	chunk_coord = _canonicalize_chunk_coord(chunk_coord)
+	_readiness_tracker.mark_layer(
+		chunk_coord,
+		&"grass",
+		&"waiting",
+		&"grass_gpu_upload",
+	)
 	if _pending_grass_scatter_visual_upload_set.has(chunk_coord):
 		return
 	_pending_grass_scatter_visual_upload_set[chunk_coord] = true
@@ -2610,6 +3019,12 @@ func _request_object_presentation_build(
 				spiky_flora_enabled = false
 				break
 	_object_presentation_inflight_chunks[chunk_coord] = revision
+	_readiness_tracker.mark_layer(
+		chunk_coord,
+		&"objects",
+		&"waiting",
+		&"object_presentation_worker_inflight",
+	)
 	_streaming_worker_demand_dirty = true
 	_object_presentation_backend.queue_object_presentation_request(
 		chunk_coord,
@@ -2687,6 +3102,12 @@ func _drain_completed_object_presentation_buffers(max_count: int) -> void:
 		_object_presentation_terminal_fallback_by_chunk.erase(chunk_coord)
 		if _base_chunk_packets.has(chunk_coord):
 			_object_presentation_results_by_chunk[chunk_coord] = result
+			_readiness_tracker.mark_layer(
+				chunk_coord,
+				&"objects",
+				&"waiting",
+				&"object_presentation_cpu_ready_not_staged",
+			)
 			if _chunk_views.has(chunk_coord) or _is_chunk_source_desired(chunk_coord):
 				# Drain owns immutable CPU truth only. The coordinate is a lightweight
 				# priority token; acquire/begin/recycled-owner cleanup happens in the
@@ -2772,6 +3193,12 @@ func _try_apply_terminal_object_presentation_fallback(chunk_coord: Vector2i) -> 
 	_object_presentation_retry_by_chunk.erase(chunk_coord)
 	_object_presentation_results_by_chunk.erase(chunk_coord)
 	_drop_object_packet_visual_upload(chunk_coord)
+	_readiness_tracker.mark_layer(
+		chunk_coord,
+		&"objects",
+		&"ready",
+		&"object_presentation_committed",
+	)
 	_finalize_pending_chunk_visibility(chunk_coord)
 	return true
 
@@ -2923,6 +3350,12 @@ func _request_grass_scatter_build(chunk_coord: Vector2i) -> void:
 		return
 	_ensure_grass_scatter_sources()
 	_grass_scatter_inflight_chunks[chunk_coord] = revision
+	_readiness_tracker.mark_layer(
+		chunk_coord,
+		&"grass",
+		&"waiting",
+		&"grass_worker_inflight",
+	)
 	_streaming_worker_demand_dirty = true
 	var mountain_halo: Dictionary = _get_cached_mountain_solid_halo(chunk_coord)
 	_grass_scatter_backend.queue_grass_scatter_request(
@@ -3042,12 +3475,18 @@ func _drain_completed_grass_scatter_buffers(max_count: int) -> void:
 		# completion racing source eviction is retained or discarded.
 		if _is_chunk_source_desired(chunk_coord):
 			_grass_scatter_results_by_chunk[chunk_coord] = result
+			_readiness_tracker.mark_layer(
+				chunk_coord,
+				&"grass",
+				&"waiting",
+				&"grass_cpu_ready_not_staged",
+			)
 		elif _warm_base_chunk_packet_cache.has(chunk_coord):
 			_store_warm_grass_scatter(chunk_coord, result)
 		else:
 			continue
 		var chunk_view: ChunkView = _chunk_views.get(chunk_coord, null) as ChunkView
-		if chunk_view == null or not _is_chunk_desired(chunk_coord):
+		if chunk_view == null or not _should_materialize_chunk(chunk_coord):
 			continue
 		_stage_cached_grass_scatter(chunk_coord, chunk_view)
 
@@ -3204,7 +3643,7 @@ func _grass_scatter_visual_apply_tick() -> bool:
 	if chunk_coord == INVALID_CHUNK_COORD:
 		return false
 	var chunk_view: ChunkView = _chunk_views.get(chunk_coord, null) as ChunkView
-	if chunk_view == null or not _is_chunk_desired(chunk_coord):
+	if chunk_view == null or not _should_materialize_chunk(chunk_coord):
 		_drop_grass_scatter_visual_upload(chunk_coord)
 		return not _pending_grass_scatter_visual_upload_chunks.is_empty()
 	_ensure_grass_scatter_sources()
@@ -3225,6 +3664,13 @@ func _grass_scatter_visual_apply_tick() -> bool:
 			if _ladder_anchor_stripe != LADDER_ANCHOR_UNSET:
 				chunk_view.update_mid_ladder_z(_ladder_anchor_stripe)
 		_drop_grass_scatter_visual_upload(chunk_coord)
+		if chunk_view.is_grass_scatter_presentation_committed():
+			_readiness_tracker.mark_layer(
+				chunk_coord,
+				&"grass",
+				&"ready",
+				&"grass_presentation_committed",
+			)
 	return not _pending_grass_scatter_visual_upload_chunks.is_empty()
 
 
@@ -3266,6 +3712,18 @@ func _mountain_native_mask_visual_apply_tick() -> bool:
 			elapsed_ms,
 		)
 		_mountain_native_mask_visual_upload_last_chunk = chunk_coord
+		_readiness_tracker.mark_layer(
+			chunk_coord,
+			&"mountain_mask",
+			&"ready",
+			&"mountain_mask_visual_ready",
+		)
+		_readiness_tracker.mark_layer(
+			chunk_coord,
+			&"roof_cavity",
+			&"ready",
+			&"roof_cavity_visual_ready",
+		)
 		_finalize_pending_chunk_visibility(chunk_coord)
 		if Time.get_ticks_usec() - tick_started_usec >= budget_usec:
 			_try_commit_mountain_roof_reveal_selector_generation()
@@ -3292,8 +3750,17 @@ func _mountain_native_mask_visual_apply_tick() -> bool:
 			_mountain_foothill_texture,
 			_mountain_foothill_normal_texture,
 		):
+			_readiness_tracker.mark_layer(
+				chunk_coord,
+				&"terrain_edge_mask",
+				&"ready",
+				&"terrain_edge_mask_visual_ready",
+			)
+			_finalize_pending_chunk_visibility(chunk_coord)
 			if Time.get_ticks_usec() - tick_started_usec >= budget_usec:
 				return false
+		else:
+			_finalize_pending_chunk_visibility(chunk_coord)
 	return false
 
 
@@ -3821,6 +4288,12 @@ func _object_presentation_visual_apply_tick() -> bool:
 			apply_failure,
 		)
 	elif chunk_view.is_object_presentation_complete():
+		_readiness_tracker.mark_layer(
+			chunk_coord,
+			&"objects",
+			&"ready",
+			&"object_presentation_committed",
+		)
 		_defer_object_presentation_reveal(chunk_coord)
 	WorldPerfProbe.end("WorldStreamer.visual_upload.object_packet_slice", object_started)
 	return false
@@ -3850,8 +4323,98 @@ func _update_player_chunk_coord() -> void:
 		_current_stream_radius_chunks = next_radius
 		_object_packet_visual_priority_dirty = true
 		_rebuild_desired_chunk_cache()
+	_sync_initial_loading_target()
 	_update_grass_scatter_lod()
 	_update_mid_ladder_anchor()
+
+
+func _sync_initial_loading_target() -> void:
+	if not _initial_loading_gate.is_active() \
+			or _player_chunk_coord == INVALID_CHUNK_COORD:
+		return
+	if _initial_loading_gate.establish_target(
+		_player_chunk_coord,
+		_desired_visible_chunk_coords,
+		_desired_source_chunk_coords,
+		_current_stream_radius_chunks,
+		_resolve_source_cache_radius_chunks(),
+	):
+		_initial_loading_readiness_cursor = 0
+		_streaming_worker_demand_dirty = true
+
+
+func _advance_initial_loading_readiness(max_checks: int) -> void:
+	if max_checks <= 0 \
+			or not _initial_loading_gate.is_active() \
+			or not _initial_loading_gate.has_target() \
+			or _initial_loading_gate.is_ready():
+		return
+	var target_coords: Array[Vector2i] = _initial_loading_gate.get_target_coords()
+	if target_coords.is_empty():
+		return
+	var was_ready: bool = _initial_loading_gate.is_ready()
+	var checks: int = mini(max_checks, target_coords.size())
+	for _check_index: int in range(checks):
+		if _initial_loading_readiness_cursor >= target_coords.size():
+			_initial_loading_readiness_cursor = 0
+		var chunk_coord: Vector2i = target_coords[_initial_loading_readiness_cursor]
+		_initial_loading_readiness_cursor += 1
+		_initial_loading_gate.observe_chunk_stage(
+			chunk_coord,
+			_get_initial_loading_chunk_stage(chunk_coord),
+		)
+	if not was_ready and _initial_loading_gate.is_ready():
+		_initial_loading_gate.capture_ready_memory(
+			int(Performance.get_monitor(Performance.MEMORY_STATIC)),
+			int(Performance.get_monitor(Performance.MEMORY_STATIC_MAX)),
+			int(Performance.get_monitor(Performance.RENDER_VIDEO_MEM_USED)),
+		)
+
+
+func _get_initial_loading_chunk_stage(chunk_coord: Vector2i) -> int:
+	if not _chunk_packets.has(chunk_coord):
+		return WorldInitialLoadingGate.STAGE_REQUESTED
+	var stage: int = WorldInitialLoadingGate.STAGE_GENERATED
+	var chunk_view: ChunkView = _chunk_views.get(chunk_coord, null) as ChunkView
+	if chunk_view == null or not chunk_view.is_terrain_cell_presentation_committed():
+		return stage
+	var mountain_halo: Dictionary = _mountain_solid_halo_cache.get(
+		chunk_coord,
+		{ },
+	) as Dictionary
+	if mountain_halo.is_empty():
+		return stage
+	if bool(mountain_halo.get("has_closed", false)) \
+			and _get_ready_mountain_native_mask_result(chunk_coord).is_empty():
+		return stage
+	if not chunk_view.is_object_blocking_presentation_ready():
+		return stage
+	stage = WorldInitialLoadingGate.STAGE_GAMEPLAY_READY
+	if chunk_view.is_mountain_native_mask_visual_pending() \
+			or not chunk_view.is_object_presentation_complete():
+		return stage
+	if TERRAIN_EDGE_MASK_RUNTIME_ENABLED:
+		var terrain_edge_halo: Dictionary = _terrain_edge_solid_halo_cache.get(
+			chunk_coord,
+			{ },
+		) as Dictionary
+		if terrain_edge_halo.is_empty():
+			return stage
+		if bool(terrain_edge_halo.get("has_shoreline", false)) \
+				and (
+					_get_ready_terrain_edge_mask_result(chunk_coord).is_empty()
+					or chunk_view.is_terrain_edge_mask_visual_pending()
+				):
+			return stage
+	if not chunk_view.is_grass_scatter_presentation_committed():
+		return stage
+	stage = WorldInitialLoadingGate.STAGE_PRESENTATION_READY
+	if _initial_loading_gate.is_visible_target(chunk_coord):
+		if not chunk_view.visible:
+			return stage
+	elif chunk_view.visible:
+		return stage
+	return WorldInitialLoadingGate.STAGE_RESERVE_READY
 
 
 ## Zoom-LOD травы: буфер чанка отсортирован native-кодом по важности (крупные
@@ -3931,26 +4494,75 @@ func _enqueue_desired_chunks() -> void:
 		return
 	_sync_streaming_worker_demand()
 	_prune_resident_source_packets()
-	for desired_coord: Vector2i in _desired_source_chunk_coords:
-		if not _chunk_packets.has(desired_coord):
-			_restore_warm_chunk_packet(desired_coord)
-		if _chunk_packets.has(desired_coord):
-			if _is_chunk_desired(desired_coord) \
-					and not _pending_publish_queue.has(desired_coord) \
-					and not _chunk_views.has(desired_coord):
-				_pending_publish_queue.append(desired_coord)
+	for packet_coord: Vector2i in _terrain_packet_support_chunk_coords:
+		if not _chunk_packets.has(packet_coord):
+			_restore_warm_chunk_packet(
+				packet_coord,
+				_is_chunk_source_desired(packet_coord),
+			)
+		if _chunk_packets.has(packet_coord) or _requested_chunks.has(packet_coord):
 			continue
-		if _requested_chunks.has(desired_coord):
-			continue
-		_requested_chunks[desired_coord] = true
+		_requested_chunks[packet_coord] = true
+		if _is_chunk_source_desired(packet_coord):
+			_readiness_tracker.mark_stage(packet_coord, &"requested")
+			_readiness_tracker.mark_layer(
+				packet_coord,
+				&"packet",
+				&"waiting",
+				&"packet_generation_inflight",
+			)
 		_packet_backend.queue_packet_request(
-			desired_coord,
+			packet_coord,
 			world_seed,
 			world_version,
 			_worldgen_settings_packed,
 			_generation_epoch,
-			_chunk_request_priority(desired_coord),
+			_chunk_request_priority(packet_coord),
 		)
+	for desired_coord: Vector2i in _desired_source_chunk_coords:
+		if _chunk_packets.has(desired_coord):
+			if not _chunk_views.has(desired_coord) \
+					and not _pending_publish_queue.has(desired_coord) \
+					and desired_coord != _active_publish_chunk:
+				_request_object_presentation_build(
+					desired_coord,
+					_chunk_packets.get(desired_coord, { }) as Dictionary,
+					false,
+				)
+			if _should_materialize_chunk(desired_coord) \
+					and not _pending_publish_queue.has(desired_coord) \
+					and not _chunk_views.has(desired_coord):
+				_pending_publish_queue.append(desired_coord)
+				_readiness_tracker.mark_layer(
+					desired_coord,
+					&"terrain",
+					&"waiting",
+					&"terrain_publish_queued",
+				)
+			_sync_materialized_chunk_demand(desired_coord)
+			continue
+
+
+func _sync_materialized_chunk_demand(chunk_coord: Vector2i) -> void:
+	var chunk_view: ChunkView = _chunk_views.get(chunk_coord, null) as ChunkView
+	if chunk_view == null or not chunk_view.is_terrain_cell_presentation_committed():
+		return
+	if _is_chunk_desired(chunk_coord):
+		if chunk_view.visible:
+			return
+		_pending_chunk_visibility_after_mountain_visual[chunk_coord] = true
+		_finalize_pending_chunk_visibility(chunk_coord)
+		return
+	_pending_chunk_visibility_after_mountain_visual.erase(chunk_coord)
+	chunk_view.set_object_collision_active(false)
+	chunk_view.visible = false
+	_readiness_tracker.mark_stage(chunk_coord, &"presentation_ready")
+	_readiness_tracker.mark_layer(
+		chunk_coord,
+		&"visibility",
+		&"not_applicable",
+		&"outside_visible_demand",
+	)
 
 
 func _chunk_request_priority(chunk_coord: Vector2i) -> int:
@@ -3964,8 +4576,8 @@ func _sync_streaming_worker_demand() -> void:
 		return
 	_streaming_worker_demand_dirty = false
 	var packet_priorities: Dictionary = { }
-	for desired_coord: Vector2i in _desired_source_chunk_coords:
-		packet_priorities[desired_coord] = _chunk_request_priority(desired_coord)
+	for packet_coord: Vector2i in _terrain_packet_support_chunk_coords:
+		packet_priorities[packet_coord] = _chunk_request_priority(packet_coord)
 	for removed_coord: Vector2i in _packet_backend.sync_packet_requests(
 		_generation_epoch,
 		packet_priorities,
@@ -4005,7 +4617,10 @@ func _sync_streaming_worker_demand() -> void:
 		_object_presentation_inflight_chunks.erase(removed_coord)
 
 
-func _restore_warm_chunk_packet(chunk_coord: Vector2i) -> bool:
+func _restore_warm_chunk_packet(
+		chunk_coord: Vector2i,
+		prepare_presentation: bool = true,
+) -> bool:
 	if not _warm_base_chunk_packet_cache.has(chunk_coord):
 		return false
 	var base_packet: Dictionary = _warm_base_chunk_packet_cache.get(chunk_coord, { }) as Dictionary
@@ -4018,12 +4633,15 @@ func _restore_warm_chunk_packet(chunk_coord: Vector2i) -> bool:
 	_restore_warm_grass_scatter(chunk_coord)
 	_base_chunk_packets[chunk_coord] = base_packet
 	_chunk_packets[chunk_coord] = _diff_store.apply_to_packet(base_packet)
+	_readiness_tracker.mark_stage(chunk_coord, &"generated")
+	_readiness_tracker.mark_layer(chunk_coord, &"packet", &"ready", &"packet_resident")
 	_refresh_loaded_visuals_around_chunk_overrides(chunk_coord)
-	_request_object_presentation_build(
-		chunk_coord,
-		_chunk_packets.get(chunk_coord, { }) as Dictionary,
-		false,
-	)
+	if prepare_presentation:
+		_request_object_presentation_build(
+			chunk_coord,
+			_chunk_packets.get(chunk_coord, { }) as Dictionary,
+			false,
+		)
 	if not _chunk_views.has(chunk_coord) \
 			and _is_chunk_source_desired(chunk_coord) \
 			and _object_presentation_results_by_chunk.has(chunk_coord):
@@ -4172,6 +4790,10 @@ func _evict_warm_chunk(chunk_coord: Vector2i) -> void:
 	_object_presentation_inflight_chunks.erase(chunk_coord)
 	_object_presentation_retry_by_chunk.erase(chunk_coord)
 	_object_presentation_terminal_fallback_by_chunk.erase(chunk_coord)
+	if not _is_chunk_source_desired(chunk_coord) \
+			and not _chunk_packets.has(chunk_coord) \
+			and not _readiness_has_retained_data(chunk_coord):
+		_readiness_tracker.mark_terminal(chunk_coord, &"evicted")
 
 
 func _trim_warm_object_presentation_cache_to_budget() -> void:
@@ -4623,6 +5245,12 @@ func _mark_hot_object_presentation_ready(chunk_coord: Vector2i) -> bool:
 	entry["canvas_item_count"] = maxi(0, int(weight.get("canvas_item_count", 0)))
 	entry["collider_count"] = maxi(0, int(weight.get("collider_count", 0)))
 	_add_hot_object_entry(chunk_coord, entry)
+	_readiness_tracker.mark_layer(
+		chunk_coord,
+		&"objects",
+		&"ready",
+		&"object_hot_presentation_ready",
+	)
 	_trim_hot_object_presentation_cache_to_budget()
 	return _hot_object_presentation_layers.has(chunk_coord)
 
@@ -4864,7 +5492,8 @@ func _prune_resident_source_packets() -> void:
 	for chunk_coord_variant: Variant in _base_chunk_packets.keys():
 		resident_coords.append(chunk_coord_variant as Vector2i)
 	for chunk_coord: Vector2i in resident_coords:
-		if _is_chunk_source_desired(chunk_coord) or _chunk_views.has(chunk_coord) \
+		if _is_chunk_packet_residency_desired(chunk_coord) \
+				or _chunk_views.has(chunk_coord) \
 				or chunk_coord == _active_publish_chunk:
 			continue
 		_store_warm_chunk_packet(
@@ -4912,20 +5541,31 @@ func _drain_completed_packets(max_count: int) -> void:
 				],
 			)
 			continue
-		if not _is_chunk_source_desired(chunk_coord):
+		if not _is_chunk_packet_residency_desired(chunk_coord):
 			_store_warm_chunk_packet(chunk_coord, packet)
 			continue
 		_evict_warm_chunk(chunk_coord)
 		_base_chunk_packets[chunk_coord] = packet
 		var merged_packet: Dictionary = _diff_store.apply_to_packet(packet)
 		_chunk_packets[chunk_coord] = merged_packet
+		_readiness_tracker.mark_stage(chunk_coord, &"generated")
+		_readiness_tracker.mark_layer(chunk_coord, &"packet", &"ready", &"packet_resident")
 		_invalidate_grass_scatter(chunk_coord)
 		_refresh_loaded_visuals_around_chunk_overrides(chunk_coord)
 		_forget_mountain_mask(chunk_coord, true, true)
 		_forget_terrain_edge_mask(chunk_coord, true, true)
-		_request_object_presentation_build(chunk_coord, merged_packet, true)
-		if _is_chunk_desired(chunk_coord) and not _pending_publish_queue.has(chunk_coord) and chunk_coord != _active_publish_chunk:
+		if _is_chunk_source_desired(chunk_coord):
+			_request_object_presentation_build(chunk_coord, merged_packet, true)
+		if _should_materialize_chunk(chunk_coord) \
+				and not _pending_publish_queue.has(chunk_coord) \
+				and chunk_coord != _active_publish_chunk:
 			_pending_publish_queue.append(chunk_coord)
+			_readiness_tracker.mark_layer(
+				chunk_coord,
+				&"terrain",
+				&"waiting",
+				&"terrain_publish_queued",
+			)
 
 
 func _publish_next_batch(
@@ -4934,7 +5574,7 @@ func _publish_next_batch(
 ) -> void:
 	_prune_stale_pending_publish_chunks()
 	if _active_publish_chunk != INVALID_CHUNK_COORD \
-			and not _is_chunk_desired(_active_publish_chunk):
+			and not _should_materialize_chunk(_active_publish_chunk):
 		_hot_chunk_view_reuse_metadata_by_chunk.erase(_active_publish_chunk)
 		_active_publish_chunk = INVALID_CHUNK_COORD
 	if _active_publish_chunk == INVALID_CHUNK_COORD:
@@ -4976,6 +5616,12 @@ func _publish_next_batch(
 		_prepare_terrain_edge_mask_for_publish(next_publish_chunk, packet)
 		WorldPerfProbe.end("WorldStreamer.publish.begin.terrain_edge_prepare", step_started)
 		_active_publish_chunk = next_publish_chunk
+		_readiness_tracker.mark_layer(
+			_active_publish_chunk,
+			&"terrain",
+			&"waiting",
+			&"terrain_publish_applying",
+		)
 		step_started = WorldPerfProbe.begin()
 		_track_roof_layer_metric(_active_publish_chunk, packet)
 		WorldPerfProbe.end("WorldStreamer.publish.begin.track_roof", step_started)
@@ -5027,21 +5673,43 @@ func _publish_next_batch(
 	if not has_more:
 		var publish_finalize_started: int = WorldPerfProbe.begin()
 		var finalized_chunk: Vector2i = _active_publish_chunk
+		_readiness_tracker.mark_stage(finalized_chunk, &"gameplay_ready")
+		_readiness_tracker.mark_layer(
+			finalized_chunk,
+			&"terrain",
+			&"ready",
+			&"terrain_cells_committed",
+		)
 		_handle_cover_chunk_published(finalized_chunk)
 		_refresh_debug_visuals_for_chunk(finalized_chunk)
-		# A chunk whose native mountain visual (mask/roof/selector textures) is
-		# still budget-queued stays hidden: showing it now would flash a closed
-		# or stale-cavity roof for one or more frames on reload.
-		if active_view.is_mountain_native_mask_visual_pending() \
-				or not active_view.is_object_blocking_presentation_ready() \
-				or _is_object_presentation_reveal_deferred(finalized_chunk):
-			_pending_chunk_visibility_after_mountain_visual[finalized_chunk] = true
+		# A chunk whose native terrain/mountain visual is still budget-queued
+		# stays hidden: showing it now would flash a square shoreline or a closed
+		# or stale-cavity roof for one or more frames on reload. Once the honest
+		# startup gate is over, object presentation is allowed to finish behind
+		# the already complete terrain; S6 owns making those objects pop-free.
+		if not _is_chunk_desired(finalized_chunk):
+			# S3 materializes the outer movement reserve through the same complete
+			# pipeline, but that ring is not current viewport demand. Keep its
+			# presentation and built colliders resident behind an explicit reveal
+			# gate; activation remains a later visible-demand transition.
+			active_view.set_object_collision_active(false)
+			active_view.visible = false
+			_readiness_tracker.mark_stage(finalized_chunk, &"presentation_ready")
+			_readiness_tracker.mark_layer(
+				finalized_chunk,
+				&"visibility",
+				&"not_applicable",
+				&"outside_visible_demand",
+			)
 		else:
-			if active_view.has_pending_grass_scatter_visual():
-				_chunk_reveal_with_pending_grass_count_total += 1
-			active_view.set_object_collision_active(true)
-			active_view.visible = true
-			EventBus.chunk_loaded.emit(finalized_chunk)
+			_pending_chunk_visibility_after_mountain_visual[finalized_chunk] = true
+			_readiness_tracker.mark_layer(
+				finalized_chunk,
+				&"visibility",
+				&"waiting",
+				&"visibility_reveal_guard",
+			)
+			_finalize_pending_chunk_visibility(finalized_chunk)
 		WorldPerfProbe.end("WorldStreamer.publish.finalize", publish_finalize_started)
 		_active_publish_chunk = INVALID_CHUNK_COORD
 
@@ -5058,17 +5726,41 @@ func _finalize_pending_chunk_visibility(chunk_coord: Vector2i) -> void:
 		_pending_chunk_visibility_after_mountain_visual.erase(chunk_coord)
 		_object_presentation_reveal_not_before_frame_by_chunk.erase(chunk_coord)
 		return
-	if chunk_view.is_mountain_native_mask_visual_pending() \
-			or not chunk_view.is_object_blocking_presentation_ready() \
-			or _is_object_presentation_reveal_deferred(chunk_coord):
+	if not _is_chunk_desired(chunk_coord):
+		_pending_chunk_visibility_after_mountain_visual.erase(chunk_coord)
+		chunk_view.set_object_collision_active(false)
+		chunk_view.visible = false
+		return
+	var terrain_visual_pending: bool = chunk_view.is_mountain_native_mask_visual_pending() \
+			or chunk_view.is_terrain_edge_mask_visual_pending()
+	var object_presentation_pending: bool = \
+			not chunk_view.is_object_blocking_presentation_ready() \
+					or _is_object_presentation_reveal_deferred(chunk_coord)
+	if terrain_visual_pending \
+			or (_initial_loading_gate.is_active() and object_presentation_pending):
+		return
+	if not chunk_view.visible:
+		if chunk_view.has_pending_grass_scatter_visual():
+			_chunk_reveal_with_pending_grass_count_total += 1
+		chunk_view.visible = true
+		_readiness_tracker.mark_stage(chunk_coord, &"visible")
+		_readiness_tracker.mark_layer(
+			chunk_coord,
+			&"visibility",
+			&"ready",
+			&"terrain_visible",
+		)
+		EventBus.chunk_loaded.emit(chunk_coord)
+	if object_presentation_pending:
+		# The terrain/water/mountain owner is complete and may meet its S4
+		# deadline independently. Keep the externally-parented object layer and
+		# its blockers inactive until the existing object pipeline reaches its
+		# own reveal guard; no object generation or batching policy changes here.
+		chunk_view.set_object_collision_active(false)
 		return
 	_pending_chunk_visibility_after_mountain_visual.erase(chunk_coord)
 	_object_presentation_reveal_not_before_frame_by_chunk.erase(chunk_coord)
-	if chunk_view.has_pending_grass_scatter_visual():
-		_chunk_reveal_with_pending_grass_count_total += 1
 	chunk_view.set_object_collision_active(true)
-	chunk_view.visible = true
-	EventBus.chunk_loaded.emit(chunk_coord)
 
 
 func _prune_stale_pending_publish_chunks() -> void:
@@ -5077,7 +5769,7 @@ func _prune_stale_pending_publish_chunks() -> void:
 	var filtered_queue: Array[Vector2i] = []
 	var seen: Dictionary = { }
 	for chunk_coord: Vector2i in _pending_publish_queue:
-		if not _is_chunk_desired(chunk_coord):
+		if not _should_materialize_chunk(chunk_coord):
 			continue
 		if seen.has(chunk_coord):
 			continue
@@ -5256,7 +5948,8 @@ func _evict_outside_ring(max_count: int) -> void:
 	for chunk_coord: Vector2i in loaded_coords:
 		if evicted >= max_count:
 			break
-		if chunk_coord == _active_publish_chunk or _is_chunk_desired(chunk_coord):
+		if chunk_coord == _active_publish_chunk \
+				or _should_materialize_chunk(chunk_coord):
 			continue
 		var chunk_view: ChunkView = _chunk_views.get(chunk_coord) as ChunkView
 		var cached_committed_objects: bool = false
@@ -5286,6 +5979,7 @@ func _evict_outside_ring(max_count: int) -> void:
 		_requested_chunks.erase(chunk_coord)
 		_pending_publish_queue.erase(chunk_coord)
 		_pending_chunk_visibility_after_mountain_visual.erase(chunk_coord)
+		_readiness_tracker.mark_terminal(chunk_coord, &"retained")
 		_drop_object_packet_visual_upload(chunk_coord)
 		var resident_entry: Dictionary = _get_current_hot_object_entry(chunk_coord)
 		if not resident_entry.is_empty() and not bool(resident_entry.get("ready", false)):
@@ -5347,7 +6041,7 @@ func _has_pending_streaming_work() -> bool:
 	if not _pending_grass_scatter_visual_upload_chunks.is_empty():
 		return true
 	for chunk_coord_variant: Variant in _chunk_views.keys():
-		if not _is_chunk_desired(chunk_coord_variant as Vector2i):
+		if not _should_materialize_chunk(chunk_coord_variant as Vector2i):
 			return true
 	return false
 
@@ -5910,6 +6604,10 @@ func _trim_hot_chunk_view_cache() -> void:
 			break
 		var entry: Dictionary = _hot_chunk_view_cache.get(oldest_coord, { }) as Dictionary
 		_hot_chunk_view_cache.erase(oldest_coord)
+		if oldest_coord != INVALID_CHUNK_COORD \
+				and not _is_chunk_source_desired(oldest_coord) \
+				and not _readiness_has_retained_data(oldest_coord):
+			_readiness_tracker.mark_terminal(oldest_coord, &"evicted")
 		var view: ChunkView = entry.get("view", null) as ChunkView
 		if view != null and is_instance_valid(view):
 			view.queue_free()
@@ -6159,7 +6857,7 @@ func _handle_completed_mountain_native_mask(result: Dictionary) -> void:
 		result,
 	)
 	if chunk_needs_publish_after_mask \
-			and _is_chunk_desired(target_chunk) \
+			and _should_materialize_chunk(target_chunk) \
 			and not _pending_publish_queue.has(target_chunk) \
 			and target_chunk != _active_publish_chunk:
 		_pending_publish_queue.append(target_chunk)
@@ -6398,6 +7096,12 @@ func _request_mountain_native_mask_for_chunk(
 		"revision": revision,
 		"reason": reason,
 	}
+	_readiness_tracker.mark_layer(
+		chunk_coord,
+		&"mountain_mask",
+		&"waiting",
+		&"mountain_mask_worker_inflight",
+	)
 	# The live mask always builds from the post-diff remaining halo (pre-M7
 	# behaviour, organic contour untouched). The closed/dug pair rides along
 	# only for excavated chunks, where the worker derives the construction
@@ -6439,6 +7143,12 @@ func _request_terrain_edge_mask_for_chunk(
 		"revision": revision,
 		"reason": reason,
 	}
+	_readiness_tracker.mark_layer(
+		chunk_coord,
+		&"terrain_edge_mask",
+		&"waiting",
+		&"terrain_edge_mask_worker_inflight",
+	)
 	_mountain_mask_backend.queue_mountain_halo_mask_request(
 		solid_halo,
 		chunk_coord,
@@ -7081,6 +7791,9 @@ func _prepare_terrain_edge_mask_for_publish(chunk_coord: Vector2i, _packet: Dict
 
 func _reset_runtime_state() -> void:
 	_generation_epoch += 1
+	_readiness_tracker.reset(_generation_epoch)
+	_initial_loading_gate.begin(_generation_epoch)
+	_initial_loading_readiness_cursor = 0
 	_world_compute_backend.clear_queued_work()
 	_clear_hot_object_presentation_cache()
 	_awaiting_new_game_spawn_result = false
@@ -7096,6 +7809,8 @@ func _reset_runtime_state() -> void:
 	_desired_source_chunk_coords.clear()
 	_desired_visible_chunk_coords.clear()
 	_desired_mountain_mask_chunk_coords.clear()
+	_terrain_packet_support_chunk_coords.clear()
+	_terrain_packet_support_chunk_set.clear()
 	_desired_cache_center_chunk = INVALID_CHUNK_COORD
 	_desired_cache_radius_chunks = -1
 	_desired_cache_source_radius_chunks = -1
@@ -7288,6 +8003,8 @@ func _rebuild_desired_chunk_cache() -> void:
 		_desired_source_chunk_coords.clear()
 		_desired_visible_chunk_coords.clear()
 		_desired_mountain_mask_chunk_coords.clear()
+		_terrain_packet_support_chunk_coords.clear()
+		_terrain_packet_support_chunk_set.clear()
 		_desired_cache_center_chunk = INVALID_CHUNK_COORD
 		_desired_cache_radius_chunks = -1
 		_desired_cache_source_radius_chunks = -1
@@ -7307,6 +8024,13 @@ func _rebuild_desired_chunk_cache() -> void:
 	)
 	_desired_mountain_mask_chunk_coords.clear()
 	_desired_source_chunk_coords = _build_chunk_coords_for_radius(_player_chunk_coord, source_radius)
+	_terrain_packet_support_chunk_coords = _build_chunk_coords_for_radius(
+		_player_chunk_coord,
+		source_radius + 1,
+	)
+	_terrain_packet_support_chunk_set.clear()
+	for chunk_coord: Vector2i in _terrain_packet_support_chunk_coords:
+		_terrain_packet_support_chunk_set[chunk_coord] = true
 	_streaming_worker_demand_dirty = true
 
 
@@ -7355,6 +8079,10 @@ func _is_chunk_desired(chunk_coord: Vector2i) -> bool:
 	) <= _current_stream_radius_chunks
 
 
+func _should_materialize_chunk(chunk_coord: Vector2i) -> bool:
+	return _is_chunk_source_desired(chunk_coord)
+
+
 func _is_chunk_source_desired(chunk_coord: Vector2i) -> bool:
 	if _player_chunk_coord == INVALID_CHUNK_COORD:
 		return false
@@ -7366,11 +8094,23 @@ func _is_chunk_source_desired(chunk_coord: Vector2i) -> bool:
 	) <= _resolve_source_cache_radius_chunks()
 
 
+func _is_terrain_packet_support_desired(chunk_coord: Vector2i) -> bool:
+	return _terrain_packet_support_chunk_set.has(
+		_canonicalize_chunk_coord(chunk_coord),
+	)
+
+
+func _is_chunk_packet_residency_desired(chunk_coord: Vector2i) -> bool:
+	return _is_terrain_packet_support_desired(chunk_coord)
+
+
 func _resolve_source_cache_radius_chunks() -> int:
 	return _current_stream_radius_chunks + 1
 
 
 func _resolve_stream_radius_chunks() -> int:
+	if _initial_loading_gate.is_active():
+		return MAX_VIEWPORT_STREAM_RADIUS_CHUNKS
 	var radius: int = WorldRuntimeConstants.STREAM_RADIUS_CHUNKS
 	var camera: Camera2D = get_viewport().get_camera_2d()
 	if camera != null and is_instance_valid(camera):

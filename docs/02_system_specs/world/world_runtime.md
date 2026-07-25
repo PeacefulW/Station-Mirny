@@ -4,8 +4,8 @@ doc_type: system_spec
 status: approved
 owner: engineering
 source_of_truth: true
-version: 1.9
-last_updated: 2026-07-15
+version: 2.2
+last_updated: 2026-07-23
 related_docs:
   - ../../README.md
   - ../../00_governance/WORKFLOW.md
@@ -613,6 +613,184 @@ the base packet back into the resident source set and reapplies the current
 base. The cache does not retain `ChunkView` nodes or GPU presentation resources.
 This makes zoom-in/zoom-out and short backtracking avoid redundant native world
 generation without turning the cache into a second preload ring.
+
+### Observable Readiness Diagnostics Amendment (S2)
+
+`WorldStreamer` exposes one developer-only, read-only readiness snapshot for
+the current bounded streaming working set. The snapshot observes the existing
+streamer; it does not own demand, schedule work, change priority, reveal a
+chunk, or retain/evict resources.
+
+The lifecycle vocabulary is:
+
+```text
+requested -> generated -> gameplay_ready -> presentation_ready
+          -> reserve_ready -> visible -> retained / evicted
+```
+
+Semantics:
+
+- `requested`: a current source-demand packet request exists, but no accepted
+  packet is resident yet.
+- `generated`: the immutable base packet plus current diff-applied packet are
+  resident; gameplay publication or its required native mask bytes are not
+  complete yet.
+- `gameplay_ready`: terrain publication and gameplay-critical mask/collision
+  bytes are ready; blocking visual presentation may still be pending.
+- `presentation_ready`: all currently required visual families for the chunk
+  have a ready presentation result. This includes terrain/mountain visuals,
+  object families, grass, and current roof/cavity presentation where
+  applicable. A layer that is intentionally absent is `not_applicable`, not
+  missing.
+- `reserve_ready`: a source-demand chunk outside the visible ring has the
+  currently available packet and presentation preparation needed by the
+  existing implementation. S2 reports honestly when the current streamer does
+  not prepare a required layer this far ahead; it does not add that work.
+- `visible`: the owning `ChunkView` is visible. A visible chunk may still report
+  a missing non-blocking layer (for example current late grass); visibility is
+  not treated as proof that every presentation layer is ready.
+- `retained`: demand ended, but an existing warm/hot packet, view, object, or
+  grass cache still owns reusable data.
+- `evicted`: demand ended and no tracked reusable resident data remains.
+
+For every reported chunk, the snapshot contains exactly one
+`blocking_reason` and `blocking_layer` when `ready == false`, chosen by stable
+precedence from the real current owner state. It also contains per-layer state
+for `packet`, `gameplay`, `terrain`, `mountain_mask`, `terrain_edge_mask`,
+`objects`, `grass`, `roof_cavity`, and `visibility`. Every waiting layer reports
+one concrete reason and elapsed wait time. Readiness diagnostics must never
+replace an error with a generic `not_ready` reason when a current queue,
+inflight request, retry, upload, reveal guard, missing source, or terminal
+failure is observable.
+
+Timing is transient diagnostic state. Stage/reason timestamps are recorded in
+O(1) at the existing enqueue, completion, publication, reveal, retention, and
+eviction transitions and are cleared on world reset. They are not save data or
+gameplay truth.
+
+Performance contract:
+
+- ordinary inactive gameplay pays no per-frame scan;
+- `get_perf_hud_snapshot()` remains O(1) and the F4 numeric trace keeps its
+  fixed-field sampling path;
+- the detailed snapshot may scan only the already bounded desired/resident
+  working set and is built only for an explicit diagnostic capture, bounded
+  probe sample, or recorder finalization;
+- no filesystem, viewport, native generation, scene-tree group, tile, object,
+  or whole-world scan is allowed while building the snapshot;
+- diagnostic state is derived/transient, bounded to current source demand plus
+  a small retained/evicted terminal-history cap, and cannot become a second streamer or
+  presentation framework.
+
+S2 changes public debug read semantics only. It does not change streaming
+radius, zoom demand, priority, generation, publication, reveal, residency,
+visual quality, collision, lighting, save shape, commands, or events.
+
+### Honest Initial Loading Gate Amendment (S3)
+
+`WorldStreamer` owns one transient initial-loading gate for new-game and load
+startup. `WorldRuntimeV0Scene` owns the blocking UI and player-input pause, but
+it may only read and present the streamer's gate state. UI progress, fade
+timing, or a fixed timeout can never decide world readiness.
+
+The initial target is established after the authoritative player/spawn
+position is available:
+
+- the visible envelope is the current maximum zoom-out radius
+  (`MAX_VIEWPORT_STREAM_RADIUS_CHUNKS`, currently `4`);
+- the movement reserve is one additional source ring (currently radius `5`);
+- every valid target coordinate is generated and materialized as a
+  `ChunkView`; the outer reserve remains hidden and collision-inactive until it
+  later becomes visible demand;
+- a pre-presentation position change (including the deterministic mountain dev
+  teleport) recenters and restarts the bounded target accounting. Normal player
+  movement is disabled by the loading host until the first world frame is
+  presented.
+
+For each target chunk the authoritative gate advances monotonically through:
+
+```text
+requested -> generated -> gameplay_ready -> presentation_ready -> reserve_ready
+```
+
+`gameplay_ready` requires committed terrain cells and every applicable
+gameplay mask/collision construction. `presentation_ready` additionally
+requires mountain/roof, shoreline, object, and grass presentation to be fully
+committed. `reserve_ready` means a visible-envelope chunk has passed its normal
+reveal guard, or an outer-reserve chunk owns the same complete materialized
+presentation while intentionally hidden. Intentionally absent authored layers
+are ready, not missing.
+
+Gate evaluation is incremental and bounded to a fixed number of target chunks
+per streaming tick. The compact state returned to UI is O(1); the detailed S2
+diagnostic scan remains explicit-only. Heavy packet/mask/object/grass compute
+continues through the existing shared worker backend, and all scene/GPU apply
+continues through existing frame-budgeted lanes.
+
+The screen may begin its visual fade only when all target chunks are
+`reserve_ready`. The target stays pinned through that fade and through the
+first unobscured world frame. `WorldRuntimeV0Scene` then acknowledges that
+frame, restores player processing, and releases the startup-only pin. This
+amendment does not define steady-state movement or zoom residency; those remain
+S4/S5 work.
+
+The compact gate state measures cold-start wall time, cumulative and
+per-stage times, prepared chunks/second, first presented process frame, and
+static/video memory after the completed bubble. It contains no fixed timeout
+and never reports `ready` from estimated/decorative progress. All state is
+derived, bounded, cleared on world reset, and excluded from saves, commands,
+events, replication, and canonical world output.
+
+### Steady Terrain Preparation Envelope Amendment (S4)
+
+After the S3 first-world-frame acknowledgement, `WorldStreamer` transfers the
+startup bubble into one bounded steady-state terrain preparation envelope
+instead of shrinking materialization back to the visible ring.
+
+The three nested rings have distinct ownership:
+
+- `visible`: the current camera-derived stream radius; terrain/water/mountain
+  views may become visible only after their terrain and mask reveal guards;
+  object presentation and its blocking collisions remain inactive until the
+  existing object reveal guard completes;
+- `terrain reserve`: one symmetric chunk ring beyond visible demand; every
+  chunk owns a hidden `ChunkView` with committed terrain/water cells and all
+  applicable mountain plus shoreline mask bytes/textures;
+- `packet support`: one additional packet-only ring; immutable packets stay
+  resident only to provide complete cross-chunk halo input for the terrain
+  reserve and never create a `ChunkView`.
+
+With the current maximum radius `4`, the bounded ordinary working set is
+`81 visible + 40 terrain reserve + 48 packet support = 169` resident base
+packets and at most `121` materialized chunk views. Finite-world Y clipping and
+cylindrical X canonicalization still apply.
+
+Demand is rebuilt only when the player crosses a chunk boundary or the current
+stream radius changes. A newly entered terrain-reserve frontier has one full
+`1024 px` chunk traversal, `3.2 s` at the current maximum ordinary player speed
+of `320 px/s`, to finish before it can enter visible demand. Ordering stays
+distance-based and symmetric so an immediate direction change does not expose
+an unprepared side; S4 does not add a forward lobe or transport prediction.
+
+Terrain reserve preparation reuses the existing packet worker, bounded terrain
+publish slices, combined halo cache, native mountain/terrain-edge mask jobs,
+and visual upload lane. It does not add another streamer or presentation
+framework. Reserve views remain hidden and collision-inactive. When a prepared
+chunk enters visible demand, terrain, water, and applicable masks may not begin
+publication after that transition.
+
+S4 does not change object, decor, or grass generation, packing, upload,
+readiness, visual identity, or cache policy. Existing object/grass work may
+continue through its current paths for a materialized reserve view, but it is
+neither required for nor evidence of terrain-reserve readiness. After the S3
+startup gate, an unfinished object presentation may no longer keep an otherwise
+complete terrain view hidden: that object's existing external presentation and
+blocking collision remain inactive until its own reveal guard completes. The
+S3 startup gate keeps its atomic full-presentation rule. Zoom-independent
+residency and hysteresis remain explicitly deferred to S5.
+
+All S4 state is derived and transient. It is excluded from saves, commands,
+events, replication, canonical world output, and `world_version`.
 
 ### Publish / Apply Rules
 

@@ -1014,6 +1014,30 @@ msgstr "Построение карты гор..."
 msgid "UI_LOADING_LANDING"
 msgstr "Высадка..."
 
+msgid "UI_LOADING_INITIAL_BUBBLE_TITLE"
+msgstr "ПОДГОТОВКА ЗОНЫ ВЫСАДКИ"
+
+msgid "UI_LOADING_RESOLVING_SPAWN"
+msgstr "Поиск безопасной точки высадки..."
+
+msgid "UI_LOADING_GENERATING_INITIAL_BUBBLE"
+msgstr "Генерация окружающего мира..."
+
+msgid "UI_LOADING_PREPARING_GAMEPLAY"
+msgstr "Подготовка земли и коллизий..."
+
+msgid "UI_LOADING_PREPARING_PRESENTATION"
+msgstr "Подготовка растительности и деталей земли..."
+
+msgid "UI_LOADING_PREPARING_RESERVE"
+msgstr "Подготовка запаса для движения..."
+
+msgid "UI_LOADING_READY"
+msgstr "Зона высадки готова"
+
+msgid "UI_LOADING_INITIAL_BUBBLE_PROGRESS"
+msgstr "{current}/{total} чанков · {percent}%"
+
 msgid "UI_HUD_FLOOR_GENERIC"
 msgstr "Уровень {z}"
 

@@ -4,13 +4,14 @@ doc_type: agent_entrypoint
 status: approved
 owner: engineering
 source_of_truth: false
-version: 1.4
-last_updated: 2026-04-17
+version: 1.5
+last_updated: 2026-07-22
 related_docs:
   - docs/README.md
   - docs/00_governance/WORKFLOW.md
   - docs/00_governance/ENGINEERING_STANDARDS.md
   - docs/00_governance/PROJECT_GLOSSARY.md
+  - docs/00_governance/SEAMLESS_WORLD_STREAMING_TASK.md
   - docs/02_system_specs/README.md
   - docs/05_adrs/0001-runtime-work-and-dirty-update-foundation.md
 ---
@@ -108,6 +109,30 @@ Shared tracker `\.claude/agent-memory/active-epic.md` больше не явля
 - `docs/05_adrs/0007-environment-runtime-is-layered-and-distinct-from-worldgen.md`
 
 Используй только те ADR, которые реально относятся к задаче.
+
+## Активная задача бесшовного стриминга
+
+Для любой работы, связанной с текущей целью бесшовного стриминга, сначала
+прочитай `docs/00_governance/SEAMLESS_WORLD_STREAMING_TASK.md`.
+
+Специальный процесс этой задачи:
+- выполняй только подцель, явно отмеченную пользователем как текущая
+- не начинай следующую подцель без фразы пользователя о приемке текущей
+- не создавай и не переключай Git-ветки
+- не выполняй `git add`, `git commit`, `git stash`, `git reset`, `git clean`,
+  `git merge`, `git rebase`, `git push` или иные изменяющие историю/index
+  операции без отдельного прямого указания пользователя
+- работай в текущем `main`; пользователь сам создает коммит после приемки
+- до изменений фиксируй существующий dirty-state и не присваивай себе чужие
+  или сгенерированные ранее изменения
+- после технического завершения подцели проведи разрешенные проверки, выдай
+  closure report и остановись для ручной приемки
+- визуальная, runtime- и performance-приемка принадлежат пользователю; passing
+  автоматических тестов не заменяет ее
+
+Если правила этого раздела конфликтуют с общими Git-рекомендациями, для этой
+задачи побеждает этот раздел. Канонические архитектурные specs и ADR по-прежнему
+имеют приоритет над task brief.
 
 ## Непереговорные правила работы
 

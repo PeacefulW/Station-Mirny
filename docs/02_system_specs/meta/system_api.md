@@ -4,8 +4,8 @@ doc_type: system_spec
 status: draft
 owner: engineering
 source_of_truth: true
-version: 0.9
-last_updated: 2026-07-14
+version: 0.11
+last_updated: 2026-07-23
 related_docs:
   - ../README.md
   - commands.md
@@ -459,6 +459,8 @@ Confirmed readable entrypoints:
 | `is_walkable_at_world(world_pos: Vector2)` | `bool` | Reads `base + diff`; returns `false` while a chunk is not ready |
 | `has_resource_at_world(world_pos: Vector2)` | `bool` | Diggable surface query for the current harvest path (`TERRAIN_MOUNTAIN_WALL` and `TERRAIN_MOUNTAIN_FOOT`); returns `true` only when the tile also has an orthogonally exposed walkable face |
 | `get_mountain_contour_debug_state(chunk_coord: Vector2i)` | `Dictionary` | Debug-only readback for the loaded chunk's L1 grid/mask/contour overlay state. Returns `ready: false` if the chunk view is not loaded. |
+| `get_streaming_readiness_debug_snapshot()` | `Dictionary` | Developer-only bounded read of the existing streaming working set. Returns `StreamingReadinessDiagnosticSnapshot`; it may inspect only resident/demand dictionaries, never schedules work, and is called only by explicit captures/probes/finalization rather than the four-Hz HUD context path. |
+| `get_initial_loading_state()` | `Dictionary` | O(1) read of the transient `InitialWorldLoadingState` owned by `WorldStreamer`. Used by the loading UI and deterministic probes; it never scans chunks or schedules work. |
 
 Confirmed mutation entrypoints:
 
@@ -468,6 +470,7 @@ Confirmed mutation entrypoints:
 | `reset_for_new_game(seed, version)` | Clears runtime state, queues native foundation spawn resolution for `world_version >= 9`, applies the resolved new-game spawn tile to the local player before streaming chunks, and emits `world_initialized` |
 | `load_world_state(data: Dictionary) -> bool` | Restores only current-version `world.json` payloads. Returns `false` before mutating runtime state when `world_version` is missing/non-current or the current `worldgen_settings` shape is incomplete; on success restores `world_seed` / `world_version`, rebuilds `worldgen_settings.world_bounds`, `worldgen_settings.foundation`, `worldgen_settings.mountains`, `worldgen_settings.lakes`, `worldgen_settings.plains_trees`, and `worldgen_settings.plains_small_rocks` from `world.json`, and clears runtime state |
 | `load_chunk_diffs(entries: Array)` | Loads serialized chunk diffs into `WorldDiffStore` |
+| `acknowledge_initial_world_presented()` | Called only by `WorldRuntimeV0Scene` after the first unobscured world frame. Records presentation timing and releases the startup-only maximum-zoom plus movement-reserve materialization pin. It cannot close an unready gate. |
 | `try_harvest_at_world(world_pos: Vector2)` | Single-tile harvest path; converts one nearest qualifying diggable surface tile into its dug state and rejects diagonal-only sealed rock |
 | `set_active_mountain_component(mountain_id: int, component_id: int)` | World-domain cover selection surface used by `MountainResolver`. Updates the immediate gameplay target selection; the construction-roof presentation independently retains a displayed component and fades its reveal blend (`150 ms` enter; `60 + 180 ms` exit), see `mountain_generation.md` M7 |
 | `toggle_debug_tile_grid()` | Toggles the developer-only `F6` 64 px grid overlay for loaded chunks |

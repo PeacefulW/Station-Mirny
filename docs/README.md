@@ -4,8 +4,8 @@ doc_type: docs_index
 status: approved
 owner: design+engineering
 source_of_truth: true
-version: 1.14
-last_updated: 2026-07-14
+version: 1.15
+last_updated: 2026-07-22
 related_docs:
   - 00_governance/WORKFLOW.md
   - 00_governance/ENGINEERING_STANDARDS.md
@@ -53,6 +53,10 @@ Templates for future docs.
 - [Engineering Standards](00_governance/ENGINEERING_STANDARDS.md)
 - [Agent Tooling](00_governance/AGENT_TOOLING.md)
 - [Project Glossary](00_governance/PROJECT_GLOSSARY.md)
+
+### Active task briefs
+- [Seamless World Streaming Task](00_governance/SEAMLESS_WORLD_STREAMING_TASK.md)
+  — operational goal/status tracker; canonical specs and ADRs remain authoritative
 
 ### Product
 - [Game Vision GDD](01_product/GAME_VISION_GDD.md)

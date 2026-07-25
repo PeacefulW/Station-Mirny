@@ -4,8 +4,8 @@ doc_type: system_spec
 status: approved
 owner: engineering
 source_of_truth: true
-version: 1.2
-last_updated: 2026-07-15
+version: 1.3
+last_updated: 2026-07-22
 related_docs:
   - ../../00_governance/ENGINEERING_STANDARDS.md
   - ../../05_adrs/0001-runtime-work-and-dirty-update-foundation.md
@@ -58,6 +58,11 @@ generation, streaming priority, visual quality, save state, or camera limits.
   scan chunks, objects, mountain masks, scene-tree groups, or filesystem state.
 - `WorldStreamer.get_perf_hud_snapshot()` is the only world context read and is
   sampled at most four times per second.
+- Detailed readiness is not added to that four-Hz path. An explicit F2
+  snapshot or F4 finalization may call
+  `WorldStreamer.get_streaming_readiness_debug_snapshot()` once and attach the
+  bounded result as `streaming_readiness`. This preserves the O(1) trace path
+  while making a captured missing chunk/layer explainable.
 - `WorldPerfProbe` observation is reference-counted so the HUD and recorder can
   coexist without stealing or clearing each other's samples.
 - Viewport readback taints the following three process samples. The recorder
@@ -121,6 +126,11 @@ rate, FPS cap, viewport size, debug/editor state, sample counts, p95/p99/max,
 render CPU/GPU maxima, draw-call maxima, queue maxima, distance travelled, and
 event references.
 
+F2 sidecars and the final F4 `session.json` include the bounded
+`StreamingReadinessDiagnosticSnapshot` documented in `packet_schemas.md`.
+Ordinary per-frame CSV rows remain numeric and do not duplicate per-chunk
+records.
+
 The trace records frame time, measured viewport CPU/GPU time, frame setup CPU,
 process/physics monitors, canvas draw/object counts, player position, camera
 zoom, the tracked `WorldPerfProbe` phases, and the latest low-rate streaming
@@ -156,6 +166,7 @@ context.
 - gameplay input semantics outside the new F2/F4 diagnostic controls
 - save schemas, world packet schemas, commands, or EventBus contracts
 - per-frame screenshots, per-frame filesystem writes, forensic chunk scans
+- periodic detailed readiness scans in the four-Hz context sampler
 
 ## Acceptance Criteria
 
@@ -170,6 +181,8 @@ context.
 - [ ] HUD and recorder observation reference counts coexist correctly
 - [ ] RU and EN text coverage is complete
 - [ ] a real manual windowed play session produces parseable artifacts
+- [ ] F2 sidecars and final F4 metadata identify each missing working-set
+      chunk/layer with one reason and elapsed wait without changing trace cadence
 
 ## Required Canonical Updates
 

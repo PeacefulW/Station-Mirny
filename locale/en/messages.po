@@ -1014,6 +1014,30 @@ msgstr "Building mountain map..."
 msgid "UI_LOADING_LANDING"
 msgstr "Landing..."
 
+msgid "UI_LOADING_INITIAL_BUBBLE_TITLE"
+msgstr "PREPARING LANDING ZONE"
+
+msgid "UI_LOADING_RESOLVING_SPAWN"
+msgstr "Locating a safe landing point..."
+
+msgid "UI_LOADING_GENERATING_INITIAL_BUBBLE"
+msgstr "Generating the surrounding world..."
+
+msgid "UI_LOADING_PREPARING_GAMEPLAY"
+msgstr "Preparing terrain and collisions..."
+
+msgid "UI_LOADING_PREPARING_PRESENTATION"
+msgstr "Preparing vegetation and terrain details..."
+
+msgid "UI_LOADING_PREPARING_RESERVE"
+msgstr "Preparing movement reserve..."
+
+msgid "UI_LOADING_READY"
+msgstr "Landing zone ready"
+
+msgid "UI_LOADING_INITIAL_BUBBLE_PROGRESS"
+msgstr "{current}/{total} chunks · {percent}%"
+
 msgid "UI_HUD_FLOOR_GENERIC"
 msgstr "Level {z}"
 

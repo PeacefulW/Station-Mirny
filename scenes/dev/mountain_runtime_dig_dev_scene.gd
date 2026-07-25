@@ -14,6 +14,16 @@ extends Node2D
 const WorldRuntimeConstants = preload("res://core/systems/world/world_runtime_constants.gd")
 
 const WORLD_SCENE: PackedScene = preload("res://scenes/world/world_runtime_v0.tscn")
+const PROBE_ID: StringName = &"s1_mountain_runtime_baseline_v1"
+const PROBE_WORLD_SEED: int = 131071
+const PROBE_START_HOUR: float = 9.0
+const PROBE_NIGHT_HOUR: float = 0.0
+const PROBE_START_DAY: int = 1
+const PROBE_START_SEASON: int = 0
+const PROBE_WEATHER_REGIME: StringName = &"core:clear"
+const MOUNTAIN_SETTINGS_PATH: String = "res://data/balance/mountain_gen_settings.tres"
+const FOUNDATION_SETTINGS_PATH: String = "res://data/balance/foundation_gen_settings.tres"
+const LAKE_SETTINGS_PATH: String = "res://data/balance/lake_gen_settings.tres"
 const MAX_SCAN_RADIUS_CHUNKS: int = 18
 const MAX_SPAWN_WAIT_FRAMES: int = 1800
 const MAX_RUNTIME_STAND_WAIT_FRAMES: int = 1800
@@ -33,9 +43,14 @@ var _hud_label: Label = null
 var _wait_frames: int = 0
 var _dig_target: Dictionary = { }
 var _fail_reason: String = ""
+var _probe_config: Dictionary = { }
+var _probe_hour: float = PROBE_START_HOUR
+var _probe_started_at_usec: int = 0
+var _probe_ready_elapsed_ms: float = -1.0
 
 
 func _ready() -> void:
+	_probe_started_at_usec = Time.get_ticks_usec()
 	var world: Node2D = WORLD_SCENE.instantiate() as Node2D
 	add_child(world)
 	_streamer = world.get_node_or_null("WorldStreamer") as WorldStreamer
@@ -43,6 +58,8 @@ func _ready() -> void:
 	_build_hud()
 	if _streamer == null or _player == null:
 		_fail("world_runtime_v0 не дал WorldStreamer/Player")
+		return
+	_configure_deterministic_probe()
 
 
 func _process(_delta: float) -> void:
@@ -59,6 +76,10 @@ func _unhandled_input(event: InputEvent) -> void:
 	var key_event: InputEventKey = event as InputEventKey
 	if not key_event.pressed or key_event.echo:
 		return
+	if key_event.keycode == KEY_N:
+		_toggle_probe_day_night()
+		get_viewport().set_input_as_handled()
+		return
 	if key_event.keycode != KEY_T:
 		return
 	if _state != DevState.READY or _streamer == null or _player == null:
@@ -70,9 +91,11 @@ func _unhandled_input(event: InputEvent) -> void:
 ## Снимок состояния для smoke-теста: цель копания + рантайм-готовность масок.
 func get_debug_snapshot() -> Dictionary:
 	var snapshot: Dictionary = {
+		"probe": _probe_config.duplicate(true),
 		"ready": _state == DevState.READY,
 		"failed": _state == DevState.FAILED,
 		"fail_reason": _fail_reason,
+		"probe_ready_elapsed_ms": _probe_ready_elapsed_ms,
 		"world_seed": _streamer.get_world_seed() if _streamer != null else 0,
 		"mountain_tile": _dig_target.get("mountain_tile", Vector2i.ZERO),
 		"stand_tile": _dig_target.get("stand_tile", Vector2i.ZERO),
@@ -96,6 +119,91 @@ func get_debug_snapshot() -> Dictionary:
 		"native_mask_visual_pending_count": int(debug.get("native_mask_visual_pending_count", 0)),
 	}
 	return snapshot
+
+
+## Фиксирует все входы измерительной сцены. Это dev-only orchestration:
+## production runtime и его save/load contract не меняются.
+func _configure_deterministic_probe() -> void:
+	var mountain_settings: MountainGenSettings = ResourceLoader.load(
+		MOUNTAIN_SETTINGS_PATH,
+		"MountainGenSettings",
+	) as MountainGenSettings
+	var world_bounds: WorldBoundsSettings = WorldBoundsSettings.hard_coded_defaults()
+	var foundation_resource: FoundationGenSettings = ResourceLoader.load(
+		FOUNDATION_SETTINGS_PATH,
+		"FoundationGenSettings",
+	) as FoundationGenSettings
+	var lake_resource: LakeGenSettings = ResourceLoader.load(
+		LAKE_SETTINGS_PATH,
+		"LakeGenSettings",
+	) as LakeGenSettings
+	if mountain_settings == null or foundation_resource == null or lake_resource == null:
+		_fail("детерминированная probe-конфигурация не загрузила worldgen resources")
+		return
+	var foundation_settings: FoundationGenSettings = FoundationGenSettings.from_save_dict(
+		foundation_resource.to_save_dict(),
+		world_bounds,
+	)
+	var lake_settings: LakeGenSettings = LakeGenSettings.from_save_dict(
+		lake_resource.to_save_dict(),
+	)
+	_streamer.initialize_new_world(
+		PROBE_WORLD_SEED,
+		mountain_settings,
+		world_bounds,
+		foundation_settings,
+		lake_settings,
+	)
+	if TimeManager != null:
+		_apply_probe_time(PROBE_START_HOUR)
+	if WeatherRuntime != null:
+		WeatherRuntime.restore_persisted_state({
+			"active_regime": String(PROBE_WEATHER_REGIME),
+			"next_regime": String(PROBE_WEATHER_REGIME),
+			"in_transition": false,
+			"transition": 0.0,
+			"remaining_hours": 12.0,
+			"weather_time_hours": 0.0,
+			"transition_count": 0,
+		})
+		WeatherRuntime.clear_debug_cloud_cover()
+		WeatherRuntime.set_debug_regime(PROBE_WEATHER_REGIME)
+	var world_state: Dictionary = _streamer.save_world_state()
+	_probe_config = {
+		"probe_id": String(PROBE_ID),
+		"world_seed": PROBE_WORLD_SEED,
+		"world_version": WorldRuntimeConstants.WORLD_VERSION,
+		"worldgen_signature": String(world_state.get("worldgen_signature", "")),
+		"mountain_settings_path": MOUNTAIN_SETTINGS_PATH,
+		"foundation_settings_path": FOUNDATION_SETTINGS_PATH,
+		"lake_settings_path": LAKE_SETTINGS_PATH,
+		"start_hour": PROBE_START_HOUR,
+		"start_day": PROBE_START_DAY,
+		"start_season": PROBE_START_SEASON,
+		"time_paused": true,
+		"weather_regime": String(PROBE_WEATHER_REGIME),
+	}
+
+
+func _toggle_probe_day_night() -> void:
+	var next_hour: float = (
+		PROBE_NIGHT_HOUR
+		if is_equal_approx(_probe_hour, PROBE_START_HOUR)
+		else PROBE_START_HOUR
+	)
+	_apply_probe_time(next_hour)
+
+
+func _apply_probe_time(hour: float) -> void:
+	_probe_hour = hour
+	if TimeManager == null:
+		return
+	TimeManager.restore_persisted_state(
+		_probe_hour,
+		PROBE_START_DAY,
+		PROBE_START_SEASON,
+	)
+	TimeManager.set_paused(true)
 
 
 ## Копок цели для smoke-теста тем же публичным путём, что и игрок
@@ -182,6 +290,7 @@ func _tick_waiting_runtime_stand() -> void:
 		return
 	_dig_target["stand_tile"] = stand_tile
 	_position_player_at_stand_tile(stand_tile)
+	_probe_ready_elapsed_ms = float(Time.get_ticks_usec() - _probe_started_at_usec) / 1000.0
 	_state = DevState.READY
 
 
@@ -369,6 +478,12 @@ func _update_hud() -> void:
 		DevState.READY:
 			var player_tile: Vector2i = WorldRuntimeConstants.world_to_tile(_player.global_position)
 			_hud_label.text = "\n".join([
+				"S1 probe %s | ready %.0f ms | %02d:00 paused | clear | worldgen %s" % [
+					String(PROBE_ID),
+					_probe_ready_elapsed_ms,
+					int(_probe_hour),
+					String(_probe_config.get("worldgen_signature", "")).left(8),
+				],
 				"Рантайм-гора (world_runtime_v0, seed %d): цель %s (%s), стоим %s, игрок %s" % [
 					_streamer.get_world_seed(),
 					str(_dig_target.get("mountain_tile", Vector2i.ZERO)),
@@ -377,7 +492,7 @@ func _update_hud() -> void:
 					str(player_tile),
 				],
 				"WASD — движение | E — копать в сторону курсора | Space — атака | T — телепорт к ближайшей горе",
-				"G — тайл под игроком | F6 сетка | F7 маска горы | F10 контур | F11 коллайдеры | K — погода",
+				"N — день/ночь | F — факел | G — тайл | F6 сетка | F7 маска | F10 контур | F11 коллайдеры",
 				"F5/F9 — сейв/лоад | Esc — меню. Земля под горой открывается копанием — это рантайм-путь 1:1.",
 			])
 

@@ -38,6 +38,20 @@ class FakePerfSource extends Node:
 			"warm_packet_cache": 121,
 		}
 
+	func get_streaming_readiness_debug_snapshot() -> Dictionary:
+		return {
+			"schema_version": 1,
+			"missing_chunk_count": 1,
+			"entries": [{
+				"chunk_coord": Vector2i(3, 4),
+				"lifecycle_stage": "requested",
+				"ready": false,
+				"blocking_layer": "packet",
+				"blocking_reason": "packet_generation_inflight",
+				"blocking_elapsed_ms": 12,
+			}],
+		}
+
 
 class PressurePerfSource extends Node:
 	func get_perf_hud_snapshot() -> Dictionary:
@@ -263,6 +277,13 @@ func _test_recorder_observer_contract() -> void:
 	get_root().add_child(recorder)
 	recorder.setup(source, null, TEST_CAPTURE_ROOT)
 	await process_frame
+	var manual_snapshot: Dictionary = recorder._build_diagnostic_snapshot(&"manual")
+	var automatic_snapshot: Dictionary = recorder._build_diagnostic_snapshot(&"frame_spike")
+	_assert(
+		manual_snapshot.has("streaming_readiness")
+				and not automatic_snapshot.has("streaming_readiness"),
+		"Detailed readiness must be F2/final-only, never automatic-event overhead.",
+	)
 	var baseline_observers: int = WorldPerfProbe.get_live_observer_count()
 	_assert(recorder.start_recording(), "Flight recorder must start from idle.")
 	await process_frame
@@ -291,6 +312,27 @@ func _test_recorder_observer_contract() -> void:
 		WorldPerfProbe.get_live_observer_count() == baseline_observers,
 		"Stopping the recorder must release its independent live observer.",
 	)
+	var session_directory: String = String(
+		active_state.get("artifact_directory", ""),
+	)
+	var session_file: FileAccess = FileAccess.open(
+		session_directory.path_join("session.json"),
+		FileAccess.READ,
+	)
+	_assert(session_file != null, "F4 session metadata must be readable.")
+	if session_file != null:
+		var parsed: Variant = JSON.parse_string(session_file.get_as_text())
+		session_file.close()
+		_assert(parsed is Dictionary, "F4 session metadata must be valid JSON.")
+		if parsed is Dictionary:
+			var readiness: Dictionary = (
+				parsed as Dictionary
+			).get("streaming_readiness", { }) as Dictionary
+			_assert(
+				int(readiness.get("schema_version", 0)) == 1
+						and int(readiness.get("missing_chunk_count", 0)) == 1,
+				"Final F4 metadata must include bounded readiness diagnostics.",
+			)
 	recorder.queue_free()
 	source.queue_free()
 	await process_frame

@@ -4,8 +4,8 @@ doc_type: system_spec
 status: draft
 owner: engineering
 source_of_truth: true
-version: 1.7
-last_updated: 2026-07-14
+version: 1.9
+last_updated: 2026-07-23
 related_docs:
   - ../README.md
   - system_api.md
@@ -819,6 +819,105 @@ Current code notes:
   high wall density, and L6 lake candidates whose `3×3 neighbourhood` lookup
   yields water at the candidate tile's effective elevation
 - the result is transient worker output, not save data
+
+### `StreamingReadinessDiagnosticSnapshot`
+
+Returned by developer-only
+`WorldStreamer.get_streaming_readiness_debug_snapshot()` and attached to
+explicit performance-capture artifacts.
+
+```text
+{
+  "schema_version": 1,
+  "sampled_at_msec": int,
+  "generation_epoch": int,
+  "player_chunk": Vector2i,
+  "desired_visible_count": int,
+  "desired_source_count": int,
+  "missing_chunk_count": int,
+  "stage_counts": Dictionary[String, int],
+  "reason_counts": Dictionary[String, int],
+  "entries": Array[StreamingReadinessEntry],
+  "terminal_history": Array[StreamingReadinessEntry],
+}
+
+StreamingReadinessEntry {
+  "chunk_coord": Vector2i,
+  "demand": String, # visible | reserve | none
+  "lifecycle_stage": String,
+  "stage_elapsed_ms": int,
+  "ready": bool,
+  "blocking_layer": String,
+  "blocking_reason": String,
+  "blocking_elapsed_ms": int,
+  "layers": Dictionary[String, StreamingReadinessLayer],
+}
+
+StreamingReadinessLayer {
+  "state": String, # waiting | ready | not_applicable | retained | evicted
+  "reason": String,
+  "elapsed_ms": int,
+}
+```
+
+Current rules:
+
+- one entry has at most one overall `blocking_reason`; stable precedence makes
+  the same owner state produce the same reason;
+- each waiting layer also has exactly one concrete reason and elapsed time;
+- `Vector2i` values are sanitized to `{x, y}` by the artifact writer before
+  JSON serialization;
+- the snapshot is transient derived debug data, never a `ChunkPacketV1` field,
+  save payload, command result, event payload, or network packet;
+- entries are limited to bounded current source demand; retained/evicted
+  lifecycle transitions live in the separately capped terminal history.
+
+### `InitialWorldLoadingState`
+
+Returned by `WorldStreamer.get_initial_loading_state()` as the O(1) UI/probe
+read surface for the honest S3 startup gate.
+
+```text
+{
+  "schema_version": 1,
+  "generation_epoch": int,
+  "active": bool,
+  "target_established": bool,
+  "ready": bool,
+  "presented": bool,
+  "current_stage": String,
+  "target_center_chunk": Vector2i,
+  "visible_radius_chunks": int,
+  "reserve_radius_chunks": int,
+  "target_chunk_count": int,
+  "visible_chunk_count": int,
+  "reserve_chunk_count": int,
+  "generated_chunk_count": int,
+  "gameplay_ready_chunk_count": int,
+  "presentation_ready_chunk_count": int,
+  "reserve_ready_chunk_count": int,
+  "progress_ratio": float,
+  "elapsed_ms": int,
+  "stage_cumulative_ms": Dictionary[String, int],
+  "stage_duration_ms": Dictionary[String, int],
+  "prepared_chunks_per_second": float,
+  "ready_at_process_frame": int,
+  "first_presented_process_frame": int,
+  "memory_static_bytes": int,
+  "memory_static_peak_bytes": int,
+  "video_memory_bytes": int,
+}
+```
+
+Rules:
+
+- counts and progress come only from observed authoritative chunk state;
+- `progress_ratio == 1.0` and `ready == true` require every target chunk to be
+  `reserve_ready`; there is no timeout or estimated completion;
+- `active` remains true through the loading fade and first unobscured frame;
+  `presented` is recorded only by the world-scene acknowledgement;
+- stage and memory measurements are transient diagnostics, never save,
+  command, event, replication, or canonical world data.
 
 ### `WorldFoundationSnapshotDebug`
 

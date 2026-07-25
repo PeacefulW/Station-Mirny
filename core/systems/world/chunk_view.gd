@@ -3085,6 +3085,12 @@ func is_mountain_native_mask_visual_pending() -> bool:
 			or _mountain_dug_halo_visual_dirty
 
 
+## Hot-path initial-loading probe. Detailed mask dimensions remain in the
+## explicit debug snapshot below.
+func is_terrain_edge_mask_visual_pending() -> bool:
+	return _terrain_edge_mask_visual_dirty
+
+
 func get_terrain_edge_mask_debug_state() -> Dictionary:
 	var active: bool = _terrain_edge_mask_width > 0 \
 			and _terrain_edge_mask_height > 0 \

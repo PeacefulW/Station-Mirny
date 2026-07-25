@@ -4,8 +4,8 @@ doc_type: system_spec
 status: approved
 owner: design+engineering
 source_of_truth: true
-version: 1.1
-last_updated: 2026-04-24
+version: 1.2
+last_updated: 2026-07-23
 related_docs:
   - ../../01_product/GAME_VISION_GDD.md
 ---
@@ -49,6 +49,24 @@ The building experience should use:
 - ghost placement
 - engineering overlays
 - strong readability of invalid vs valid placement
+
+## World loading surface
+
+The world loading screen is a full-viewport, input-blocking boot/load surface.
+It is shown before a new world scene can expose its viewport and is recreated
+for an in-place world reload.
+
+- progress and stage copy are driven only by
+  `WorldStreamer.get_initial_loading_state()`;
+- the bar represents completed authoritative per-chunk readiness stages, not
+  elapsed time or an animation;
+- no timeout may dismiss the screen;
+- the screen remains visible until the maximum zoom-out envelope and movement
+  reserve are complete, then performs only a short visual fade;
+- player processing remains disabled through the first unobscured world frame;
+- stage labels and count text use localization keys in every supported locale;
+- detailed performance numbers remain probe/closure evidence rather than noisy
+  player-facing boot UI.
 
 ## Acceptance criteria
 
