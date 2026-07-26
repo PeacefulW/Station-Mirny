@@ -9,7 +9,8 @@ const SNOW_ACCUMULATION_SHADER: Shader = preload("res://assets/shaders/layered_t
 const TRUNK_SEASON_SHADER: Shader = preload("res://assets/shaders/layered_tree_trunk_season.gdshader")
 
 const LADDER_ANCHOR_UNSET: int = 1 << 30
-const SHADOW_DIRECTION: Vector2 = Vector2(0.887216, -0.461354)
+## Trees are baked with sun azimuth 225: the shadow runs screen south-east.
+const SHADOW_DIRECTION: Vector2 = Vector2(0.887216, 0.461354)
 const DEFAULT_ASSET_DIR: String = "res://assets/sprites/flora/layered_trees/tree_01"
 const BASE_WIND_STRENGTH_PX: float = 3.0
 const FIXED_TREE_FRAME_SCALE: float = 0.64

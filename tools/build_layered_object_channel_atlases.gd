@@ -1,7 +1,7 @@
 extends SceneTree
 
 const FRAME_SIZE: Vector2i = Vector2i(768, 768)
-const TREE_COLUMNS: int = 5
+const TREE_COLUMNS: int = 6
 const TREE_ROWS: int = 1
 const ROCK_COLUMNS: int = 5
 const ROCK_ROWS: int = 2
@@ -12,6 +12,7 @@ const TREE_SOURCE_DIRS: Array[String] = [
 	"res://assets/sprites/flora/layered_trees/tree_03",
 	"res://assets/sprites/flora/layered_trees/tree_04",
 	"res://assets/sprites/flora/layered_trees/tree_05",
+	"res://assets/sprites/flora/layered_trees/tree_06",
 ]
 const TREE_CHANNELS: Array[String] = [
 	"trunk",

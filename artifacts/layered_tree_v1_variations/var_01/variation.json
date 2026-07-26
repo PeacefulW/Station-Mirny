@@ -1,0 +1,188 @@
+{
+	"variation_profile_id": "station_peaceful_tree_variation_v1",
+	"variation_profile_version": 1,
+	"variant": {
+		"id": "var_01",
+		"title": "slender_young",
+		"title_ru": "стройное молодое",
+		"seed": 10111,
+		"yaw_degrees": 18.0,
+		"twist_degrees": 24.0,
+		"twist_power": 1.15,
+		"lean": [
+			0.045,
+			0.02
+		],
+		"lean_power": 1.35,
+		"sway": [
+			0.0,
+			0.0
+		],
+		"spread": -0.14,
+		"droop": 0.0,
+		"height_scale": 1.08,
+		"width_scale": 0.88,
+		"cluster_scale": 0.88,
+		"cluster_scale_jitter": 0.1,
+		"cluster_yaw_degrees": 16.0,
+		"cull_foliage": 2,
+		"cluster_sink": 0.16
+	},
+	"applied": {
+		"culled_foliage": [
+			"tripo_part_34",
+			"tripo_part_33"
+		],
+		"clusters": [
+			{
+				"object": "tripo_part_1",
+				"yaw_degrees": 14.727,
+				"scale": 0.8432,
+				"gap_before": 0.0,
+				"gap_after": 0.000176,
+				"snapped_distance": 0.0
+			},
+			{
+				"object": "tripo_part_10",
+				"yaw_degrees": 6.002,
+				"scale": 0.9548,
+				"gap_before": 0.0,
+				"gap_after": 7.1e-05,
+				"snapped_distance": 0.0
+			},
+			{
+				"object": "tripo_part_11",
+				"yaw_degrees": 0.873,
+				"scale": 0.9252,
+				"gap_before": 0.0,
+				"gap_after": 0.000122,
+				"snapped_distance": 0.0
+			},
+			{
+				"object": "tripo_part_13",
+				"yaw_degrees": 8.168,
+				"scale": 0.8248,
+				"gap_before": 0.062505,
+				"gap_after": 9.4e-05,
+				"snapped_distance": 0.062505
+			},
+			{
+				"object": "tripo_part_14",
+				"yaw_degrees": 10.276,
+				"scale": 0.9278,
+				"gap_before": 0.0,
+				"gap_after": 0.000165,
+				"snapped_distance": 0.0
+			},
+			{
+				"object": "tripo_part_15",
+				"yaw_degrees": 13.539,
+				"scale": 0.8755,
+				"gap_before": 0.0,
+				"gap_after": 0.000157,
+				"snapped_distance": 0.0
+			},
+			{
+				"object": "tripo_part_19",
+				"yaw_degrees": -6.296,
+				"scale": 0.9,
+				"gap_before": 0.0,
+				"gap_after": 0.000149,
+				"snapped_distance": 0.0
+			},
+			{
+				"object": "tripo_part_2",
+				"yaw_degrees": 2.158,
+				"scale": 0.8137,
+				"gap_before": 0.0,
+				"gap_after": 0.000117,
+				"snapped_distance": 0.0
+			},
+			{
+				"object": "tripo_part_22",
+				"yaw_degrees": -1.44,
+				"scale": 0.9192,
+				"gap_before": 1e-06,
+				"gap_after": 0.000226,
+				"snapped_distance": 0.0
+			},
+			{
+				"object": "tripo_part_30",
+				"yaw_degrees": 8.195,
+				"scale": 0.836,
+				"gap_before": 1e-06,
+				"gap_after": 0.000134,
+				"snapped_distance": 0.0
+			},
+			{
+				"object": "tripo_part_4",
+				"yaw_degrees": -8.664,
+				"scale": 0.8484,
+				"gap_before": 0.0,
+				"gap_after": 0.000148,
+				"snapped_distance": 0.0
+			},
+			{
+				"object": "tripo_part_5",
+				"yaw_degrees": 1.261,
+				"scale": 0.8835,
+				"gap_before": 0.0,
+				"gap_after": 0.000171,
+				"snapped_distance": 0.0
+			},
+			{
+				"object": "tripo_part_6",
+				"yaw_degrees": 8.801,
+				"scale": 0.8664,
+				"gap_before": 1e-06,
+				"gap_after": 0.000129,
+				"snapped_distance": 0.0
+			},
+			{
+				"object": "tripo_part_8",
+				"yaw_degrees": -8.077,
+				"scale": 0.8533,
+				"gap_before": 0.0,
+				"gap_after": 0.000119,
+				"snapped_distance": 0.0
+			},
+			{
+				"object": "tripo_part_9",
+				"yaw_degrees": -7.364,
+				"scale": 0.8639,
+				"gap_before": 1e-06,
+				"gap_after": 0.000261,
+				"snapped_distance": 0.0
+			}
+		],
+		"custom_normals_cleared": 39,
+		"source_height": 1.000002,
+		"trunk_axis_bins": 24,
+		"attachment": {
+			"gap_tolerance": 0.006,
+			"trunk_samples": 225630,
+			"max_gap_before": 0.062505,
+			"max_gap_after": 0.000261,
+			"snapped_clusters": [
+				"tripo_part_13"
+			]
+		}
+	},
+	"framing": {
+		"ortho_scale": 1.631605863571167,
+		"pixels_per_world_unit": 470.70191223696935,
+		"world_bbox": {
+			"min": [
+				-0.1474413126707077,
+				-0.13329076766967773,
+				-0.07459941506385803
+			],
+			"max": [
+				0.14696402847766876,
+				0.13582497835159302,
+				0.9911063313484192
+			]
+		},
+		"world_height": 1.0657057464122772
+	}
+}

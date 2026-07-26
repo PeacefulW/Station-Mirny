@@ -1,0 +1,195 @@
+{
+	"variation_profile_id": "station_peaceful_tree_variation_v1",
+	"variation_profile_version": 1,
+	"variant": {
+		"id": "var_03",
+		"title": "wind_leaned",
+		"title_ru": "наклонённое ветром",
+		"seed": 30333,
+		"yaw_degrees": 210.0,
+		"twist_degrees": 58.0,
+		"twist_power": 1.25,
+		"lean": [
+			0.17,
+			-0.05
+		],
+		"lean_power": 1.25,
+		"sway": [
+			0.03,
+			0.0
+		],
+		"spread": 0.1,
+		"droop": 0.035,
+		"height_scale": 1.0,
+		"width_scale": 1.0,
+		"cluster_scale": 1.0,
+		"cluster_scale_jitter": 0.14,
+		"cluster_yaw_degrees": 20.0,
+		"cull_foliage": 1,
+		"cluster_sink": 0.18
+	},
+	"applied": {
+		"culled_foliage": [
+			"tripo_part_34"
+		],
+		"clusters": [
+			{
+				"object": "tripo_part_1",
+				"yaw_degrees": 18.433,
+				"scale": 0.9216,
+				"gap_before": 0.0,
+				"gap_after": 6e-05,
+				"snapped_distance": 0.0
+			},
+			{
+				"object": "tripo_part_10",
+				"yaw_degrees": -7.873,
+				"scale": 1.1113,
+				"gap_before": 0.0,
+				"gap_after": 0.000265,
+				"snapped_distance": 0.0
+			},
+			{
+				"object": "tripo_part_11",
+				"yaw_degrees": 19.706,
+				"scale": 1.0231,
+				"gap_before": 0.0,
+				"gap_after": 0.000238,
+				"snapped_distance": 0.0
+			},
+			{
+				"object": "tripo_part_13",
+				"yaw_degrees": -4.83,
+				"scale": 1.0465,
+				"gap_before": 0.076412,
+				"gap_after": 0.000207,
+				"snapped_distance": 0.076412
+			},
+			{
+				"object": "tripo_part_14",
+				"yaw_degrees": 2.144,
+				"scale": 1.0011,
+				"gap_before": 0.0,
+				"gap_after": 0.000217,
+				"snapped_distance": 0.0
+			},
+			{
+				"object": "tripo_part_15",
+				"yaw_degrees": -17.36,
+				"scale": 0.9611,
+				"gap_before": 1e-06,
+				"gap_after": 6.7e-05,
+				"snapped_distance": 0.0
+			},
+			{
+				"object": "tripo_part_19",
+				"yaw_degrees": -17.176,
+				"scale": 0.9365,
+				"gap_before": 0.0,
+				"gap_after": 0.000284,
+				"snapped_distance": 0.0
+			},
+			{
+				"object": "tripo_part_2",
+				"yaw_degrees": 0.116,
+				"scale": 1.0991,
+				"gap_before": 0.0,
+				"gap_after": 0.000122,
+				"snapped_distance": 0.0
+			},
+			{
+				"object": "tripo_part_22",
+				"yaw_degrees": -4.382,
+				"scale": 1.0371,
+				"gap_before": 1e-06,
+				"gap_after": 0.000191,
+				"snapped_distance": 0.0
+			},
+			{
+				"object": "tripo_part_30",
+				"yaw_degrees": -7.497,
+				"scale": 1.1187,
+				"gap_before": 1e-06,
+				"gap_after": 0.00015,
+				"snapped_distance": 0.0
+			},
+			{
+				"object": "tripo_part_33",
+				"yaw_degrees": 2.763,
+				"scale": 1.0844,
+				"gap_before": 1e-06,
+				"gap_after": 0.00024,
+				"snapped_distance": 0.0
+			},
+			{
+				"object": "tripo_part_4",
+				"yaw_degrees": 11.891,
+				"scale": 0.9612,
+				"gap_before": 0.0,
+				"gap_after": 0.000116,
+				"snapped_distance": 0.0
+			},
+			{
+				"object": "tripo_part_5",
+				"yaw_degrees": 13.296,
+				"scale": 1.1342,
+				"gap_before": 1e-06,
+				"gap_after": 0.000118,
+				"snapped_distance": 0.0
+			},
+			{
+				"object": "tripo_part_6",
+				"yaw_degrees": 9.49,
+				"scale": 0.9505,
+				"gap_before": 1e-06,
+				"gap_after": 7.4e-05,
+				"snapped_distance": 0.0
+			},
+			{
+				"object": "tripo_part_8",
+				"yaw_degrees": -9.332,
+				"scale": 1.0616,
+				"gap_before": 1e-06,
+				"gap_after": 0.000284,
+				"snapped_distance": 0.0
+			},
+			{
+				"object": "tripo_part_9",
+				"yaw_degrees": 2.827,
+				"scale": 1.0012,
+				"gap_before": 1e-06,
+				"gap_after": 0.000234,
+				"snapped_distance": 0.0
+			}
+		],
+		"custom_normals_cleared": 40,
+		"source_height": 1.000002,
+		"trunk_axis_bins": 24,
+		"attachment": {
+			"gap_tolerance": 0.006,
+			"trunk_samples": 225630,
+			"max_gap_before": 0.076412,
+			"max_gap_after": 0.000284,
+			"snapped_clusters": [
+				"tripo_part_13"
+			]
+		}
+	},
+	"framing": {
+		"ortho_scale": 1.5282968282699585,
+		"pixels_per_world_unit": 502.5201818087791,
+		"world_bbox": {
+			"min": [
+				-0.2579886019229889,
+				-0.20025554299354553,
+				-0.06966816633939743
+			],
+			"max": [
+				0.2355283498764038,
+				0.17044448852539062,
+				0.9255911707878113
+			]
+		},
+		"world_height": 0.9952593371272087
+	}
+}

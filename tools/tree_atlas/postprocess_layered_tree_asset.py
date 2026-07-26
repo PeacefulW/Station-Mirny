@@ -5,8 +5,10 @@ from __future__ import annotations
 import argparse
 import json
 import math
+import random
 from pathlib import Path
 
+import numpy as np
 from PIL import Image, ImageChops, ImageDraw, ImageFilter
 
 DEFAULT_PROFILE_PATH = Path(__file__).with_name("layered_asset_bake_profile.json")
@@ -79,9 +81,9 @@ def fake_shadow_from_alpha(alpha: Image.Image, anchor: tuple[int, int], profile:
     shadow = cropped.resize((cropped.width, shadow_h), Image.Resampling.BICUBIC)
     shadow = shadow.filter(ImageFilter.GaussianBlur(8))
     canvas = Image.new("L", alpha.size, 0)
-    # Screen-space north-east from the root: right and up, but root remains attached.
+    # Screen-space south-east from the root: right and down, root stays attached.
     paste_x = int(round(anchor_x - cropped.width * 0.24))
-    paste_y = int(round(anchor_y - shadow_h * 0.56))
+    paste_y = int(round(anchor_y - shadow_h * 0.12))
     canvas.paste(shadow, (paste_x, paste_y), shadow)
     canvas = canvas.point(lambda value: min(int(value * 0.62), 170), "L")
     shadow_rgb = rgb_from_profile(profile, "fake_shadow_rgb")
@@ -164,91 +166,188 @@ def make_wind_mask(trunk: Image.Image, foliage: Image.Image) -> Image.Image:
     return Image.merge("RGBA", (gray, gray, gray, union))
 
 
-def shifted_luma(image: Image.Image, dx: int, dy: int) -> Image.Image:
-    width, height = image.size
-    out = Image.new("L", image.size, 0)
-    src_x0 = max(0, -dx)
-    src_y0 = max(0, -dy)
-    src_x1 = min(width, width - dx)
-    src_y1 = min(height, height - dy)
-    if src_x1 <= src_x0 or src_y1 <= src_y0:
-        return out
-    crop = image.crop((src_x0, src_y0, src_x1, src_y1))
-    out.paste(crop, (src_x0 + dx, src_y0 + dy))
-    return out
+def to_array(image: Image.Image) -> np.ndarray:
+    return np.asarray(image, dtype=np.float32) / 255.0
 
 
-def procedural_noise(size: tuple[int, int], *, low: int, high: int, phase: float = 0.0) -> Image.Image:
-    width, height = size
-    out = Image.new("L", size, 0)
-    pixels = out.load()
-    span = high - low
-    for y in range(height):
-        for x in range(width):
-            value = (
-                0.50
-                + 0.22 * math.sin(x * 0.083 + y * 0.041 + phase)
-                + 0.18 * math.sin(x * 0.019 - y * 0.127 + phase * 1.7)
-                + 0.10 * math.sin(x * 0.211 + y * 0.173 + phase * 0.37)
-            )
-            pixels[x, y] = max(0, min(255, int(low + span * value)))
-    return out.filter(ImageFilter.GaussianBlur(0.9))
+def to_image(array: np.ndarray) -> Image.Image:
+    return Image.fromarray(np.clip(array * 255.0, 0.0, 255.0).astype(np.uint8), "L")
 
 
-def exposed_top_edges(source_alpha: Image.Image, *, weight: float = 1.0) -> Image.Image:
-    width, height = source_alpha.size
-    src = source_alpha.load()
-    edge = Image.new("L", source_alpha.size, 0)
-    dst = edge.load()
-    for y in range(height):
-        for x in range(width):
-            current = src[x, y]
-            if current <= 18:
-                continue
-            above = 0
-            for sample_y in (y - 2, y - 4, y - 7):
-                if sample_y < 0:
-                    continue
-                for sample_x in range(max(0, x - 3), min(width, x + 4)):
-                    above = max(above, src[sample_x, sample_y])
-            exposure = max(0.0, current - above * 0.58) / 255.0
-            if above <= 12:
-                exposure = max(exposure, 0.72 * current / 255.0)
-            if exposure <= 0.05:
-                continue
-            dst[x, y] = max(dst[x, y], min(255, int(255.0 * exposure * weight)))
-    return edge.filter(ImageFilter.MaxFilter(3)).filter(ImageFilter.GaussianBlur(0.65))
+def snow_settings(profile: dict) -> dict:
+    return profile["postprocess"]["snow"]
 
 
-def spread_snow(edge: Image.Image, target_alpha: Image.Image, *, depth_px: int, strength: float) -> Image.Image:
-    accumulation = Image.new("L", edge.size, 0)
-    softened_edge = edge.filter(ImageFilter.MaxFilter(7)).filter(ImageFilter.GaussianBlur(1.35))
-    for offset in range(0, depth_px, 2):
-        progress = offset / max(depth_px - 1, 1)
-        decay = (1.0 - progress) ** 1.45
-        dx = int(round(math.sin(offset * 0.33) * 3.0 + math.sin(offset * 0.071) * 2.0))
-        shifted = shifted_luma(softened_edge, dx, offset)
-        blurred = shifted.filter(ImageFilter.GaussianBlur(1.20 + offset * 0.040))
-        band = blurred.point(lambda value, decay=decay: min(255, int(value * decay * strength)), "L")
-        accumulation = ImageChops.lighter(accumulation, band)
-    alpha_gate = target_alpha.point(lambda value: 0 if value <= 12 else min(255, int(value * 1.16)), "L")
-    return ImageChops.multiply(accumulation, alpha_gate)
+def surface_normal_field(alpha: Image.Image, settings: dict) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Screen-space outward normal of the silhouette, averaged over two scales.
+
+    The wide blur reports the shape of a whole canopy blob; the tight blur
+    reports the individual lumps on it. Snow needs both: the blob decides where
+    a cap sits, the lumps decide where its edge breaks up.
+    """
+    normal_x = np.zeros(alpha.size[::-1], dtype=np.float32)
+    normal_y = np.zeros_like(normal_x)
+    weights = settings["surface_blur_weights"]
+    for radius, weight in zip(settings["surface_blur_px"], weights):
+        field = to_array(alpha.filter(ImageFilter.GaussianBlur(float(radius))))
+        gradient_y, gradient_x = np.gradient(field)
+        # Alpha falls off outward, so the outward normal is the negated gradient.
+        normal_x -= gradient_x * float(weight)
+        normal_y -= gradient_y * float(weight)
+    magnitude = np.hypot(normal_x, normal_y)
+    safe = np.maximum(magnitude, 1e-6)
+    return normal_x / safe, normal_y / safe, magnitude
 
 
-def make_snow_mask(albedo: Image.Image, foliage: Image.Image, trunk: Image.Image) -> Image.Image:
-    alpha = union_alpha(albedo)
+def up_facing_weight(alpha: Image.Image, settings: dict) -> np.ndarray:
+    """How much sky this pixel's surface sees.
+
+    This is what replaced "nothing above me within 7 pixels". That older test
+    fired along the entire outline of a thin trunk, including its underside and
+    its shaded flank, which is why snow used to coat whole silhouettes.
+    """
+    normal_x, normal_y, magnitude = surface_normal_field(alpha, settings)
+    # Image y grows downward, so "up" is -y.
+    facing = np.clip(-normal_y, 0.0, 1.0) ** float(settings["up_facing_power"])
+    # Interior pixels carry no silhouette gradient and must not collect snow
+    # directly; they are reached by settling from the surfaces above them.
+    return facing * np.clip(magnitude * float(settings["surface_gradient_scale"]), 0.0, 1.0)
+
+
+def shade_snow(amount: np.ndarray, settings: dict) -> np.ndarray:
+    """Light the snow by the shape of the drift itself, not by the layer under it.
+
+    Shading against the tree silhouette makes every cap the same flat white,
+    because a drape inherits the tone of the rim it fell from. The drift has its
+    own relief — lumps, a rounded top, a shaded far side — and that is what the
+    fixed bake sun should be modelling.
+    """
+    light = np.array(settings["light_direction"], dtype=np.float32)
+    light /= max(float(np.linalg.norm(light)), 1e-6)
+    ambient = float(settings["shade_ambient"])
+
+    field = to_array(to_image(amount).filter(ImageFilter.GaussianBlur(float(settings["shade_blur_px"]))))
+    gradient_y, gradient_x = np.gradient(field)
+    normal_x, normal_y = -gradient_x, -gradient_y
+    magnitude = np.hypot(normal_x, normal_y)
+    safe = np.maximum(magnitude, 1e-6)
+    sloped = np.clip((normal_x / safe) * light[0] + (normal_y / safe) * light[1], 0.0, 1.0)
+
+    # Inside a thick drift the surface is flat and level, so it takes the same
+    # light as a horizontal top rather than an undefined normal.
+    flat = float(np.clip(-light[1], 0.0, 1.0))
+    flatness = np.clip(1.0 - magnitude * float(settings["shade_relief_scale"]), 0.0, 1.0)
+    lit = sloped * (1.0 - flatness) + flat * flatness
+    return np.clip(ambient + (1.0 - ambient) * lit, 0.0, 1.0)
+
+
+def settle(landed: np.ndarray, gate: np.ndarray, settings: dict) -> np.ndarray:
+    """Drape snow downward from where it landed, thinning as it goes.
+
+    The first few pixels hold full depth — a drift has a body, not just a rim —
+    and only past that does it thin out. `gate` must be the alpha of the layer
+    the snow landed on, never a shared one, otherwise a canopy blob smears its
+    snow down the trunk behind it and the result reads as fog.
+    """
+    depth = int(settings["settle_depth_px"])
+    plateau = int(settings["settle_plateau_px"])
+    decay_power = float(settings["settle_decay"])
+    wobble = float(settings["settle_wobble_px"])
+    accumulated = landed.copy()
+    for offset in range(1, depth):
+        progress = max(0.0, offset - plateau) / max(depth - plateau, 1)
+        decay = (1.0 - progress) ** decay_power
+        shift_x = int(round(math.sin(offset * 0.31) * wobble))
+        shifted = np.roll(landed, offset, axis=0)
+        shifted[:offset, :] = 0.0
+        if shift_x:
+            shifted = np.roll(shifted, shift_x, axis=1)
+            if shift_x > 0:
+                shifted[:, :shift_x] = 0.0
+            else:
+                shifted[:, shift_x:] = 0.0
+        accumulated = np.maximum(accumulated, shifted * decay)
+    return accumulated * gate
+
+
+def value_noise(size: tuple[int, int], settings: dict) -> np.ndarray:
+    """Bicubic-interpolated random grids. No sine lattice, so no visible grid."""
+    rng = random.Random(int(settings["noise_seed"]))
+    total = np.zeros(size[::-1], dtype=np.float32)
+    weight_sum = 0.0
+    for octave in settings["noise_octaves"]:
+        cells = int(octave["cells"])
+        weight = float(octave["weight"])
+        grid = Image.new("L", (cells, cells))
+        grid.putdata([rng.randrange(256) for _ in range(cells * cells)])
+        total += to_array(grid.resize(size, Image.Resampling.BICUBIC)) * weight
+        weight_sum += weight
+    return np.clip(total / max(weight_sum, 1e-6), 0.0, 1.0)
+
+
+def snow_cap(landed: np.ndarray, alpha_field: np.ndarray, settings: dict) -> np.ndarray:
+    """Ridge of snow standing above the branch it sits on.
+
+    Without this the sprite can only recolour pixels that already belong to the
+    tree, and accumulation reads as bleaching rather than as depth.
+    """
+    height = int(settings["cap_height_px"])
+    if height <= 0:
+        return np.zeros_like(landed)
+    source = landed * (alpha_field > 0.5)
+    cap = np.zeros_like(landed)
+    for offset in range(1, height + 1):
+        falloff = (1.0 - offset / (height + 1.0)) ** 1.25
+        shifted = np.roll(source, -offset, axis=0)
+        shifted[-offset:, :] = 0.0
+        cap = np.maximum(cap, shifted * falloff)
+    return cap * float(settings["cap_strength"])
+
+
+def make_snow_mask(
+    albedo: Image.Image,
+    foliage: Image.Image,
+    trunk: Image.Image,
+    profile: dict | None = None,
+) -> Image.Image:
+    """Channels: R accumulation order, G snow lighting, B cap depth, A coverage.
+
+    R keeps the meaning the runtime shaders rely on — the higher the value, the
+    earlier that pixel turns white as `season_amount` rises — so the sky-facing
+    tops of the canopy snow over first and sheltered undersides snow over last.
+    """
+    settings = snow_settings(profile_or_default(profile))
     foliage_alpha = alpha_of(foliage)
     trunk_alpha = alpha_of(trunk)
-    foliage_edges = exposed_top_edges(foliage_alpha, weight=1.0)
-    trunk_edges = exposed_top_edges(trunk_alpha, weight=0.64)
-    foliage_snow = spread_snow(foliage_edges, foliage_alpha, depth_px=74, strength=1.22)
-    trunk_snow = spread_snow(trunk_edges, trunk_alpha, depth_px=58, strength=1.05)
-    gray = ImageChops.lighter(foliage_snow, trunk_snow)
-    noise = procedural_noise(gray.size, low=138, high=255, phase=0.4)
-    gray = ImageChops.multiply(gray, noise)
-    gray = gray.point(lambda value: 0 if value < 10 else min(255, int(value * 1.46)), "L")
-    gray = gray.filter(ImageFilter.GaussianBlur(1.35))
-    return Image.merge("RGBA", (gray, gray, gray, alpha))
+
+    foliage_facing = up_facing_weight(foliage_alpha, settings)
+    trunk_facing = up_facing_weight(trunk_alpha, settings) * float(settings["trunk_gain"])
+
+    # Each layer settles inside its own silhouette, so canopy snow cannot run
+    # down the trunk behind it.
+    foliage_amount = settle(foliage_facing, to_array(foliage_alpha), settings)
+    trunk_amount = settle(trunk_facing, to_array(trunk_alpha), settings)
+    amount = np.maximum(foliage_amount, trunk_amount)
+
+    noise = value_noise(foliage_alpha.size, settings)
+    bite = float(settings["noise_bite"])
+    amount = amount * (1.0 - bite + bite * noise)
+
+    alpha_field = to_array(union_alpha(albedo))
+    cap = snow_cap(amount, alpha_field, settings)
+    amount = np.maximum(amount, cap)
+
+    ceiling = float(np.percentile(amount[amount > 0.0], 98.0)) if np.any(amount > 0.0) else 1.0
+    amount = np.clip(amount / max(ceiling, 1e-6), 0.0, 1.0)
+    amount = to_array(to_image(amount).filter(ImageFilter.GaussianBlur(0.8)))
+    # Thin snow lets bark and leaf show through, so it reads darker than a drift.
+    lit = shade_snow(amount, settings) * (0.62 + 0.38 * amount)
+
+    coverage = np.maximum(alpha_field, np.clip(cap * 3.0, 0.0, 1.0))
+    return Image.merge(
+        "RGBA",
+        (to_image(amount), to_image(lit), to_image(cap), to_image(coverage)),
+    )
 
 
 def make_season_mask(foliage: Image.Image, trunk: Image.Image, snow_mask: Image.Image) -> Image.Image:
@@ -284,19 +383,25 @@ def make_season_mask(foliage: Image.Image, trunk: Image.Image, snow_mask: Image.
 
 
 def make_snow_overlay(snow_mask: Image.Image, profile: dict | None = None) -> Image.Image:
+    """Shade the snow instead of flooding a flat white over the silhouette."""
     profile = profile_or_default(profile)
-    snow = snow_mask.getchannel("R")
-    alpha = snow.point(lambda value: 0 if value < 14 else min(int((value - 8) * 1.34), 242), "L")
-    snow_rgb = rgb_from_profile(profile, "snow_rgb")
-    return Image.merge(
-        "RGBA",
-        (
-            Image.new("L", snow.size, snow_rgb[0]),
-            Image.new("L", snow.size, snow_rgb[1]),
-            Image.new("L", snow.size, snow_rgb[2]),
-            alpha,
-        ),
-    )
+    settings = snow_settings(profile)
+    amount = to_array(snow_mask.getchannel("R"))
+    lit = to_array(snow_mask.getchannel("G"))
+
+    # The mask keeps a smooth ramp because the runtime sweeps a threshold across
+    # it to grow snow over the season. The overlay is the full-winter result, and
+    # there snow has a short, irregular boundary rather than an airbrushed one.
+    cut = float(settings["overlay_cut"])
+    softness = max(float(settings["overlay_softness"]), 1e-4)
+    normalized = np.clip((amount - (cut - softness)) / (2.0 * softness), 0.0, 1.0)
+    alpha = normalized * normalized * (3.0 - 2.0 * normalized) * float(settings["overlay_peak"])
+
+    shaded = np.array(settings["shaded_rgb"], dtype=np.float32) / 255.0
+    bright = np.array(settings["lit_rgb"], dtype=np.float32) / 255.0
+    channels = [to_image(shaded[index] + (bright[index] - shaded[index]) * lit) for index in range(3)]
+    channels.append(to_image(alpha))
+    return Image.merge("RGBA", channels)
 
 
 def make_height(albedo: Image.Image) -> Image.Image:
@@ -411,7 +516,7 @@ def save_outputs(asset_dir: Path, copy_to: Path | None = None, profile: dict | N
     alpha = alpha_of(albedo)
     shadow = processed_shadow(raw_shadow, alpha, anchor, profile)
     wind_mask = make_wind_mask(trunk, foliage)
-    snow_mask = make_snow_mask(albedo, foliage, trunk)
+    snow_mask = make_snow_mask(albedo, foliage, trunk, profile)
     snow_overlay = make_snow_overlay(snow_mask, profile)
     season_mask = make_season_mask(foliage, trunk, snow_mask)
     height = make_height(albedo)

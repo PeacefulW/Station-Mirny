@@ -263,12 +263,21 @@ def setup_render(
         math.radians(sun_angle_degrees),
     )
 
-    fill_data = bpy.data.lights.new("LayeredTreeFill", "AREA")
-    fill = bpy.data.objects.new("LayeredTreeFill", fill_data)
-    bpy.context.collection.objects.link(fill)
-    fill.location = Vector((0.0, -2.0, 1.0))
-    fill.data.energy = float(lighting_profile["fill_energy"])
-    fill.data.size = float(lighting_profile["fill_size"])
+    # The sun sits north-west, so the face the camera sees is the shaded one. It
+    # is lifted by a ground bounce: low, on the camera side, aimed upward. Coming
+    # from below, it reaches undersides and the trunk without touching the
+    # sun-lit tops, so it can never blow out a highlight the way a frontal fill
+    # or raised exposure does. It casts nothing; the sun owns every shadow.
+    bounce_profile = lighting_profile["bounce"]
+    bounce_data = bpy.data.lights.new("LayeredTreeBounce", "AREA")
+    bounce = bpy.data.objects.new("LayeredTreeBounce", bounce_data)
+    bpy.context.collection.objects.link(bounce)
+    bounce.location = Vector(tuple(float(value) for value in bounce_profile["location"]))
+    bounce.rotation_euler = (math.radians(float(bounce_profile["pitch_degrees"])), 0.0, 0.0)
+    bounce.data.energy = float(bounce_profile["energy"])
+    bounce.data.size = float(bounce_profile["size"])
+    bounce.data.color = tuple(float(value) for value in bounce_profile["color"])
+    bounce.data.use_shadow = bool(bounce_profile["casts_shadow"])
     return camera, sun
 
 
@@ -303,11 +312,30 @@ def fit_camera_to_objects(camera: bpy.types.Object, objects: list[bpy.types.Obje
     return anchor
 
 
-def set_layer_visibility(objects: list[bpy.types.Object], classification: dict[str, dict], layer: str) -> None:
+def set_layer_visibility(
+    objects: list[bpy.types.Object],
+    classification: dict[str, dict],
+    layer: str,
+    cross_layer_shadows: bool = True,
+) -> None:
+    """Render one layer, but keep the other layers casting sun shadows onto it.
+
+    The runtime composites `trunk.png` under `foliage.png`, so any shadow the
+    canopy casts on the trunk has to exist inside the trunk pass. Hiding the
+    other layer outright removes it from the shadow map too, and the assembled
+    tree ends up with no self-shadowing at all.
+    """
     for obj in objects:
         visible = layer == "all" or classification[obj.name]["layer"] == layer
-        obj.hide_render = not visible
-        obj.hide_viewport = not visible
+        if visible or not cross_layer_shadows:
+            obj.hide_render = not visible
+            obj.hide_viewport = not visible
+            obj.visible_camera = True
+            continue
+        obj.hide_render = False
+        obj.hide_viewport = False
+        obj.visible_camera = False
+        obj.visible_shadow = True
 
 
 def render_png(path: Path) -> None:
@@ -340,7 +368,13 @@ def setup_shadow_scene(objects: list[bpy.types.Object], sun_angle_degrees: float
     bpy.context.collection.objects.link(plane)
     plane.is_shadow_catcher = True
 
+    keep_bounce = bool(lighting_profile["bounce"]["in_shadow_pass"])
     for obj in scene.objects:
+        if obj.type == "LIGHT" and obj.name.startswith("LayeredTreeBounce") and not keep_bounce:
+            # The shadow catcher must read the sun alone; unshadowed bounce light
+            # landing on the plane would wash the cast shadow out.
+            obj.hide_render = True
+            continue
         if obj.type == "LIGHT" and obj.name.startswith("LayeredTreeSun"):
             obj.rotation_euler = (
                 math.radians(float(lighting_profile["shadow_sun_elevation_degrees"])),

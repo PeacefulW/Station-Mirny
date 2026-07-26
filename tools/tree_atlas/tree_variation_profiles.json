@@ -1,0 +1,178 @@
+{
+	"profile_id": "station_peaceful_tree_variation_v1",
+	"version": 1,
+	"notes": "Procedural silhouette variations baked from one source GLB. Deformation is a continuous field around the reconstructed trunk axis, so mesh parts never tear apart. Canopy clusters are rotated and scaled around their attachment vertex, never their centroid, so foliage stays welded to its branch. Bake settings themselves stay owned by layered_asset_bake_profile.json.",
+	"axis": {
+		"height_bins": 24,
+		"smooth_passes": 2
+	},
+	"variants": [
+		{
+			"id": "var_01",
+			"title": "slender_young",
+			"title_ru": "стройное молодое",
+			"seed": 10111,
+			"yaw_degrees": 18.0,
+			"twist_degrees": 24.0,
+			"twist_power": 1.15,
+			"lean": [
+				0.045,
+				0.02
+			],
+			"lean_power": 1.35,
+			"sway": [
+				0.0,
+				0.0
+			],
+			"spread": -0.14,
+			"droop": 0.0,
+			"height_scale": 1.08,
+			"width_scale": 0.88,
+			"cluster_scale": 0.88,
+			"cluster_scale_jitter": 0.1,
+			"cluster_yaw_degrees": 16.0,
+			"cull_foliage": 2,
+			"cluster_sink": 0.16
+		},
+		{
+			"id": "var_02",
+			"title": "broad_old",
+			"title_ru": "раскидистое старое",
+			"seed": 20222,
+			"yaw_degrees": 96.0,
+			"twist_degrees": -36.0,
+			"twist_power": 1.0,
+			"lean": [
+				-0.03,
+				0.055
+			],
+			"lean_power": 1.5,
+			"sway": [
+				0.0,
+				0.0
+			],
+			"spread": 0.32,
+			"droop": 0.05,
+			"height_scale": 0.87,
+			"width_scale": 1.2,
+			"cluster_scale": 1.2,
+			"cluster_scale_jitter": 0.12,
+			"cluster_yaw_degrees": 24.0,
+			"cull_foliage": 0,
+			"cluster_sink": 0.22
+		},
+		{
+			"id": "var_03",
+			"title": "wind_leaned",
+			"title_ru": "наклонённое ветром",
+			"seed": 30333,
+			"yaw_degrees": 210.0,
+			"twist_degrees": 58.0,
+			"twist_power": 1.25,
+			"lean": [
+				0.17,
+				-0.05
+			],
+			"lean_power": 1.25,
+			"sway": [
+				0.03,
+				0.0
+			],
+			"spread": 0.1,
+			"droop": 0.035,
+			"height_scale": 1.0,
+			"width_scale": 1.0,
+			"cluster_scale": 1.0,
+			"cluster_scale_jitter": 0.14,
+			"cluster_yaw_degrees": 20.0,
+			"cull_foliage": 1,
+			"cluster_sink": 0.18
+		},
+		{
+			"id": "var_04",
+			"title": "crooked_s_curve",
+			"title_ru": "кривое, с изломом",
+			"seed": 40444,
+			"yaw_degrees": 300.0,
+			"twist_degrees": -72.0,
+			"twist_power": 1.4,
+			"lean": [
+				-0.07,
+				0.0
+			],
+			"lean_power": 1.6,
+			"sway": [
+				0.105,
+				0.03
+			],
+			"spread": 0.06,
+			"droop": 0.02,
+			"height_scale": 1.13,
+			"width_scale": 0.94,
+			"cluster_scale": 0.96,
+			"cluster_scale_jitter": 0.16,
+			"cluster_yaw_degrees": 26.0,
+			"cull_foliage": 2,
+			"cluster_sink": 0.14
+		},
+		{
+			"id": "var_05",
+			"title": "short_stocky",
+			"title_ru": "низкое коренастое",
+			"seed": 50555,
+			"yaw_degrees": 145.0,
+			"twist_degrees": 14.0,
+			"twist_power": 0.9,
+			"lean": [
+				0.02,
+				-0.035
+			],
+			"lean_power": 1.3,
+			"sway": [
+				0.0,
+				0.0
+			],
+			"spread": 0.36,
+			"droop": 0.075,
+			"height_scale": 0.77,
+			"width_scale": 1.24,
+			"cluster_scale": 1.3,
+			"cluster_scale_jitter": 0.1,
+			"cluster_yaw_degrees": 14.0,
+			"cull_foliage": 0,
+			"cluster_sink": 0.24
+		},
+		{
+			"id": "var_06",
+			"title": "sparse_broken",
+			"title_ru": "редкое обломанное",
+			"seed": 60666,
+			"yaw_degrees": 255.0,
+			"twist_degrees": -50.0,
+			"twist_power": 1.2,
+			"lean": [
+				-0.105,
+				-0.08
+			],
+			"lean_power": 1.4,
+			"sway": [
+				0.0,
+				0.025
+			],
+			"spread": -0.06,
+			"droop": 0.0,
+			"height_scale": 1.03,
+			"width_scale": 0.9,
+			"cluster_scale": 0.84,
+			"cluster_scale_jitter": 0.18,
+			"cluster_yaw_degrees": 26.0,
+			"cull_foliage": 5,
+			"cluster_sink": 0.12
+		}
+	],
+	"attachment": {
+		"gap_tolerance_fraction": 0.006,
+		"snap_overlap_fraction": 0.25,
+		"trunk_sample_limit": 200000
+	}
+}

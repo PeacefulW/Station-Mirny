@@ -309,7 +309,7 @@ func _ensure_slot(slot_index: int) -> Dictionary:
 func _create_slot(slot_index: int) -> Dictionary:
 	var allocation_started_usec: int = WorldPerfProbe.begin()
 	var visual_multimesh: MultiMesh = _make_multimesh(_catalog.get_unit_quad_mesh())
-	var shadow_multimesh: MultiMesh = _make_multimesh(_catalog.get_shadow_mesh())
+	var shadow_multimesh: MultiMesh = _make_multimesh(_catalog.get_tree_shadow_mesh())
 	var trunk: MultiMeshInstance2D = _make_layer(
 		"TreeBatch%dTrunk" % slot_index,
 		AssetCatalog.TREE_TRUNK_ATLAS,

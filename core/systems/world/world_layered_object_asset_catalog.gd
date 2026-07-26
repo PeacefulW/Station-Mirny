@@ -31,6 +31,7 @@ const TREE_SOURCE_DIRS: Array[String] = [
 	"res://assets/sprites/flora/layered_trees/tree_03",
 	"res://assets/sprites/flora/layered_trees/tree_04",
 	"res://assets/sprites/flora/layered_trees/tree_05",
+	"res://assets/sprites/flora/layered_trees/tree_06",
 ]
 const ROCK_SOURCE_DIRS: Array[String] = [
 	"res://assets/sprites/decor/plains/layered_small_rocks/small_rock_01",
@@ -45,7 +46,7 @@ const ROCK_SOURCE_DIRS: Array[String] = [
 	"res://assets/sprites/decor/plains/layered_small_rocks/small_rock_10",
 ]
 
-const TREE_COLUMNS: int = 5
+const TREE_COLUMNS: int = 6
 const TREE_ROWS: int = 1
 const ROCK_COLUMNS: int = 5
 const ROCK_ROWS: int = 2
@@ -89,8 +90,17 @@ const LIVING_FLORA_SHADOW_MIN_SCALE: float = 0.36
 const CLASSIC_CONTACT_SHADOW_BASE_OPACITY: float = 0.30
 const CLASSIC_CONTACT_SHADOW_SUN_OPACITY_SCALE: float = 0.08
 const CLASSIC_CONTACT_SHADOW_MAX_OPACITY: float = 0.40
+## Shadow framing is per object family because families migrate to the current
+## sun one at a time. The output window must open toward the baked shadow, and
+## the stretch direction must match it, or a lengthening shadow walks off its own
+## sprite.
 const SHADOW_OUTPUT_UV_MIN: Vector2 = Vector2(-0.10, -0.50)
 const SHADOW_OUTPUT_UV_MAX: Vector2 = Vector2(1.70, 1.10)
+const SHADOW_DIRECTION: Vector2 = Vector2(0.887216, -0.461354)
+## Trees are baked with sun azimuth 225, so their shadow runs screen south-east.
+const TREE_SHADOW_OUTPUT_UV_MIN: Vector2 = Vector2(-0.10, -0.10)
+const TREE_SHADOW_OUTPUT_UV_MAX: Vector2 = Vector2(1.70, 1.50)
+const TREE_SHADOW_DIRECTION: Vector2 = Vector2(0.887216, 0.461354)
 
 var _tree_native_metrics := PackedFloat32Array()
 var _rock_native_metrics := PackedFloat32Array()
@@ -121,6 +131,7 @@ var _tree_anchor_lut: Texture2D = null
 var _rock_anchor_lut: Texture2D = null
 var _unit_quad_mesh: QuadMesh = null
 var _shadow_mesh: ArrayMesh = null
+var _tree_shadow_mesh: ArrayMesh = null
 var _tree_trunk_material: ShaderMaterial = null
 var _tree_foliage_material: ShaderMaterial = null
 var _tree_snow_material: ShaderMaterial = null
@@ -175,6 +186,10 @@ func get_unit_quad_mesh() -> QuadMesh:
 
 func get_shadow_mesh() -> ArrayMesh:
 	return _shadow_mesh
+
+
+func get_tree_shadow_mesh() -> ArrayMesh:
+	return _tree_shadow_mesh
 
 
 func get_tree_trunk_material() -> ShaderMaterial:
@@ -313,7 +328,8 @@ func _prepare() -> void:
 	_rock_anchor_lut = _make_anchor_lut(_rock_native_metrics, ROCK_METRIC_STRIDE)
 	_unit_quad_mesh = QuadMesh.new()
 	_unit_quad_mesh.size = Vector2.ONE
-	_shadow_mesh = _make_shadow_mesh()
+	_shadow_mesh = _make_shadow_mesh(SHADOW_OUTPUT_UV_MIN, SHADOW_OUTPUT_UV_MAX)
+	_tree_shadow_mesh = _make_shadow_mesh(TREE_SHADOW_OUTPUT_UV_MIN, TREE_SHADOW_OUTPUT_UV_MAX)
 	_prepare_materials()
 	_is_ready = true
 
@@ -371,6 +387,9 @@ func _prepare_materials() -> void:
 		TREE_SOURCE_DIRS.size(),
 		_tree_anchor_lut,
 		TREE_SHADOW_ATLAS,
+		TREE_SHADOW_OUTPUT_UV_MIN,
+		TREE_SHADOW_OUTPUT_UV_MAX,
+		TREE_SHADOW_DIRECTION,
 	)
 
 	_rock_albedo_material = ShaderMaterial.new()
@@ -400,6 +419,9 @@ func _prepare_materials() -> void:
 		ROCK_SOURCE_DIRS.size(),
 		_rock_anchor_lut,
 		ROCK_SHADOW_ATLAS,
+		SHADOW_OUTPUT_UV_MIN,
+		SHADOW_OUTPUT_UV_MAX,
+		SHADOW_DIRECTION,
 	)
 	_living_flora_material = _make_classic_decor_material(
 		LIVING_FLORA_ATLAS_COLUMNS,
@@ -427,13 +449,17 @@ func _make_shadow_material(
 		frame_count: int,
 		anchor_lut: Texture2D,
 		atlas: Texture2D,
+		output_uv_min: Vector2,
+		output_uv_max: Vector2,
+		shadow_direction: Vector2,
 ) -> ShaderMaterial:
 	var material := ShaderMaterial.new()
 	material.shader = SHADOW_SHADER
 	_set_atlas_layout(material, columns, rows, frame_count, atlas)
 	material.set_shader_parameter("anchor_lut", anchor_lut)
-	material.set_shader_parameter("output_uv_min", SHADOW_OUTPUT_UV_MIN)
-	material.set_shader_parameter("output_uv_max", SHADOW_OUTPUT_UV_MAX)
+	material.set_shader_parameter("output_uv_min", output_uv_min)
+	material.set_shader_parameter("output_uv_max", output_uv_max)
+	material.set_shader_parameter("shadow_direction", shadow_direction)
 	return material
 
 
@@ -519,9 +545,9 @@ func _make_anchor_lut(metrics: PackedFloat32Array, stride: int) -> Texture2D:
 	return ImageTexture.create_from_image(image)
 
 
-func _make_shadow_mesh() -> ArrayMesh:
-	var min_vertex: Vector2 = SHADOW_OUTPUT_UV_MIN - Vector2(0.5, 0.5)
-	var max_vertex: Vector2 = SHADOW_OUTPUT_UV_MAX - Vector2(0.5, 0.5)
+func _make_shadow_mesh(output_uv_min: Vector2, output_uv_max: Vector2) -> ArrayMesh:
+	var min_vertex: Vector2 = output_uv_min - Vector2(0.5, 0.5)
+	var max_vertex: Vector2 = output_uv_max - Vector2(0.5, 0.5)
 	var vertices := PackedVector3Array([
 		Vector3(min_vertex.x, min_vertex.y, 0.0),
 		Vector3(max_vertex.x, min_vertex.y, 0.0),

@@ -1,33 +1,48 @@
 {
 	"profile_id": "station_peaceful_layered_asset_bake_v1",
-	"version": 1,
+	"version": 4,
 	"frame_size": 768,
 	"orientation": {
 		"default_yaw_degrees": 90.0
 	},
 	"planting": {
-		"root_embed_fraction": 0.065,
+		"root_embed_fraction": 0.07,
 		"max_root_embed_fraction": 0.22
 	},
 	"camera": {
 		"type": "ORTHO",
 		"initial_ortho_scale": 1.25,
 		"fit_width_fraction": 0.66,
-		"fit_height_fraction": 0.70,
-		"padding_scale": 1.10,
+		"fit_height_fraction": 0.7,
+		"padding_scale": 1.1,
 		"location_y": -3.0,
 		"height_offset": 1.6,
 		"target_z_fraction": 0.42
 	},
 	"lighting": {
-		"sun_azimuth_degrees": 315.0,
+		"sun_azimuth_degrees": 225.0,
 		"albedo_sun_elevation_degrees": 52.0,
 		"shadow_sun_elevation_degrees": 42.0,
-		"albedo_sun_energy": 2.25,
+		"albedo_sun_energy": 7.5,
 		"shadow_sun_energy": 3.5,
-		"fill_energy": 65.0,
-		"fill_size": 4.0,
-		"fixed_shadow_direction": "screen_north_east"
+		"fixed_shadow_direction": "screen_south_east",
+		"bounce": {
+			"energy": 150.0,
+			"size": 5.0,
+			"location": [
+				0.0,
+				-2.2,
+				-0.55
+			],
+			"pitch_degrees": 135.0,
+			"color": [
+				1.0,
+				0.965,
+				0.915
+			],
+			"casts_shadow": false,
+			"in_shadow_pass": false
+		}
 	},
 	"render": {
 		"albedo_engine": "BLENDER_EEVEE",
@@ -42,16 +57,89 @@
 		"color_mode": "RGBA"
 	},
 	"postprocess": {
-		"shadow_rgb": [15, 11, 7],
-		"fake_shadow_rgb": [18, 13, 8],
-		"processed_shadow_thresholds": [6, 8, 10, 12],
-		"snow_rgb": [242, 237, 224],
-		"normal_strength": 3.2
+		"shadow_rgb": [
+			15,
+			11,
+			7
+		],
+		"fake_shadow_rgb": [
+			18,
+			13,
+			8
+		],
+		"processed_shadow_thresholds": [
+			6,
+			8,
+			10,
+			12
+		],
+		"snow_rgb": [
+			242,
+			237,
+			224
+		],
+		"normal_strength": 3.2,
+		"snow": {
+			"surface_blur_px": [
+				3.0,
+				9.0
+			],
+			"surface_blur_weights": [
+				0.42,
+				0.58
+			],
+			"up_facing_power": 1.15,
+			"settle_depth_px": 30,
+			"settle_decay": 1.5,
+			"settle_wobble_px": 2.0,
+			"cap_height_px": 8,
+			"cap_strength": 0.85,
+			"trunk_gain": 0.7,
+			"noise_octaves": [
+				{
+					"cells": 13,
+					"weight": 0.5
+				},
+				{
+					"cells": 31,
+					"weight": 0.31
+				},
+				{
+					"cells": 74,
+					"weight": 0.19
+				}
+			],
+			"noise_bite": 0.44,
+			"noise_seed": 20260726,
+			"light_direction": [
+				-0.45,
+				-0.89
+			],
+			"lit_rgb": [
+				250,
+				249,
+				246
+			],
+			"shaded_rgb": [
+				186,
+				192,
+				203
+			],
+			"settle_plateau_px": 7,
+			"overlay_cut": 0.34,
+			"overlay_softness": 0.15,
+			"overlay_peak": 0.97,
+			"surface_gradient_scale": 260.0,
+			"shade_blur_px": 1.5,
+			"shade_relief_scale": 190.0,
+			"shade_ambient": 0.3
+		}
 	},
 	"runtime": {
 		"normal_maps_generated": true,
 		"normal_maps_enabled": false,
-		"sun_shadow_mode": "baked_fixed_north_east_stretch_only",
-		"dynamic_light_shadows": "runtime_fake"
+		"sun_shadow_mode": "baked_fixed_south_east_stretch_only",
+		"dynamic_light_shadows": "runtime_fake",
+		"layer_cross_shadows": true
 	}
 }

@@ -20,7 +20,9 @@ from postprocess_layered_tree_asset import (
 
 
 ROOT = Path(__file__).resolve().parents[2]
-ASSET_DIR = ROOT / "artifacts" / "layered_tree_01"
+# Fixture must be an asset baked with the *current* profile: the shadow
+# direction assertions below only mean something against the live sun.
+ASSET_DIR = ROOT / "artifacts" / "layered_tree_v1_variations" / "var_01"
 
 
 def _asset_anchor() -> tuple[int, int]:
@@ -76,12 +78,20 @@ class LayeredTreePostprocessTest(unittest.TestCase):
         bbox = alpha.getbbox()
         anchor = _asset_anchor()
 
+        silhouette = alpha_of(albedo).getbbox()
         self.assertIsNotNone(bbox)
-        assert bbox is not None
-        self.assertLessEqual(bbox[0], 190)
-        self.assertGreaterEqual(bbox[2], 700)
-        self.assertGreater(bbox[2] - bbox[0], 400)
-        self.assertGreater(sum(alpha.histogram()[1:]), 40_000)
+        self.assertIsNotNone(silhouette)
+        assert bbox is not None and silhouette is not None
+
+        # The fallback fake shadow is a squashed copy of the silhouette pasted at
+        # the root, so it is never much wider than the tree. A real cast shadow at
+        # 42 degrees of elevation stretches far past it. Comparing against the
+        # silhouette keeps this meaningful for any variant, wide or slender,
+        # instead of pinning pixel columns of one particular tree.
+        silhouette_width = silhouette[2] - silhouette[0]
+        self.assertGreater(bbox[2] - bbox[0], silhouette_width * 2)
+        self.assertGreaterEqual(bbox[2], anchor[0] + 250)
+        self.assertGreater(sum(alpha.histogram()[1:]), 12_000)
 
         total_alpha = 0
         weighted_x = 0
@@ -95,8 +105,11 @@ class LayeredTreePostprocessTest(unittest.TestCase):
                 weighted_x += x * value
                 weighted_y += y * value
         self.assertGreater(total_alpha, 0)
+        # Sun azimuth 225 puts the shadow screen south-east: right of the root
+        # and below it. This assertion is the guard against the bake and the
+        # runtime stretch direction drifting apart.
         self.assertGreater(weighted_x / total_alpha, anchor[0] + 30)
-        self.assertLess(weighted_y / total_alpha, anchor[1] + 5)
+        self.assertGreater(weighted_y / total_alpha, anchor[1] + 8)
 
     def test_snow_overlay_reaches_lower_foliage_clusters(self) -> None:
         albedo = load_rgba(ASSET_DIR / "albedo.png")

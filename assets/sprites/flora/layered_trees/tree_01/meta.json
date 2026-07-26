@@ -9,12 +9,12 @@
 	],
 	"bake_profile": {
 		"profile_id": "station_peaceful_layered_asset_bake_v1",
-		"version": 1,
+		"version": 4,
 		"frame_size": 768,
-		"sun_azimuth_degrees": 315.0,
+		"sun_azimuth_degrees": 225.0,
 		"albedo_sun_elevation_degrees": 52.0,
 		"shadow_sun_elevation_degrees": 42.0,
-		"root_embed_fraction": 0.065
+		"root_embed_fraction": 0.07
 	},
 	"sort_offset": 539,
 	"collision_radius": 18,
@@ -34,10 +34,33 @@
 		"normal": "normal.png"
 	},
 	"alpha_bbox": [
-		299,
-		122,
-		163,
-		469
+		317,
+		117,
+		130,
+		476
 	],
-	"notes": "Prototype layered tree asset from one GLB. Static trunk/foliage layers; runtime wind should use wind_mask and keep trunk/root pinned."
+	"notes": "Prototype layered tree asset from one GLB. Static trunk/foliage layers; runtime wind should use wind_mask and keep trunk/root pinned.",
+	"source_variant": "var_01",
+	"variation": {
+		"profile_id": "station_peaceful_tree_variation_v1",
+		"variant_id": "var_01",
+		"title": "slender_young",
+		"framing": {
+			"ortho_scale": 1.631605863571167,
+			"pixels_per_world_unit": 470.70191223696935,
+			"world_bbox": {
+				"min": [
+					-0.1474413126707077,
+					-0.13329076766967773,
+					-0.07459941506385803
+				],
+				"max": [
+					0.14696402847766876,
+					0.13582497835159302,
+					0.9911063313484192
+				]
+			},
+			"world_height": 1.0657057464122772
+		}
+	}
 }

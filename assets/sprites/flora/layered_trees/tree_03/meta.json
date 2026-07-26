@@ -1,22 +1,22 @@
 {
 	"asset": "tree_03_layered_glb",
-	"source_glb": "M:\\Downloads\\3.glb",
+	"source_glb": "M:\\Downloads\\1.glb",
 	"frame_width": 768,
 	"frame_height": 768,
 	"anchor": [
 		384,
-		539
+		538
 	],
 	"bake_profile": {
 		"profile_id": "station_peaceful_layered_asset_bake_v1",
-		"version": 1,
+		"version": 4,
 		"frame_size": 768,
-		"sun_azimuth_degrees": 315.0,
+		"sun_azimuth_degrees": 225.0,
 		"albedo_sun_elevation_degrees": 52.0,
 		"shadow_sun_elevation_degrees": 42.0,
-		"root_embed_fraction": 0.065
+		"root_embed_fraction": 0.07
 	},
-	"sort_offset": 539,
+	"sort_offset": 538,
 	"collision_radius": 18,
 	"plant_depth_px": 0,
 	"wind_strength": 0.45,
@@ -34,10 +34,33 @@
 		"normal": "normal.png"
 	},
 	"alpha_bbox": [
-		306,
-		118,
-		156,
-		481
+		263,
+		120,
+		237,
+		470
 	],
-	"notes": "Prototype layered tree asset from one GLB. Static trunk/foliage layers; runtime wind should use wind_mask and keep trunk/root pinned."
+	"notes": "Prototype layered tree asset from one GLB. Static trunk/foliage layers; runtime wind should use wind_mask and keep trunk/root pinned.",
+	"source_variant": "var_03",
+	"variation": {
+		"profile_id": "station_peaceful_tree_variation_v1",
+		"variant_id": "var_03",
+		"title": "wind_leaned",
+		"framing": {
+			"ortho_scale": 1.5282968282699585,
+			"pixels_per_world_unit": 502.5201818087791,
+			"world_bbox": {
+				"min": [
+					-0.2579886019229889,
+					-0.20025554299354553,
+					-0.06966816633939743
+				],
+				"max": [
+					0.2355283498764038,
+					0.17044448852539062,
+					0.9255911707878113
+				]
+			},
+			"world_height": 0.9952593371272087
+		}
+	}
 }
