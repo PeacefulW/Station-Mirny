@@ -4,8 +4,8 @@ doc_type: system_spec
 status: draft
 owner: engineering
 source_of_truth: true
-version: 0.11
-last_updated: 2026-07-23
+version: 0.12
+last_updated: 2026-07-28
 related_docs:
   - ../README.md
   - commands.md
@@ -45,6 +45,7 @@ It covers only the minimal core set confirmed in code during this pass:
 - `BuildingSystem`
 - `WorldCore`
 - `WorldStreamer`
+- `WorldTileSetFactory`
 - `WorldBoundsSettings`
 - `FoundationGenSettings`
 - `LakeGenSettings`
@@ -466,7 +467,8 @@ Confirmed mutation entrypoints:
 
 | Surface | Notes |
 |---|---|
-| `initialize_new_world(seed_value: int, settings: MountainGenSettings, world_bounds: WorldBoundsSettings = null, foundation_settings: FoundationGenSettings = null, lake_settings: LakeGenSettings = null, plains_tree_settings: PlainsTreePlacementSettings = null, plains_small_rock_settings: PlainsSmallRockPlacementSettings = null)` | New-game entrypoint; freezes mountain, finite-bounds, foundation, lake, plains tree placement, and plains small rock placement settings into packed/native form and then delegates to `reset_for_new_game(...)` |
+| `initialize_new_world(seed_value: int, settings: MountainGenSettings, world_bounds: WorldBoundsSettings = null, foundation_settings: FoundationGenSettings = null, lake_settings: LakeGenSettings = null, plains_tree_settings: PlainsTreePlacementSettings = null, plains_small_rock_settings: PlainsSmallRockPlacementSettings = null, plains_bare_ground_stone_settings: PlainsSmallRockPlacementSettings = null)` | New-game entrypoint; freezes mountain, finite-bounds, foundation, lake, plains tree placement, and both plains small-rock placement profiles into packed/native form and then delegates to `reset_for_new_game(...)` |
+| `enable_debug_visible_only_initial_loading()` | Developer-scene boot option; before target establishment, makes the initial loading gate wait for the complete production visible envelope while the outer movement-reserve ring continues through the normal background streamer. Returns `false` after a target exists. |
 | `reset_for_new_game(seed, version)` | Clears runtime state, queues native foundation spawn resolution for `world_version >= 9`, applies the resolved new-game spawn tile to the local player before streaming chunks, and emits `world_initialized` |
 | `load_world_state(data: Dictionary) -> bool` | Restores only current-version `world.json` payloads. Returns `false` before mutating runtime state when `world_version` is missing/non-current or the current `worldgen_settings` shape is incomplete; on success restores `world_seed` / `world_version`, rebuilds `worldgen_settings.world_bounds`, `worldgen_settings.foundation`, `worldgen_settings.mountains`, `worldgen_settings.lakes`, `worldgen_settings.plains_trees`, `worldgen_settings.plains_small_rocks`, and `worldgen_settings.plains_bare_ground_stones` from `world.json`, and clears runtime state |
 | `load_chunk_diffs(entries: Array)` | Loads serialized chunk diffs into `WorldDiffStore` |
@@ -483,6 +485,25 @@ Not documented here as safe entrypoints:
 - direct access to `_chunk_packets`, `_chunk_views`, or `_diff_store`
 - direct mutation of native packet dictionaries outside the documented methods
 - mutation of dictionaries returned by `get_chunk_packet()`
+
+### WorldTileSetFactory
+
+Owner file: `core/systems/world/world_tile_set_factory.gd`
+
+Role:
+- boot-built shared `TileSet` and `ShaderMaterial` cache for production terrain
+  presentation
+
+Confirmed developer-only mutation entrypoint:
+
+| Surface | Notes |
+|---|---|
+| `reset_debug_authoring_cache()` | Clears boot-built terrain, roof, and water presentation caches for a complete embedded dev-runtime rebuild. It is valid only after the previous world and all of its `ChunkView` nodes have left the scene tree; gameplay/runtime code must never call it on a live world. |
+
+Not documented here as safe entrypoints:
+- clearing any backing cache dictionary directly
+- calling `reset_debug_authoring_cache()` while a live world owns built tile
+  sets or materials
 
 ### World Bounds, Foundation, Lake, Tree, and Small Rock Settings
 

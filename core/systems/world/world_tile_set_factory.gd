@@ -20,6 +20,20 @@ const WATER_SURFACE_DARK_MATERIAL_ID: StringName = &"lake:water_surface_dark_mat
 static func bootstrap() -> void:
 	TerrainPresentationRegistry.bootstrap()
 
+
+## Developer authoring scenes may rebuild the complete embedded runtime after
+## every tuning apply. Call only after the previous world has left the scene
+## tree; live ChunkViews must never observe a cache reset.
+static func reset_debug_authoring_cache() -> void:
+	_tile_sets_by_layer.clear()
+	_source_ids_by_terrain_id.clear()
+	_materials_by_profile_id.clear()
+	_roof_tile_sets_by_terrain_id.clear()
+	_roof_source_ids_by_terrain_id.clear()
+	_water_tile_set = null
+	_water_source_ids_by_terrain_id.clear()
+
+
 static func get_tile_set() -> TileSet:
 	return get_base_tile_set()
 

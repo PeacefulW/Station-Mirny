@@ -4,8 +4,8 @@ doc_type: system_spec_index
 status: approved
 owner: engineering+design
 source_of_truth: true
-version: 1.12
-last_updated: 2026-07-14
+version: 1.13
+last_updated: 2026-07-28
 ---
 
 # System Specs
@@ -80,6 +80,7 @@ Current transition strategy:
 - [Terrain Hybrid Presentation](world/terrain_hybrid_presentation.md)
 - [Plains Ground Field Composition - Macro-Masses and Paths](world/plains_ground_field_composition.md)
 - [Plains Ground Cosmetic Shading - Form and Contact Weight](world/plains_ground_cosmetic_shading.md)
+- [Visual Runtime Lab V0](world/visual_runtime_lab.md)
 - [Plains Bare-Ground Stone Scatter - Procedural Rock Variations](world/plains_bare_ground_stone_scatter.md)
 - [World Dynamic Lighting 2D - Sun, Torch, Ambient](world/world_dynamic_lighting_2d.md)
 - [Wind Runtime V0 and Grass Scatter Presentation](world/wind_and_grass_scatter_presentation.md)

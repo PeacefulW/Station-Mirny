@@ -251,6 +251,7 @@ var _diff_store: WorldDiffStore = WorldDiffStore.new()
 var _readiness_tracker: WorldStreamingReadinessTracker = WorldStreamingReadinessTracker.new()
 var _initial_loading_gate: WorldInitialLoadingGate = WorldInitialLoadingGate.new()
 var _initial_loading_readiness_cursor: int = 0
+var _debug_initial_loading_visible_only: bool = false
 var _chunk_packets: Dictionary = { }
 ## Immutable native packets are kept separately from diff-applied runtime
 ## packets so a warm-cache hit can always reapply the current WorldDiffStore.
@@ -672,6 +673,7 @@ func initialize_new_world(
 		lake_settings: LakeGenSettings = null,
 		plains_tree_settings: PlainsTreePlacementSettings = null,
 		plains_small_rock_settings: PlainsSmallRockPlacementSettings = null,
+		plains_bare_ground_stone_settings: PlainsSmallRockPlacementSettings = null,
 ) -> void:
 	_pending_new_world_settings = _clone_worldgen_settings(settings)
 	_pending_new_world_bounds = _clone_world_bounds(world_bounds)
@@ -682,7 +684,10 @@ func initialize_new_world(
 	_pending_new_lake_settings = _clone_lake_settings(lake_settings)
 	_pending_new_plains_tree_settings = _make_new_world_plains_tree_settings(plains_tree_settings)
 	_pending_new_plains_small_rock_settings = _make_new_world_plains_small_rock_settings(plains_small_rock_settings)
-	_pending_new_plains_bare_ground_stone_settings = _make_new_world_plains_bare_ground_stone_settings()
+	_pending_new_plains_bare_ground_stone_settings = \
+			_make_new_world_plains_bare_ground_stone_settings(
+				plains_bare_ground_stone_settings,
+			)
 	reset_for_new_game(seed_value, WorldRuntimeConstants.WORLD_VERSION)
 
 
@@ -806,6 +811,16 @@ func get_world_version() -> int:
 
 func get_initial_loading_state() -> Dictionary:
 	return _initial_loading_gate.get_state()
+
+
+## Developer-scene boot option. The production visible envelope is still fully
+## materialized, while its outer movement reserve may finish in the background.
+## Call only before a new-world target has been established.
+func enable_debug_visible_only_initial_loading() -> bool:
+	if _initial_loading_gate.has_target():
+		return false
+	_debug_initial_loading_visible_only = true
+	return true
 
 
 func acknowledge_initial_world_presented() -> bool:
@@ -4357,12 +4372,22 @@ func _sync_initial_loading_target() -> void:
 	if not _initial_loading_gate.is_active() \
 			or _player_chunk_coord == INVALID_CHUNK_COORD:
 		return
+	var target_coords: Array[Vector2i] = (
+		_desired_visible_chunk_coords
+		if _debug_initial_loading_visible_only
+		else _desired_source_chunk_coords
+	)
+	var target_radius_chunks: int = (
+		_current_stream_radius_chunks
+		if _debug_initial_loading_visible_only
+		else _resolve_source_cache_radius_chunks()
+	)
 	if _initial_loading_gate.establish_target(
 		_player_chunk_coord,
 		_desired_visible_chunk_coords,
-		_desired_source_chunk_coords,
+		target_coords,
 		_current_stream_radius_chunks,
-		_resolve_source_cache_radius_chunks(),
+		target_radius_chunks,
 	):
 		_initial_loading_readiness_cursor = 0
 		_streaming_worker_demand_dirty = true

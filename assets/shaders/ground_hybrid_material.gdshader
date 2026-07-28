@@ -93,11 +93,19 @@ uniform float shade_directional_gain = 3.2;
 uniform float shade_dir_strength = 0.16;
 uniform float ground_sun_angle_deg = 234.0;
 uniform float ground_sun_day = 1.0;
+// Developer-only exact zone view. The lab toggles this on the shared ground
+// material; mode 2 renders the same classification into a 1 px probe and
+// encodes its zone id in alpha. Zero is the production default.
+uniform int debug_zone_mode = 0;
+uniform vec2 debug_world_offset = vec2(0.0);
 
 varying vec2 world_pos;
 
 void vertex() {
-	world_pos = (MODEL_MATRIX * vec4(VERTEX, 0.0, 1.0)).xy;
+	world_pos = (
+		(MODEL_MATRIX * vec4(VERTEX, 0.0, 1.0)).xy
+		+ debug_world_offset
+	);
 }
 
 float remap_contrast(float value, float amount) {
@@ -214,6 +222,7 @@ void fragment() {
 
 		float grass_total = 0.0;
 		float rock_normal_mask = 0.0;
+		float debug_zone_id = 0.0;
 		float organic_strength = clamp(organic_overlay_strength, 0.0, 1.0);
 		if (organic_strength > 0.001) {
 			// --- aperiodic world fields ---
@@ -370,6 +379,50 @@ void fragment() {
 			float sun_slope = clamp(0.5 + (shade_b - shade_a) * shade_directional_gain, 0.0, 1.0);
 			float directional = mix(1.0 - shade_dir_strength, 1.0 + shade_dir_strength * 0.6, sun_slope);
 			top_color *= ambient_ao * mix(1.0, directional, clamp(ground_sun_day, 0.0, 1.0));
+
+			if (debug_zone_mode > 0) {
+				// This classification intentionally lives beside the real field
+				// values: the lab never reimplements shader zones in GDScript.
+				vec3 zone_color = mix(
+					vec3(0.20, 0.11, 0.06),
+					vec3(0.46, 0.31, 0.17),
+					step(0.5, soil_mix)
+				);
+				debug_zone_id = step(0.5, soil_mix);
+				if (grass_density_visual >= 0.12) {
+					zone_color = vec3(0.62, 0.56, 0.20);
+					debug_zone_id = 2.0;
+				}
+				if (grass_density_visual >= 0.26) {
+					zone_color = vec3(0.39, 0.55, 0.18);
+					debug_zone_id = 3.0;
+				}
+				if (grass_density_visual >= 0.40) {
+					zone_color = vec3(0.20, 0.48, 0.16);
+					debug_zone_id = 4.0;
+				}
+				if (grass_density_visual >= 0.56) {
+					zone_color = vec3(0.08, 0.34, 0.13);
+					debug_zone_id = 5.0;
+				}
+				if (path_open < 0.72) {
+					zone_color = vec3(0.16, 0.66, 0.78);
+					debug_zone_id = 6.0;
+				}
+				if (scree > 0.15) {
+					zone_color = vec3(0.48, 0.42, 0.56);
+					debug_zone_id = 7.0;
+				}
+				if (rock_region_visual > 0.22) {
+					zone_color = vec3(0.34, 0.38, 0.40);
+					debug_zone_id = 8.0;
+				}
+				if (orange_region > 0.20) {
+					zone_color = vec3(1.0, 0.36, 0.08);
+					debug_zone_id = 9.0;
+				}
+				top_color = zone_color;
+			}
 		}
 
 		vec3 face_albedo = texture(face_albedo_tex, face_uv).rgb;
@@ -385,7 +438,11 @@ void fragment() {
 			back_color * back_mask
 		) / total_mask;
 
-		COLOR = vec4(final_color, mask.a);
+		float output_alpha = mask.a;
+		if (debug_zone_mode == 2) {
+			output_alpha = (debug_zone_id + 1.0) / 16.0;
+		}
+		COLOR = vec4(final_color, output_alpha);
 		if (temporary_disable_terrain_normals) {
 			NORMAL_MAP = vec3(0.5, 0.5, 1.0);
 		} else {

@@ -1304,3 +1304,246 @@ msgstr "Causality по чанкам"
 
 msgid "UI_DEBUG_CHUNK_OVERLAY_TASK_CAUSALITY"
 msgstr "Causality по visual task"
+
+msgid "UI_VISUAL_LAB_EYEBROW"
+msgstr "DEV · PRODUCTION RUNTIME"
+
+msgid "UI_VISUAL_LAB_TITLE"
+msgstr "Visual Lab"
+
+msgid "UI_VISUAL_LAB_SUBTITLE"
+msgstr "Настройка production-земли, растительности и географии на максимальном игровом отдалении."
+
+msgid "UI_VISUAL_LAB_ZONES"
+msgstr "Зоны текстур"
+
+msgid "UI_VISUAL_LAB_GRID"
+msgstr "Сетка тайлов"
+
+msgid "UI_VISUAL_LAB_MOUNTAIN_MASK"
+msgstr "Маска горы"
+
+msgid "UI_VISUAL_LAB_COLLISIONS"
+msgstr "Коллайдеры"
+
+msgid "UI_VISUAL_LAB_DAY_NIGHT"
+msgstr "День / ночь"
+
+msgid "UI_VISUAL_LAB_AUTO_APPLY"
+msgstr "Автоприменение"
+
+msgid "UI_VISUAL_LAB_GROUP_GROUND"
+msgstr "Земля и зоны"
+
+msgid "UI_VISUAL_LAB_GROUP_GRASS"
+msgstr "Трава"
+
+msgid "UI_VISUAL_LAB_GROUP_TREES"
+msgstr "Деревья"
+
+msgid "UI_VISUAL_LAB_GROUP_ROCKS"
+msgstr "Мелкие камни"
+
+msgid "UI_VISUAL_LAB_GROUP_WORLD"
+msgstr "Озеро и гора"
+
+msgid "UI_VISUAL_LAB_GROUND_GRASS_COVERAGE"
+msgstr "Покрытие травой"
+
+msgid "UI_VISUAL_LAB_GROUND_ORANGE_COVERAGE"
+msgstr "Оранжевый биофилд"
+
+msgid "UI_VISUAL_LAB_GROUND_ROCK_COVERAGE"
+msgstr "Каменистые пятна"
+
+msgid "UI_VISUAL_LAB_GROUND_PATH_STRENGTH"
+msgstr "Выраженность троп"
+
+msgid "UI_VISUAL_LAB_GRASS_DENSITY"
+msgstr "Density пучков"
+
+msgid "UI_VISUAL_LAB_GRASS_HEIGHT_SCALE"
+msgstr "Масштаб высоты"
+
+msgid "UI_VISUAL_LAB_GRASS_MIN_HEIGHT"
+msgstr "Минимальная высота"
+
+msgid "UI_VISUAL_LAB_GRASS_MAX_HEIGHT"
+msgstr "Максимальная высота"
+
+msgid "UI_VISUAL_LAB_GRASS_VARIETY"
+msgstr "Разнообразие кадров"
+
+msgid "UI_VISUAL_LAB_GRASS_SWAY"
+msgstr "Размах от ветра"
+
+msgid "UI_VISUAL_LAB_TREES_DENSITY"
+msgstr "Density деревьев"
+
+msgid "UI_VISUAL_LAB_TREES_DISTANCE"
+msgstr "Минимальная дистанция"
+
+msgid "UI_VISUAL_LAB_TREES_MIN_SIZE"
+msgstr "Минимальный размер"
+
+msgid "UI_VISUAL_LAB_TREES_MAX_SIZE"
+msgstr "Максимальный размер"
+
+msgid "UI_VISUAL_LAB_ROCKS_DENSITY"
+msgstr "Density камней"
+
+msgid "UI_VISUAL_LAB_ROCKS_MAX"
+msgstr "Максимум на чанк"
+
+msgid "UI_VISUAL_LAB_ROCKS_VARIETY"
+msgstr "Разнообразие ассетов"
+
+msgid "UI_VISUAL_LAB_LAKE_DEPTH"
+msgstr "Порог глубокой воды"
+
+msgid "UI_VISUAL_LAB_LAKE_SHORE"
+msgstr "Извилистость берега"
+
+msgid "UI_VISUAL_LAB_MOUNTAIN_DENSITY"
+msgstr "Плотность гор"
+
+msgid "UI_VISUAL_LAB_MOUNTAIN_RUGGEDNESS"
+msgstr "Рваность горы"
+
+msgid "UI_VISUAL_LAB_INSPECTOR"
+msgstr "Материал под курсором"
+
+msgid "UI_VISUAL_LAB_INSPECTOR_EMPTY"
+msgstr "Наведи курсор на мир, чтобы увидеть terrain, material и texture."
+
+msgid "UI_VISUAL_LAB_INSPECTOR_NOT_READY"
+msgstr "Чанк под курсором ещё не готов."
+
+msgid "UI_VISUAL_LAB_INSPECTOR_VALUE"
+msgstr "Тайл {tile}\n{terrain}\nprofile: {profile}\nmaterial: {material}\ntexture: {texture}"
+
+msgid "UI_VISUAL_LAB_TEXTURES"
+msgstr "Активные texture slots"
+
+msgid "UI_VISUAL_LAB_ZONE_LEGEND"
+msgstr "Зоны: коричневый — грунт, жёлто-зелёный — лестница травы, голубой — тропы, фиолетовый — осыпь, серый — камень, оранжевый — биофилд. Удерживай Shift над миром, чтобы увидеть точный albedo / texture."
+
+msgid "UI_VISUAL_LAB_TEXTURE_COMPOSITE"
+msgstr "процедурная композиция нескольких texture slots"
+
+msgid "UI_VISUAL_LAB_SHIFT_TOOLTIP"
+msgstr "{zone}\nalbedo / texture: {texture}"
+
+msgid "UI_VISUAL_LAB_SHIFT_SAMPLING"
+msgstr "Считываю точную shader-зону…"
+
+msgid "UI_VISUAL_LAB_ZONE_DIRTY"
+msgstr "Коричневый · мягкий грунт"
+
+msgid "UI_VISUAL_LAB_ZONE_GRAVEL"
+msgstr "Коричневый · сухой гравий"
+
+msgid "UI_VISUAL_LAB_ZONE_GRASS_TRANSITION"
+msgstr "Жёлтый · переходная трава"
+
+msgid "UI_VISUAL_LAB_ZONE_GRASS_SPARSE"
+msgstr "Жёлто-зелёный · редкая трава"
+
+msgid "UI_VISUAL_LAB_ZONE_GRASS_MEDIUM"
+msgstr "Зелёный · средняя трава"
+
+msgid "UI_VISUAL_LAB_ZONE_GRASS_DENSE"
+msgstr "Тёмно-зелёный · густая трава"
+
+msgid "UI_VISUAL_LAB_ZONE_PATH"
+msgstr "Голубой · тропа"
+
+msgid "UI_VISUAL_LAB_ZONE_SCREE"
+msgstr "Фиолетовый · каменная осыпь"
+
+msgid "UI_VISUAL_LAB_ZONE_ROCK"
+msgstr "Серый · каменистое пятно"
+
+msgid "UI_VISUAL_LAB_ZONE_ORANGE"
+msgstr "Оранжевый · биофилд"
+
+msgid "UI_VISUAL_LAB_APPLY"
+msgstr "Применить к пробе"
+
+msgid "UI_VISUAL_LAB_SAVE_RUNTIME"
+msgstr "Сохранить в runtime"
+
+msgid "UI_VISUAL_LAB_RESET"
+msgstr "Сбросить"
+
+msgid "UI_VISUAL_LAB_STATUS_READY"
+msgstr "Проба готова. Крути параметры — автоприменение включено."
+
+msgid "UI_VISUAL_LAB_STATUS_STAGED"
+msgstr "Значение изменено. Отпусти ползунок для применения."
+
+msgid "UI_VISUAL_LAB_STATUS_APPLYING"
+msgstr "Пересобираю только встроенную runtime-пробу…"
+
+msgid "UI_VISUAL_LAB_STATUS_SELECTING"
+msgstr "Ищу компактный участок: озеро слева, гора справа, все object families…"
+
+msgid "UI_VISUAL_LAB_STATUS_LOADING_PATCH"
+msgstr "Production streamer готовит выбранный участок…"
+
+msgid "UI_VISUAL_LAB_STATUS_APPLIED"
+msgstr "Рабочие значения применены к пробе."
+
+msgid "UI_VISUAL_LAB_STATUS_SAVED"
+msgstr "Значения сохранены в production .tres и применены."
+
+msgid "UI_VISUAL_LAB_STATUS_RESET"
+msgstr "Рабочие значения восстановлены с диска."
+
+msgid "UI_VISUAL_LAB_STATUS_RESOURCE_ERROR"
+msgstr "Не удалось загрузить production-ресурсы лаборатории."
+
+msgid "UI_VISUAL_LAB_STATUS_RUNTIME_ERROR"
+msgstr "Production runtime не создал WorldStreamer или Player."
+
+msgid "UI_VISUAL_LAB_STATUS_TARGET_TIMEOUT"
+msgstr "Spawn-пузырь runtime не был подготовлен вовремя."
+
+msgid "UI_VISUAL_LAB_STATUS_PATCH_ERROR"
+msgstr "В ограниченном радиусе не найден пригодный visual patch."
+
+msgid "UI_VISUAL_LAB_STATUS_PATCH_TIMEOUT"
+msgstr "Выбранный visual patch не был подготовлен вовремя."
+
+msgid "UI_VISUAL_LAB_STATUS_SAVE_ERROR"
+msgstr "Не удалось записать {path} (ошибка {error}). Проверь файлы; несохранённые значения остались в памяти."
+
+msgid "UI_VISUAL_LAB_PROBE_SUMMARY"
+msgstr "seed {seed} · WV{version} · zoom {zoom} · {chunks} чанков · {match}"
+
+msgid "UI_VISUAL_LAB_MATCH_FULL"
+msgstr "полное совпадение"
+
+msgid "UI_VISUAL_LAB_MATCH_BEST"
+msgstr "лучший участок в лимите"
+
+msgid "UI_VISUAL_LAB_TERRAIN_GROUND"
+msgstr "равнинная земля"
+
+msgid "UI_VISUAL_LAB_TERRAIN_DUG"
+msgstr "вскрытая земля"
+
+msgid "UI_VISUAL_LAB_TERRAIN_MOUNTAIN_WALL"
+msgstr "горная стена"
+
+msgid "UI_VISUAL_LAB_TERRAIN_MOUNTAIN_FOOT"
+msgstr "подножие горы"
+
+msgid "UI_VISUAL_LAB_TERRAIN_SHALLOW"
+msgstr "мелкая вода"
+
+msgid "UI_VISUAL_LAB_TERRAIN_DEEP"
+msgstr "глубокая вода"
+
+msgid "UI_VISUAL_LAB_TERRAIN_UNKNOWN"
+msgstr "неизвестный terrain"

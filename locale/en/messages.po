@@ -1304,3 +1304,246 @@ msgstr "Chunk causality"
 
 msgid "UI_DEBUG_CHUNK_OVERLAY_TASK_CAUSALITY"
 msgstr "Visual task causality"
+
+msgid "UI_VISUAL_LAB_EYEBROW"
+msgstr "DEV · PRODUCTION RUNTIME"
+
+msgid "UI_VISUAL_LAB_TITLE"
+msgstr "Visual Lab"
+
+msgid "UI_VISUAL_LAB_SUBTITLE"
+msgstr "Tune production ground, vegetation, and geography at the maximum gameplay zoom-out."
+
+msgid "UI_VISUAL_LAB_ZONES"
+msgstr "Texture zones"
+
+msgid "UI_VISUAL_LAB_GRID"
+msgstr "Tile grid"
+
+msgid "UI_VISUAL_LAB_MOUNTAIN_MASK"
+msgstr "Mountain mask"
+
+msgid "UI_VISUAL_LAB_COLLISIONS"
+msgstr "Colliders"
+
+msgid "UI_VISUAL_LAB_DAY_NIGHT"
+msgstr "Day / night"
+
+msgid "UI_VISUAL_LAB_AUTO_APPLY"
+msgstr "Auto apply"
+
+msgid "UI_VISUAL_LAB_GROUP_GROUND"
+msgstr "Ground and zones"
+
+msgid "UI_VISUAL_LAB_GROUP_GRASS"
+msgstr "Grass"
+
+msgid "UI_VISUAL_LAB_GROUP_TREES"
+msgstr "Trees"
+
+msgid "UI_VISUAL_LAB_GROUP_ROCKS"
+msgstr "Small rocks"
+
+msgid "UI_VISUAL_LAB_GROUP_WORLD"
+msgstr "Lake and mountain"
+
+msgid "UI_VISUAL_LAB_GROUND_GRASS_COVERAGE"
+msgstr "Grass coverage"
+
+msgid "UI_VISUAL_LAB_GROUND_ORANGE_COVERAGE"
+msgstr "Orange biofield"
+
+msgid "UI_VISUAL_LAB_GROUND_ROCK_COVERAGE"
+msgstr "Rocky patches"
+
+msgid "UI_VISUAL_LAB_GROUND_PATH_STRENGTH"
+msgstr "Path strength"
+
+msgid "UI_VISUAL_LAB_GRASS_DENSITY"
+msgstr "Tuft density"
+
+msgid "UI_VISUAL_LAB_GRASS_HEIGHT_SCALE"
+msgstr "Height scale"
+
+msgid "UI_VISUAL_LAB_GRASS_MIN_HEIGHT"
+msgstr "Minimum height"
+
+msgid "UI_VISUAL_LAB_GRASS_MAX_HEIGHT"
+msgstr "Maximum height"
+
+msgid "UI_VISUAL_LAB_GRASS_VARIETY"
+msgstr "Frame variety"
+
+msgid "UI_VISUAL_LAB_GRASS_SWAY"
+msgstr "Wind sway"
+
+msgid "UI_VISUAL_LAB_TREES_DENSITY"
+msgstr "Tree density"
+
+msgid "UI_VISUAL_LAB_TREES_DISTANCE"
+msgstr "Minimum distance"
+
+msgid "UI_VISUAL_LAB_TREES_MIN_SIZE"
+msgstr "Minimum size"
+
+msgid "UI_VISUAL_LAB_TREES_MAX_SIZE"
+msgstr "Maximum size"
+
+msgid "UI_VISUAL_LAB_ROCKS_DENSITY"
+msgstr "Rock density"
+
+msgid "UI_VISUAL_LAB_ROCKS_MAX"
+msgstr "Maximum per chunk"
+
+msgid "UI_VISUAL_LAB_ROCKS_VARIETY"
+msgstr "Asset variety"
+
+msgid "UI_VISUAL_LAB_LAKE_DEPTH"
+msgstr "Deep-water threshold"
+
+msgid "UI_VISUAL_LAB_LAKE_SHORE"
+msgstr "Shore irregularity"
+
+msgid "UI_VISUAL_LAB_MOUNTAIN_DENSITY"
+msgstr "Mountain density"
+
+msgid "UI_VISUAL_LAB_MOUNTAIN_RUGGEDNESS"
+msgstr "Mountain ruggedness"
+
+msgid "UI_VISUAL_LAB_INSPECTOR"
+msgstr "Material under cursor"
+
+msgid "UI_VISUAL_LAB_INSPECTOR_EMPTY"
+msgstr "Point at the world to inspect terrain, material, and texture."
+
+msgid "UI_VISUAL_LAB_INSPECTOR_NOT_READY"
+msgstr "The chunk under the cursor is not ready yet."
+
+msgid "UI_VISUAL_LAB_INSPECTOR_VALUE"
+msgstr "Tile {tile}\n{terrain}\nprofile: {profile}\nmaterial: {material}\ntexture: {texture}"
+
+msgid "UI_VISUAL_LAB_TEXTURES"
+msgstr "Active texture slots"
+
+msgid "UI_VISUAL_LAB_ZONE_LEGEND"
+msgstr "Zones: brown — ground, yellow/green — grass ladder, cyan — paths, purple — scree, grey — rock, orange — biofield. Hold Shift over the world to see the exact albedo / texture."
+
+msgid "UI_VISUAL_LAB_TEXTURE_COMPOSITE"
+msgstr "procedural composition of several texture slots"
+
+msgid "UI_VISUAL_LAB_SHIFT_TOOLTIP"
+msgstr "{zone}\nalbedo / texture: {texture}"
+
+msgid "UI_VISUAL_LAB_SHIFT_SAMPLING"
+msgstr "Sampling the exact shader zone…"
+
+msgid "UI_VISUAL_LAB_ZONE_DIRTY"
+msgstr "Brown · soft soil"
+
+msgid "UI_VISUAL_LAB_ZONE_GRAVEL"
+msgstr "Brown · dry gravel"
+
+msgid "UI_VISUAL_LAB_ZONE_GRASS_TRANSITION"
+msgstr "Yellow · transition grass"
+
+msgid "UI_VISUAL_LAB_ZONE_GRASS_SPARSE"
+msgstr "Yellow-green · sparse grass"
+
+msgid "UI_VISUAL_LAB_ZONE_GRASS_MEDIUM"
+msgstr "Green · medium grass"
+
+msgid "UI_VISUAL_LAB_ZONE_GRASS_DENSE"
+msgstr "Dark green · dense grass"
+
+msgid "UI_VISUAL_LAB_ZONE_PATH"
+msgstr "Cyan · path"
+
+msgid "UI_VISUAL_LAB_ZONE_SCREE"
+msgstr "Purple · rock scree"
+
+msgid "UI_VISUAL_LAB_ZONE_ROCK"
+msgstr "Grey · rocky patch"
+
+msgid "UI_VISUAL_LAB_ZONE_ORANGE"
+msgstr "Orange · biofield"
+
+msgid "UI_VISUAL_LAB_APPLY"
+msgstr "Apply to probe"
+
+msgid "UI_VISUAL_LAB_SAVE_RUNTIME"
+msgstr "Save to runtime"
+
+msgid "UI_VISUAL_LAB_RESET"
+msgstr "Reset"
+
+msgid "UI_VISUAL_LAB_STATUS_READY"
+msgstr "Probe ready. Adjust values; auto apply is enabled."
+
+msgid "UI_VISUAL_LAB_STATUS_STAGED"
+msgstr "Value changed. Release the slider to apply."
+
+msgid "UI_VISUAL_LAB_STATUS_APPLYING"
+msgstr "Rebuilding only the embedded runtime probe…"
+
+msgid "UI_VISUAL_LAB_STATUS_SELECTING"
+msgstr "Finding a compact patch: lake left, mountain right, every object family…"
+
+msgid "UI_VISUAL_LAB_STATUS_LOADING_PATCH"
+msgstr "The production streamer is preparing the selected patch…"
+
+msgid "UI_VISUAL_LAB_STATUS_APPLIED"
+msgstr "Working values were applied to the probe."
+
+msgid "UI_VISUAL_LAB_STATUS_SAVED"
+msgstr "Values were saved to production .tres resources and applied."
+
+msgid "UI_VISUAL_LAB_STATUS_RESET"
+msgstr "Working values were restored from disk."
+
+msgid "UI_VISUAL_LAB_STATUS_RESOURCE_ERROR"
+msgstr "Could not load the lab's production resources."
+
+msgid "UI_VISUAL_LAB_STATUS_RUNTIME_ERROR"
+msgstr "The production runtime did not create WorldStreamer or Player."
+
+msgid "UI_VISUAL_LAB_STATUS_TARGET_TIMEOUT"
+msgstr "The runtime spawn bubble did not become ready in time."
+
+msgid "UI_VISUAL_LAB_STATUS_PATCH_ERROR"
+msgstr "No suitable visual patch was found inside the bounded radius."
+
+msgid "UI_VISUAL_LAB_STATUS_PATCH_TIMEOUT"
+msgstr "The selected visual patch did not become ready in time."
+
+msgid "UI_VISUAL_LAB_STATUS_SAVE_ERROR"
+msgstr "Could not write {path} (error {error}). Check the files; unsaved values remain in memory."
+
+msgid "UI_VISUAL_LAB_PROBE_SUMMARY"
+msgstr "seed {seed} · WV{version} · zoom {zoom} · {chunks} chunks · {match}"
+
+msgid "UI_VISUAL_LAB_MATCH_FULL"
+msgstr "full match"
+
+msgid "UI_VISUAL_LAB_MATCH_BEST"
+msgstr "best bounded patch"
+
+msgid "UI_VISUAL_LAB_TERRAIN_GROUND"
+msgstr "plains ground"
+
+msgid "UI_VISUAL_LAB_TERRAIN_DUG"
+msgstr "dug ground"
+
+msgid "UI_VISUAL_LAB_TERRAIN_MOUNTAIN_WALL"
+msgstr "mountain wall"
+
+msgid "UI_VISUAL_LAB_TERRAIN_MOUNTAIN_FOOT"
+msgstr "mountain foot"
+
+msgid "UI_VISUAL_LAB_TERRAIN_SHALLOW"
+msgstr "shallow water"
+
+msgid "UI_VISUAL_LAB_TERRAIN_DEEP"
+msgstr "deep water"
+
+msgid "UI_VISUAL_LAB_TERRAIN_UNKNOWN"
+msgstr "unknown terrain"
