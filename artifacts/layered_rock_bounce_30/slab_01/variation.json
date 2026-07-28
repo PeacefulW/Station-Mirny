@@ -1,0 +1,40 @@
+{
+	"profile_id": "station_peaceful_rock_variation_v1",
+	"version": 1,
+	"variant": {
+		"id": "slab_01",
+		"title": "broad_slab",
+		"title_ru": "широкая плита",
+		"family": "slab",
+		"seed": 51011,
+		"flatten": 0.26,
+		"elongation": 1.35,
+		"taper": 0.12,
+		"yaw_degrees": 14.0,
+		"facet_count": 7,
+		"facet_sharpness": 0.85,
+		"chip_count": 3,
+		"chip_depth": 0.18,
+		"erosion_scale": 0.35,
+		"erosion_strength": 0.085,
+		"embed_fraction": 0.34,
+		"tint_shift": -0.03,
+		"world_scale": 1.25,
+		"asset_id": "small_rock_11"
+	},
+	"framing": {
+		"ortho_scale": 4.856448173522949,
+		"pixels_per_world_unit": 158.1402647694436,
+		"world_bbox": [
+			-1.4569344520568848,
+			-1.3100030422210693,
+			-0.2435310333967209,
+			1.4569344520568848,
+			1.3100030422210693,
+			0.4727367162704468
+		],
+		"world_width": 2.9138689041137695,
+		"world_depth": 2.6200060844421387,
+		"world_height": 0.7162677496671677
+	}
+}

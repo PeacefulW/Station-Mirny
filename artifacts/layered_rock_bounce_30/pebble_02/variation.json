@@ -1,0 +1,40 @@
+{
+	"profile_id": "station_peaceful_rock_variation_v1",
+	"version": 1,
+	"variant": {
+		"id": "pebble_02",
+		"title": "angular_chip",
+		"title_ru": "угловатый обломок",
+		"family": "pebble",
+		"seed": 82022,
+		"flatten": 0.34,
+		"elongation": 1.44,
+		"taper": 0.22,
+		"yaw_degrees": 138.0,
+		"facet_count": 8,
+		"facet_sharpness": 1.0,
+		"chip_count": 4,
+		"chip_depth": 0.3,
+		"erosion_scale": 0.3,
+		"erosion_strength": 0.06,
+		"embed_fraction": 0.3,
+		"tint_shift": -0.07,
+		"world_scale": 0.42,
+		"asset_id": "small_rock_21"
+	},
+	"framing": {
+		"ortho_scale": 1.6792283058166504,
+		"pixels_per_world_unit": 457.3529384537754,
+		"world_bbox": [
+			-0.5037685036659241,
+			-0.4946790933609009,
+			-0.08327377587556839,
+			0.5037685036659241,
+			0.4946790635585785,
+			0.19430547952651978
+		],
+		"world_width": 1.0075370073318481,
+		"world_depth": 0.9893581569194794,
+		"world_height": 0.27757925540208817
+	}
+}

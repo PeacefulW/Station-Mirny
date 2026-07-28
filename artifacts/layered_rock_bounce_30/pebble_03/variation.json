@@ -1,0 +1,40 @@
+{
+	"profile_id": "station_peaceful_rock_variation_v1",
+	"version": 1,
+	"variant": {
+		"id": "pebble_03",
+		"title": "round_pebble",
+		"title_ru": "окатыш",
+		"family": "pebble",
+		"seed": 83033,
+		"flatten": 0.46,
+		"elongation": 1.1,
+		"taper": 0.26,
+		"yaw_degrees": 88.0,
+		"facet_count": 3,
+		"facet_sharpness": 0.4,
+		"chip_count": 2,
+		"chip_depth": 0.12,
+		"erosion_scale": 0.5,
+		"erosion_strength": 0.085,
+		"embed_fraction": 0.26,
+		"tint_shift": 0.08,
+		"world_scale": 0.36,
+		"asset_id": "small_rock_22"
+	},
+	"framing": {
+		"ortho_scale": 1.0686475038528442,
+		"pixels_per_world_unit": 718.6654132734078,
+		"world_bbox": [
+			-0.32059425115585327,
+			-0.35310545563697815,
+			-0.08702437579631805,
+			0.32059425115585327,
+			0.35310548543930054,
+			0.2476847618818283
+		],
+		"world_width": 0.6411885023117065,
+		"world_depth": 0.7062109410762787,
+		"world_height": 0.33470913767814636
+	}
+}

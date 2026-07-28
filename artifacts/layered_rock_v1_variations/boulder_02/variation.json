@@ -1,0 +1,39 @@
+{
+	"profile_id": "station_peaceful_rock_variation_v1",
+	"version": 1,
+	"variant": {
+		"id": "boulder_02",
+		"title": "faceted_boulder",
+		"title_ru": "гранёный валун",
+		"family": "boulder",
+		"seed": 62022,
+		"flatten": 0.68,
+		"elongation": 1.0,
+		"taper": 0.14,
+		"yaw_degrees": 96.0,
+		"facet_count": 8,
+		"facet_sharpness": 0.7,
+		"chip_count": 3,
+		"chip_depth": 0.2,
+		"erosion_scale": 0.45,
+		"erosion_strength": 0.07,
+		"embed_fraction": 0.12,
+		"tint_shift": -0.04,
+		"world_scale": 1.05
+	},
+	"framing": {
+		"ortho_scale": 3.343895673751831,
+		"pixels_per_world_unit": 229.67223709414014,
+		"world_bbox": [
+			-0.8554916381835938,
+			-0.916710376739502,
+			-0.1720600724220276,
+			0.8554916381835938,
+			0.916710376739502,
+			1.2617735862731934
+		],
+		"world_width": 1.7109832763671875,
+		"world_depth": 1.833420753479004,
+		"world_height": 1.433833658695221
+	}
+}

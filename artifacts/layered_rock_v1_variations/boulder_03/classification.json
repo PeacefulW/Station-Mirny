@@ -1,0 +1,33 @@
+{
+	"source_glb": "",
+	"source": "procedural",
+	"meta_notes": "Procedural visual-only rock generated from a seed. No collision and no wind mask.",
+	"variation_profile_id": "station_peaceful_rock_variation_v1",
+	"variation_profile_version": 1,
+	"variant_id": "boulder_03",
+	"frame_width": 768,
+	"frame_height": 768,
+	"anchor": [
+		384,
+		425
+	],
+	"yaw_degrees": 158.0,
+	"sun_angle_degrees": 225.0,
+	"root_embed_fraction": 0.18,
+	"bake_profile": {
+		"profile_id": "station_peaceful_layered_asset_bake_v1",
+		"version": 4,
+		"frame_size": 768,
+		"sun_azimuth_degrees": 225.0,
+		"albedo_sun_elevation_degrees": 52.0,
+		"shadow_sun_elevation_degrees": 42.0,
+		"root_embed_fraction": 0.18
+	},
+	"runtime_plant_depth_px": 0,
+	"layers": {
+		"albedo": "albedo.png",
+		"snow_surface_raw": "snow_surface_raw.png",
+		"shadow_raw": "shadow_raw.png"
+	},
+	"notes": "Procedural small rock. Generated from seed, no source GLB. No wind mask is produced."
+}

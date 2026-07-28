@@ -26,6 +26,7 @@ def load_profile(path: Path) -> dict:
 
 
 def bake_profile_summary(profile: dict, classification: dict, frame_size: int) -> dict:
+    source_bake_profile = classification.get("bake_profile", {})
     return {
         "profile_id": profile["profile_id"],
         "version": profile["version"],
@@ -38,6 +39,8 @@ def bake_profile_summary(profile: dict, classification: dict, frame_size: int) -
         "root_embed_fraction": float(
             classification.get("root_embed_fraction", profile["planting"]["root_embed_fraction"])
         ),
+        "rock_bounce_energy_scale": float(source_bake_profile["rock_bounce_energy_scale"]),
+        "rock_bounce_energy": float(source_bake_profile["rock_bounce_energy"]),
     }
 
 
@@ -368,7 +371,9 @@ def save_outputs(asset_dir: Path, copy_to: Path | None = None, profile: dict | N
             "normal": "normal.png",
         },
         "alpha_bbox": alpha_bbox(albedo),
-        "notes": "Small visual-only rock from one GLB. No collision and no wind mask.",
+        "notes": classification.get(
+            "meta_notes", "Small visual-only rock from one GLB. No collision and no wind mask."
+        ),
     }
     with (asset_dir / "meta.json").open("w", encoding="utf-8") as fh:
         json.dump(meta, fh, indent="\t", ensure_ascii=False)

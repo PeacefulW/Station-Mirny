@@ -1,0 +1,48 @@
+{
+	"manifest_id": "station_peaceful_small_rock_sources_v1",
+	"version": 1,
+	"notes": "Which source GLB each shipped small rock is baked from. Kept as data so the family can be re-baked onto a new profile revision without reading it back out of the meta.json files the re-bake is about to overwrite.",
+	"default_glb_dir": "C:/Users/peaceful/Station Peaceful/мелкие камни",
+	"assets": [
+		{
+			"id": "small_rock_01",
+			"glb": "rock+3d+model (11).glb"
+		},
+		{
+			"id": "small_rock_02",
+			"glb": "rock+3d+model (12).glb"
+		},
+		{
+			"id": "small_rock_03",
+			"glb": "rock+3d+model (13).glb"
+		},
+		{
+			"id": "small_rock_04",
+			"glb": "rock+3d+model (14).glb"
+		},
+		{
+			"id": "small_rock_05",
+			"glb": "rock+3d+model (15).glb"
+		},
+		{
+			"id": "small_rock_06",
+			"glb": "rock+3d+model (16).glb"
+		},
+		{
+			"id": "small_rock_07",
+			"glb": "rock+3d+model (17).glb"
+		},
+		{
+			"id": "small_rock_08",
+			"glb": "rock+3d+model (18).glb"
+		},
+		{
+			"id": "small_rock_09",
+			"glb": "rock+3d+model (19).glb"
+		},
+		{
+			"id": "small_rock_10",
+			"glb": "rocky+rock+3d+model.glb"
+		}
+	]
+}

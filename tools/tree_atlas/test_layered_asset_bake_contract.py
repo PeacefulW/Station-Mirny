@@ -15,19 +15,8 @@ ROCK_DIR = ROOT / "assets" / "sprites" / "decor" / "plains" / "layered_small_roc
 WORLD_STREAMER_PATH = ROOT / "core" / "systems" / "world" / "world_streamer.gd"
 TREE_IDS = ("tree_01", "tree_02", "tree_03", "tree_04", "tree_05", "tree_06")
 CATALOG_PATH = ROOT / "core" / "systems" / "world" / "world_layered_object_asset_catalog.gd"
-# Small rocks are still baked against the previous sun. The migration to the
-# current profile runs family by family, so the drift is pinned here instead
-# of being hidden by a weaker assertion.
-PENDING_SUN_MIGRATION_PROFILE = {
-	"profile_id": "station_peaceful_layered_asset_bake_v1",
-	"version": 1,
-	"frame_size": 768,
-	"sun_azimuth_degrees": 315.0,
-	"albedo_sun_elevation_degrees": 52.0,
-	"shadow_sun_elevation_degrees": 42.0,
-	"root_embed_fraction": 0.065,
-}
-ROCK_IDS = tuple(f"small_rock_{index:02d}" for index in range(1, 11))
+ROCK_LAYER_PATH = ROOT / "core" / "systems" / "world" / "layered_rock_object_layer.gd"
+ROCK_IDS = tuple(f"small_rock_{index:02d}" for index in range(1, 23))
 
 
 class LayeredAssetBakeContractTest(unittest.TestCase):
@@ -96,9 +85,23 @@ class LayeredAssetBakeContractTest(unittest.TestCase):
                 meta = json.loads(meta_path.read_text(encoding="utf-8"))
                 self.assertEqual(meta.get("bake_profile"), expected)
 
-    def test_small_rock_assets_still_await_the_current_sun(self) -> None:
-        """Rocks are knowingly one profile revision behind; they must all agree."""
-        expected = PENDING_SUN_MIGRATION_PROFILE
+    def test_small_rock_assets_record_the_shared_profile(self) -> None:
+        """The rock family migrated to the current sun; every member must agree.
+
+        A single asset left on the old revision would cast north-east while its
+        neighbours cast south-east, which is why this asserts the whole family.
+        """
+        profile = json.loads(PROFILE_PATH.read_text(encoding="utf-8"))
+        expected = {
+            "profile_id": profile["profile_id"],
+            "version": profile["version"],
+            "frame_size": profile["frame_size"],
+            "sun_azimuth_degrees": profile["lighting"]["sun_azimuth_degrees"],
+            "albedo_sun_elevation_degrees": profile["lighting"]["albedo_sun_elevation_degrees"],
+            "shadow_sun_elevation_degrees": profile["lighting"]["shadow_sun_elevation_degrees"],
+            "rock_bounce_energy_scale": 0.30,
+            "rock_bounce_energy": profile["lighting"]["bounce"]["energy"] * 0.30,
+        }
 
         for rock_id in ROCK_IDS:
             with self.subTest(rock_id=rock_id):
@@ -106,7 +109,11 @@ class LayeredAssetBakeContractTest(unittest.TestCase):
                 meta_path = asset_dir / "meta.json"
                 self.assertTrue(meta_path.is_file())
                 meta = json.loads(meta_path.read_text(encoding="utf-8"))
-                self.assertEqual(meta.get("bake_profile"), expected)
+                bake_profile = meta.get("bake_profile", {})
+                for key, value in expected.items():
+                    self.assertEqual(bake_profile.get(key), value)
+                self.assertGreaterEqual(float(bake_profile["root_embed_fraction"]), 0.0)
+                self.assertLessEqual(float(bake_profile["root_embed_fraction"]), 0.45)
                 self.assertFalse(meta.get("blocks_movement"))
                 self.assertEqual(meta.get("collision_radius"), 0)
                 self.assertEqual(meta.get("wind_strength"), 0.0)
@@ -121,7 +128,7 @@ class LayeredAssetBakeContractTest(unittest.TestCase):
                     self.assertTrue((asset_dir / required_file).is_file(), f"{rock_id} missing {required_file}")
                 self.assertFalse((asset_dir / "wind_mask.png").exists(), f"{rock_id} must not include wind_mask.png")
 
-    def test_tree_runtime_shadow_stretch_matches_the_baked_sun(self) -> None:
+    def test_runtime_shadow_stretch_matches_the_baked_sun(self) -> None:
         """A stretch that runs opposite the baked shadow walks off its own sprite."""
         profile = json.loads(PROFILE_PATH.read_text(encoding="utf-8"))
         self.assertEqual(profile["lighting"]["fixed_shadow_direction"], "screen_south_east")
@@ -131,8 +138,16 @@ class LayeredAssetBakeContractTest(unittest.TestCase):
         self.assertIn("const TREE_SHADOW_DIRECTION: Vector2 = Vector2(0.887216, 0.461354)", catalog)
         self.assertIn("const TREE_SHADOW_OUTPUT_UV_MIN: Vector2 = Vector2(-0.10, -0.10)", catalog)
         self.assertIn("const TREE_SHADOW_OUTPUT_UV_MAX: Vector2 = Vector2(1.70, 1.50)", catalog)
-        # Unmigrated families keep the previous north-east framing.
-        self.assertIn("const SHADOW_DIRECTION: Vector2 = Vector2(0.887216, -0.461354)", catalog)
+        # Rocks migrated to the same sun, so their framing must open south-east too.
+        self.assertIn("const SHADOW_DIRECTION: Vector2 = Vector2(0.887216, 0.461354)", catalog)
+        self.assertIn("const SHADOW_OUTPUT_UV_MIN: Vector2 = Vector2(-0.10, -0.10)", catalog)
+        self.assertIn("const SHADOW_OUTPUT_UV_MAX: Vector2 = Vector2(1.70, 1.50)", catalog)
+
+        # The rock layer carries its own copy of the stretch direction; if the two
+        # disagree the shadow stretches away from where it was rasterised.
+        self.assertTrue(ROCK_LAYER_PATH.is_file())
+        rock_layer = ROCK_LAYER_PATH.read_text(encoding="utf-8")
+        self.assertIn("const SHADOW_DIRECTION: Vector2 = Vector2(0.887216, 0.461354)", rock_layer)
 
     def test_runtime_streamer_registers_all_layered_tree_assets(self) -> None:
         self.assertTrue(WORLD_STREAMER_PATH.is_file(), "World streamer must declare layered tree assets.")

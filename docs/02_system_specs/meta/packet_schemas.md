@@ -230,6 +230,10 @@ Current code note:
       "path_warp_px": float,
       "path_strength": float,
     },
+    "plains_bare_ground_stones"?: {
+      // Same field set as plains_small_rocks: one shared placement schema
+      // authored twice. Required for world_version >= 64.
+    },
     "plains_small_rocks"?: {
       "id": String,
       "object_family": String,
@@ -270,7 +274,8 @@ Current code notes:
   `worldgen_settings.mountains`, `worldgen_settings.world_bounds`,
   `worldgen_settings.foundation`, `worldgen_settings.lakes`, and
   `worldgen_settings.plains_trees`; for `world_version >= 62` they also require
-  `worldgen_settings.plains_small_rocks`; missing
+  `worldgen_settings.plains_small_rocks`; for `world_version >= 64` they also
+  require `worldgen_settings.plains_bare_ground_stones`; missing
   fields fail the world apply step before chunk diffs or player/base state are
   applied
 - `world_version == 38` is the Lake Generation L2 historical boundary: base
@@ -379,6 +384,13 @@ Current code notes:
   rocky-patch, and path-edge scores to accept cluster centers and emits several
   close rocks per accepted cluster. The profile is packed through
   `settings_packed[44..70]`. `ChunkPacketV1` shape is unchanged.
+- `world_version == 64` is the bare-ground stone scatter boundary: a second
+  stone placement set is authored in
+  `worldgen_settings.plains_bare_ground_stones` and packed through
+  `settings_packed[71..97]`, which repeats the small-rock block layout at a
+  new offset. Both sets emit `object_kind == 7` and share one spacing state
+  per chunk, so `min_distance_px` holds between sets; the per-chunk cap stays
+  per set. `ChunkPacketV1` shape is unchanged.
 - `worldgen_settings.mountains` is written once for new worlds and then loaded
   from `world.json`, not from the repository `.tres`
 - `worldgen_settings.lakes` is written once for new worlds and then loaded

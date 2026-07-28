@@ -1,0 +1,40 @@
+{
+	"profile_id": "station_peaceful_rock_variation_v1",
+	"version": 1,
+	"variant": {
+		"id": "shard_01",
+		"title": "sharp_shard",
+		"title_ru": "острый скол",
+		"family": "shard",
+		"seed": 71011,
+		"flatten": 0.62,
+		"elongation": 1.75,
+		"taper": 0.3,
+		"yaw_degrees": 22.0,
+		"facet_count": 9,
+		"facet_sharpness": 1.0,
+		"chip_count": 4,
+		"chip_depth": 0.34,
+		"erosion_scale": 0.28,
+		"erosion_strength": 0.05,
+		"embed_fraction": 0.14,
+		"tint_shift": -0.05,
+		"world_scale": 0.9,
+		"asset_id": "small_rock_17"
+	},
+	"framing": {
+		"ortho_scale": 4.467203617095947,
+		"pixels_per_world_unit": 171.91963157015522,
+		"world_bbox": [
+			-1.3401610851287842,
+			-1.175678014755249,
+			-0.15829122066497803,
+			1.3401610851287842,
+			1.1756778955459595,
+			0.9723603129386902
+		],
+		"world_width": 2.6803221702575684,
+		"world_depth": 2.3513559103012085,
+		"world_height": 1.1306515336036682
+	}
+}

@@ -8,7 +8,7 @@ const DENSITY_MAX: float = 1.0
 const SCATTER_GRID_SIDE_MIN: int = 1
 const SCATTER_GRID_SIDE_MAX: int = 16
 const MAX_PER_CHUNK_MIN: int = 0
-const MAX_PER_CHUNK_MAX: int = 64
+const MAX_PER_CHUNK_MAX: int = 192
 const SIZE_MIN: float = 1.0
 const SIZE_MAX: float = 254.0
 const ASSET_VARIANT_COUNT_MIN: int = 1
@@ -25,7 +25,7 @@ const CLUSTER_COUNT_MAX: int = 16
 @export_group("Placement")
 @export_range(0.0, 1.0, 0.01) var density: float = 0.74
 @export_range(1, 16) var scatter_grid_side: int = 5
-@export_range(0, 64) var max_per_chunk: int = 18
+@export_range(0, 192) var max_per_chunk: int = 18
 @export_range(0.0, 256.0) var edge_padding_px: float = 38.0
 @export_range(0.0, 512.0) var min_distance_px: float = 180.0
 @export_range(0.0, 1.0, 0.01) var grass_density_min: float = 0.05
@@ -107,37 +107,45 @@ func to_save_dict() -> Dictionary:
 	}
 
 
-func write_to_settings_packed(settings_packed: PackedFloat32Array) -> PackedFloat32Array:
+## `block_begin` selects which stone placement block this resource writes into.
+## Both sets share one field layout, so the same writer fills either block.
+func write_to_settings_packed(
+		settings_packed: PackedFloat32Array,
+		block_begin: int = WorldRuntimeConstants.SETTINGS_PACKED_LAYOUT_SMALL_ROCK_BLOCK_BEGIN,
+) -> PackedFloat32Array:
 	var settings: PlainsSmallRockPlacementSettings = from_save_dict(to_save_dict())
 	var packed: PackedFloat32Array = settings_packed.duplicate()
-	packed.resize(WorldRuntimeConstants.SETTINGS_PACKED_LAYOUT_SMALL_ROCK_FIELD_COUNT)
-	packed[WorldRuntimeConstants.SETTINGS_PACKED_LAYOUT_SMALL_ROCK_DENSITY] = settings.density
-	packed[WorldRuntimeConstants.SETTINGS_PACKED_LAYOUT_SMALL_ROCK_SCATTER_GRID_SIDE] = float(settings.scatter_grid_side)
-	packed[WorldRuntimeConstants.SETTINGS_PACKED_LAYOUT_SMALL_ROCK_EDGE_PADDING_PX] = settings.edge_padding_px
-	packed[WorldRuntimeConstants.SETTINGS_PACKED_LAYOUT_SMALL_ROCK_MIN_DISTANCE_PX] = settings.min_distance_px
-	packed[WorldRuntimeConstants.SETTINGS_PACKED_LAYOUT_SMALL_ROCK_MAX_PER_CHUNK] = float(settings.max_per_chunk)
-	packed[WorldRuntimeConstants.SETTINGS_PACKED_LAYOUT_SMALL_ROCK_MIN_SIZE_PX] = settings.visual_size_min_px
-	packed[WorldRuntimeConstants.SETTINGS_PACKED_LAYOUT_SMALL_ROCK_MAX_SIZE_PX] = settings.visual_size_max_px
-	packed[WorldRuntimeConstants.SETTINGS_PACKED_LAYOUT_SMALL_ROCK_GRASS_DENSITY_MIN] = settings.grass_density_min
-	packed[WorldRuntimeConstants.SETTINGS_PACKED_LAYOUT_SMALL_ROCK_GRASS_DENSITY_MAX] = settings.grass_density_max
-	packed[WorldRuntimeConstants.SETTINGS_PACKED_LAYOUT_SMALL_ROCK_GRASS_FIELD_SCALE_PX] = settings.grass_field_scale_px
-	packed[WorldRuntimeConstants.SETTINGS_PACKED_LAYOUT_SMALL_ROCK_GRASS_COVERAGE] = settings.grass_coverage
-	packed[WorldRuntimeConstants.SETTINGS_PACKED_LAYOUT_SMALL_ROCK_ROCK_FIELD_SCALE_PX] = settings.rock_field_scale_px
-	packed[WorldRuntimeConstants.SETTINGS_PACKED_LAYOUT_SMALL_ROCK_ROCK_COVERAGE] = settings.rock_coverage
-	packed[WorldRuntimeConstants.SETTINGS_PACKED_LAYOUT_SMALL_ROCK_MACRO_MASS_SCALE_PX] = settings.macro_mass_scale_px
-	packed[WorldRuntimeConstants.SETTINGS_PACKED_LAYOUT_SMALL_ROCK_MACRO_MASS_STRENGTH] = settings.macro_mass_strength
-	packed[WorldRuntimeConstants.SETTINGS_PACKED_LAYOUT_SMALL_ROCK_PATH_SCALE_PX] = settings.path_scale_px
-	packed[WorldRuntimeConstants.SETTINGS_PACKED_LAYOUT_SMALL_ROCK_PATH_WIDTH] = settings.path_width
-	packed[WorldRuntimeConstants.SETTINGS_PACKED_LAYOUT_SMALL_ROCK_PATH_WARP_PX] = settings.path_warp_px
-	packed[WorldRuntimeConstants.SETTINGS_PACKED_LAYOUT_SMALL_ROCK_PATH_STRENGTH] = settings.path_strength
-	packed[WorldRuntimeConstants.SETTINGS_PACKED_LAYOUT_SMALL_ROCK_ASSET_VARIANT_COUNT] = float(settings.asset_variant_count)
-	packed[WorldRuntimeConstants.SETTINGS_PACKED_LAYOUT_SMALL_ROCK_CLUSTER_RADIUS_PX] = settings.cluster_radius_px
-	packed[WorldRuntimeConstants.SETTINGS_PACKED_LAYOUT_SMALL_ROCK_CLUSTER_MIN_COUNT] = float(settings.cluster_min_count)
-	packed[WorldRuntimeConstants.SETTINGS_PACKED_LAYOUT_SMALL_ROCK_CLUSTER_MAX_COUNT] = float(settings.cluster_max_count)
-	packed[WorldRuntimeConstants.SETTINGS_PACKED_LAYOUT_SMALL_ROCK_CLUSTER_MIN_DISTANCE_PX] = settings.cluster_min_distance_px
-	packed[WorldRuntimeConstants.SETTINGS_PACKED_LAYOUT_SMALL_ROCK_EDGE_BIAS] = settings.edge_bias
-	packed[WorldRuntimeConstants.SETTINGS_PACKED_LAYOUT_SMALL_ROCK_ROCKY_PATCH_BIAS] = settings.rocky_patch_bias
-	packed[WorldRuntimeConstants.SETTINGS_PACKED_LAYOUT_SMALL_ROCK_PATH_EDGE_BIAS] = settings.path_edge_bias
+	var required_size: int = block_begin + WorldRuntimeConstants.SETTINGS_PACKED_LAYOUT_SMALL_ROCK_BLOCK_STRIDE
+	if packed.size() < required_size:
+		packed.resize(required_size)
+	var shift: int = block_begin - WorldRuntimeConstants.SETTINGS_PACKED_LAYOUT_SMALL_ROCK_BLOCK_BEGIN
+	packed[shift + WorldRuntimeConstants.SETTINGS_PACKED_LAYOUT_SMALL_ROCK_DENSITY] = settings.density
+	packed[shift + WorldRuntimeConstants.SETTINGS_PACKED_LAYOUT_SMALL_ROCK_SCATTER_GRID_SIDE] = float(settings.scatter_grid_side)
+	packed[shift + WorldRuntimeConstants.SETTINGS_PACKED_LAYOUT_SMALL_ROCK_EDGE_PADDING_PX] = settings.edge_padding_px
+	packed[shift + WorldRuntimeConstants.SETTINGS_PACKED_LAYOUT_SMALL_ROCK_MIN_DISTANCE_PX] = settings.min_distance_px
+	packed[shift + WorldRuntimeConstants.SETTINGS_PACKED_LAYOUT_SMALL_ROCK_MAX_PER_CHUNK] = float(settings.max_per_chunk)
+	packed[shift + WorldRuntimeConstants.SETTINGS_PACKED_LAYOUT_SMALL_ROCK_MIN_SIZE_PX] = settings.visual_size_min_px
+	packed[shift + WorldRuntimeConstants.SETTINGS_PACKED_LAYOUT_SMALL_ROCK_MAX_SIZE_PX] = settings.visual_size_max_px
+	packed[shift + WorldRuntimeConstants.SETTINGS_PACKED_LAYOUT_SMALL_ROCK_GRASS_DENSITY_MIN] = settings.grass_density_min
+	packed[shift + WorldRuntimeConstants.SETTINGS_PACKED_LAYOUT_SMALL_ROCK_GRASS_DENSITY_MAX] = settings.grass_density_max
+	packed[shift + WorldRuntimeConstants.SETTINGS_PACKED_LAYOUT_SMALL_ROCK_GRASS_FIELD_SCALE_PX] = settings.grass_field_scale_px
+	packed[shift + WorldRuntimeConstants.SETTINGS_PACKED_LAYOUT_SMALL_ROCK_GRASS_COVERAGE] = settings.grass_coverage
+	packed[shift + WorldRuntimeConstants.SETTINGS_PACKED_LAYOUT_SMALL_ROCK_ROCK_FIELD_SCALE_PX] = settings.rock_field_scale_px
+	packed[shift + WorldRuntimeConstants.SETTINGS_PACKED_LAYOUT_SMALL_ROCK_ROCK_COVERAGE] = settings.rock_coverage
+	packed[shift + WorldRuntimeConstants.SETTINGS_PACKED_LAYOUT_SMALL_ROCK_MACRO_MASS_SCALE_PX] = settings.macro_mass_scale_px
+	packed[shift + WorldRuntimeConstants.SETTINGS_PACKED_LAYOUT_SMALL_ROCK_MACRO_MASS_STRENGTH] = settings.macro_mass_strength
+	packed[shift + WorldRuntimeConstants.SETTINGS_PACKED_LAYOUT_SMALL_ROCK_PATH_SCALE_PX] = settings.path_scale_px
+	packed[shift + WorldRuntimeConstants.SETTINGS_PACKED_LAYOUT_SMALL_ROCK_PATH_WIDTH] = settings.path_width
+	packed[shift + WorldRuntimeConstants.SETTINGS_PACKED_LAYOUT_SMALL_ROCK_PATH_WARP_PX] = settings.path_warp_px
+	packed[shift + WorldRuntimeConstants.SETTINGS_PACKED_LAYOUT_SMALL_ROCK_PATH_STRENGTH] = settings.path_strength
+	packed[shift + WorldRuntimeConstants.SETTINGS_PACKED_LAYOUT_SMALL_ROCK_ASSET_VARIANT_COUNT] = float(settings.asset_variant_count)
+	packed[shift + WorldRuntimeConstants.SETTINGS_PACKED_LAYOUT_SMALL_ROCK_CLUSTER_RADIUS_PX] = settings.cluster_radius_px
+	packed[shift + WorldRuntimeConstants.SETTINGS_PACKED_LAYOUT_SMALL_ROCK_CLUSTER_MIN_COUNT] = float(settings.cluster_min_count)
+	packed[shift + WorldRuntimeConstants.SETTINGS_PACKED_LAYOUT_SMALL_ROCK_CLUSTER_MAX_COUNT] = float(settings.cluster_max_count)
+	packed[shift + WorldRuntimeConstants.SETTINGS_PACKED_LAYOUT_SMALL_ROCK_CLUSTER_MIN_DISTANCE_PX] = settings.cluster_min_distance_px
+	packed[shift + WorldRuntimeConstants.SETTINGS_PACKED_LAYOUT_SMALL_ROCK_EDGE_BIAS] = settings.edge_bias
+	packed[shift + WorldRuntimeConstants.SETTINGS_PACKED_LAYOUT_SMALL_ROCK_ROCKY_PATCH_BIAS] = settings.rocky_patch_bias
+	packed[shift + WorldRuntimeConstants.SETTINGS_PACKED_LAYOUT_SMALL_ROCK_PATH_EDGE_BIAS] = settings.path_edge_bias
 	return packed
 
 

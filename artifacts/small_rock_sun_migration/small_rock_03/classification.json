@@ -1,0 +1,28 @@
+{
+	"source_glb": "C:\\Users\\peaceful\\Station Peaceful\\мелкие камни\\rock+3d+model (13).glb",
+	"frame_width": 768,
+	"frame_height": 768,
+	"anchor": [
+		384,
+		430
+	],
+	"yaw_degrees": 90.0,
+	"sun_angle_degrees": 225.0,
+	"root_embed_fraction": 0.07,
+	"bake_profile": {
+		"profile_id": "station_peaceful_layered_asset_bake_v1",
+		"version": 4,
+		"frame_size": 768,
+		"sun_azimuth_degrees": 225.0,
+		"albedo_sun_elevation_degrees": 52.0,
+		"shadow_sun_elevation_degrees": 42.0,
+		"root_embed_fraction": 0.07
+	},
+	"runtime_plant_depth_px": 0,
+	"layers": {
+		"albedo": "albedo.png",
+		"snow_surface_raw": "snow_surface_raw.png",
+		"shadow_raw": "shadow_raw.png"
+	},
+	"notes": "Small rock layered GLB bake. No wind mask is produced."
+}

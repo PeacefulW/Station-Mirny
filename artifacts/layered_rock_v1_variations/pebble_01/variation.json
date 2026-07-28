@@ -1,0 +1,39 @@
+{
+	"profile_id": "station_peaceful_rock_variation_v1",
+	"version": 1,
+	"variant": {
+		"id": "pebble_01",
+		"title": "flat_pebble",
+		"title_ru": "плоский камешек",
+		"family": "pebble",
+		"seed": 81011,
+		"flatten": 0.22,
+		"elongation": 1.28,
+		"taper": 0.1,
+		"yaw_degrees": 46.0,
+		"facet_count": 6,
+		"facet_sharpness": 0.9,
+		"chip_count": 3,
+		"chip_depth": 0.2,
+		"erosion_scale": 0.42,
+		"erosion_strength": 0.075,
+		"embed_fraction": 0.38,
+		"tint_shift": 0.05,
+		"world_scale": 0.5
+	},
+	"framing": {
+		"ortho_scale": 2.286132574081421,
+		"pixels_per_world_unit": 335.938522860419,
+		"world_bbox": [
+			-0.685839831829071,
+			-0.6867074370384216,
+			-0.0878715068101883,
+			0.6858397722244263,
+			0.6867074370384216,
+			0.14336928725242615
+		],
+		"world_width": 1.3716796040534973,
+		"world_depth": 1.3734148740768433,
+		"world_height": 0.23124079406261444
+	}
+}

@@ -44,13 +44,27 @@ const ROCK_SOURCE_DIRS: Array[String] = [
 	"res://assets/sprites/decor/plains/layered_small_rocks/small_rock_08",
 	"res://assets/sprites/decor/plains/layered_small_rocks/small_rock_09",
 	"res://assets/sprites/decor/plains/layered_small_rocks/small_rock_10",
+	"res://assets/sprites/decor/plains/layered_small_rocks/small_rock_11",
+	"res://assets/sprites/decor/plains/layered_small_rocks/small_rock_12",
+	"res://assets/sprites/decor/plains/layered_small_rocks/small_rock_13",
+	"res://assets/sprites/decor/plains/layered_small_rocks/small_rock_14",
+	"res://assets/sprites/decor/plains/layered_small_rocks/small_rock_15",
+	"res://assets/sprites/decor/plains/layered_small_rocks/small_rock_16",
+	"res://assets/sprites/decor/plains/layered_small_rocks/small_rock_17",
+	"res://assets/sprites/decor/plains/layered_small_rocks/small_rock_18",
+	"res://assets/sprites/decor/plains/layered_small_rocks/small_rock_19",
+	"res://assets/sprites/decor/plains/layered_small_rocks/small_rock_20",
+	"res://assets/sprites/decor/plains/layered_small_rocks/small_rock_21",
+	"res://assets/sprites/decor/plains/layered_small_rocks/small_rock_22",
 ]
 
 const TREE_COLUMNS: int = 6
 const TREE_ROWS: int = 1
 const ROCK_COLUMNS: int = 5
-const ROCK_ROWS: int = 2
-const CATALOG_GENERATION: int = 3
+const ROCK_ROWS: int = 5
+## Bumped whenever the atlas layout or asset set changes: stale prepared buffers
+## must be rejected rather than sampled against a grid that no longer matches.
+const CATALOG_GENERATION: int = 4
 const TREE_METRIC_STRIDE: int = 5
 const ROCK_METRIC_STRIDE: int = 5
 const METRIC_FRAME_WIDTH: int = 0
@@ -94,9 +108,12 @@ const CLASSIC_CONTACT_SHADOW_MAX_OPACITY: float = 0.40
 ## sun one at a time. The output window must open toward the baked shadow, and
 ## the stretch direction must match it, or a lengthening shadow walks off its own
 ## sprite.
-const SHADOW_OUTPUT_UV_MIN: Vector2 = Vector2(-0.10, -0.50)
-const SHADOW_OUTPUT_UV_MAX: Vector2 = Vector2(1.70, 1.10)
-const SHADOW_DIRECTION: Vector2 = Vector2(0.887216, -0.461354)
+## Small rocks migrated to sun azimuth 225 with the whole family re-baked, so
+## this framing now matches the tree one; it stays a separate constant because
+## the next family to migrate will need its own.
+const SHADOW_OUTPUT_UV_MIN: Vector2 = Vector2(-0.10, -0.10)
+const SHADOW_OUTPUT_UV_MAX: Vector2 = Vector2(1.70, 1.50)
+const SHADOW_DIRECTION: Vector2 = Vector2(0.887216, 0.461354)
 ## Trees are baked with sun azimuth 225, so their shadow runs screen south-east.
 const TREE_SHADOW_OUTPUT_UV_MIN: Vector2 = Vector2(-0.10, -0.10)
 const TREE_SHADOW_OUTPUT_UV_MAX: Vector2 = Vector2(1.70, 1.50)

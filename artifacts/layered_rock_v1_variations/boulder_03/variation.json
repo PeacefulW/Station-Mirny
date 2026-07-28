@@ -1,0 +1,39 @@
+{
+	"profile_id": "station_peaceful_rock_variation_v1",
+	"version": 1,
+	"variant": {
+		"id": "boulder_03",
+		"title": "squat_boulder",
+		"title_ru": "приземистый валун",
+		"family": "boulder",
+		"seed": 63033,
+		"flatten": 0.52,
+		"elongation": 1.28,
+		"taper": 0.24,
+		"yaw_degrees": 158.0,
+		"facet_count": 5,
+		"facet_sharpness": 0.5,
+		"chip_count": 3,
+		"chip_depth": 0.16,
+		"erosion_scale": 0.5,
+		"erosion_strength": 0.08,
+		"embed_fraction": 0.18,
+		"tint_shift": 0.06,
+		"world_scale": 0.88
+	},
+	"framing": {
+		"ortho_scale": 3.866382122039795,
+		"pixels_per_world_unit": 198.6353070541369,
+		"world_bbox": [
+			-1.1599146127700806,
+			-1.0933570861816406,
+			-0.1733996570110321,
+			1.1599146127700806,
+			1.093356966972351,
+			0.7899317741394043
+		],
+		"world_width": 2.319829225540161,
+		"world_depth": 2.1867140531539917,
+		"world_height": 0.9633314311504364
+	}
+}

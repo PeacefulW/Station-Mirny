@@ -1,0 +1,39 @@
+{
+	"profile_id": "station_peaceful_rock_variation_v1",
+	"version": 1,
+	"variant": {
+		"id": "slab_02",
+		"title": "cracked_slab",
+		"title_ru": "расколотая плита",
+		"family": "slab",
+		"seed": 52022,
+		"flatten": 0.3,
+		"elongation": 1.05,
+		"taper": 0.08,
+		"yaw_degrees": 62.0,
+		"facet_count": 5,
+		"facet_sharpness": 0.95,
+		"chip_count": 5,
+		"chip_depth": 0.3,
+		"erosion_scale": 0.3,
+		"erosion_strength": 0.095,
+		"embed_fraction": 0.3,
+		"tint_shift": 0.04,
+		"world_scale": 1.0
+	},
+	"framing": {
+		"ortho_scale": 3.307473659515381,
+		"pixels_per_world_unit": 232.20139570590842,
+		"world_bbox": [
+			-0.9922420978546143,
+			-1.0751688480377197,
+			-0.18690082430839539,
+			0.9922420978546143,
+			1.0751688480377197,
+			0.4361019432544708
+		],
+		"world_width": 1.9844841957092285,
+		"world_depth": 2.1503376960754395,
+		"world_height": 0.6230027675628662
+	}
+}

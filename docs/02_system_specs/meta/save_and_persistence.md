@@ -4,8 +4,8 @@ doc_type: system_spec
 status: approved
 owner: engineering+design
 source_of_truth: true
-version: 1.10
-last_updated: 2026-07-14
+version: 1.11
+last_updated: 2026-07-28
 related_docs:
   - multiplayer_and_modding.md
   - ../../05_adrs/0003-immutable-base-plus-runtime-diff.md
@@ -79,7 +79,7 @@ saved). See `WeatherSaveData` in `packet_schemas.md`.
   chunk-diff shape, so old saves stay load-compatible.
 
 Current world generation extension:
-- `world.json` now records `world_version: 63` for the current finite-world
+- `world.json` now records `world_version: 64` for the current finite-world
   foundation baseline with `64`-tile substrate cells, native high-resolution
   overview, Lake Generation L2 packet output (`TERRAIN_LAKE_BED_SHALLOW`,
   `TERRAIN_LAKE_BED_DEEP`, and `lake_flags`), and the 2026-05-03
@@ -96,8 +96,9 @@ Current world generation extension:
   refinement boundary, plus the native visual object placement boundaries for
   static biofield flora, the historical stone/rock object boundaries, the
   plains tree placement profile boundary, the object-placement cleanup boundary
-  that stops emitting generated stone/rock object families, and the replacement
-  visual-only small rock placement boundary
+  that stops emitting generated stone/rock object families, the replacement
+  visual-only small rock placement boundary, and the two-profile
+  grass↔bare-ground ecotone placement boundary
 - `world_version` remains a plain integer algorithm boundary; it is not a hash
   of `worldgen_settings` and does not incorporate `worldgen_signature`
 - pre-alpha save compatibility policy: the active load path accepts only
@@ -115,6 +116,8 @@ Current world generation extension:
 - current-version saves also require `worldgen_settings.lakes`
 - current-version saves also require `worldgen_settings.plains_trees`
 - current-version saves also require `worldgen_settings.plains_small_rocks`
+- current-version saves also require
+  `worldgen_settings.plains_bare_ground_stones`
 - `world_version == 37` remains a historical boundary for the finite-world
   foundation baseline before Lake Generation L2 packet output.
 - `world_version == 38` adds lake bed terrain ids and the additive
@@ -207,10 +210,15 @@ Current world generation extension:
   boundary. It adds visual-only `object_kind == 7` small rocks from
   `worldgen_settings.plains_small_rocks`; they have no collision, no harvest,
   no ore/stone resource node data, and no per-object save identity.
-- `world_version == 63` is the current clustered small-rock placement profile
+- `world_version == 63` is the historical clustered small-rock placement profile
   boundary. It keeps the same `object_kind == 7` packet family but extends
   `worldgen_settings.plains_small_rocks` with cluster radius/count, intra-cluster
   distance, and edge/rocky/path bias fields.
+- `world_version == 64` is the current grass↔bare-ground ecotone boundary. It
+  adds the required `worldgen_settings.plains_bare_ground_stones` block over the
+  same small-rock settings schema and changes deterministic placement so both
+  anchor and fine-litter profiles follow the contour tangent. Object packet and
+  chunk-diff field shapes remain unchanged.
 - Current native visual object packet fields for flora, trees, and small rocks
   are immutable generated presentation records. Current emitters keep
   `object_flags` at `0`; loaded tree-trunk collision derives from
@@ -219,7 +227,7 @@ Current world generation extension:
   `world_seed + chunk_coord + world_version` plus the
   frozen `worldgen_settings` profile data. Object records themselves are not
   stored in `world.json` or per-chunk diff files.
-- `WorldRuntimeConstants.WORLD_VERSION` is therefore `63` for current saves;
+- `WorldRuntimeConstants.WORLD_VERSION` is therefore `64` for current saves;
   `38` remains the historical L2 packet boundary and `42` remains the
   historical L7 shore-warp boundary.
 - `worldgen_settings.lakes` stores the embedded per-save lake input copy
@@ -281,7 +289,7 @@ Current world generation extension:
   - `placement_mask: String`
   - `density: float` (`0.0..1.0`)
   - `scatter_grid_side: int` (`1..16`)
-  - `max_per_chunk: int` (`0..64`)
+  - `max_per_chunk: int` (`0..192`)
   - `edge_padding_px: float` (`>= 0.0`)
   - `min_distance_px: float` (`>= 0.0`)
   - `grass_density_min: float` (`0.0..1.0`)
@@ -289,6 +297,13 @@ Current world generation extension:
   - `visual_size_min_px: float` (`1.0..254.0`)
   - `visual_size_max_px: float` (`1.0..254.0`)
   - `asset_variant_count: int` (`1..64`)
+  - `cluster_radius_px: float` (`>= 1.0`)
+  - `cluster_min_count: int` (`1..16`)
+  - `cluster_max_count: int` (`1..16`)
+  - `cluster_min_distance_px: float` (`>= 0.0`)
+  - `edge_bias: float` (`0.0..1.0`)
+  - `rocky_patch_bias: float` (`0.0..1.0`)
+  - `path_edge_bias: float` (`0.0..1.0`)
   - `grass_field_scale_px: float` (`>= 1.0`)
   - `grass_coverage: float` (`0.0..1.0`)
   - `rock_field_scale_px: float` (`>= 1.0`)
@@ -299,14 +314,19 @@ Current world generation extension:
   - `path_width: float` (`0.0..1.0`)
   - `path_warp_px: float` (`>= 0.0`)
   - `path_strength: float` (`0.0..1.0`)
+- `worldgen_settings.plains_bare_ground_stones` stores a second embedded copy
+  of the exact same small-rock settings schema for the fine ecotone profile.
 - new worlds read defaults from `data/balance/mountain_gen_settings.tres` and
   `data/world_objects/placement_groups/plains_trees.tres` and
-  `data/world_objects/placement_groups/plains_small_rocks.tres` only once
-  during `new game`
+  `data/world_objects/placement_groups/plains_small_rocks.tres` and
+  `data/world_objects/placement_groups/plains_bare_ground_stones.tres` only
+  once during `new game`
 - load never re-reads the repository `.tres`; if
   `worldgen_settings.mountains`, `worldgen_settings.lakes`, or
   `worldgen_settings.plains_trees`, or
-  `worldgen_settings.plains_small_rocks` is missing from a current-version save,
+  `worldgen_settings.plains_small_rocks`, or
+  `worldgen_settings.plains_bare_ground_stones` is missing from a
+  current-version save,
   load fails instead of injecting compatibility defaults
 - optional `worldgen_signature: String` may be written for diagnostics only; it
   is non-authoritative and load must ignore its absence
@@ -318,7 +338,7 @@ Confirmed `world.json` shape in the current worldgen code path:
   "world_rebuild_frozen": false,
   "world_scene_present": true,
   "world_seed": 131071,
-  "world_version": 63,
+  "world_version": 64,
   "worldgen_settings": {
     "world_bounds": {
       "width_tiles": 4096,
@@ -382,17 +402,57 @@ Confirmed `world.json` shape in the current worldgen code path:
       "id": "core:plains_small_rocks",
       "object_family": "small_rock",
       "biome_id": "core:plains",
-      "placement_mask": "sparse_grass_edge",
-      "density": 0.56,
-      "scatter_grid_side": 6,
-      "max_per_chunk": 5,
-      "edge_padding_px": 42.0,
-      "min_distance_px": 92.0,
-      "grass_density_min": 0.05,
-      "grass_density_max": 0.46,
-      "visual_size_min_px": 42.0,
-      "visual_size_max_px": 76.0,
+      "placement_mask": "grass_to_bare_transition",
+      "density": 1.0,
+      "scatter_grid_side": 4,
+      "max_per_chunk": 8,
+      "edge_padding_px": 38.0,
+      "min_distance_px": 180.0,
+      "grass_density_min": 0.14,
+      "grass_density_max": 0.58,
+      "visual_size_min_px": 12.0,
+      "visual_size_max_px": 26.0,
       "asset_variant_count": 10,
+      "cluster_radius_px": 90.0,
+      "cluster_min_count": 2,
+      "cluster_max_count": 3,
+      "cluster_min_distance_px": 18.0,
+      "edge_bias": 1.0,
+      "rocky_patch_bias": 0.0,
+      "path_edge_bias": 0.0,
+      "grass_field_scale_px": 720.0,
+      "grass_coverage": 0.80,
+      "rock_field_scale_px": 1200.0,
+      "rock_coverage": 0.22,
+      "macro_mass_scale_px": 7000.0,
+      "macro_mass_strength": 0.34,
+      "path_scale_px": 2600.0,
+      "path_width": 0.06,
+      "path_warp_px": 700.0,
+      "path_strength": 0.85
+    },
+    "plains_bare_ground_stones": {
+      "id": "core:plains_bare_ground_stones",
+      "object_family": "small_rock",
+      "biome_id": "core:plains",
+      "placement_mask": "grass_to_bare_transition",
+      "density": 1.0,
+      "scatter_grid_side": 6,
+      "max_per_chunk": 28,
+      "edge_padding_px": 8.0,
+      "min_distance_px": 90.0,
+      "grass_density_min": 0.14,
+      "grass_density_max": 0.58,
+      "visual_size_min_px": 7.0,
+      "visual_size_max_px": 18.0,
+      "asset_variant_count": 22,
+      "cluster_radius_px": 100.0,
+      "cluster_min_count": 6,
+      "cluster_max_count": 9,
+      "cluster_min_distance_px": 10.0,
+      "edge_bias": 1.0,
+      "rocky_patch_bias": 0.0,
+      "path_edge_bias": 0.0,
       "grass_field_scale_px": 720.0,
       "grass_coverage": 0.80,
       "rock_field_scale_px": 1200.0,

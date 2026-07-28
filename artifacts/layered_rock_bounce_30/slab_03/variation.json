@@ -1,0 +1,40 @@
+{
+	"profile_id": "station_peaceful_rock_variation_v1",
+	"version": 1,
+	"variant": {
+		"id": "slab_03",
+		"title": "thin_plate",
+		"title_ru": "тонкая пластина",
+		"family": "slab",
+		"seed": 53033,
+		"flatten": 0.19,
+		"elongation": 1.6,
+		"taper": 0.16,
+		"yaw_degrees": 128.0,
+		"facet_count": 6,
+		"facet_sharpness": 0.8,
+		"chip_count": 4,
+		"chip_depth": 0.22,
+		"erosion_scale": 0.4,
+		"erosion_strength": 0.075,
+		"embed_fraction": 0.42,
+		"tint_shift": -0.06,
+		"world_scale": 1.12,
+		"asset_id": "small_rock_13"
+	},
+	"framing": {
+		"ortho_scale": 5.524956703186035,
+		"pixels_per_world_unit": 139.00561420818434,
+		"world_bbox": [
+			-1.6574870347976685,
+			-1.7091182470321655,
+			-0.2011522352695465,
+			1.6574870347976685,
+			1.709118366241455,
+			0.2777816653251648
+		],
+		"world_width": 3.314974069595337,
+		"world_depth": 3.4182366132736206,
+		"world_height": 0.4789339005947113
+	}
+}

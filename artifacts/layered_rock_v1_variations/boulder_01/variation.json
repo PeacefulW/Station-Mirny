@@ -1,0 +1,39 @@
+{
+	"profile_id": "station_peaceful_rock_variation_v1",
+	"version": 1,
+	"variant": {
+		"id": "boulder_01",
+		"title": "rounded_boulder",
+		"title_ru": "округлый валун",
+		"family": "boulder",
+		"seed": 61011,
+		"flatten": 0.78,
+		"elongation": 1.12,
+		"taper": 0.2,
+		"yaw_degrees": 34.0,
+		"facet_count": 3,
+		"facet_sharpness": 0.35,
+		"chip_count": 2,
+		"chip_depth": 0.14,
+		"erosion_scale": 0.55,
+		"erosion_strength": 0.09,
+		"embed_fraction": 0.1,
+		"tint_shift": 0.02,
+		"world_scale": 0.95
+	},
+	"framing": {
+		"ortho_scale": 4.305366039276123,
+		"pixels_per_world_unit": 178.3820453345534,
+		"world_bbox": [
+			-1.2916098833084106,
+			-1.248151183128357,
+			-0.15187186002731323,
+			1.291609764099121,
+			1.248151183128357,
+			1.3668467998504639
+		],
+		"world_width": 2.5832196474075317,
+		"world_depth": 2.496302366256714,
+		"world_height": 1.518718659877777
+	}
+}

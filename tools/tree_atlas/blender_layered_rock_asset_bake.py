@@ -19,6 +19,7 @@ from mathutils import Vector
 
 
 DEFAULT_PROFILE_PATH = Path(__file__).with_name("layered_asset_bake_profile.json")
+ROCK_BOUNCE_ENERGY_SCALE = 0.30
 
 
 def parse_args() -> argparse.Namespace:
@@ -44,6 +45,7 @@ def load_profile(path: Path) -> dict:
 
 
 def bake_profile_summary(profile: dict, frame_size: int, sun_angle_degrees: float, root_embed_fraction: float) -> dict:
+    bounce_energy = float(profile["lighting"]["bounce"]["energy"]) * ROCK_BOUNCE_ENERGY_SCALE
     return {
         "profile_id": profile["profile_id"],
         "version": profile["version"],
@@ -52,6 +54,8 @@ def bake_profile_summary(profile: dict, frame_size: int, sun_angle_degrees: floa
         "albedo_sun_elevation_degrees": profile["lighting"]["albedo_sun_elevation_degrees"],
         "shadow_sun_elevation_degrees": profile["lighting"]["shadow_sun_elevation_degrees"],
         "root_embed_fraction": root_embed_fraction,
+        "rock_bounce_energy_scale": ROCK_BOUNCE_ENERGY_SCALE,
+        "rock_bounce_energy": bounce_energy,
     }
 
 
@@ -169,12 +173,19 @@ def setup_render(
         math.radians(sun_angle_degrees),
     )
 
-    fill_data = bpy.data.lights.new("LayeredRockFill", "AREA")
-    fill = bpy.data.objects.new("LayeredRockFill", fill_data)
-    bpy.context.collection.objects.link(fill)
-    fill.location = Vector((0.0, -2.0, 1.0))
-    fill.data.energy = float(lighting_profile["fill_energy"])
-    fill.data.size = float(lighting_profile["fill_size"])
+    # Rocks retain only 30% of the tree ground bounce. At full strength the
+    # compact underside reads as a second lamp and erases the stone's own
+    # self-shadow; the weaker bounce keeps detail without reversing the light.
+    bounce_profile = lighting_profile["bounce"]
+    bounce_data = bpy.data.lights.new("LayeredRockBounce", "AREA")
+    bounce = bpy.data.objects.new("LayeredRockBounce", bounce_data)
+    bpy.context.collection.objects.link(bounce)
+    bounce.location = Vector(tuple(float(value) for value in bounce_profile["location"]))
+    bounce.rotation_euler = (math.radians(float(bounce_profile["pitch_degrees"])), 0.0, 0.0)
+    bounce.data.energy = float(bounce_profile["energy"]) * ROCK_BOUNCE_ENERGY_SCALE
+    bounce.data.size = float(bounce_profile["size"])
+    bounce.data.color = tuple(float(value) for value in bounce_profile["color"])
+    bounce.data.use_shadow = bool(bounce_profile["casts_shadow"])
     return camera, sun
 
 
@@ -285,7 +296,13 @@ def setup_shadow_scene(objects: list[bpy.types.Object], sun_angle_degrees: float
     bpy.context.collection.objects.link(plane)
     plane.is_shadow_catcher = True
 
+    keep_bounce = bool(lighting_profile["bounce"]["in_shadow_pass"])
     for obj in scene.objects:
+        if obj.type == "LIGHT" and obj.name.startswith("LayeredRockBounce") and not keep_bounce:
+            # The shadow catcher must read the sun alone; unshadowed bounce light
+            # landing on the plane would wash the cast shadow out.
+            obj.hide_render = True
+            continue
         if obj.type == "LIGHT" and obj.name.startswith("LayeredRockSun"):
             obj.rotation_euler = (
                 math.radians(float(lighting_profile["shadow_sun_elevation_degrees"])),

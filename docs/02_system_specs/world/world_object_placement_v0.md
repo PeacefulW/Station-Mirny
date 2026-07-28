@@ -4,8 +4,8 @@ doc_type: system_spec
 status: draft
 owner: engineering+design
 source_of_truth: true
-version: 0.8
-last_updated: 2026-07-15
+version: 0.9
+last_updated: 2026-07-28
 related_docs:
   - ../../00_governance/ENGINEERING_STANDARDS.md
   - ../../00_governance/PROJECT_GLOSSARY.md
@@ -28,13 +28,13 @@ related_docs:
 Define the first scalable contract for generated surface world objects:
 flora, trees, and inert decor.
 
-Current implementation note (2026-07-09): `world_version == 63` keeps the
+Current implementation note (2026-07-28): `world_version == 64` keeps the
 previous generated stone/rock object families removed (`object_kind` values
-`1`, `5`, and `6`) and uses clustered replacement small rocks as visual-only
-`object_kind == 7`. The replacement uses Blender-baked layered assets, snow
-masks, fixed sun-shadow stretch, edge/rocky-patch placement bias, and close
-intra-cluster spacing; it does not use wind masks, collision, harvest, ore, or
-stone resource node data.
+`1`, `5`, and `6`) and uses two clustered replacement small-rock profiles as
+visual-only `object_kind == 7`. Both anchor and fine-litter profiles follow the
+grass↔bare-ground ecotone. The replacement uses layered assets, snow masks,
+fixed sun-shadow stretch and close intra-cluster spacing; it does not use wind
+masks, collision, harvest, ore, or stone resource node data.
 
 This spec exists so adding plants and authored objects does not become a set of ad-hoc
 scene paths or generator branches. V0 is intentionally narrow: it proves the
@@ -282,8 +282,13 @@ Plains small rock placement settings are authored in
 `data/world_objects/placement_groups/plains_small_rocks.tres`
 (`PlainsSmallRockPlacementSettings`) for new worlds, then frozen into
 `worldgen_settings.plains_small_rocks` and packed into native settings indices
-`44..70`. The active assets live under
-`assets/sprites/decor/plains/layered_small_rocks/small_rock_01..10`.
+`44..70`. The bare-ground set uses the same resource class, is authored in
+`plains_bare_ground_stones.tres`, frozen into
+`worldgen_settings.plains_bare_ground_stones`, and packed into `71..97`.
+The active assets live under
+`assets/sprites/decor/plains/layered_small_rocks/small_rock_01..22`:
+`01..10` are GLB bakes, `11..22` are procedurally generated silhouettes
+(see `docs/02_system_specs/world/plains_bare_ground_stone_scatter.md`).
 
 ### Packet Shape Direction
 
@@ -344,6 +349,20 @@ Rules:
 - for `world_version >= 63`, small rock placement is clustered: candidate
   centers are accepted by grass/soil edge score, rocky-patch score, and path-edge
   score, then emit several close visual rocks within an elliptical local scatter.
+- for `world_version >= 64`, stones are authored as **two** placement sets over
+  one shared schema, both emitting `object_kind == 7`:
+  `plains_small_rocks.tres` owns sparse anchor stones on a 4×4 grid, and
+  `plains_bare_ground_stones.tres` owns fine connective litter on a 6×6 grid.
+  Accepted candidates from both sets are projected just onto the bare side of
+  the local visible-transition iso-contour; their narrow cluster ellipses follow
+  its tangent, creating broken transition accumulations instead of open-ground
+  random litter. The
+  sets are packed into `settings_packed[44..70]` and `[71..97]` respectively.
+  Spacing state is shared per chunk so clusters cannot overlap where the two
+  profiles meet; the per-chunk cap stays per set. The anchor set reads asset
+  variants `0..9` and the fine set reads all `0..21`. Boot-preloaded rock
+  atlases use `96 px` frames; world-space size remains authored independently
+  in the placement resources.
 - living flora, spiky flora, and trees keep local clearance from canonical
   mountain wall/foot terrain so batched decor does not appear underneath the
   organic runtime mountain mask.

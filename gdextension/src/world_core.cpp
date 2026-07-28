@@ -117,6 +117,14 @@ constexpr int64_t SETTINGS_PACKED_LAYOUT_SMALL_ROCK_EDGE_BIAS = 68;
 constexpr int64_t SETTINGS_PACKED_LAYOUT_SMALL_ROCK_ROCKY_PATCH_BIAS = 69;
 constexpr int64_t SETTINGS_PACKED_LAYOUT_SMALL_ROCK_PATH_EDGE_BIAS = 70;
 constexpr int64_t SETTINGS_PACKED_LAYOUT_SMALL_ROCK_FIELD_COUNT = 71;
+// Stone placement is authored twice over one shared block layout: the original
+// grass-edge set, and a second set that owns the grass-to-bare-ground ecotone.
+// The blocks are read by the same unpack, shifted to their own first index.
+constexpr int64_t SMALL_ROCK_BLOCK_STRIDE = 27;
+constexpr int64_t SETTINGS_PACKED_LAYOUT_SMALL_ROCK_BLOCK_BEGIN = SETTINGS_PACKED_LAYOUT_SMALL_ROCK_DENSITY;
+constexpr int64_t SETTINGS_PACKED_LAYOUT_BARE_GROUND_STONE_BLOCK_BEGIN = 71;
+constexpr int64_t SETTINGS_PACKED_LAYOUT_BARE_GROUND_STONE_FIELD_COUNT =
+		SETTINGS_PACKED_LAYOUT_BARE_GROUND_STONE_BLOCK_BEGIN + SMALL_ROCK_BLOCK_STRIDE;
 
 constexpr uint8_t MOUNTAIN_FLAG_WALL = 1U << 1U;
 constexpr uint8_t MOUNTAIN_FLAG_FOOT = 1U << 2U;
@@ -129,6 +137,7 @@ constexpr int64_t LAKE_PACKET_VERSION = 38;
 constexpr int64_t MOUNTAIN_SATELLITE_OUTCROP_CLUSTER_VERSION = 47;
 constexpr int64_t MOUNTAIN_PASSAGE_OUTCROP_REFINEMENT_VERSION = 48;
 constexpr int64_t SMALL_ROCK_PLACEMENT_VERSION = 62;
+constexpr int64_t BARE_GROUND_STONE_PLACEMENT_VERSION = 64;
 constexpr int64_t MOUNTAIN_FINITE_WIDTH_VERSION = world_utils::MOUNTAIN_FINITE_WIDTH_VERSION;
 constexpr int64_t FOUNDATION_CHUNK_SIZE = CHUNK_SIZE;
 constexpr int64_t SPAWN_SAFE_PATCH_MIN_TILE = 12;
@@ -1024,16 +1033,25 @@ void append_native_small_rock_placements(
 	int64_t p_world_version,
 	const PackedInt32Array &p_terrain_ids,
 	const PackedByteArray &p_lake_flags,
-	const SmallRockPlacementSettings &p_small_rock_settings
+	const SmallRockPlacementSettings &p_small_rock_settings,
+	int64_t p_min_world_version,
+	uint64_t p_set_salt,
+	bool p_follow_ground_contour,
+	std::vector<std::pair<float, float>> &r_placed_positions,
+	std::vector<std::pair<float, float>> &r_cluster_centers
 ) {
-	if (p_world_version < SMALL_ROCK_PLACEMENT_VERSION ||
+	if (p_world_version < p_min_world_version ||
 			p_small_rock_settings.density <= 0.0f ||
 			p_small_rock_settings.scatter_grid_side <= 0 ||
 			p_small_rock_settings.asset_variant_count <= 0) {
 		return;
 	}
-	std::vector<std::pair<float, float>> placed_positions;
-	std::vector<std::pair<float, float>> cluster_centers;
+	// Positions and cluster centres are shared across placement sets: spacing has
+	// to hold between sets too, or the two edge-oriented cluster families overlap
+	// where their masks meet. The per-chunk cap stays per set.
+	std::vector<std::pair<float, float>> &placed_positions = r_placed_positions;
+	std::vector<std::pair<float, float>> &cluster_centers = r_cluster_centers;
+	int32_t placed_in_set = 0;
 	const float cell_size_px = static_cast<float>(CHUNK_SIZE_PX) / static_cast<float>(p_small_rock_settings.scatter_grid_side);
 	const float center_min_distance_sq = p_small_rock_settings.min_distance_px * p_small_rock_settings.min_distance_px;
 	const float member_min_distance_sq = p_small_rock_settings.cluster_min_distance_px * p_small_rock_settings.cluster_min_distance_px;
@@ -1041,19 +1059,18 @@ void append_native_small_rock_placements(
 	const int32_t variant_count = world_utils::clamp_value<int32_t>(p_small_rock_settings.asset_variant_count, 1, 64);
 	for (int32_t grid_y = 0; grid_y < p_small_rock_settings.scatter_grid_side; ++grid_y) {
 		for (int32_t grid_x = 0; grid_x < p_small_rock_settings.scatter_grid_side; ++grid_x) {
-			if (has_max_per_chunk &&
-					static_cast<int32_t>(placed_positions.size()) >= p_small_rock_settings.max_per_chunk) {
+			if (has_max_per_chunk && placed_in_set >= p_small_rock_settings.max_per_chunk) {
 				return;
 			}
 			const uint64_t cell_hash = object_hash4(
 					p_coord.x,
 					p_coord.y,
 					grid_x + grid_y * p_small_rock_settings.scatter_grid_side,
-					p_seed ^ (p_world_version * 83));
+					p_seed ^ (p_world_version * 83) ^ static_cast<int64_t>(p_set_salt));
 			const float jitter_x = (object_unit(cell_hash, 0x41ULL) - 0.5f) * std::max(8.0f, cell_size_px - p_small_rock_settings.edge_padding_px * 2.0f);
 			const float jitter_y = (object_unit(cell_hash, 0x53ULL) - 0.5f) * std::max(8.0f, cell_size_px - p_small_rock_settings.edge_padding_px * 2.0f);
-			const float center_local_x = (static_cast<float>(grid_x) + 0.5f) * cell_size_px + jitter_x;
-			const float center_local_y = (static_cast<float>(grid_y) + 0.5f) * cell_size_px + jitter_y;
+			float center_local_x = (static_cast<float>(grid_x) + 0.5f) * cell_size_px + jitter_x;
+			float center_local_y = (static_cast<float>(grid_y) + 0.5f) * cell_size_px + jitter_y;
 			if (center_local_x < p_small_rock_settings.edge_padding_px ||
 					center_local_y < p_small_rock_settings.edge_padding_px ||
 					center_local_x > static_cast<float>(CHUNK_SIZE_PX) - p_small_rock_settings.edge_padding_px ||
@@ -1062,12 +1079,62 @@ void append_native_small_rock_placements(
 					!object_position_has_mountain_clearance(center_local_x, center_local_y, p_terrain_ids, OBJECT_MOUNTAIN_CLEARANCE_PX)) {
 				continue;
 			}
-			const float center_world_x = static_cast<float>(static_cast<int64_t>(p_coord.x) * CHUNK_SIZE_PX) + center_local_x;
-			const float center_world_y = static_cast<float>(static_cast<int64_t>(p_coord.y) * CHUNK_SIZE_PX) + center_local_y;
-			const SmallRockFieldSample center_field = sample_small_rock_field(center_world_x, center_world_y, p_small_rock_settings);
+			float center_world_x = static_cast<float>(static_cast<int64_t>(p_coord.x) * CHUNK_SIZE_PX) + center_local_x;
+			float center_world_y = static_cast<float>(static_cast<int64_t>(p_coord.y) * CHUNK_SIZE_PX) + center_local_y;
+			SmallRockFieldSample center_field = sample_small_rock_field(center_world_x, center_world_y, p_small_rock_settings);
 			const float center_chance = p_small_rock_settings.density * center_field.score;
 			if (object_unit(cell_hash, 0x11ULL) > center_chance) {
 				continue;
+			}
+
+			float cluster_angle = object_unit(cell_hash, 0x31ULL) * SMALL_ROCK_TAU;
+			if (p_follow_ground_contour) {
+				// Project accepted sparse candidates just onto the bare side of
+				// the grass->bare iso-contour, then lay the ellipse along its
+				// tangent. Forward differences reuse the centre sample and keep
+				// this visual solve to two extra field reads per accepted centre.
+				const float gradient_step_px = std::max(24.0f, cell_size_px * 0.30f);
+				const auto placement_mask_at = [&](float p_world_x, float p_world_y) -> float {
+					return sample_small_rock_field(p_world_x, p_world_y, p_small_rock_settings).placement_mask;
+				};
+				const float field_right = placement_mask_at(center_world_x + gradient_step_px, center_world_y);
+				const float field_down = placement_mask_at(center_world_x, center_world_y + gradient_step_px);
+				const float gradient_x = (field_right - center_field.placement_mask) / gradient_step_px;
+				const float gradient_y = (field_down - center_field.placement_mask) / gradient_step_px;
+				const float gradient_length_sq = gradient_x * gradient_x + gradient_y * gradient_y;
+				if (gradient_length_sq > 0.00000001f) {
+					const float edge_mid =
+							(p_small_rock_settings.grass_density_min + p_small_rock_settings.grass_density_max) * 0.5f;
+					const float inverse_gradient_length = 1.0f / std::sqrt(gradient_length_sq);
+					const float bare_side_offset_px = std::min(12.0f, cell_size_px * 0.06f);
+					const float projection_px = world_utils::clamp_value(
+							(center_field.placement_mask - edge_mid) * inverse_gradient_length +
+									bare_side_offset_px,
+							-cell_size_px * 0.36f,
+							cell_size_px * 0.36f);
+					center_local_x -= gradient_x * inverse_gradient_length * projection_px;
+					center_local_y -= gradient_y * inverse_gradient_length * projection_px;
+					center_world_x -= gradient_x * inverse_gradient_length * projection_px;
+					center_world_y -= gradient_y * inverse_gradient_length * projection_px;
+					cluster_angle = std::atan2(gradient_y, gradient_x) + SMALL_ROCK_TAU * 0.25f;
+					cluster_angle += (object_unit(cell_hash, 0x39ULL) - 0.5f) * 0.12f;
+					center_field = sample_small_rock_field(
+							center_world_x,
+							center_world_y,
+							p_small_rock_settings);
+				}
+				if (center_local_x < p_small_rock_settings.edge_padding_px ||
+						center_local_y < p_small_rock_settings.edge_padding_px ||
+						center_local_x > static_cast<float>(CHUNK_SIZE_PX) - p_small_rock_settings.edge_padding_px ||
+						center_local_y > static_cast<float>(CHUNK_SIZE_PX) - p_small_rock_settings.edge_padding_px ||
+						!object_position_is_plain(center_local_x, center_local_y, p_terrain_ids, p_lake_flags) ||
+						!object_position_has_mountain_clearance(
+								center_local_x,
+								center_local_y,
+								p_terrain_ids,
+								OBJECT_MOUNTAIN_CLEARANCE_PX)) {
+					continue;
+				}
 			}
 			bool center_too_close = false;
 			for (const std::pair<float, float> &existing : cluster_centers) {
@@ -1089,15 +1156,16 @@ void append_native_small_rock_placements(
 			if (center_field.score > 0.62f) {
 				cluster_count = std::min(cluster_count + 1, p_small_rock_settings.cluster_max_count);
 			}
-			const float cluster_angle = object_unit(cell_hash, 0x31ULL) * SMALL_ROCK_TAU;
 			const float cos_angle = std::cos(cluster_angle);
 			const float sin_angle = std::sin(cluster_angle);
 			const float radius_x = p_small_rock_settings.cluster_radius_px * lerp_float(0.78f, 1.28f, object_unit(cell_hash, 0x33ULL));
-			const float radius_y = p_small_rock_settings.cluster_radius_px * lerp_float(0.42f, 0.82f, object_unit(cell_hash, 0x35ULL));
+			const float radius_y = p_small_rock_settings.cluster_radius_px *
+					(p_follow_ground_contour ?
+									lerp_float(0.10f, 0.22f, object_unit(cell_hash, 0x35ULL)) :
+									lerp_float(0.42f, 0.82f, object_unit(cell_hash, 0x35ULL)));
 
 			for (int32_t member_index = 0; member_index < cluster_count; ++member_index) {
-				if (has_max_per_chunk &&
-						static_cast<int32_t>(placed_positions.size()) >= p_small_rock_settings.max_per_chunk) {
+				if (has_max_per_chunk && placed_in_set >= p_small_rock_settings.max_per_chunk) {
 					return;
 				}
 				bool placed_member = false;
@@ -1147,10 +1215,13 @@ void append_native_small_rock_placements(
 					float size_px = lerp_float(p_small_rock_settings.min_size_px, p_small_rock_settings.max_size_px, size_roll);
 					size_px *= lerp_float(1.10f, 0.76f, distance_t);
 					size_px = world_utils::clamp_value(size_px, p_small_rock_settings.min_size_px, p_small_rock_settings.max_size_px);
-					const float tint = lerp_float(0.86f, 1.0f, object_unit(member_hash, 0x67ULL));
+					// Fine litter must sit into the soil, not glare off it, so the tint
+					// range reaches further down than the original boulder-only one.
+					const float tint = lerp_float(0.70f, 1.0f, object_unit(member_hash, 0x67ULL));
 					const float phase = object_unit(member_hash, 0x157ULL);
 					append_object_record(r_buffers, OBJECT_KIND_SMALL_ROCK, local_x, local_y, size_px, 0U, variant, 0U, tint, phase);
 					placed_positions.push_back({ local_x, local_y });
+					++placed_in_set;
 					placed_member = true;
 				}
 			}
@@ -1166,7 +1237,8 @@ void append_native_object_placements(
 	const PackedInt32Array &p_terrain_ids,
 	const PackedByteArray &p_lake_flags,
 	const TreePlacementSettings &p_tree_settings,
-	const SmallRockPlacementSettings &p_small_rock_settings
+	const SmallRockPlacementSettings &p_small_rock_settings,
+	const SmallRockPlacementSettings &p_bare_ground_stone_settings
 ) {
 	int32_t living_count = 0;
 	const float living_cell_size_px = static_cast<float>(CHUNK_SIZE_PX) / static_cast<float>(LIVING_FLORA_SCATTER_GRID_SIDE);
@@ -1313,7 +1385,40 @@ void append_native_object_placements(
 	}
 
 	append_native_tree_placements(r_buffers, p_seed, p_coord, p_world_version, p_terrain_ids, p_lake_flags, p_tree_settings);
-	append_native_small_rock_placements(r_buffers, p_seed, p_coord, p_world_version, p_terrain_ids, p_lake_flags, p_small_rock_settings);
+
+	// One shared spacing state across both stone sets. The grass-edge set runs
+	// first so its tuned clusters win any contested position; contour-following
+	// transition clusters fill what is left.
+	std::vector<std::pair<float, float>> stone_positions;
+	std::vector<std::pair<float, float>> stone_cluster_centers;
+	append_native_small_rock_placements(
+		r_buffers,
+		p_seed,
+		p_coord,
+		p_world_version,
+		p_terrain_ids,
+		p_lake_flags,
+		p_small_rock_settings,
+		SMALL_ROCK_PLACEMENT_VERSION,
+		0ULL,
+		true,
+		stone_positions,
+		stone_cluster_centers
+	);
+	append_native_small_rock_placements(
+		r_buffers,
+		p_seed,
+		p_coord,
+		p_world_version,
+		p_terrain_ids,
+		p_lake_flags,
+		p_bare_ground_stone_settings,
+		BARE_GROUND_STONE_PLACEMENT_VERSION,
+		0x9e3779b97f4a7c15ULL,
+		true,
+		stone_positions,
+		stone_cluster_centers
+	);
 }
 
 int32_t make_satellite_outcrop_mountain_id(uint64_t p_hash) {
@@ -1899,107 +2004,119 @@ TreePlacementSettings unpack_tree_settings(const PackedFloat32Array &p_settings_
 	return settings;
 }
 
-SmallRockPlacementSettings unpack_small_rock_settings(const PackedFloat32Array &p_settings_packed) {
+SmallRockPlacementSettings unpack_small_rock_settings(
+	const PackedFloat32Array &p_settings_packed,
+	int64_t p_block_begin
+) {
 	SmallRockPlacementSettings settings;
-	if (p_settings_packed.size() < SETTINGS_PACKED_LAYOUT_SMALL_ROCK_FIELD_COUNT) {
+	if (p_settings_packed.size() < p_block_begin + SMALL_ROCK_BLOCK_STRIDE) {
 		return settings;
 	}
+	// Both stone placement sets share one block layout, so the same unpack
+	// reads either by shifting to that block's first index.
+	const auto field = [&](int64_t p_absolute_index) -> float {
+		return p_settings_packed[p_block_begin + (p_absolute_index - SETTINGS_PACKED_LAYOUT_SMALL_ROCK_DENSITY)];
+	};
 	settings.density = world_utils::clamp_value(
-		p_settings_packed[SETTINGS_PACKED_LAYOUT_SMALL_ROCK_DENSITY],
+		field(SETTINGS_PACKED_LAYOUT_SMALL_ROCK_DENSITY),
 		0.0f,
 		1.0f
 	);
 	settings.scatter_grid_side = world_utils::clamp_value<int32_t>(
-		static_cast<int32_t>(std::lround(p_settings_packed[SETTINGS_PACKED_LAYOUT_SMALL_ROCK_SCATTER_GRID_SIDE])),
+		static_cast<int32_t>(std::lround(field(SETTINGS_PACKED_LAYOUT_SMALL_ROCK_SCATTER_GRID_SIDE))),
 		1,
 		16
 	);
-	settings.edge_padding_px = std::max(0.0f, p_settings_packed[SETTINGS_PACKED_LAYOUT_SMALL_ROCK_EDGE_PADDING_PX]);
-	settings.min_distance_px = std::max(0.0f, p_settings_packed[SETTINGS_PACKED_LAYOUT_SMALL_ROCK_MIN_DISTANCE_PX]);
+	settings.edge_padding_px = std::max(0.0f, field(SETTINGS_PACKED_LAYOUT_SMALL_ROCK_EDGE_PADDING_PX));
+	settings.min_distance_px = std::max(0.0f, field(SETTINGS_PACKED_LAYOUT_SMALL_ROCK_MIN_DISTANCE_PX));
+	// The cap is a safety ceiling, not the working density. It has to sit above
+	// what the authored scatter actually produces: once a set hits it, the grid
+	// walk returns early and the rest of the chunk stays bare, which reads as a
+	// seam along chunk borders.
 	settings.max_per_chunk = world_utils::clamp_value<int32_t>(
-		static_cast<int32_t>(std::lround(p_settings_packed[SETTINGS_PACKED_LAYOUT_SMALL_ROCK_MAX_PER_CHUNK])),
+		static_cast<int32_t>(std::lround(field(SETTINGS_PACKED_LAYOUT_SMALL_ROCK_MAX_PER_CHUNK))),
 		0,
-		64
+		192
 	);
 	settings.min_size_px = world_utils::clamp_value(
-		p_settings_packed[SETTINGS_PACKED_LAYOUT_SMALL_ROCK_MIN_SIZE_PX],
+		field(SETTINGS_PACKED_LAYOUT_SMALL_ROCK_MIN_SIZE_PX),
 		1.0f,
 		254.0f
 	);
 	settings.max_size_px = world_utils::clamp_value(
-		p_settings_packed[SETTINGS_PACKED_LAYOUT_SMALL_ROCK_MAX_SIZE_PX],
+		field(SETTINGS_PACKED_LAYOUT_SMALL_ROCK_MAX_SIZE_PX),
 		settings.min_size_px,
 		254.0f
 	);
 	settings.grass_density_min = world_utils::clamp_value(
-		p_settings_packed[SETTINGS_PACKED_LAYOUT_SMALL_ROCK_GRASS_DENSITY_MIN],
+		field(SETTINGS_PACKED_LAYOUT_SMALL_ROCK_GRASS_DENSITY_MIN),
 		0.0f,
 		1.0f
 	);
 	settings.grass_density_max = world_utils::clamp_value(
-		p_settings_packed[SETTINGS_PACKED_LAYOUT_SMALL_ROCK_GRASS_DENSITY_MAX],
+		field(SETTINGS_PACKED_LAYOUT_SMALL_ROCK_GRASS_DENSITY_MAX),
 		settings.grass_density_min,
 		1.0f
 	);
-	settings.grass_field_scale_px = std::max(1.0f, p_settings_packed[SETTINGS_PACKED_LAYOUT_SMALL_ROCK_GRASS_FIELD_SCALE_PX]);
+	settings.grass_field_scale_px = std::max(1.0f, field(SETTINGS_PACKED_LAYOUT_SMALL_ROCK_GRASS_FIELD_SCALE_PX));
 	settings.grass_coverage = world_utils::clamp_value(
-		p_settings_packed[SETTINGS_PACKED_LAYOUT_SMALL_ROCK_GRASS_COVERAGE],
+		field(SETTINGS_PACKED_LAYOUT_SMALL_ROCK_GRASS_COVERAGE),
 		0.0f,
 		1.0f
 	);
-	settings.rock_field_scale_px = std::max(1.0f, p_settings_packed[SETTINGS_PACKED_LAYOUT_SMALL_ROCK_ROCK_FIELD_SCALE_PX]);
+	settings.rock_field_scale_px = std::max(1.0f, field(SETTINGS_PACKED_LAYOUT_SMALL_ROCK_ROCK_FIELD_SCALE_PX));
 	settings.rock_coverage = world_utils::clamp_value(
-		p_settings_packed[SETTINGS_PACKED_LAYOUT_SMALL_ROCK_ROCK_COVERAGE],
+		field(SETTINGS_PACKED_LAYOUT_SMALL_ROCK_ROCK_COVERAGE),
 		0.0f,
 		1.0f
 	);
-	settings.macro_mass_scale_px = std::max(1.0f, p_settings_packed[SETTINGS_PACKED_LAYOUT_SMALL_ROCK_MACRO_MASS_SCALE_PX]);
+	settings.macro_mass_scale_px = std::max(1.0f, field(SETTINGS_PACKED_LAYOUT_SMALL_ROCK_MACRO_MASS_SCALE_PX));
 	settings.macro_mass_strength = world_utils::clamp_value(
-		p_settings_packed[SETTINGS_PACKED_LAYOUT_SMALL_ROCK_MACRO_MASS_STRENGTH],
+		field(SETTINGS_PACKED_LAYOUT_SMALL_ROCK_MACRO_MASS_STRENGTH),
 		0.0f,
 		1.0f
 	);
-	settings.path_scale_px = std::max(1.0f, p_settings_packed[SETTINGS_PACKED_LAYOUT_SMALL_ROCK_PATH_SCALE_PX]);
+	settings.path_scale_px = std::max(1.0f, field(SETTINGS_PACKED_LAYOUT_SMALL_ROCK_PATH_SCALE_PX));
 	settings.path_width = world_utils::clamp_value(
-		p_settings_packed[SETTINGS_PACKED_LAYOUT_SMALL_ROCK_PATH_WIDTH],
+		field(SETTINGS_PACKED_LAYOUT_SMALL_ROCK_PATH_WIDTH),
 		0.0f,
 		1.0f
 	);
-	settings.path_warp_px = std::max(0.0f, p_settings_packed[SETTINGS_PACKED_LAYOUT_SMALL_ROCK_PATH_WARP_PX]);
+	settings.path_warp_px = std::max(0.0f, field(SETTINGS_PACKED_LAYOUT_SMALL_ROCK_PATH_WARP_PX));
 	settings.path_strength = world_utils::clamp_value(
-		p_settings_packed[SETTINGS_PACKED_LAYOUT_SMALL_ROCK_PATH_STRENGTH],
+		field(SETTINGS_PACKED_LAYOUT_SMALL_ROCK_PATH_STRENGTH),
 		0.0f,
 		1.0f
 	);
 	settings.asset_variant_count = world_utils::clamp_value<int32_t>(
-		static_cast<int32_t>(std::lround(p_settings_packed[SETTINGS_PACKED_LAYOUT_SMALL_ROCK_ASSET_VARIANT_COUNT])),
+		static_cast<int32_t>(std::lround(field(SETTINGS_PACKED_LAYOUT_SMALL_ROCK_ASSET_VARIANT_COUNT))),
 		1,
 		64
 	);
-	settings.cluster_radius_px = std::max(1.0f, p_settings_packed[SETTINGS_PACKED_LAYOUT_SMALL_ROCK_CLUSTER_RADIUS_PX]);
+	settings.cluster_radius_px = std::max(1.0f, field(SETTINGS_PACKED_LAYOUT_SMALL_ROCK_CLUSTER_RADIUS_PX));
 	settings.cluster_min_count = world_utils::clamp_value<int32_t>(
-		static_cast<int32_t>(std::lround(p_settings_packed[SETTINGS_PACKED_LAYOUT_SMALL_ROCK_CLUSTER_MIN_COUNT])),
+		static_cast<int32_t>(std::lround(field(SETTINGS_PACKED_LAYOUT_SMALL_ROCK_CLUSTER_MIN_COUNT))),
 		1,
 		16
 	);
 	settings.cluster_max_count = world_utils::clamp_value<int32_t>(
-		static_cast<int32_t>(std::lround(p_settings_packed[SETTINGS_PACKED_LAYOUT_SMALL_ROCK_CLUSTER_MAX_COUNT])),
+		static_cast<int32_t>(std::lround(field(SETTINGS_PACKED_LAYOUT_SMALL_ROCK_CLUSTER_MAX_COUNT))),
 		settings.cluster_min_count,
 		16
 	);
-	settings.cluster_min_distance_px = std::max(0.0f, p_settings_packed[SETTINGS_PACKED_LAYOUT_SMALL_ROCK_CLUSTER_MIN_DISTANCE_PX]);
+	settings.cluster_min_distance_px = std::max(0.0f, field(SETTINGS_PACKED_LAYOUT_SMALL_ROCK_CLUSTER_MIN_DISTANCE_PX));
 	settings.edge_bias = world_utils::clamp_value(
-		p_settings_packed[SETTINGS_PACKED_LAYOUT_SMALL_ROCK_EDGE_BIAS],
+		field(SETTINGS_PACKED_LAYOUT_SMALL_ROCK_EDGE_BIAS),
 		0.0f,
 		1.0f
 	);
 	settings.rocky_patch_bias = world_utils::clamp_value(
-		p_settings_packed[SETTINGS_PACKED_LAYOUT_SMALL_ROCK_ROCKY_PATCH_BIAS],
+		field(SETTINGS_PACKED_LAYOUT_SMALL_ROCK_ROCKY_PATCH_BIAS),
 		0.0f,
 		1.0f
 	);
 	settings.path_edge_bias = world_utils::clamp_value(
-		p_settings_packed[SETTINGS_PACKED_LAYOUT_SMALL_ROCK_PATH_EDGE_BIAS],
+		field(SETTINGS_PACKED_LAYOUT_SMALL_ROCK_PATH_EDGE_BIAS),
 		0.0f,
 		1.0f
 	);
@@ -3611,7 +3728,10 @@ Dictionary WorldCore::_generate_chunk_packet(
 
 	WorldObjectPacketBuffers object_buffers;
 	const TreePlacementSettings tree_settings = unpack_tree_settings(p_settings_packed);
-	const SmallRockPlacementSettings small_rock_settings = unpack_small_rock_settings(p_settings_packed);
+	const SmallRockPlacementSettings small_rock_settings =
+			unpack_small_rock_settings(p_settings_packed, SETTINGS_PACKED_LAYOUT_SMALL_ROCK_BLOCK_BEGIN);
+	const SmallRockPlacementSettings bare_ground_stone_settings =
+			unpack_small_rock_settings(p_settings_packed, SETTINGS_PACKED_LAYOUT_BARE_GROUND_STONE_BLOCK_BEGIN);
 	append_native_object_placements(
 		object_buffers,
 		p_seed,
@@ -3620,7 +3740,8 @@ Dictionary WorldCore::_generate_chunk_packet(
 		terrain_ids,
 		lake_flags,
 		tree_settings,
-		small_rock_settings
+		small_rock_settings,
+		bare_ground_stone_settings
 	);
 
 	Dictionary packet;

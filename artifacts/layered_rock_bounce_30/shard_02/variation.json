@@ -1,0 +1,40 @@
+{
+	"profile_id": "station_peaceful_rock_variation_v1",
+	"version": 1,
+	"variant": {
+		"id": "shard_02",
+		"title": "wedge_fragment",
+		"title_ru": "клиновидный обломок",
+		"family": "shard",
+		"seed": 72022,
+		"flatten": 0.48,
+		"elongation": 1.5,
+		"taper": 0.36,
+		"yaw_degrees": 112.0,
+		"facet_count": 7,
+		"facet_sharpness": 0.92,
+		"chip_count": 5,
+		"chip_depth": 0.28,
+		"erosion_scale": 0.32,
+		"erosion_strength": 0.06,
+		"embed_fraction": 0.2,
+		"tint_shift": 0.03,
+		"world_scale": 0.78,
+		"asset_id": "small_rock_18"
+	},
+	"framing": {
+		"ortho_scale": 2.9838831424713135,
+		"pixels_per_world_unit": 257.382733616011,
+		"world_bbox": [
+			-0.8951649069786072,
+			-0.9439474940299988,
+			-0.1540132313966751,
+			0.895164966583252,
+			0.943947434425354,
+			0.6160529255867004
+		],
+		"world_width": 1.7903298735618591,
+		"world_depth": 1.8878949284553528,
+		"world_height": 0.7700661569833755
+	}
+}

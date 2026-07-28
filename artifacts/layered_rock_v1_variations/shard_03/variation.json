@@ -1,0 +1,39 @@
+{
+	"profile_id": "station_peaceful_rock_variation_v1",
+	"version": 1,
+	"variant": {
+		"id": "shard_03",
+		"title": "gravel_lump",
+		"title_ru": "щебень",
+		"family": "shard",
+		"seed": 73033,
+		"flatten": 0.55,
+		"elongation": 1.2,
+		"taper": 0.18,
+		"yaw_degrees": 74.0,
+		"facet_count": 6,
+		"facet_sharpness": 0.88,
+		"chip_count": 7,
+		"chip_depth": 0.26,
+		"erosion_scale": 0.6,
+		"erosion_strength": 0.1,
+		"embed_fraction": 0.22,
+		"tint_shift": -0.02,
+		"world_scale": 0.62
+	},
+	"framing": {
+		"ortho_scale": 2.272592067718506,
+		"pixels_per_world_unit": 337.94010412568605,
+		"world_bbox": [
+			-0.6817775964736938,
+			-0.6645485162734985,
+			-0.15120503306388855,
+			0.6817775964736938,
+			0.6645485162734985,
+			0.5360905528068542
+		],
+		"world_width": 1.3635551929473877,
+		"world_depth": 1.329097032546997,
+		"world_height": 0.6872955858707428
+	}
+}
