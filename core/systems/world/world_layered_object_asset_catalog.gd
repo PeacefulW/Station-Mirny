@@ -365,7 +365,7 @@ func set_sun_lighting(shadow_length_px: float, shadow_opacity: float) -> void:
 		1.0,
 	)
 	var length_scale: float = lerpf(1.0, 1.85, low_sun)
-	var opacity: float = clampf(shadow_opacity * 0.82, 0.0, 0.82)
+	var opacity: float = clampf(shadow_opacity * 0.60, 0.0, 0.60)
 	_tree_shadow_material.set_shader_parameter("shadow_length_scale", length_scale)
 	_tree_shadow_material.set_shader_parameter("shadow_opacity", opacity)
 	_rock_shadow_material.set_shader_parameter("shadow_length_scale", length_scale)

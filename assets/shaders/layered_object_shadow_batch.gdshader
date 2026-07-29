@@ -43,6 +43,25 @@ void fragment() {
 		discard;
 	}
 	vec4 shadow = texture(TEXTURE, frame_uv(source_uv, frame_index));
-	shadow.a *= clamp(shadow_opacity, 0.0, 1.0) * clamp(instance_data.a, 0.0, 1.0);
+	float length_factor = clamp((shadow_length_scale - 1.0) / 0.85, 0.0, 1.0);
+	float softness_texels = mix(0.75, 7.0, length_factor);
+	vec2 perpendicular = vec2(-direction.y, direction.x);
+	vec2 blur_offset = perpendicular * frame_texel_size * softness_texels;
+	vec2 positive_uv = source_uv + blur_offset;
+	vec2 negative_uv = source_uv - blur_offset;
+	float positive_alpha = 0.0;
+	float negative_alpha = 0.0;
+	if (!any(lessThan(positive_uv, vec2(0.0))) && !any(greaterThan(positive_uv, vec2(1.0)))) {
+		positive_alpha = texture(TEXTURE, frame_uv(positive_uv, frame_index)).a;
+	}
+	if (!any(lessThan(negative_uv, vec2(0.0))) && !any(greaterThan(negative_uv, vec2(1.0)))) {
+		negative_alpha = texture(TEXTURE, frame_uv(negative_uv, frame_index)).a;
+	}
+	float softened_alpha = (
+		shadow.a * 0.50
+		+ positive_alpha * 0.25
+		+ negative_alpha * 0.25
+	);
+	shadow.a = softened_alpha * clamp(shadow_opacity, 0.0, 1.0) * clamp(instance_data.a, 0.0, 1.0);
 	COLOR = shadow;
 }
