@@ -268,40 +268,91 @@ msgid "UI_TOOLTIP_EMPTY_SLOT"
 msgstr "Пусто"
 
 msgid "UI_HUD_O2"
-msgstr "О₂:"
+msgstr "О₂"
 
 msgid "UI_HUD_HP"
-msgstr "HP:"
+msgstr "HP"
 
-msgid "UI_HINT_DEFAULT"
-msgstr "WASD — движение | B — строить | Tab — инвентарь | E — взаимодействие | Пробел — атака"
+msgid "UI_HUD_O2_LOW"
+msgstr "НИЗКИЙ УРОВЕНЬ"
 
-msgid "UI_HINT_BUILD_MODE"
-msgstr "ЛКМ — поставить | ПКМ — снести | B — закрыть"
+msgid "UI_KEY_WASD"
+msgstr "WASD"
+
+msgid "UI_KEY_E"
+msgstr "E"
+
+msgid "UI_KEY_TAB"
+msgstr "TAB"
+
+msgid "UI_KEY_B"
+msgstr "B"
+
+msgid "UI_KEY_P"
+msgstr "P"
+
+msgid "UI_KEY_SPACE"
+msgstr "ПРОБЕЛ"
+
+msgid "UI_KEY_LMB"
+msgstr "ЛКМ"
+
+msgid "UI_KEY_RMB"
+msgstr "ПКМ"
+
+msgid "UI_ACTION_MOVE"
+msgstr "ДВИЖЕНИЕ"
+
+msgid "UI_ACTION_INTERACT"
+msgstr "ДЕЙСТВИЕ"
+
+msgid "UI_ACTION_INVENTORY"
+msgstr "ИНВЕНТАРЬ"
+
+msgid "UI_ACTION_BUILD"
+msgstr "СТРОЙКА"
+
+msgid "UI_ACTION_ATTACK"
+msgstr "АТАКА"
+
+msgid "UI_ACTION_POWER"
+msgstr "ЭНЕРГИЯ"
+
+msgid "UI_ACTION_PLACE"
+msgstr "ПОСТАВИТЬ"
+
+msgid "UI_ACTION_REMOVE"
+msgstr "СНЕСТИ"
+
+msgid "UI_ACTION_EXIT_BUILD"
+msgstr "ВЫЙТИ"
 
 msgid "UI_HUD_OXYGEN"
 msgstr "O₂: "
 
 msgid "UI_HUD_SCRAP"
-msgstr "Скрап для строительства: {count}"
+msgstr "СКРАП · {count}"
 
 msgid "UI_HUD_CONTROLS"
 msgstr "WASD — движение  |  E — добыча / заправить печь  |  Tab — инвентарь и крафт  |  B — стройка  |  P — энергия  |  ПРОБЕЛ — атака"
 
 msgid "UI_HUD_BUILD_MODE"
-msgstr "[ РЕЖИМ СТРОИТЕЛЬСТВА ]"
+msgstr "СТРОИТЕЛЬСТВО"
 
 msgid "UI_HUD_STATUS_OUTSIDE"
 msgstr "СНАРУЖИ"
 
 msgid "UI_HUD_STATUS_BASE_POWERED"
-msgstr "В БАЗЕ / ПИТАНИЕ ОК"
+msgstr "УБЕЖИЩЕ · СТАБИЛЬНО"
 
 msgid "UI_HUD_STATUS_BASE_UNPOWERED"
-msgstr "В БАЗЕ / БЕЗ ПИТАНИЯ"
+msgstr "УБЕЖИЩЕ · НЕТ ПИТАНИЯ"
 
 msgid "UI_HUD_DAY_PHASE"
-msgstr "День {day} — {phase}"
+msgstr "СУТКИ {day}  ·  {phase}"
+
+msgid "UI_HUD_DAY_COUNT"
+msgstr "ДЕНЬ {day}"
 
 msgid "UI_TIME_DAWN"
 msgstr "РАССВЕТ"
@@ -757,13 +808,13 @@ msgid "BUILD_TEST_BIG_NAME"
 msgstr "Тестовый блок 3×2"
 
 msgid "UI_HUD_FLOOR_SURFACE"
-msgstr "Поверхность"
+msgstr "ПОВЕРХНОСТЬ"
 
 msgid "UI_HUD_FLOOR_BASEMENT"
-msgstr "Подвал"
+msgstr "ПОДВАЛ"
 
 msgid "UI_HUD_FLOOR_UPPER"
-msgstr "2-й этаж"
+msgstr "2-Й ЭТАЖ"
 
 msgid "UI_WORLD_CREATE_MOUNTAIN_SIZE_LABEL"
 msgstr "Размер гор:"
@@ -1039,13 +1090,13 @@ msgid "UI_LOADING_INITIAL_BUBBLE_PROGRESS"
 msgstr "{current}/{total} чанков · {percent}%"
 
 msgid "UI_HUD_FLOOR_GENERIC"
-msgstr "Уровень {z}"
+msgstr "УРОВЕНЬ {z}"
 
 msgid "UI_HUD_TILE_COORDS"
-msgstr "Тайл: {x}, {y}"
+msgstr "{x} : {y}"
 
 msgid "UI_HUD_WIND"
-msgstr "Ветер: {strength}% {arrow}"
+msgstr "ВЕТЕР {strength}%"
 
 msgid "WEATHER_CLEAR"
 msgstr "Ясно"
@@ -1057,7 +1108,7 @@ msgid "WEATHER_OVERCAST"
 msgstr "Пасмурно"
 
 msgid "UI_HUD_WEATHER"
-msgstr "Погода: {weather} {cloud}%"
+msgstr "{weather} · облака {cloud}%"
 
 msgid "UI_POSTPROCESS_ON"
 msgstr "Постэффект: вкл"

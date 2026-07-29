@@ -11,10 +11,12 @@ var _elapsed: float = 0.0
 var _last_tile: Vector2i = UNKNOWN_TILE
 
 func _setup() -> void:
-	_label = Label.new()
-	_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
-	_label.add_theme_font_size_override("font_size", 12)
-	_label.add_theme_color_override("font_color", Color(0.52, 0.58, 0.62))
+	_label = _make_hud_label(
+		LabelStyle.CAPS,
+		10,
+		HudPalette.TEXT_QUIET,
+		HORIZONTAL_ALIGNMENT_RIGHT,
+	)
 	add_child(_label)
 
 	EventBus.language_changed.connect(func(_locale: String) -> void:
@@ -45,3 +47,6 @@ func _update_label() -> void:
 		"x": tile_coord.x,
 		"y": tile_coord.y,
 	})
+	# Плоский Control не пересчитывает минимум за наследником: без этого строка
+	# переменной длины выезжает за плиту.
+	update_minimum_size()

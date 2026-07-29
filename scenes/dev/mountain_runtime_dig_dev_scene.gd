@@ -39,7 +39,9 @@ enum DevState { WAITING_SPAWN, WAITING_RUNTIME_STAND, READY, FAILED }
 var _state: DevState = DevState.WAITING_SPAWN
 var _streamer: WorldStreamer = null
 var _player: Node2D = null
+var _dev_hud: CanvasLayer = null
 var _hud_label: Label = null
+var _dev_hud_visible: bool = false
 var _wait_frames: int = 0
 var _dig_target: Dictionary = { }
 var _fail_reason: String = ""
@@ -75,6 +77,10 @@ func _unhandled_input(event: InputEvent) -> void:
 		return
 	var key_event: InputEventKey = event as InputEventKey
 	if not key_event.pressed or key_event.echo:
+		return
+	if key_event.keycode == KEY_F1:
+		_toggle_dev_hud()
+		get_viewport().set_input_as_handled()
 		return
 	if key_event.keycode == KEY_N:
 		_toggle_probe_day_night()
@@ -446,9 +452,11 @@ func _fail(reason: String) -> void:
 
 
 func _build_hud() -> void:
-	var canvas: CanvasLayer = CanvasLayer.new()
-	canvas.name = "DevHud"
-	add_child(canvas)
+	_dev_hud = CanvasLayer.new()
+	_dev_hud.name = "DevHud"
+	_dev_hud.layer = 100
+	_dev_hud.visible = _dev_hud_visible
+	add_child(_dev_hud)
 	_hud_label = Label.new()
 	_hud_label.name = "InfoLabel"
 	_hud_label.anchor_top = 1.0
@@ -462,11 +470,17 @@ func _build_hud() -> void:
 	_hud_label.add_theme_color_override("font_shadow_color", Color(0.0, 0.0, 0.0, 0.75))
 	_hud_label.add_theme_constant_override("shadow_offset_x", 2)
 	_hud_label.add_theme_constant_override("shadow_offset_y", 2)
-	canvas.add_child(_hud_label)
+	_dev_hud.add_child(_hud_label)
+
+
+func _toggle_dev_hud() -> void:
+	_dev_hud_visible = not _dev_hud_visible
+	if _dev_hud != null:
+		_dev_hud.visible = _dev_hud_visible
 
 
 func _update_hud() -> void:
-	if _hud_label == null:
+	if _hud_label == null or not _dev_hud_visible:
 		return
 	match _state:
 		DevState.WAITING_SPAWN:

@@ -4,8 +4,8 @@ doc_type: system_spec
 status: approved
 owner: design+engineering
 source_of_truth: true
-version: 1.2
-last_updated: 2026-07-23
+version: 1.3
+last_updated: 2026-07-29
 related_docs:
   - ../../01_product/GAME_VISION_GDD.md
 ---
@@ -31,6 +31,34 @@ Always-on UI should stay minimal and high-signal:
 - heading/base reference
 - quiet navigation readouts such as the current tile coordinates
 - only urgent state warnings
+
+## HUD presentation contract
+
+The always-on HUD is composed of three clusters, never of free-floating labels:
+- top-left survival cluster: oxygen, health, shelter state, build context;
+- top-right environment cluster: time and phase, wind, weather, quiet navigation;
+- bottom-center action bar: the inputs that are meaningful right now.
+
+Presentation rules for those clusters:
+- clusters sit on translucent glass plates - rounded, semi-transparent, thin
+  warm edge, soft shadow; the world must stay visible through the interface and
+  opaque panels or hard black backing plates are not allowed;
+- one display-weight value per cluster (oxygen percentage, clock); everything
+  else is small tracked caps, and navigation readouts are the quietest tier;
+- pictograms are vector glyphs drawn in code and recolored by state, so a new
+  indicator never requires a second raster icon pipeline;
+- oxygen is the only permanently visible meter; health appears only when the
+  player is damaged, so the appearance of a bar is itself a signal;
+- meters are segmented rather than smooth, and only a critical meter is allowed
+  to animate;
+- state is carried by color, by the segmented meter, and by a screen-edge alarm;
+  the alarm is the single "urgent" channel and stays reserved for critical
+  oxygen and for shelter without life support;
+- inside a powered shelter the environment cluster dims: the interface calms
+  down together with the player and reinforces the inside/outside contrast;
+- the action bar is contextual, not a permanent cheat sheet: it is shown at
+  session start and while a mode is active, then fades out;
+- key caps and captions are localization keys, never literals in widget code.
 
 ## PDA / deep interface
 

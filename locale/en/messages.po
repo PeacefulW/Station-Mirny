@@ -268,40 +268,91 @@ msgid "UI_TOOLTIP_EMPTY_SLOT"
 msgstr "Empty"
 
 msgid "UI_HUD_O2"
-msgstr "O₂:"
+msgstr "O₂"
 
 msgid "UI_HUD_HP"
-msgstr "HP:"
+msgstr "HP"
 
-msgid "UI_HINT_DEFAULT"
-msgstr "WASD — move | B — build | Tab — inventory | E — interact | Space — attack"
+msgid "UI_HUD_O2_LOW"
+msgstr "LOW RESERVE"
 
-msgid "UI_HINT_BUILD_MODE"
-msgstr "LMB — place | RMB — remove | B — close"
+msgid "UI_KEY_WASD"
+msgstr "WASD"
+
+msgid "UI_KEY_E"
+msgstr "E"
+
+msgid "UI_KEY_TAB"
+msgstr "TAB"
+
+msgid "UI_KEY_B"
+msgstr "B"
+
+msgid "UI_KEY_P"
+msgstr "P"
+
+msgid "UI_KEY_SPACE"
+msgstr "SPACE"
+
+msgid "UI_KEY_LMB"
+msgstr "LMB"
+
+msgid "UI_KEY_RMB"
+msgstr "RMB"
+
+msgid "UI_ACTION_MOVE"
+msgstr "MOVE"
+
+msgid "UI_ACTION_INTERACT"
+msgstr "ACTION"
+
+msgid "UI_ACTION_INVENTORY"
+msgstr "INVENTORY"
+
+msgid "UI_ACTION_BUILD"
+msgstr "BUILD"
+
+msgid "UI_ACTION_ATTACK"
+msgstr "ATTACK"
+
+msgid "UI_ACTION_POWER"
+msgstr "POWER"
+
+msgid "UI_ACTION_PLACE"
+msgstr "PLACE"
+
+msgid "UI_ACTION_REMOVE"
+msgstr "DISMANTLE"
+
+msgid "UI_ACTION_EXIT_BUILD"
+msgstr "EXIT"
 
 msgid "UI_HUD_OXYGEN"
 msgstr "O2: "
 
 msgid "UI_HUD_SCRAP"
-msgstr "Building scrap: {count}"
+msgstr "SCRAP · {count}"
 
 msgid "UI_HUD_CONTROLS"
 msgstr "WASD - move  |  E - harvest / refuel burner  |  Tab - inventory and crafting  |  B - build  |  P - power  |  SPACE - attack"
 
 msgid "UI_HUD_BUILD_MODE"
-msgstr "[ BUILD MODE ]"
+msgstr "CONSTRUCTION"
 
 msgid "UI_HUD_STATUS_OUTSIDE"
 msgstr "OUTSIDE"
 
 msgid "UI_HUD_STATUS_BASE_POWERED"
-msgstr "IN BASE / POWER OK"
+msgstr "SANCTUARY · STABLE"
 
 msgid "UI_HUD_STATUS_BASE_UNPOWERED"
-msgstr "IN BASE / NO POWER"
+msgstr "SANCTUARY · NO POWER"
 
 msgid "UI_HUD_DAY_PHASE"
-msgstr "Day {day} - {phase}"
+msgstr "DAY {day}  ·  {phase}"
+
+msgid "UI_HUD_DAY_COUNT"
+msgstr "DAY {day}"
 
 msgid "UI_TIME_DAWN"
 msgstr "DAWN"
@@ -757,13 +808,13 @@ msgid "BUILD_TEST_BIG_NAME"
 msgstr "Test block 3×2"
 
 msgid "UI_HUD_FLOOR_SURFACE"
-msgstr "Surface"
+msgstr "SURFACE"
 
 msgid "UI_HUD_FLOOR_BASEMENT"
-msgstr "Basement"
+msgstr "BASEMENT"
 
 msgid "UI_HUD_FLOOR_UPPER"
-msgstr "2nd Floor"
+msgstr "2ND FLOOR"
 
 msgid "UI_WORLD_CREATE_MOUNTAIN_SIZE_LABEL"
 msgstr "Mountain size:"
@@ -1039,13 +1090,13 @@ msgid "UI_LOADING_INITIAL_BUBBLE_PROGRESS"
 msgstr "{current}/{total} chunks · {percent}%"
 
 msgid "UI_HUD_FLOOR_GENERIC"
-msgstr "Level {z}"
+msgstr "LEVEL {z}"
 
 msgid "UI_HUD_TILE_COORDS"
-msgstr "Tile: {x}, {y}"
+msgstr "{x} : {y}"
 
 msgid "UI_HUD_WIND"
-msgstr "Wind: {strength}% {arrow}"
+msgstr "WIND {strength}%"
 
 msgid "WEATHER_CLEAR"
 msgstr "Clear"
@@ -1057,7 +1108,7 @@ msgid "WEATHER_OVERCAST"
 msgstr "Overcast"
 
 msgid "UI_HUD_WEATHER"
-msgstr "Weather: {weather} {cloud}%"
+msgstr "{weather} · cloud {cloud}%"
 
 msgid "UI_POSTPROCESS_ON"
 msgstr "Post FX: On"

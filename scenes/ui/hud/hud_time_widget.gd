@@ -1,70 +1,119 @@
 class_name HudTimeWidget
 extends HudWidget
 
-## Время суток + день + фаза. Подписывается на EventBus.
+## Время суток: крупные часы, иконка неба и строка дня.
+## Фаза несёт цвет и пиктограмму, потому что ночь и закат должны читаться
+## периферийным зрением, без чтения текста.
 
+var _sky_icon: HudIcon = null
 var _time_label: Label = null
 var _day_label: Label = null
+var _phase: int = 1
+
 
 func _setup() -> void:
-	var vbox := VBoxContainer.new()
-	vbox.add_theme_constant_override("separation", 2)
-	vbox.mouse_filter = MOUSE_FILTER_IGNORE
+	var column: VBoxContainer = VBoxContainer.new()
+	column.set_anchors_and_offsets_preset(PRESET_FULL_RECT)
+	column.add_theme_constant_override("separation", 1)
+	column.mouse_filter = MOUSE_FILTER_IGNORE
+	add_child(column)
 
-	_time_label = Label.new()
-	_time_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
-	_time_label.add_theme_font_size_override("font_size", 16)
-	_time_label.add_theme_color_override("font_color", Color(0.9, 0.85, 0.7))
+	var head: HBoxContainer = HBoxContainer.new()
+	head.alignment = BoxContainer.ALIGNMENT_END
+	head.add_theme_constant_override("separation", 9)
+	head.mouse_filter = MOUSE_FILTER_IGNORE
+	column.add_child(head)
+
+	_sky_icon = HudIcon.new()
+	_sky_icon.configure(HudIcons.Id.SUN, 19.0, HudPalette.PHASE_DAY, 1.4)
+	_sky_icon.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	head.add_child(_sky_icon)
+
+	_time_label = _make_hud_label(
+		LabelStyle.DISPLAY,
+		25,
+		HudPalette.TEXT_PRIMARY,
+		HORIZONTAL_ALIGNMENT_RIGHT,
+	)
 	_time_label.text = "%02d:00" % 7
-	vbox.add_child(_time_label)
+	head.add_child(_time_label)
 
-	_day_label = Label.new()
-	_day_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
-	_day_label.add_theme_font_size_override("font_size", 12)
-	_day_label.add_theme_color_override("font_color", Color(0.6, 0.58, 0.52))
-	vbox.add_child(_day_label)
-
-	add_child(vbox)
+	_day_label = _make_hud_label(
+		LabelStyle.CAPS,
+		10,
+		HudPalette.TEXT_SECONDARY,
+		HORIZONTAL_ALIGNMENT_RIGHT,
+	)
+	_day_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	column.add_child(_day_label)
 
 	EventBus.hour_changed.connect(_on_hour_changed)
 	EventBus.day_changed.connect(_on_day_changed)
 	EventBus.time_of_day_changed.connect(_on_phase_changed)
-	EventBus.language_changed.connect(func(_l: String) -> void: _refresh_day_label())
+	EventBus.language_changed.connect(_on_language_changed)
 	_on_hour_changed(TimeManager.get_hour() if TimeManager else 7)
-	_on_phase_changed(
-		TimeManager.current_time_of_day if TimeManager else 1,
-		TimeManager.current_time_of_day if TimeManager else 1
-	)
+	var current_phase: int = TimeManager.current_time_of_day if TimeManager else 1
+	_on_phase_changed(current_phase, current_phase)
+
 
 func _on_hour_changed(hour: int) -> void:
-	if _time_label:
+	if _time_label != null:
 		_time_label.text = "%02d:00" % hour
+
 
 func _on_day_changed(_day_number: int) -> void:
 	_refresh_day_label()
 
-func _on_phase_changed(new_phase: int, _old_phase: int) -> void:
+
+func _on_language_changed(_locale: String) -> void:
 	_refresh_day_label()
-	if not _time_label:
+
+
+func _on_phase_changed(new_phase: int, _old_phase: int) -> void:
+	_phase = new_phase
+	_refresh_day_label()
+	if _time_label == null:
 		return
-	match new_phase:
-		0: _time_label.add_theme_color_override("font_color", Color(0.9, 0.75, 0.5))
-		1: _time_label.add_theme_color_override("font_color", Color(0.9, 0.88, 0.75))
-		2: _time_label.add_theme_color_override("font_color", Color(0.8, 0.5, 0.3))
-		3: _time_label.add_theme_color_override("font_color", Color(0.4, 0.45, 0.7))
+	var color: Color = HudPalette.phase_color(new_phase)
+	_time_label.add_theme_color_override("font_color", color)
+	_sky_icon.set_glyph_color(color)
+	_sky_icon.set_glyph(_phase_glyph(new_phase))
+
+
+func _phase_glyph(phase: int) -> HudIcons.Id:
+	match phase:
+		0:
+			return HudIcons.Id.DAWN
+		2:
+			return HudIcons.Id.DUSK
+		3:
+			return HudIcons.Id.MOON
+		_:
+			return HudIcons.Id.SUN
+
 
 func _refresh_day_label() -> void:
-	if not _day_label:
+	if _day_label == null:
 		return
 	var day: int = TimeManager.current_day if TimeManager else 1
-	var phase: int = TimeManager.current_time_of_day if TimeManager else 1
-	var phase_name: String = _get_phase_name(phase)
-	_day_label.text = Localization.t("UI_HUD_DAY_PHASE", {"day": day, "phase": phase_name})
+	_day_label.text = Localization.t(
+		"UI_HUD_DAY_PHASE",
+		{
+			"day": day,
+			"phase": Localization.t(_phase_name_key(_phase)),
+		},
+	)
 
-func _get_phase_name(phase: int) -> String:
+
+func _phase_name_key(phase: int) -> String:
 	match phase:
-		0: return Localization.t("UI_TIME_DAWN")
-		1: return Localization.t("UI_TIME_DAY")
-		2: return Localization.t("UI_TIME_DUSK")
-		3: return Localization.t("UI_TIME_NIGHT")
-	return Localization.t("UI_TIME_UNKNOWN")
+		0:
+			return "UI_TIME_DAWN"
+		1:
+			return "UI_TIME_DAY"
+		2:
+			return "UI_TIME_DUSK"
+		3:
+			return "UI_TIME_NIGHT"
+		_:
+			return "UI_TIME_UNKNOWN"
