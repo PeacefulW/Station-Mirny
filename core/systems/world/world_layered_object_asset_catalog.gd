@@ -20,6 +20,16 @@ const TREE_WIND_MASK_ATLAS: Texture2D = preload("res://assets/sprites/flora/atla
 const TREE_SNOW_MASK_ATLAS: Texture2D = preload("res://assets/sprites/flora/atlases/layered_trees/snow_mask.png")
 const TREE_SEASON_MASK_ATLAS: Texture2D = preload("res://assets/sprites/flora/atlases/layered_trees/season_mask.png")
 
+## Bushes ride the tree channel set (they are baked on the tree contract), but
+## keep their own atlas so the two families size and scatter independently.
+const BUSH_TRUNK_ATLAS: Texture2D = preload("res://assets/sprites/flora/atlases/layered_bushes/trunk.png")
+const BUSH_FOLIAGE_ATLAS: Texture2D = preload("res://assets/sprites/flora/atlases/layered_bushes/foliage.png")
+const BUSH_SHADOW_ATLAS: Texture2D = preload("res://assets/sprites/flora/atlases/layered_bushes/shadow.png")
+const BUSH_SNOW_OVERLAY_ATLAS: Texture2D = preload("res://assets/sprites/flora/atlases/layered_bushes/snow_overlay.png")
+const BUSH_WIND_MASK_ATLAS: Texture2D = preload("res://assets/sprites/flora/atlases/layered_bushes/wind_mask.png")
+const BUSH_SNOW_MASK_ATLAS: Texture2D = preload("res://assets/sprites/flora/atlases/layered_bushes/snow_mask.png")
+const BUSH_SEASON_MASK_ATLAS: Texture2D = preload("res://assets/sprites/flora/atlases/layered_bushes/season_mask.png")
+
 const ROCK_ALBEDO_ATLAS: Texture2D = preload("res://assets/sprites/decor/atlases/layered_small_rocks/albedo.png")
 const ROCK_SHADOW_ATLAS: Texture2D = preload("res://assets/sprites/decor/atlases/layered_small_rocks/shadow.png")
 const ROCK_SNOW_OVERLAY_ATLAS: Texture2D = preload("res://assets/sprites/decor/atlases/layered_small_rocks/snow_overlay.png")
@@ -58,15 +68,22 @@ const ROCK_SOURCE_DIRS: Array[String] = [
 	"res://assets/sprites/decor/plains/layered_small_rocks/small_rock_22",
 ]
 
+const BUSH_SOURCE_DIRS: Array[String] = [
+	"res://assets/sprites/flora/layered_bushes/alien_bush_01",
+]
+
 const TREE_COLUMNS: int = 6
 const TREE_ROWS: int = 1
 const ROCK_COLUMNS: int = 5
 const ROCK_ROWS: int = 5
+const BUSH_COLUMNS: int = 4
+const BUSH_ROWS: int = 1
 ## Bumped whenever the atlas layout or asset set changes: stale prepared buffers
 ## must be rejected rather than sampled against a grid that no longer matches.
-const CATALOG_GENERATION: int = 4
+const CATALOG_GENERATION: int = 5
 const TREE_METRIC_STRIDE: int = 5
 const ROCK_METRIC_STRIDE: int = 5
+const BUSH_METRIC_STRIDE: int = 5
 const METRIC_FRAME_WIDTH: int = 0
 const METRIC_FRAME_HEIGHT: int = 1
 const METRIC_ANCHOR_X: int = 2
@@ -118,9 +135,19 @@ const SHADOW_DIRECTION: Vector2 = Vector2(0.887216, 0.461354)
 const TREE_SHADOW_OUTPUT_UV_MIN: Vector2 = Vector2(-0.10, -0.10)
 const TREE_SHADOW_OUTPUT_UV_MAX: Vector2 = Vector2(1.70, 1.50)
 const TREE_SHADOW_DIRECTION: Vector2 = Vector2(0.887216, 0.461354)
+## Bushes were baked on the same revision-4 sun, so their framing opens
+## south-east too. It stays a separate constant per family, as the contract in
+## docs/art/layered_asset_bake_contract.md requires.
+const BUSH_SHADOW_OUTPUT_UV_MIN: Vector2 = Vector2(-0.10, -0.10)
+const BUSH_SHADOW_OUTPUT_UV_MAX: Vector2 = Vector2(1.70, 1.50)
+const BUSH_SHADOW_DIRECTION: Vector2 = Vector2(0.887216, 0.461354)
+## A bush is a fraction of a tree in world pixels, so the same authored sway in
+## pixels would read as a storm. Wind is scaled to the family's size.
+const BUSH_WIND_STRENGTH_PX: float = 1.2
 
 var _tree_native_metrics := PackedFloat32Array()
 var _rock_native_metrics := PackedFloat32Array()
+var _bush_native_metrics := PackedFloat32Array()
 var _native_params := PackedFloat32Array([
 	OBJECT_POSITION_QUANTIZATION_PX,
 	float(WorldRuntimeConstants.DEPTH_STRIPE_PX),
@@ -146,13 +173,19 @@ var _native_params := PackedFloat32Array([
 var _native_params_by_flora_policy: Array[PackedFloat32Array] = []
 var _tree_anchor_lut: Texture2D = null
 var _rock_anchor_lut: Texture2D = null
+var _bush_anchor_lut: Texture2D = null
 var _unit_quad_mesh: QuadMesh = null
 var _shadow_mesh: ArrayMesh = null
 var _tree_shadow_mesh: ArrayMesh = null
+var _bush_shadow_mesh: ArrayMesh = null
 var _tree_trunk_material: ShaderMaterial = null
 var _tree_foliage_material: ShaderMaterial = null
 var _tree_snow_material: ShaderMaterial = null
 var _tree_shadow_material: ShaderMaterial = null
+var _bush_trunk_material: ShaderMaterial = null
+var _bush_foliage_material: ShaderMaterial = null
+var _bush_snow_material: ShaderMaterial = null
+var _bush_shadow_material: ShaderMaterial = null
 var _rock_albedo_material: ShaderMaterial = null
 var _rock_snow_material: ShaderMaterial = null
 var _rock_shadow_material: ShaderMaterial = null
@@ -188,6 +221,10 @@ func get_rock_native_metrics() -> PackedFloat32Array:
 	return _rock_native_metrics
 
 
+func get_bush_native_metrics() -> PackedFloat32Array:
+	return _bush_native_metrics
+
+
 func get_native_params(
 		living_flora_enabled: bool = false,
 		spiky_flora_enabled: bool = false,
@@ -209,6 +246,10 @@ func get_tree_shadow_mesh() -> ArrayMesh:
 	return _tree_shadow_mesh
 
 
+func get_bush_shadow_mesh() -> ArrayMesh:
+	return _bush_shadow_mesh
+
+
 func get_tree_trunk_material() -> ShaderMaterial:
 	return _tree_trunk_material
 
@@ -223,6 +264,22 @@ func get_tree_snow_material() -> ShaderMaterial:
 
 func get_tree_shadow_material() -> ShaderMaterial:
 	return _tree_shadow_material
+
+
+func get_bush_trunk_material() -> ShaderMaterial:
+	return _bush_trunk_material
+
+
+func get_bush_foliage_material() -> ShaderMaterial:
+	return _bush_foliage_material
+
+
+func get_bush_snow_material() -> ShaderMaterial:
+	return _bush_snow_material
+
+
+func get_bush_shadow_material() -> ShaderMaterial:
+	return _bush_shadow_material
 
 
 func get_rock_albedo_material() -> ShaderMaterial:
@@ -283,6 +340,9 @@ func set_season_amount(season_amount: float) -> void:
 	_tree_trunk_material.set_shader_parameter("season_amount", _season_amount)
 	_tree_foliage_material.set_shader_parameter("season_amount", _season_amount)
 	_tree_snow_material.set_shader_parameter("season_amount", _season_amount)
+	_bush_trunk_material.set_shader_parameter("season_amount", _season_amount)
+	_bush_foliage_material.set_shader_parameter("season_amount", _season_amount)
+	_bush_snow_material.set_shader_parameter("season_amount", _season_amount)
 	_rock_snow_material.set_shader_parameter("season_amount", _season_amount)
 
 
@@ -310,6 +370,8 @@ func set_sun_lighting(shadow_length_px: float, shadow_opacity: float) -> void:
 	_tree_shadow_material.set_shader_parameter("shadow_opacity", opacity)
 	_rock_shadow_material.set_shader_parameter("shadow_length_scale", length_scale)
 	_rock_shadow_material.set_shader_parameter("shadow_opacity", opacity)
+	_bush_shadow_material.set_shader_parameter("shadow_length_scale", length_scale)
+	_bush_shadow_material.set_shader_parameter("shadow_opacity", opacity)
 	# Living-flora contact shadows use one catalog-shared material too. Their
 	# authored displacement length is zero, so sun angle is visually irrelevant;
 	# softness is the same deterministic low-sun function used by WorldStreamer.
@@ -335,18 +397,26 @@ func _prepare() -> void:
 	_prepare_native_param_policies()
 	_tree_native_metrics = _read_metrics(TREE_SOURCE_DIRS, TREE_FIXED_FRAME_SCALE)
 	_rock_native_metrics = _read_metrics(ROCK_SOURCE_DIRS, -1.0)
+	# Bushes are sized from the packet byte like rocks, so their metric carries
+	# the alpha-bbox visible width rather than an authored fixed frame scale.
+	_bush_native_metrics = _read_metrics(BUSH_SOURCE_DIRS, -1.0)
 	if _tree_native_metrics.size() != TREE_SOURCE_DIRS.size() * TREE_METRIC_STRIDE:
 		push_error("WorldLayeredObjectAssetCatalog: invalid tree metadata")
 		return
 	if _rock_native_metrics.size() != ROCK_SOURCE_DIRS.size() * ROCK_METRIC_STRIDE:
 		push_error("WorldLayeredObjectAssetCatalog: invalid rock metadata")
 		return
+	if _bush_native_metrics.size() != BUSH_SOURCE_DIRS.size() * BUSH_METRIC_STRIDE:
+		push_error("WorldLayeredObjectAssetCatalog: invalid bush metadata")
+		return
 	_tree_anchor_lut = _make_anchor_lut(_tree_native_metrics, TREE_METRIC_STRIDE)
 	_rock_anchor_lut = _make_anchor_lut(_rock_native_metrics, ROCK_METRIC_STRIDE)
+	_bush_anchor_lut = _make_anchor_lut(_bush_native_metrics, BUSH_METRIC_STRIDE)
 	_unit_quad_mesh = QuadMesh.new()
 	_unit_quad_mesh.size = Vector2.ONE
 	_shadow_mesh = _make_shadow_mesh(SHADOW_OUTPUT_UV_MIN, SHADOW_OUTPUT_UV_MAX)
 	_tree_shadow_mesh = _make_shadow_mesh(TREE_SHADOW_OUTPUT_UV_MIN, TREE_SHADOW_OUTPUT_UV_MAX)
+	_bush_shadow_mesh = _make_shadow_mesh(BUSH_SHADOW_OUTPUT_UV_MIN, BUSH_SHADOW_OUTPUT_UV_MAX)
 	_prepare_materials()
 	_is_ready = true
 
@@ -407,6 +477,54 @@ func _prepare_materials() -> void:
 		TREE_SHADOW_OUTPUT_UV_MIN,
 		TREE_SHADOW_OUTPUT_UV_MAX,
 		TREE_SHADOW_DIRECTION,
+	)
+
+	_bush_trunk_material = ShaderMaterial.new()
+	_bush_trunk_material.shader = TREE_TRUNK_SHADER
+	_set_atlas_layout(
+		_bush_trunk_material,
+		BUSH_COLUMNS,
+		BUSH_ROWS,
+		BUSH_SOURCE_DIRS.size(),
+		BUSH_TRUNK_ATLAS,
+	)
+	_bush_trunk_material.set_shader_parameter("snow_mask_texture", BUSH_SNOW_MASK_ATLAS)
+	_bush_trunk_material.set_shader_parameter("wind_mask_texture", BUSH_WIND_MASK_ATLAS)
+	_bush_trunk_material.set_shader_parameter("wind_strength_px", BUSH_WIND_STRENGTH_PX)
+
+	_bush_foliage_material = ShaderMaterial.new()
+	_bush_foliage_material.shader = TREE_FOLIAGE_SHADER
+	_set_atlas_layout(
+		_bush_foliage_material,
+		BUSH_COLUMNS,
+		BUSH_ROWS,
+		BUSH_SOURCE_DIRS.size(),
+		BUSH_FOLIAGE_ATLAS,
+	)
+	_bush_foliage_material.set_shader_parameter("wind_mask_texture", BUSH_WIND_MASK_ATLAS)
+	_bush_foliage_material.set_shader_parameter("season_mask_texture", BUSH_SEASON_MASK_ATLAS)
+	_bush_foliage_material.set_shader_parameter("wind_strength_px", BUSH_WIND_STRENGTH_PX)
+
+	_bush_snow_material = ShaderMaterial.new()
+	_bush_snow_material.shader = SNOW_SHADER
+	_set_atlas_layout(
+		_bush_snow_material,
+		BUSH_COLUMNS,
+		BUSH_ROWS,
+		BUSH_SOURCE_DIRS.size(),
+		BUSH_SNOW_OVERLAY_ATLAS,
+	)
+	_bush_snow_material.set_shader_parameter("snow_mask_texture", BUSH_SNOW_MASK_ATLAS)
+
+	_bush_shadow_material = _make_shadow_material(
+		BUSH_COLUMNS,
+		BUSH_ROWS,
+		BUSH_SOURCE_DIRS.size(),
+		_bush_anchor_lut,
+		BUSH_SHADOW_ATLAS,
+		BUSH_SHADOW_OUTPUT_UV_MIN,
+		BUSH_SHADOW_OUTPUT_UV_MAX,
+		BUSH_SHADOW_DIRECTION,
 	)
 
 	_rock_albedo_material = ShaderMaterial.new()

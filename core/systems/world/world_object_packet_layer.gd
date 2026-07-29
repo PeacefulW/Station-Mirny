@@ -6,6 +6,7 @@ const LayeredTreeObjectLayer = preload("res://core/systems/world/layered_tree_ob
 const LayeredRockObjectLayer = preload("res://core/systems/world/layered_rock_object_layer.gd")
 const LayeredTreeBatchLayer = preload("res://core/systems/world/layered_tree_batch_layer.gd")
 const LayeredRockBatchLayer = preload("res://core/systems/world/layered_rock_batch_layer.gd")
+const LayeredBushBatchLayer = preload("res://core/systems/world/layered_bush_batch_layer.gd")
 const NativeDecorBatchLayer = preload("res://core/systems/world/native_decor_batch_layer.gd")
 const WorldLayeredObjectAssetCatalog = preload("res://core/systems/world/world_layered_object_asset_catalog.gd")
 const WorldVisualLightingProfile = preload("res://core/systems/world/world_visual_lighting_profile.gd")
@@ -17,6 +18,7 @@ const OBJECT_KIND_LIVING_FLORA: int = 2
 const OBJECT_KIND_SPIKY_FLORA: int = 3
 const OBJECT_KIND_TREE: int = 4
 const OBJECT_KIND_SMALL_ROCK: int = 7
+const OBJECT_KIND_BUSH: int = 8
 const OBJECT_LOCAL_PX_QUANTUM: float = 4.0
 const OBJECT_COLLISION_LAYER: int = 2
 const NATIVE_MULTIMESH_BUFFER_STRIDE: int = 12
@@ -86,6 +88,7 @@ var _layered_tree_layer: LayeredTreeObjectLayer = null
 var _layered_small_rock_layer: LayeredRockObjectLayer = null
 var _layered_tree_batch_layer: LayeredTreeBatchLayer = null
 var _layered_small_rock_batch_layer: LayeredRockBatchLayer = null
+var _layered_bush_batch_layer: LayeredBushBatchLayer = null
 var _native_living_flora_batch_layer: NativeDecorBatchLayer = null
 var _native_spiky_flora_batch_layer: NativeDecorBatchLayer = null
 var _tree_collision_body: StaticBody2D = null
@@ -104,6 +107,7 @@ var _living_flora_count: int = 0
 var _spiky_flora_count: int = 0
 var _tree_count: int = 0
 var _small_rock_count: int = 0
+var _bush_count: int = 0
 var _world_origin_y: float = 0.0
 enum NativeApplyState {
 	IDLE,
@@ -113,6 +117,7 @@ enum NativeApplyState {
 	LIVING_FLORA_BUFFERS,
 	SPIKY_FLORA_BUFFERS,
 	ROCK_BUCKETS,
+	BUSH_BUCKETS,
 	RETIRE_UNUSED_VISUALS,
 	COMMIT_BLOCKING,
 	COMPLETE,
@@ -123,6 +128,7 @@ enum NativeBeginState {
 	HEADER,
 	TREE,
 	ROCK,
+	BUSH,
 	LIVING_FLORA,
 	SPIKY_FLORA,
 	FINALIZE,
@@ -138,11 +144,13 @@ const PRESENTATION_PHASE_TREE_SLOT_ALLOCATION: StringName = &"tree_slot_allocate
 const PRESENTATION_PHASE_LIVING_SLOT_ALLOCATION: StringName = &"living_slot_allocate"
 const PRESENTATION_PHASE_SPIKY_SLOT_ALLOCATION: StringName = &"spiky_slot_allocate"
 const PRESENTATION_PHASE_ROCK_SLOT_ALLOCATION: StringName = &"rock_slot_allocate"
+const PRESENTATION_PHASE_BUSH_SLOT_ALLOCATION: StringName = &"bush_slot_allocate"
 const PRESENTATION_PHASE_TREE_APPLY: StringName = &"tree_apply"
 const PRESENTATION_PHASE_TREE_COLLISIONS: StringName = &"tree_collisions"
 const PRESENTATION_PHASE_LIVING_APPLY: StringName = &"living_apply"
 const PRESENTATION_PHASE_SPIKY_APPLY: StringName = &"spiky_apply"
 const PRESENTATION_PHASE_ROCK_APPLY: StringName = &"rock_apply"
+const PRESENTATION_PHASE_BUSH_APPLY: StringName = &"bush_apply"
 const PRESENTATION_PHASE_RETIRE: StringName = &"retire"
 const PRESENTATION_PHASE_COMMIT: StringName = &"commit"
 
@@ -157,6 +165,7 @@ var _native_begin_result: Dictionary = { }
 var _native_begin_catalog: WorldLayeredObjectAssetCatalog = null
 var _native_begin_tree_count: int = 0
 var _native_begin_rock_count: int = 0
+var _native_begin_bush_count: int = 0
 var _native_begin_living_count: int = 0
 var _native_begin_spiky_count: int = 0
 var _native_begin_presented_count: int = 0
@@ -316,6 +325,8 @@ func set_world_origin_y(world_origin_y: float) -> void:
 		_layered_tree_batch_layer.set_world_origin_y(_world_origin_y)
 	if _layered_small_rock_batch_layer != null and is_instance_valid(_layered_small_rock_batch_layer):
 		_layered_small_rock_batch_layer.set_world_origin_y(_world_origin_y)
+	if _layered_bush_batch_layer != null and is_instance_valid(_layered_bush_batch_layer):
+		_layered_bush_batch_layer.set_world_origin_y(_world_origin_y)
 
 
 ## Перестановка полос объектного декора на player-relative лесенке.
@@ -340,6 +351,8 @@ func update_ladder_z(anchor_stripe: int) -> void:
 		_layered_tree_batch_layer.update_ladder_z(anchor_stripe)
 	if _layered_small_rock_batch_layer != null and is_instance_valid(_layered_small_rock_batch_layer):
 		_layered_small_rock_batch_layer.update_ladder_z(anchor_stripe)
+	if _layered_bush_batch_layer != null and is_instance_valid(_layered_bush_batch_layer):
+		_layered_bush_batch_layer.update_ladder_z(anchor_stripe)
 
 
 ## Prepares the fixed object-family envelope before it enters the frame-budget
@@ -354,10 +367,12 @@ func prepare_presentation_envelope(
 		return false
 	var tree_layer: LayeredTreeBatchLayer = _ensure_layered_tree_batch_layer(catalog)
 	var rock_layer: LayeredRockBatchLayer = _ensure_layered_small_rock_batch_layer(catalog)
-	if tree_layer == null or rock_layer == null:
+	var bush_layer: LayeredBushBatchLayer = _ensure_layered_bush_batch_layer(catalog)
+	if tree_layer == null or rock_layer == null or bush_layer == null:
 		return false
 	tree_layer.reserve_pool_slots(initial_slots_per_family)
 	rock_layer.reserve_pool_slots(initial_slots_per_family)
+	bush_layer.reserve_pool_slots(initial_slots_per_family)
 	if _living_flora_atlas != null:
 		var living_layer: NativeDecorBatchLayer = _ensure_native_living_flora_batch_layer(catalog)
 		if living_layer == null:
@@ -403,6 +418,17 @@ func prepare_next_presentation_envelope_phase(
 		WorldPerfProbe.end(
 			"WorldStreamer.visual_upload.object_packet_envelope.rock_fixed",
 			rock_started_usec,
+		)
+		return true
+	if _layered_bush_batch_layer == null \
+			or not is_instance_valid(_layered_bush_batch_layer) \
+			or not _layered_bush_batch_layer.is_presentation_envelope_fixed_graph_ready():
+		var bush_started_usec: int = WorldPerfProbe.begin()
+		var bush_layer: LayeredBushBatchLayer = _ensure_layered_bush_batch_layer(catalog)
+		bush_layer.prepare_presentation_envelope_fixed_graph()
+		WorldPerfProbe.end(
+			"WorldStreamer.visual_upload.object_packet_envelope.bush_fixed",
+			bush_started_usec,
 		)
 		return true
 	if _living_flora_atlas != null \
@@ -454,6 +480,10 @@ func is_presentation_envelope_ready() -> bool:
 	if _layered_small_rock_batch_layer == null \
 			or not is_instance_valid(_layered_small_rock_batch_layer) \
 			or not _layered_small_rock_batch_layer.is_presentation_envelope_fixed_graph_ready():
+		return false
+	if _layered_bush_batch_layer == null \
+			or not is_instance_valid(_layered_bush_batch_layer) \
+			or not _layered_bush_batch_layer.is_presentation_envelope_fixed_graph_ready():
 		return false
 	if _living_flora_atlas != null \
 			and (_native_living_flora_batch_layer == null \
@@ -526,6 +556,8 @@ func advance_incremental_presentation_begin_phase() -> bool:
 			return _advance_incremental_begin_tree()
 		NativeBeginState.ROCK:
 			return _advance_incremental_begin_rock()
+		NativeBeginState.BUSH:
+			return _advance_incremental_begin_bush()
 		NativeBeginState.LIVING_FLORA:
 			return _advance_incremental_begin_living()
 		NativeBeginState.SPIKY_FLORA:
@@ -542,6 +574,7 @@ func _advance_incremental_begin_header() -> bool:
 	var spiky_flora_count: int = maxi(0, int(result.get("spiky_flora_count", 0)))
 	var tree_count: int = maxi(0, int(result.get("tree_instance_count", 0)))
 	var rock_count: int = maxi(0, int(result.get("rock_instance_count", 0)))
+	var bush_count: int = maxi(0, int(result.get("bush_instance_count", 0)))
 	var living_record_count: int = maxi(
 		0,
 		int(result.get("living_flora_record_count", living_flora_count)),
@@ -564,7 +597,7 @@ func _advance_incremental_begin_header() -> bool:
 					+ (spiky_record_count - spiky_flora_count):
 		push_error("WorldObjectPacketLayer: native flora suppression metadata is inconsistent")
 		return _fail_incremental_presentation_begin()
-	var presented_object_count: int = living_flora_count + spiky_flora_count + tree_count + rock_count
+	var presented_object_count: int = living_flora_count + spiky_flora_count + tree_count + rock_count + bush_count
 	var expected_object_count: int = presented_object_count + suppressed_count
 	if int(result.get("object_count", expected_object_count)) != expected_object_count:
 		push_error("WorldObjectPacketLayer: native family counts do not match object_count")
@@ -595,12 +628,15 @@ func _advance_incremental_begin_header() -> bool:
 		_living_flora_batch_layer.clear_batches()
 	if _spiky_flora_batch_layer != null and is_instance_valid(_spiky_flora_batch_layer):
 		_spiky_flora_batch_layer.clear_batches()
+	if _layered_bush_batch_layer != null and is_instance_valid(_layered_bush_batch_layer):
+		_layered_bush_batch_layer.clear_batches()
 	if _tree_shadow_layer != null and is_instance_valid(_tree_shadow_layer):
 		_tree_shadow_layer.visible = false
 		_tree_shadow_layer.multimesh = null
 
 	_native_begin_tree_count = tree_count
 	_native_begin_rock_count = rock_count
+	_native_begin_bush_count = bush_count
 	_native_begin_living_count = living_flora_count
 	_native_begin_spiky_count = spiky_flora_count
 	_native_begin_presented_count = presented_object_count
@@ -608,6 +644,7 @@ func _advance_incremental_begin_header() -> bool:
 			not _tree_collision_shape_owner_ids.is_empty()
 	_tree_count = _native_begin_tree_count
 	_small_rock_count = _native_begin_rock_count
+	_bush_count = _native_begin_bush_count
 	_living_flora_count = _native_begin_living_count
 	_spiky_flora_count = _native_begin_spiky_count
 	# Worker results are immutable CPU-cache truth and may be shared by hot
@@ -658,6 +695,31 @@ func _advance_incremental_begin_rock() -> bool:
 			return _fail_incremental_presentation_begin()
 	else:
 		rock_layer.clear_batches()
+	_native_begin_state = NativeBeginState.BUSH
+	return true
+
+
+func _advance_incremental_begin_bush() -> bool:
+	# The native builder allocates the bush stripe table lazily, so a chunk with
+	# no bushes returns an empty array rather than 64 empty buffers. Validate the
+	# stripe table only when the family is actually present.
+	if _native_begin_bush_count > 0:
+		var bush_float_count: int = _native_bucket_buffers_float_count(
+			_native_begin_result,
+			&"bush_atlas_bucket_buffers",
+			_native_begin_bush_count,
+		)
+		if bush_float_count < 0:
+			return _fail_incremental_presentation_begin()
+		_native_begin_validated_float_count += bush_float_count
+	var bush_layer: LayeredBushBatchLayer = _ensure_layered_bush_batch_layer(
+		_native_begin_catalog,
+	)
+	if _native_begin_bush_count > 0:
+		if not bush_layer.begin_apply(_native_begin_result):
+			return _fail_incremental_presentation_begin()
+	else:
+		bush_layer.clear_batches()
 	_native_begin_state = NativeBeginState.LIVING_FLORA
 	return true
 
@@ -868,6 +930,21 @@ func apply_next_presentation_slice(
 				if rock_pending:
 					return true
 			if not _layered_small_rock_batch_layer.has_pending_retire():
+				_native_apply_state = _native_bush_or_commit_state()
+			return true
+		NativeApplyState.BUSH_BUCKETS:
+			if _layered_bush_batch_layer.has_pending_retire():
+				_layered_bush_batch_layer.retire_next_batch(maxi(1, rock_stripes_per_slice))
+				if _layered_bush_batch_layer.has_pending_retire():
+					return true
+			else:
+				var bush_pending: bool = _layered_bush_batch_layer.apply_next_batch(
+					maxi(1, rock_stripes_per_slice),
+				)
+				_last_apply_created_visual_slot = 						_layered_bush_batch_layer.did_last_slice_create_slot()
+				if bush_pending:
+					return true
+			if not _layered_bush_batch_layer.has_pending_retire():
 				_native_apply_state = NativeApplyState.RETIRE_UNUSED_VISUALS
 			return true
 		NativeApplyState.RETIRE_UNUSED_VISUALS:
@@ -911,6 +988,10 @@ func get_next_presentation_apply_phase_hint() -> StringName:
 			return PRESENTATION_PHASE_ROCK_SLOT_ALLOCATION \
 					if _layered_small_rock_batch_layer.has_pending_required_slot_allocation() \
 					else PRESENTATION_PHASE_ROCK_APPLY
+		NativeApplyState.BUSH_BUCKETS:
+			if _layered_bush_batch_layer.has_pending_retire():
+				return PRESENTATION_PHASE_RETIRE
+			return PRESENTATION_PHASE_BUSH_SLOT_ALLOCATION 					if _layered_bush_batch_layer.has_pending_required_slot_allocation() 					else PRESENTATION_PHASE_BUSH_APPLY
 		NativeApplyState.RETIRE_UNUSED_VISUALS:
 			return PRESENTATION_PHASE_RETIRE
 		NativeApplyState.COMMIT_BLOCKING:
@@ -931,6 +1012,8 @@ func apply_next_presentation_allocation_only() -> bool:
 			allocated = _native_spiky_flora_batch_layer.allocate_next_required_slot()
 		PRESENTATION_PHASE_ROCK_SLOT_ALLOCATION:
 			allocated = _layered_small_rock_batch_layer.allocate_next_required_slot()
+		PRESENTATION_PHASE_BUSH_SLOT_ALLOCATION:
+			allocated = _layered_bush_batch_layer.allocate_next_required_slot()
 	_last_apply_created_visual_slot = allocated
 	return allocated
 
@@ -941,6 +1024,7 @@ func next_presentation_slice_requires_visual_slot_allocation() -> bool:
 		PRESENTATION_PHASE_LIVING_SLOT_ALLOCATION,
 		PRESENTATION_PHASE_SPIKY_SLOT_ALLOCATION,
 		PRESENTATION_PHASE_ROCK_SLOT_ALLOCATION,
+		PRESENTATION_PHASE_BUSH_SLOT_ALLOCATION,
 	]
 
 
@@ -963,7 +1047,7 @@ func is_hot_cache_eligible() -> bool:
 	return _native_apply_state == NativeApplyState.COMPLETE \
 			and _native_presentation_complete \
 			and _native_blocking_ready \
-			and _living_flora_count + _spiky_flora_count + _tree_count + _small_rock_count > 0
+			and _living_flora_count + _spiky_flora_count + _tree_count + _small_rock_count + _bush_count > 0
 
 
 ## Exact committed residency after every slot/collider has been created.
@@ -1072,6 +1156,10 @@ func _build_hot_cache_weight(reserve_unallocated: bool) -> Dictionary:
 	if _layered_small_rock_batch_layer != null \
 			and is_instance_valid(_layered_small_rock_batch_layer):
 		rock_state = _layered_small_rock_batch_layer.get_debug_state()
+	var bush_state: Dictionary = { }
+	if _layered_bush_batch_layer != null \
+			and is_instance_valid(_layered_bush_batch_layer):
+		bush_state = _layered_bush_batch_layer.get_debug_state()
 	var living_state: Dictionary = { }
 	if _native_living_flora_batch_layer != null \
 			and is_instance_valid(_native_living_flora_batch_layer):
@@ -1082,11 +1170,13 @@ func _build_hot_cache_weight(reserve_unallocated: bool) -> Dictionary:
 		spiky_state = _native_spiky_flora_batch_layer.get_debug_state()
 	var tree_slots: int = int(tree_state.get("pooled_slot_count", 0))
 	var rock_slots: int = int(rock_state.get("pooled_slot_count", 0))
+	var bush_slots: int = int(bush_state.get("pooled_slot_count", 0))
 	var living_slots: int = int(living_state.get("pooled_slot_count", 0))
 	var spiky_slots: int = int(spiky_state.get("pooled_slot_count", 0))
 	if reserve_unallocated:
 		tree_slots = maxi(tree_slots, mini(_tree_count, WorldRuntimeConstants.DEPTH_STRIPES_PER_CHUNK))
 		rock_slots = maxi(rock_slots, mini(_small_rock_count, WorldRuntimeConstants.DEPTH_STRIPES_PER_CHUNK))
+		bush_slots = maxi(bush_slots, mini(_bush_count, WorldRuntimeConstants.DEPTH_STRIPES_PER_CHUNK))
 		living_slots = maxi(
 			living_slots,
 			mini(_living_flora_count, WorldRuntimeConstants.DEPTH_STRIPES_PER_CHUNK),
@@ -1103,10 +1193,12 @@ func _build_hot_cache_weight(reserve_unallocated: bool) -> Dictionary:
 	# includes the layer owner, family owners, DepthLadder root + three band roots,
 	# optional living contact-shadow owner, collision body, and debug overlay.
 	var canvas_item_count: int = 1
-	for family_state: Dictionary in [tree_state, rock_state, living_state, spiky_state]:
+	for family_state: Dictionary in [tree_state, rock_state, bush_state, living_state, spiky_state]:
 		canvas_item_count += int(family_state.get("canvas_item_count", 0))
 	canvas_item_count += (tree_slots - int(tree_state.get("pooled_slot_count", 0))) * 4
 	canvas_item_count += (rock_slots - int(rock_state.get("pooled_slot_count", 0))) * 3
+	# A bush slot owns the same four channel layers a tree slot does.
+	canvas_item_count += (bush_slots - int(bush_state.get("pooled_slot_count", 0))) * 4
 	canvas_item_count += living_slots - int(living_state.get("pooled_slot_count", 0))
 	canvas_item_count += spiky_slots - int(spiky_state.get("pooled_slot_count", 0))
 	if _tree_collision_body != null and is_instance_valid(_tree_collision_body):
@@ -1118,6 +1210,7 @@ func _build_hot_cache_weight(reserve_unallocated: bool) -> Dictionary:
 	# bounded reset slice really releases it.
 	var resident_tree_copies: int = int(tree_state.get("resident_instance_count", 0)) * 2
 	var resident_rock_copies: int = int(rock_state.get("resident_instance_count", 0)) * 2
+	var resident_bush_copies: int = int(bush_state.get("resident_instance_count", 0)) * 2
 	var resident_living_copies: int = int(living_state.get("resident_instance_count", 0))
 	var resident_living_shadow_copies: int = int(
 		living_state.get("resident_shadow_instance_count", 0),
@@ -1127,6 +1220,7 @@ func _build_hot_cache_weight(reserve_unallocated: bool) -> Dictionary:
 		spiky_state.get("resident_shadow_instance_count", 0),
 	)
 	var accounted_instance_copies: int = resident_tree_copies + resident_rock_copies \
+			+ resident_bush_copies \
 			+ resident_living_copies + resident_living_shadow_copies \
 			+ resident_spiky_copies + resident_spiky_shadow_copies
 	if reserve_unallocated:
@@ -1134,6 +1228,7 @@ func _build_hot_cache_weight(reserve_unallocated: bool) -> Dictionary:
 		# also stable for defensive direct reuse and avoids a phantom 2x dense weight.
 		accounted_instance_copies = maxi(resident_tree_copies, _tree_count * 2) \
 				+ maxi(resident_rock_copies, _small_rock_count * 2) \
+				+ maxi(resident_bush_copies, _bush_count * 2) \
 				+ maxi(resident_living_copies, _living_flora_count) \
 				+ maxi(resident_living_shadow_copies, _living_flora_count) \
 				+ maxi(resident_spiky_copies, _spiky_flora_count) \
@@ -1153,7 +1248,7 @@ func set_hot_cache_resident(resident: bool) -> void:
 	if resident:
 		set_blocking_collision_active(false)
 	visible = not resident \
-			and _living_flora_count + _spiky_flora_count + _tree_count + _small_rock_count > 0
+			and _living_flora_count + _spiky_flora_count + _tree_count + _small_rock_count + _bush_count > 0
 
 
 func set_streaming_world_parented(world_parented: bool) -> void:
@@ -1180,6 +1275,7 @@ func get_raw_multimesh_upload_count_total() -> int:
 	for layer: Node in [
 		_layered_tree_batch_layer,
 		_layered_small_rock_batch_layer,
+		_layered_bush_batch_layer,
 		_native_living_flora_batch_layer,
 		_native_spiky_flora_batch_layer,
 	]:
@@ -1241,6 +1337,7 @@ func begin_pool_retire() -> void:
 	_spiky_flora_count = 0
 	_tree_count = 0
 	_small_rock_count = 0
+	_bush_count = 0
 	_native_payload_bytes = 0
 	visible = false
 
@@ -1270,6 +1367,7 @@ func shrink_pool_next_slot_group() -> bool:
 		_native_spiky_flora_batch_layer,
 		_native_living_flora_batch_layer,
 		_layered_small_rock_batch_layer,
+		_layered_bush_batch_layer,
 		_layered_tree_batch_layer,
 	]:
 		if family != null and is_instance_valid(family) \
@@ -1296,7 +1394,12 @@ func _first_native_flora_or_rock_state() -> NativeApplyState:
 
 func _native_rock_or_commit_state() -> NativeApplyState:
 	return NativeApplyState.ROCK_BUCKETS \
-			if _small_rock_count > 0 else NativeApplyState.RETIRE_UNUSED_VISUALS
+			if _small_rock_count > 0 else _native_bush_or_commit_state()
+
+
+func _native_bush_or_commit_state() -> NativeApplyState:
+	return NativeApplyState.BUSH_BUCKETS \
+			if _bush_count > 0 else NativeApplyState.RETIRE_UNUSED_VISUALS
 
 
 func _has_pending_visual_retire() -> bool:
@@ -1305,6 +1408,7 @@ func _has_pending_visual_retire() -> bool:
 		_native_living_flora_batch_layer,
 		_native_spiky_flora_batch_layer,
 		_layered_small_rock_batch_layer,
+		_layered_bush_batch_layer,
 	]:
 		if family != null and is_instance_valid(family) \
 				and bool(family.call("has_pending_retire")):
@@ -1321,6 +1425,7 @@ func _retire_next_unused_visual_slice(max_slots: int) -> bool:
 		_native_living_flora_batch_layer,
 		_native_spiky_flora_batch_layer,
 		_layered_small_rock_batch_layer,
+		_layered_bush_batch_layer,
 	]:
 		if family == null or not is_instance_valid(family) \
 				or not bool(family.call("has_pending_retire")):
@@ -1507,6 +1612,18 @@ func _native_bucket_array_float_count(buffers: Array, label: String) -> int:
 	return float_count
 
 
+func _ensure_layered_bush_batch_layer(
+		catalog: WorldLayeredObjectAssetCatalog,
+) -> LayeredBushBatchLayer:
+	if _layered_bush_batch_layer == null 			or not is_instance_valid(_layered_bush_batch_layer):
+		_layered_bush_batch_layer = LayeredBushBatchLayer.new()
+		_layered_bush_batch_layer.name = "LayeredBushBatchLayer"
+		add_child(_layered_bush_batch_layer)
+	_layered_bush_batch_layer.configure_catalog(catalog)
+	_layered_bush_batch_layer.set_world_origin_y(_world_origin_y)
+	return _layered_bush_batch_layer
+
+
 func _ensure_layered_small_rock_batch_layer(
 		catalog: WorldLayeredObjectAssetCatalog,
 ) -> LayeredRockBatchLayer:
@@ -1576,12 +1693,13 @@ func _commit_native_object_presentation() -> void:
 		_native_living_flora_batch_layer,
 		_native_spiky_flora_batch_layer,
 		_layered_small_rock_batch_layer,
+		_layered_bush_batch_layer,
 	]:
 		if family != null and is_instance_valid(family):
 			family.call("commit_staged_slots")
 	if _tree_collision_body != null and is_instance_valid(_tree_collision_body):
 		_tree_collision_body.collision_layer = 0
-	visible = _living_flora_count + _spiky_flora_count + _tree_count + _small_rock_count > 0
+	visible = _living_flora_count + _spiky_flora_count + _tree_count + _small_rock_count + _bush_count > 0
 	_native_blocking_ready = true
 	_sync_collision_debug_layer()
 	WorldPerfProbe.end("WorldObjectPacketLayer.commit", commit_started_usec)
@@ -1607,6 +1725,7 @@ func configure_packet(packet: Dictionary) -> void:
 	_spiky_flora_count = 0
 	_tree_count = 0
 	_small_rock_count = 0
+	_bush_count = 0
 	var object_kind: PackedByteArray = packet.get("object_kind", PackedByteArray()) as PackedByteArray
 	var object_x: PackedByteArray = packet.get("object_local_x_px_q4", PackedByteArray()) as PackedByteArray
 	var object_y: PackedByteArray = packet.get("object_local_y_px_q4", PackedByteArray()) as PackedByteArray
@@ -1687,7 +1806,8 @@ func configure_packet(packet: Dictionary) -> void:
 	visible = _living_flora_count > 0 \
 			or _spiky_flora_count > 0 \
 			or _tree_count > 0 \
-			or _small_rock_count > 0
+			or _small_rock_count > 0 \
+			or _bush_count > 0
 
 
 func get_debug_state() -> Dictionary:
@@ -1710,6 +1830,8 @@ func get_debug_state() -> Dictionary:
 		"spiky_flora_count": _spiky_flora_count,
 		"tree_count": _tree_count,
 		"small_rock_count": _small_rock_count,
+		"bush_count": _bush_count,
+		"bush_uses_collision": false,
 		"tree_collider_count": _tree_collider_count,
 		"previous_tree_collider_cleanup_remaining": _tree_collision_shape_owner_ids.size() \
 				if _native_apply_state == NativeApplyState.RESET_PREVIOUS_COLLISIONS else 0,
@@ -2309,6 +2431,7 @@ func _clear_batches() -> void:
 	_spiky_flora_count = 0
 	_tree_count = 0
 	_small_rock_count = 0
+	_bush_count = 0
 	_clear_tree_collision_shapes()
 	_tree_debug_rects = []
 	_native_apply_state = NativeApplyState.IDLE

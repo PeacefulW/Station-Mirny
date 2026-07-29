@@ -19,7 +19,7 @@ func _initialize() -> void:
 func _run() -> void:
 	var catalog: AssetCatalog = AssetCatalog.new()
 	_expect(catalog.is_ready(), "asset catalog is ready")
-	_expect(catalog.get_catalog_generation() == 3, "flora policy contract bumps catalog generation")
+	_expect(catalog.get_catalog_generation() == 5, "flora policy contract bumps catalog generation")
 	_expect(catalog.get_native_params().size() == 20, "native flora parameter layout")
 	_verify_chunk_view_lazy_source_sync()
 	_verify_pool_envelope_prepares_fixed_render_graph(catalog)
@@ -165,6 +165,7 @@ func _build_flora_result(world_core: Object, catalog: AssetCatalog) -> Dictionar
 		PackedByteArray([0, 128, 64, 192]),
 		catalog.get_tree_native_metrics(),
 		catalog.get_rock_native_metrics(),
+		catalog.get_bush_native_metrics(),
 		catalog.get_native_params(true, true),
 	)
 	_expect(result_variant is Dictionary, "native flora result is a Dictionary")
@@ -249,6 +250,7 @@ func _verify_lazy_empty_payload(world_core: Object, catalog: AssetCatalog) -> vo
 		empty,
 		catalog.get_tree_native_metrics(),
 		catalog.get_rock_native_metrics(),
+		catalog.get_bush_native_metrics(),
 		catalog.get_native_params(),
 	) as Dictionary
 	_expect((result.get("living_flora_bucket_buffers", []) as Array).is_empty(), "zero living uses lazy buckets")
@@ -286,6 +288,7 @@ func _verify_disabled_policy_suppresses_known_records(
 		PackedByteArray([0, 128, 64, 192]),
 		catalog.get_tree_native_metrics(),
 		catalog.get_rock_native_metrics(),
+		catalog.get_bush_native_metrics(),
 		catalog.get_native_params(),
 	) as Dictionary
 	result["success"] = not result.has("error")
@@ -330,6 +333,7 @@ func _verify_invalid_spiky_bank_is_rejected(world_core: Object, catalog: AssetCa
 		PackedByteArray([0]),
 		catalog.get_tree_native_metrics(),
 		catalog.get_rock_native_metrics(),
+		catalog.get_bush_native_metrics(),
 		catalog.get_native_params(false, true),
 	) as Dictionary
 	_expect(result.has("error"), "out-of-contract spiky atlas bank fails explicitly")

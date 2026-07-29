@@ -15,7 +15,7 @@ enum MetricIndex {
 	METRIC_FRAME_HEIGHT_PX = 1,
 	METRIC_ANCHOR_X_PX = 2,
 	METRIC_ANCHOR_Y_PX = 3,
-	// Tree: authored fixed frame scale. Rock: alpha-bbox visible width.
+	// Tree: authored fixed frame scale. Rock and bush: alpha-bbox visible width.
 	METRIC_SCALE_OR_VISIBLE_WIDTH = 4,
 	METRIC_STRIDE = 5,
 };
@@ -70,6 +70,7 @@ godot::Dictionary build_buffers(
 		const godot::PackedByteArray &p_object_phase,
 		const godot::PackedFloat32Array &p_tree_metrics,
 		const godot::PackedFloat32Array &p_rock_metrics,
+		const godot::PackedFloat32Array &p_bush_metrics,
 		const godot::PackedFloat32Array &p_params);
 
 } // namespace object_presentation

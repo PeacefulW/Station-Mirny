@@ -178,6 +178,7 @@ constexpr uint8_t OBJECT_KIND_LIVING_FLORA = 2U;
 constexpr uint8_t OBJECT_KIND_SPIKY_FLORA = 3U;
 constexpr uint8_t OBJECT_KIND_TREE = 4U;
 constexpr uint8_t OBJECT_KIND_SMALL_ROCK = 7U;
+constexpr uint8_t OBJECT_KIND_BUSH = 8U;
 constexpr int32_t OBJECT_LOCAL_PX_QUANTUM = 4;
 constexpr float OBJECT_MOUNTAIN_CLEARANCE_PX = 64.0f;
 
@@ -249,6 +250,25 @@ constexpr float TREE_PATH_SCALE_PX = 2600.0f;
 constexpr float TREE_PATH_WIDTH = 0.06f;
 constexpr float TREE_PATH_WARP_PX = 700.0f;
 constexpr float TREE_PATH_STRENGTH = 0.85f;
+
+// object_size_px задаёт ВИДИМУЮ ШИРИНУ спрайта, а куст шире, чем выше
+// (bbox 454x351). Дерево рисуется 83x305 px, на авторском пробнике куст был
+// третью его высоты (~99 px). Здесь взята половина этой высоты (~50 px), что
+// в ширине даёт 55..76 px.
+// Кусты — сквозной декор равнины. Растут ТОЛЬКО в траве и ПЛОТНЕЕ, чем стоят
+// деревья: порог травы выше (куст живёт внутри травяной массы, а дерево может
+// стоять на её кромке). Поля травы берутся из tree settings — это один и тот же
+// авторский источник (plains_ground_material_set.tres), второй модели травы нет.
+// См. docs/02_system_specs/world/plains_bushes_presentation.md.
+constexpr int32_t BUSH_SCATTER_GRID_SIDE = 8;
+constexpr float BUSH_PRIMARY_DENSITY = 0.50f;
+constexpr float BUSH_EDGE_PADDING_PX = 20.0f;
+constexpr float BUSH_MIN_DISTANCE_PX = 46.0f;
+constexpr int32_t BUSH_MAX_PER_CHUNK = 10;
+constexpr float BUSH_MIN_SIZE_PX = 55.0f;
+constexpr float BUSH_MAX_SIZE_PX = 76.0f;
+constexpr float BUSH_GRASS_DENSITY_MIN = 0.55f;
+constexpr int32_t BUSH_ATLAS_VARIANT_COUNT = 1;
 
 constexpr int32_t SMALL_ROCK_SCATTER_GRID_SIDE = 5;
 constexpr float SMALL_ROCK_PRIMARY_DENSITY = 0.74f;
@@ -971,6 +991,82 @@ void append_native_tree_placements(
 	}
 }
 
+void append_native_bush_placements(
+	WorldObjectPacketBuffers &r_buffers,
+	int64_t p_seed,
+	Vector2i p_coord,
+	int64_t p_world_version,
+	const PackedInt32Array &p_terrain_ids,
+	const PackedByteArray &p_lake_flags,
+	const TreePlacementSettings &p_grass_field_settings
+) {
+	std::vector<std::pair<float, float>> placed_positions;
+	const float cell_size_px = static_cast<float>(CHUNK_SIZE_PX) / static_cast<float>(BUSH_SCATTER_GRID_SIDE);
+	const float min_distance_sq = BUSH_MIN_DISTANCE_PX * BUSH_MIN_DISTANCE_PX;
+	for (int32_t grid_y = 0; grid_y < BUSH_SCATTER_GRID_SIDE; ++grid_y) {
+		for (int32_t grid_x = 0; grid_x < BUSH_SCATTER_GRID_SIDE; ++grid_x) {
+			if (static_cast<int32_t>(placed_positions.size()) >= BUSH_MAX_PER_CHUNK) {
+				return;
+			}
+			const uint64_t cell_hash = object_hash4(
+					p_coord.x,
+					p_coord.y,
+					grid_x + grid_y * BUSH_SCATTER_GRID_SIDE,
+					p_seed ^ (p_world_version * 97));
+			if (hash_unit_float(cell_hash, 0U) > BUSH_PRIMARY_DENSITY) {
+				continue;
+			}
+			const float jitter_span = std::max(8.0f, cell_size_px - BUSH_EDGE_PADDING_PX * 2.0f);
+			const float jitter_x = (object_unit(cell_hash, 0x41ULL) - 0.5f) * jitter_span;
+			const float jitter_y = (object_unit(cell_hash, 0x53ULL) - 0.5f) * jitter_span;
+			const float local_x = (static_cast<float>(grid_x) + 0.5f) * cell_size_px + jitter_x;
+			const float local_y = (static_cast<float>(grid_y) + 0.5f) * cell_size_px + jitter_y;
+			if (local_x < BUSH_EDGE_PADDING_PX ||
+					local_y < BUSH_EDGE_PADDING_PX ||
+					local_x > static_cast<float>(CHUNK_SIZE_PX) - BUSH_EDGE_PADDING_PX ||
+					local_y > static_cast<float>(CHUNK_SIZE_PX) - BUSH_EDGE_PADDING_PX ||
+					!object_position_is_plain(local_x, local_y, p_terrain_ids, p_lake_flags) ||
+					!object_position_has_mountain_clearance(local_x, local_y, p_terrain_ids, OBJECT_MOUNTAIN_CLEARANCE_PX)) {
+				continue;
+			}
+			const float bush_world_x = static_cast<float>(static_cast<int64_t>(p_coord.x) * CHUNK_SIZE_PX) + local_x;
+			const float bush_world_y = static_cast<float>(static_cast<int64_t>(p_coord.y) * CHUNK_SIZE_PX) + local_y;
+			// Тот же продукт полей, что решает, где растёт трава и стоят деревья.
+			if (grass_scatter::sample_grass_density(
+						bush_world_x, bush_world_y,
+						p_grass_field_settings.grass_field_scale_px, p_grass_field_settings.grass_coverage,
+						p_grass_field_settings.rock_field_scale_px, p_grass_field_settings.rock_coverage,
+						p_grass_field_settings.macro_mass_scale_px, p_grass_field_settings.macro_mass_strength) *
+						grass_scatter::sample_path(
+								bush_world_x, bush_world_y,
+								p_grass_field_settings.path_scale_px, p_grass_field_settings.path_width,
+								p_grass_field_settings.path_warp_px, p_grass_field_settings.path_strength) < BUSH_GRASS_DENSITY_MIN) {
+				continue;
+			}
+			bool too_close = false;
+			for (const std::pair<float, float> &existing : placed_positions) {
+				const float dx = local_x - existing.first;
+				const float dy = local_y - existing.second;
+				if (dx * dx + dy * dy < min_distance_sq) {
+					too_close = true;
+					break;
+				}
+			}
+			if (too_close) {
+				continue;
+			}
+			const uint8_t variant = static_cast<uint8_t>(
+					static_cast<int32_t>(std::floor(object_unit(cell_hash, 0x97ULL) * static_cast<float>(BUSH_ATLAS_VARIANT_COUNT))) %
+					BUSH_ATLAS_VARIANT_COUNT);
+			const float size_px = lerp_float(BUSH_MIN_SIZE_PX, BUSH_MAX_SIZE_PX, object_unit(cell_hash, 0x71ULL));
+			const float tint = lerp_float(0.88f, 1.0f, object_unit(cell_hash, 0x67ULL));
+			const float phase = object_unit(cell_hash, 0x157ULL);
+			append_object_record(r_buffers, OBJECT_KIND_BUSH, local_x, local_y, size_px, 0U, variant, 0U, tint, phase);
+			placed_positions.push_back({ local_x, local_y });
+		}
+	}
+}
+
 struct SmallRockFieldSample {
 	float grass_density = 0.0f;
 	float path_open = 0.0f;
@@ -1385,6 +1481,10 @@ void append_native_object_placements(
 	}
 
 	append_native_tree_placements(r_buffers, p_seed, p_coord, p_world_version, p_terrain_ids, p_lake_flags, p_tree_settings);
+
+	// Кусты используют поля травы из tree settings как единый источник, но свой
+	// порог и свою сетку: они сидят внутри травяных масс, а не на их кромке.
+	append_native_bush_placements(r_buffers, p_seed, p_coord, p_world_version, p_terrain_ids, p_lake_flags, p_tree_settings);
 
 	// One shared spacing state across both stone sets. The grass-edge set runs
 	// first so its tuned clusters win any contested position; contour-following
@@ -2217,7 +2317,7 @@ void WorldCore::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("build_mountain_skylight_exposure", "closed_roof_mask", "live_mask", "width", "height", "step_px", "reach_samples"), &WorldCore::build_mountain_skylight_exposure);
 	ClassDB::bind_method(D_METHOD("build_chunk_halo_fields", "packets_3x3", "halo_radius_tiles"), &WorldCore::build_chunk_halo_fields);
 	ClassDB::bind_method(D_METHOD("build_grass_scatter_buffer", "seed", "chunk_coord", "terrain_ids", "lake_flags", "mountain_halo", "mountain_halo_radius_tiles", "params"), &WorldCore::build_grass_scatter_buffer);
-	ClassDB::bind_method(D_METHOD("build_object_presentation_buffers", "object_kind", "object_local_x_px_q4", "object_local_y_px_q4", "object_size_px", "object_atlas_index", "object_variant", "object_flags", "object_tint", "object_phase", "tree_metrics", "rock_metrics", "params"), &WorldCore::build_object_presentation_buffers);
+	ClassDB::bind_method(D_METHOD("build_object_presentation_buffers", "object_kind", "object_local_x_px_q4", "object_local_y_px_q4", "object_size_px", "object_atlas_index", "object_variant", "object_flags", "object_tint", "object_phase", "tree_metrics", "rock_metrics", "bush_metrics", "params"), &WorldCore::build_object_presentation_buffers);
 	ClassDB::bind_method(D_METHOD("build_mountain_plateau_raster_image", "packets", "target_chunk", "preset", "top_image", "face_image"), &WorldCore::build_mountain_plateau_raster_image);
 	ClassDB::bind_method(D_METHOD("resolve_world_foundation_spawn_tile", "seed", "world_version", "settings_packed"), &WorldCore::resolve_world_foundation_spawn_tile);
 #ifdef DEBUG_ENABLED
@@ -2386,7 +2486,7 @@ Dictionary WorldCore::build_chunk_halo_fields(Array p_packets_3x3, int64_t p_hal
 	return result;
 }
 
-Dictionary WorldCore::build_object_presentation_buffers(PackedByteArray p_object_kind, PackedByteArray p_object_local_x_px_q4, PackedByteArray p_object_local_y_px_q4, PackedByteArray p_object_size_px, PackedByteArray p_object_atlas_index, PackedByteArray p_object_variant, PackedByteArray p_object_flags, PackedByteArray p_object_tint, PackedByteArray p_object_phase, PackedFloat32Array p_tree_metrics, PackedFloat32Array p_rock_metrics, PackedFloat32Array p_params) {
+Dictionary WorldCore::build_object_presentation_buffers(PackedByteArray p_object_kind, PackedByteArray p_object_local_x_px_q4, PackedByteArray p_object_local_y_px_q4, PackedByteArray p_object_size_px, PackedByteArray p_object_atlas_index, PackedByteArray p_object_variant, PackedByteArray p_object_flags, PackedByteArray p_object_tint, PackedByteArray p_object_phase, PackedFloat32Array p_tree_metrics, PackedFloat32Array p_rock_metrics, PackedFloat32Array p_bush_metrics, PackedFloat32Array p_params) {
 	return object_presentation::build_buffers(
 			p_object_kind,
 			p_object_local_x_px_q4,
@@ -2399,6 +2499,7 @@ Dictionary WorldCore::build_object_presentation_buffers(PackedByteArray p_object
 			p_object_phase,
 			p_tree_metrics,
 			p_rock_metrics,
+			p_bush_metrics,
 			p_params);
 }
 

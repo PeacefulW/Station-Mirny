@@ -1,0 +1,101 @@
+{
+	"profile_id": "station_peaceful_alien_bush_v1",
+	"inherits_profile_id": "station_peaceful_layered_asset_bake_v1",
+	"version": 1,
+	"notes": "Procedural alien bush source stage. Camera, lighting, engines, layer split, root embed and postprocess all come from the layered asset bake contract; only the mesh source is replaced.",
+	"geometry": {
+		"caudex_radius": 0.055,
+		"caudex_flatten": 0.52,
+		"caudex_sink": 0.028,
+		"blade_segments": 12,
+		"blade_color_steps": 6,
+		"stem_segments": 10,
+		"stem_sides": 6,
+		"rosette": {
+			"count": [12, 16],
+			"length": [0.19, 0.30],
+			"half_width": [0.018, 0.032],
+			"theta_start_degrees": [14.0, 38.0],
+			"theta_end_degrees": [62.0, 108.0],
+			"bend_power": [1.0, 1.6],
+			"twist_degrees": [-190.0, 190.0],
+			"crease": [0.35, 0.62],
+			"serration": 0.22,
+			"serration_cycles": [4.5, 8.0],
+			"base_radius": [0.012, 0.048],
+			"base_z": [-0.005, 0.022],
+			"curl_fraction": 0.28,
+			"curl_extra_degrees": [22.0, 46.0]
+		},
+		"ground_blades": {
+			"count": [8, 12],
+			"length": [0.08, 0.15],
+			"half_width": [0.012, 0.020],
+			"theta_start_degrees": [24.0, 52.0],
+			"theta_end_degrees": [104.0, 138.0],
+			"bend_power": [1.0, 1.35],
+			"twist_degrees": [-120.0, 120.0],
+			"crease": [0.22, 0.42],
+			"serration": 0.26,
+			"serration_cycles": [3.0, 5.0],
+			"base_radius": [0.028, 0.078],
+			"base_z": [-0.010, 0.006],
+			"curl_fraction": 0.35,
+			"curl_extra_degrees": [10.0, 26.0]
+		},
+		"arcs": {
+			"count": [5, 7],
+			"length": [0.26, 0.34],
+			"theta_start_degrees": [6.0, 22.0],
+			"theta_end_degrees": [52.0, 84.0],
+			"bend_power": [1.2, 1.8],
+			"radius": [0.008, 0.012],
+			"radius_tip_fraction": 0.42,
+			"base_radius": [0.008, 0.030],
+			"pod_cluster": [1, 2],
+			"pod_radius": [0.011, 0.017],
+			"pod_cluster_spread": [0.012, 0.026],
+			"pod_sink": [0.004, 0.018],
+			"pod_stretch": [1.2, 1.6],
+			"bead_count": [0, 1],
+			"bead_radius": [0.005, 0.009],
+			"bead_position": [0.45, 0.82]
+		}
+	},
+	"palette": {
+		"intent_ru": "Чужая биология под оранжевую равнину: тёмный винно-пурпурный корпус читается силуэтом на оранжевой траве, янтарь горит только на кромке кончиков, приглушённая бирюза капсул ловит цвет кристаллов.",
+		"blade_tip_power": 1.9,
+		"blade_tone_jitter": [0.90, 1.0, 1.09],
+		"blade_ramps": [
+			{"root": [36, 16, 28], "mid": [96, 28, 42], "tip": [168, 80, 36]},
+			{"root": [32, 14, 32], "mid": [82, 24, 50], "tip": [184, 92, 42]},
+			{"root": [40, 18, 26], "mid": [104, 34, 38], "tip": [156, 68, 32]}
+		],
+		"ground_blade_ramps": [
+			{"root": [30, 15, 26], "mid": [64, 22, 34], "tip": [128, 54, 30]},
+			{"root": [28, 14, 28], "mid": [58, 20, 38], "tip": [140, 64, 34]}
+		],
+		"stem_ramp": {"root": [58, 42, 44], "mid": [84, 60, 56], "tip": [112, 84, 72]},
+		"pod_rgb": [[74, 162, 152], [92, 182, 166], [60, 140, 136]],
+		"bead_rgb": [[176, 196, 162], [150, 178, 144]],
+		"caudex_rgb": [42, 30, 32],
+		"shade_tiers": [1.0, 0.82, 0.66, 0.54]
+	},
+	"material": {
+		"blade_roughness": 0.62,
+		"stem_roughness": 0.74,
+		"pod_roughness": 0.34,
+		"pod_emission_strength": 0.28,
+		"bead_emission_strength": 0.12
+	},
+	"variants": [
+		{
+			"id": "alien_bush_01",
+			"title_ru": "чашевидный куст с капсулами",
+			"seed": 20260729,
+			"yaw_degrees": 90.0,
+			"embed_fraction": 0.07,
+			"world_scale": 1.0
+		}
+	]
+}

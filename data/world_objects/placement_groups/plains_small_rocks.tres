@@ -1,23 +1,16 @@
-[gd_resource type="Resource" script_class="PlainsSmallRockPlacementSettings" load_steps=2 format=3]
+[gd_resource type="Resource" script_class="PlainsSmallRockPlacementSettings" format=3]
 
 [ext_resource type="Script" path="res://core/resources/plains_small_rock_placement_settings.gd" id="1"]
 
 [resource]
 script = ExtResource("1")
-id = &"core:plains_small_rocks"
-object_family = &"small_rock"
-biome_id = &"core:plains"
 placement_mask = &"grass_to_bare_transition"
 density = 1.0
 scatter_grid_side = 4
-max_per_chunk = 8
-edge_padding_px = 38.0
-min_distance_px = 180.0
+max_per_chunk = 64
 grass_density_min = 0.14
-grass_density_max = 0.58
 visual_size_min_px = 12.0
 visual_size_max_px = 26.0
-asset_variant_count = 10
 cluster_radius_px = 90.0
 cluster_min_count = 2
 cluster_max_count = 3
@@ -25,13 +18,5 @@ cluster_min_distance_px = 18.0
 edge_bias = 1.0
 rocky_patch_bias = 0.0
 path_edge_bias = 0.0
-grass_field_scale_px = 720.0
-grass_coverage = 0.8
-rock_field_scale_px = 1200.0
-rock_coverage = 0.22
-macro_mass_scale_px = 7000.0
-macro_mass_strength = 0.34
-path_scale_px = 2600.0
-path_width = 0.06
-path_warp_px = 700.0
-path_strength = 0.85
+grass_coverage = 0.7
+path_strength = 0.75

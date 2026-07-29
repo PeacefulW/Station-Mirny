@@ -521,6 +521,7 @@ func _make_native_result(
 		phase,
 		catalog.get_tree_native_metrics(),
 		catalog.get_rock_native_metrics(),
+		catalog.get_bush_native_metrics(),
 		catalog.get_native_params(),
 	)
 	if not result_variant is Dictionary:

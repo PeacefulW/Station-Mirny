@@ -3071,6 +3071,7 @@ func _request_object_presentation_build(
 		packet,
 		_layered_object_asset_catalog.get_tree_native_metrics(),
 		_layered_object_asset_catalog.get_rock_native_metrics(),
+		_layered_object_asset_catalog.get_bush_native_metrics(),
 		_layered_object_asset_catalog.get_native_params(
 			living_flora_enabled,
 			spiky_flora_enabled,
@@ -5232,6 +5233,7 @@ func _stage_hot_object_presentation(
 		return true
 	var presented_object_count: int = maxi(0, int(result.get("tree_instance_count", 0))) \
 			+ maxi(0, int(result.get("rock_instance_count", 0))) \
+			+ maxi(0, int(result.get("bush_instance_count", 0))) \
 			+ maxi(0, int(result.get("living_flora_count", 0))) \
 			+ maxi(0, int(result.get("spiky_flora_count", 0)))
 	if presented_object_count <= 0:

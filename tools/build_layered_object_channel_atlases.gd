@@ -8,10 +8,15 @@ const TREE_FRAME_SIZE: Vector2i = Vector2i(768, 768)
 ## Packing the 768 px bake at 96 px deliberately removes sub-pixel surface
 ## chatter while retaining a 3.7x linear margin at the largest authored size.
 const ROCK_FRAME_SIZE: Vector2i = Vector2i(96, 96)
+## Bushes are drawn at roughly 26-42 px in world; 128 px keeps a 3x linear
+## margin at the largest authored size, like the rock family does at 96 px.
+const BUSH_FRAME_SIZE: Vector2i = Vector2i(128, 128)
 const TREE_COLUMNS: int = 6
 const TREE_ROWS: int = 1
 const ROCK_COLUMNS: int = 5
 const ROCK_ROWS: int = 5
+const BUSH_COLUMNS: int = 4
+const BUSH_ROWS: int = 1
 
 const TREE_SOURCE_DIRS: Array[String] = [
 	"res://assets/sprites/flora/layered_trees/tree_01",
@@ -64,6 +69,22 @@ const ROCK_CHANNELS: Array[String] = [
 ]
 const ROCK_OUTPUT_DIR: String = "res://assets/sprites/decor/atlases/layered_small_rocks"
 
+const BUSH_SOURCE_DIRS: Array[String] = [
+	"res://assets/sprites/flora/layered_bushes/alien_bush_01",
+]
+## Bushes ride the tree channel set: they are baked on the tree contract and
+## keep their wind, snow and season masks.
+const BUSH_CHANNELS: Array[String] = [
+	"trunk",
+	"foliage",
+	"shadow",
+	"snow_overlay",
+	"wind_mask",
+	"snow_mask",
+	"season_mask",
+]
+const BUSH_OUTPUT_DIR: String = "res://assets/sprites/flora/atlases/layered_bushes"
+
 
 func _initialize() -> void:
 	var tree_error: Error = _build_family_atlases(
@@ -82,11 +103,22 @@ func _initialize() -> void:
 		ROCK_ROWS,
 		ROCK_FRAME_SIZE,
 	)
-	if tree_error != OK or rock_error != OK:
-		push_error("Layered object atlas build failed: tree=%d rock=%d" % [tree_error, rock_error])
+	var bush_error: Error = _build_family_atlases(
+		BUSH_SOURCE_DIRS,
+		BUSH_CHANNELS,
+		BUSH_OUTPUT_DIR,
+		BUSH_COLUMNS,
+		BUSH_ROWS,
+		BUSH_FRAME_SIZE,
+	)
+	if tree_error != OK or rock_error != OK or bush_error != OK:
+		push_error(
+			"Layered object atlas build failed: tree=%d rock=%d bush=%d"
+					% [tree_error, rock_error, bush_error]
+		)
 		quit(1)
 		return
-	print("Layered object channel atlases rebuilt (trees at source size, rocks downsampled).")
+	print("Layered object channel atlases rebuilt (trees at source size, rocks and bushes downsampled).")
 	quit(0)
 
 

@@ -248,6 +248,7 @@ func queue_object_presentation_request(
 		packet: Dictionary,
 		tree_metrics: PackedFloat32Array,
 		rock_metrics: PackedFloat32Array,
+		bush_metrics: PackedFloat32Array,
 		params: PackedFloat32Array,
 		catalog_generation: int,
 		epoch: int,
@@ -269,6 +270,7 @@ func queue_object_presentation_request(
 		"object_phase": packet.get("object_phase", PackedByteArray()) as PackedByteArray,
 		"tree_metrics": tree_metrics,
 		"rock_metrics": rock_metrics,
+		"bush_metrics": bush_metrics,
 		"params": params,
 		"catalog_generation": catalog_generation,
 		"epoch": epoch,
@@ -1121,6 +1123,7 @@ func _process_object_presentation_request(worker_world_core: Object, request: Di
 			request.get("object_phase", PackedByteArray()) as PackedByteArray,
 			request.get("tree_metrics", PackedFloat32Array()) as PackedFloat32Array,
 			request.get("rock_metrics", PackedFloat32Array()) as PackedFloat32Array,
+			request.get("bush_metrics", PackedFloat32Array()) as PackedFloat32Array,
 			request.get("params", PackedFloat32Array()) as PackedFloat32Array,
 		)
 		if result_variant is Dictionary:

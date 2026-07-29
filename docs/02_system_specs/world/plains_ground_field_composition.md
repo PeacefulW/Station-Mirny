@@ -4,8 +4,8 @@ doc_type: system_spec
 status: approved
 source_of_truth: true
 owner: engineering+art
-version: 1.0
-last_updated: 2026-06-24
+version: 1.1
+last_updated: 2026-07-29
 related_docs:
   - terrain_hybrid_presentation.md
   - wind_and_grass_scatter_presentation.md
@@ -124,6 +124,12 @@ with no separate term — adding a second orange bias would double-count
 (resolved open question 2). `P` is applied as a final multiplier driving density
 down inside trails. Together they keep visible ground and placed decor coherent.
 
+The existing visual-only `macro_drift` is contrast-shaped and weighted toward
+open ground after the texture ladder. It creates broad dark-soil/light-dust
+masses inside clearings without flattening dense grass into the same tint. It
+does not feed `grass_density`, placement, packets, or save state, so it is not
+part of the C++ field mirror and does not require a `WORLD_VERSION` bump.
+
 ### Field-Mirror Law (critical)
 
 The plains ground field formula has multiple transcriptions of one authoritative
@@ -233,6 +239,8 @@ before/after panels) per the project's visual-proof rule; they are honest
       no value-noise, no per-chunk input, no repeat-texture lookup (static read).
 - [ ] Render probe shows large bare/dirt clearings and sinuous paths in the
       ground, with no chunk-boundary seams (manual human verification).
+- [ ] Open clearings show broad dark-soil/light-dust masses while dense grass
+      keeps its local color identity (manual human verification).
 - [ ] On the same probe, grass tufts and trees are absent/thin on clearings and
       paths and dense in grass pockets — visible ground matches placement
       (manual human verification).
@@ -310,6 +318,16 @@ edge. Knobs in the material set: `edge_mottle_strength` (0.22),
 `edge_mottle_scale_px` (150).
 
 **Status: landed 2026-06-24** (verified via render probe).
+
+### Open-ground tonal-mass tuning (visual-only)
+
+The existing soil field and `macro_drift` now form a three-scale hierarchy:
+`soil_field_scale_px = 2400`, `macro_drift_scale_px = 4600`, and the longer
+coverage `macro_mass_scale_px = 7000`. The drift uses a contrast-shaped field
+with `macro_drift_strength = 0.16` and fades over dense grass, so bare clearings
+gain readable dark-soil/light-dust structure without changing placement.
+
+**Status: landed 2026-07-29; manual visual verification pending.**
 
 ## Required Updates
 

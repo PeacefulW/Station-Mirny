@@ -77,6 +77,7 @@ Templates for future docs.
 - [World Dynamic Lighting 2D - Sun, Torch, Ambient](02_system_specs/world/world_dynamic_lighting_2d.md)
 - [Wind Runtime V0 and Grass Scatter Presentation](02_system_specs/world/wind_and_grass_scatter_presentation.md)
 - [Plains Trees Presentation and Depth Layering V0](02_system_specs/world/plains_trees_presentation.md) (draft)
+- [Plains Alien Bushes Presentation V0](02_system_specs/world/plains_bushes_presentation.md) (draft)
 - [Weather Runtime V0](02_system_specs/world/weather_runtime.md)
 - [Cloud Occlusion & Overcast Darkness](02_system_specs/world/cloud_occlusion_lighting.md)
 - [Engineering Networks](02_system_specs/base/engineering_networks.md)

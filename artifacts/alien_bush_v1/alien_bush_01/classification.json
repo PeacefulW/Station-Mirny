@@ -1,0 +1,179 @@
+{
+	"source_glb": "",
+	"source": "procedural",
+	"generator": "tools/bush_atlas/blender_alien_bush_bake.py",
+	"bush_profile_id": "station_peaceful_alien_bush_v1",
+	"bush_profile_version": 1,
+	"variant_id": "alien_bush_01",
+	"frame_width": 768,
+	"frame_height": 768,
+	"anchor": [
+		384,
+		485
+	],
+	"yaw_degrees": 90.0,
+	"sun_angle_degrees": 225.0,
+	"root_embed_fraction": 0.07,
+	"bake_profile": {
+		"profile_id": "station_peaceful_layered_asset_bake_v1",
+		"version": 4,
+		"frame_size": 768,
+		"sun_azimuth_degrees": 225.0,
+		"albedo_sun_elevation_degrees": 52.0,
+		"shadow_sun_elevation_degrees": 42.0,
+		"root_embed_fraction": 0.07
+	},
+	"runtime_plant_depth_px": 0,
+	"classification": {
+		"bush_caudex": {
+			"layer": "trunk"
+		},
+		"bush_blade_00": {
+			"layer": "foliage"
+		},
+		"bush_blade_01": {
+			"layer": "foliage"
+		},
+		"bush_blade_02": {
+			"layer": "foliage"
+		},
+		"bush_blade_03": {
+			"layer": "foliage"
+		},
+		"bush_blade_04": {
+			"layer": "foliage"
+		},
+		"bush_blade_05": {
+			"layer": "foliage"
+		},
+		"bush_blade_06": {
+			"layer": "foliage"
+		},
+		"bush_blade_07": {
+			"layer": "foliage"
+		},
+		"bush_blade_08": {
+			"layer": "foliage"
+		},
+		"bush_blade_09": {
+			"layer": "foliage"
+		},
+		"bush_blade_10": {
+			"layer": "foliage"
+		},
+		"bush_blade_11": {
+			"layer": "foliage"
+		},
+		"bush_blade_12": {
+			"layer": "foliage"
+		},
+		"bush_blade_13": {
+			"layer": "foliage"
+		},
+		"bush_blade_14": {
+			"layer": "foliage"
+		},
+		"bush_ground_blade_00": {
+			"layer": "foliage"
+		},
+		"bush_ground_blade_01": {
+			"layer": "foliage"
+		},
+		"bush_ground_blade_02": {
+			"layer": "foliage"
+		},
+		"bush_ground_blade_03": {
+			"layer": "foliage"
+		},
+		"bush_ground_blade_04": {
+			"layer": "foliage"
+		},
+		"bush_ground_blade_05": {
+			"layer": "foliage"
+		},
+		"bush_ground_blade_06": {
+			"layer": "foliage"
+		},
+		"bush_ground_blade_07": {
+			"layer": "foliage"
+		},
+		"bush_ground_blade_08": {
+			"layer": "foliage"
+		},
+		"bush_ground_blade_09": {
+			"layer": "foliage"
+		},
+		"bush_arc_00": {
+			"layer": "trunk"
+		},
+		"bush_pod_00_00": {
+			"layer": "foliage"
+		},
+		"bush_arc_01": {
+			"layer": "trunk"
+		},
+		"bush_pod_01_00": {
+			"layer": "foliage"
+		},
+		"bush_pod_01_01": {
+			"layer": "foliage"
+		},
+		"bush_arc_02": {
+			"layer": "trunk"
+		},
+		"bush_pod_02_00": {
+			"layer": "foliage"
+		},
+		"bush_pod_02_01": {
+			"layer": "foliage"
+		},
+		"bush_bead_02_00": {
+			"layer": "foliage"
+		},
+		"bush_arc_03": {
+			"layer": "trunk"
+		},
+		"bush_pod_03_00": {
+			"layer": "foliage"
+		},
+		"bush_pod_03_01": {
+			"layer": "foliage"
+		},
+		"bush_bead_03_00": {
+			"layer": "foliage"
+		},
+		"bush_arc_04": {
+			"layer": "trunk"
+		},
+		"bush_pod_04_00": {
+			"layer": "foliage"
+		},
+		"bush_pod_04_01": {
+			"layer": "foliage"
+		},
+		"bush_arc_05": {
+			"layer": "trunk"
+		},
+		"bush_pod_05_00": {
+			"layer": "foliage"
+		},
+		"bush_bead_05_00": {
+			"layer": "foliage"
+		},
+		"bush_arc_06": {
+			"layer": "trunk"
+		},
+		"bush_pod_06_00": {
+			"layer": "foliage"
+		},
+		"bush_bead_06_00": {
+			"layer": "foliage"
+		}
+	},
+	"layers": {
+		"albedo": "albedo.png",
+		"trunk": "trunk.png",
+		"foliage": "foliage.png",
+		"shadow_raw": "shadow_raw.png"
+	}
+}

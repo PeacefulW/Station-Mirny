@@ -7,7 +7,9 @@ const WorldObjectPacketLayer = preload("res://core/systems/world/world_object_pa
 const ChunkView = preload("res://core/systems/world/chunk_view.gd")
 const WorldRuntimeConstants = preload("res://core/systems/world/world_runtime_constants.gd")
 
-const FRAME_SIZE: Vector2i = Vector2i(768, 768)
+const TREE_FRAME_SIZE: Vector2i = Vector2i(768, 768)
+const ROCK_FRAME_SIZE: Vector2i = Vector2i(96, 96)
+const BUSH_FRAME_SIZE: Vector2i = Vector2i(128, 128)
 const TREE_CHANNELS: Array[String] = [
 	"trunk",
 	"foliage",
@@ -20,6 +22,7 @@ const TREE_CHANNELS: Array[String] = [
 const ROCK_CHANNELS: Array[String] = ["albedo", "shadow", "snow_overlay", "snow_mask"]
 const TREE_ATLAS_DIR: String = "res://assets/sprites/flora/atlases/layered_trees"
 const ROCK_ATLAS_DIR: String = "res://assets/sprites/decor/atlases/layered_small_rocks"
+const BUSH_ATLAS_DIR: String = "res://assets/sprites/flora/atlases/layered_bushes"
 
 var _failures: Array[String] = []
 
@@ -29,13 +32,33 @@ func _initialize() -> void:
 
 
 func _run() -> void:
-	_verify_family_atlases(AssetCatalog.TREE_SOURCE_DIRS, TREE_CHANNELS, TREE_ATLAS_DIR, 5)
-	_verify_family_atlases(AssetCatalog.ROCK_SOURCE_DIRS, ROCK_CHANNELS, ROCK_ATLAS_DIR, 5)
+	_verify_family_atlases(
+		AssetCatalog.TREE_SOURCE_DIRS,
+		TREE_CHANNELS,
+		TREE_ATLAS_DIR,
+		AssetCatalog.TREE_COLUMNS,
+		TREE_FRAME_SIZE,
+	)
+	_verify_family_atlases(
+		AssetCatalog.ROCK_SOURCE_DIRS,
+		ROCK_CHANNELS,
+		ROCK_ATLAS_DIR,
+		AssetCatalog.ROCK_COLUMNS,
+		ROCK_FRAME_SIZE,
+	)
+	# Bushes ride the tree channel set, packed at their own frame size.
+	_verify_family_atlases(
+		AssetCatalog.BUSH_SOURCE_DIRS,
+		TREE_CHANNELS,
+		BUSH_ATLAS_DIR,
+		AssetCatalog.BUSH_COLUMNS,
+		BUSH_FRAME_SIZE,
+	)
 	var catalog: AssetCatalog = AssetCatalog.new()
 	_expect(catalog.is_ready(), "catalog must prepare before chunk publish")
 	_verify_layered_quad_uv_contract(catalog)
 	_verify_shared_catalog_single_owner(catalog)
-	_expect(catalog.get_catalog_generation() == 3, "catalog generation")
+	_expect(catalog.get_catalog_generation() == 5, "catalog generation")
 	_expect(
 		catalog.get_tree_native_metrics().size()
 				== AssetCatalog.TREE_SOURCE_DIRS.size() * AssetCatalog.TREE_METRIC_STRIDE,
@@ -297,6 +320,7 @@ func _make_native_result(catalog: AssetCatalog) -> Dictionary:
 		PackedByteArray([64, 64, 64, 64, 64, 64]),
 		catalog.get_tree_native_metrics(),
 		catalog.get_rock_native_metrics(),
+		catalog.get_bush_native_metrics(),
 		catalog.get_native_params(),
 	)
 	_expect(result_variant is Dictionary, "native object result shape")
@@ -475,6 +499,7 @@ func _verify_family_atlases(
 		channels: Array[String],
 		atlas_dir: String,
 		columns: int,
+		frame_size: Vector2i,
 ) -> void:
 	for channel: String in channels:
 		var atlas := Image.new()
@@ -492,11 +517,16 @@ func _verify_family_atlases(
 				continue
 			if source.get_format() != Image.FORMAT_RGBA8:
 				source.convert(Image.FORMAT_RGBA8)
+			# A family may pack at a smaller frame than it was baked at; runtime UVs
+			# are normalised per frame, so the check resamples the source the same
+			# way the atlas builder does.
+			if frame_size != source.get_size():
+				source.resize(frame_size.x, frame_size.y, Image.INTERPOLATE_LANCZOS)
 			var origin := Vector2i(
-				(variant_index % columns) * FRAME_SIZE.x,
-				floori(float(variant_index) / float(columns)) * FRAME_SIZE.y,
+				(variant_index % columns) * frame_size.x,
+				floori(float(variant_index) / float(columns)) * frame_size.y,
 			)
-			var atlas_frame: Image = atlas.get_region(Rect2i(origin, FRAME_SIZE))
+			var atlas_frame: Image = atlas.get_region(Rect2i(origin, frame_size))
 			_expect(
 				atlas_frame.get_data() == source.get_data(),
 				"pixel-exact atlas frame: %s variant %d" % [channel, variant_index],

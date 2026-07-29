@@ -46,7 +46,9 @@ Each layered asset directory must contain:
 - `preview_panel.png`
 
 Tree assets additionally contain `trunk.png`, `foliage.png`, `wind_mask.png`,
-and `season_mask.png`. Static small rock assets intentionally do not contain a
+and `season_mask.png`. Bush assets ship the same tree channel set: they are
+baked on this contract from procedural Blender geometry
+(`tools/bush_atlas/`), not from a source GLB. Static small rock assets intentionally do not contain a
 wind mask or season mask; their body layer is `albedo.png`.
 
 `meta.json` must include a `bake_profile` block with the profile id, version,
@@ -120,6 +122,7 @@ no pixel above 200 at all.
 | --- | --- | --- | --- |
 | layered trees | 4 | screen south-east | `TREE_SHADOW_*` |
 | layered small rocks | 4 | screen south-east | shared `SHADOW_*` |
+| layered bushes | 4 | screen south-east | `BUSH_SHADOW_*` |
 | mountains, decor, living flora | not on this contract | — | — |
 
 When a family migrates, re-bake it, flip its runtime framing constants, and move

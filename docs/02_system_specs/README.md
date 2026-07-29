@@ -85,6 +85,7 @@ Current transition strategy:
 - [World Dynamic Lighting 2D - Sun, Torch, Ambient](world/world_dynamic_lighting_2d.md)
 - [Wind Runtime V0 and Grass Scatter Presentation](world/wind_and_grass_scatter_presentation.md)
 - [Plains Trees Presentation and Depth Layering V0](world/plains_trees_presentation.md) (draft)
+- [Plains Alien Bushes Presentation V0](world/plains_bushes_presentation.md) (draft)
 - [Weather Runtime V0](world/weather_runtime.md)
 - [Cloud Occlusion & Overcast Darkness](world/cloud_occlusion_lighting.md)
 

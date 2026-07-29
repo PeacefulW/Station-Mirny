@@ -12,11 +12,13 @@ PROFILE_PATH = ROOT / "tools" / "tree_atlas" / "layered_asset_bake_profile.json"
 DOC_PATH = ROOT / "docs" / "art" / "layered_asset_bake_contract.md"
 TREE_DIR = ROOT / "assets" / "sprites" / "flora" / "layered_trees"
 ROCK_DIR = ROOT / "assets" / "sprites" / "decor" / "plains" / "layered_small_rocks"
+BUSH_DIR = ROOT / "assets" / "sprites" / "flora" / "layered_bushes"
 WORLD_STREAMER_PATH = ROOT / "core" / "systems" / "world" / "world_streamer.gd"
 TREE_IDS = ("tree_01", "tree_02", "tree_03", "tree_04", "tree_05", "tree_06")
 CATALOG_PATH = ROOT / "core" / "systems" / "world" / "world_layered_object_asset_catalog.gd"
 ROCK_LAYER_PATH = ROOT / "core" / "systems" / "world" / "layered_rock_object_layer.gd"
 ROCK_IDS = tuple(f"small_rock_{index:02d}" for index in range(1, 23))
+BUSH_IDS = ("alien_bush_01",)
 
 
 class LayeredAssetBakeContractTest(unittest.TestCase):
@@ -127,6 +129,46 @@ class LayeredAssetBakeContractTest(unittest.TestCase):
                 ):
                     self.assertTrue((asset_dir / required_file).is_file(), f"{rock_id} missing {required_file}")
                 self.assertFalse((asset_dir / "wind_mask.png").exists(), f"{rock_id} must not include wind_mask.png")
+
+    def test_bush_assets_record_the_shared_profile(self) -> None:
+        """Bushes ride the tree channel set, so they must ride the tree sun too.
+
+        The family is procedural (no source GLB), which is exactly why the
+        recorded bake profile matters: nothing else ties the generator output to
+        the shipped contract.
+        """
+        profile = json.loads(PROFILE_PATH.read_text(encoding="utf-8"))
+        expected = {
+            "profile_id": profile["profile_id"],
+            "version": profile["version"],
+            "frame_size": profile["frame_size"],
+            "sun_azimuth_degrees": profile["lighting"]["sun_azimuth_degrees"],
+            "albedo_sun_elevation_degrees": profile["lighting"]["albedo_sun_elevation_degrees"],
+            "shadow_sun_elevation_degrees": profile["lighting"]["shadow_sun_elevation_degrees"],
+            "root_embed_fraction": profile["planting"]["root_embed_fraction"],
+        }
+
+        for bush_id in BUSH_IDS:
+            with self.subTest(bush_id=bush_id):
+                asset_dir = BUSH_DIR / bush_id
+                meta_path = asset_dir / "meta.json"
+                self.assertTrue(meta_path.is_file())
+                meta = json.loads(meta_path.read_text(encoding="utf-8"))
+                self.assertEqual(meta.get("bake_profile"), expected)
+                # Walk-through decor: a bush must never acquire a tree collider.
+                self.assertEqual(meta.get("collision_radius"), 0)
+                self.assertFalse(meta.get("blocks_movement"))
+                for required_file in (
+                    "albedo.png",
+                    "trunk.png",
+                    "foliage.png",
+                    "shadow.png",
+                    "wind_mask.png",
+                    "snow_mask.png",
+                    "snow_overlay.png",
+                    "season_mask.png",
+                ):
+                    self.assertTrue((asset_dir / required_file).is_file(), f"{bush_id} missing {required_file}")
 
     def test_runtime_shadow_stretch_matches_the_baked_sun(self) -> None:
         """A stretch that runs opposite the baked shadow walks off its own sprite."""

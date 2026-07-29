@@ -391,6 +391,12 @@ Current code notes:
   new offset. Both sets emit `object_kind == 7` and share one spacing state
   per chunk, so `min_distance_px` holds between sets; the per-chunk cap stays
   per set. `ChunkPacketV1` shape is unchanged.
+- `world_version == 65` is the plains bush boundary: native object packets may
+  emit visual-only `object_kind == 8` records. Placement gates on the same grass
+  field product trees use (`worldgen_settings.plains_trees` field parameters)
+  with a higher grass threshold, so bushes sit inside grass masses rather than
+  on their edge. Bush tuning is native-constant in this iteration and adds no
+  packed settings block; `ChunkPacketV1` shape is unchanged.
 - `worldgen_settings.mountains` is written once for new worlds and then loaded
   from `world.json`, not from the repository `.tres`
 - `worldgen_settings.lakes` is written once for new worlds and then loaded
@@ -681,7 +687,7 @@ Returned one-per-input-coord by native
 | `mountain_id_per_tile` | `PackedInt32Array` | 256 | `0 = no named mountain`; non-zero = deterministic `mountain_id` |
 | `mountain_flags` | `PackedByteArray` | 256 | Per-tile mountain bit layout documented below |
 | `mountain_atlas_indices` | `PackedInt32Array` | 256 | Roof-ready atlas indices derived from `mountain_id` adjacency via `autotile_47` |
-| `object_kind` | `PackedByteArray` | N | Visual object family id: `2` living flora, `3` spiky flora, `4` tree, `7` small rock; historical ids `1`, `5`, and `6` are not emitted in `world_version >= 61` |
+| `object_kind` | `PackedByteArray` | N | Visual object family id: `2` living flora, `3` spiky flora, `4` tree, `7` small rock, `8` bush; historical ids `1`, `5`, and `6` are not emitted in `world_version >= 61` |
 | `object_local_x_px_q4` | `PackedByteArray` | N | Chunk-local pixel X quantized to `4 px` |
 | `object_local_y_px_q4` | `PackedByteArray` | N | Chunk-local pixel Y quantized to `4 px` |
 | `object_size_px` | `PackedByteArray` | N | Rendered sprite size in pixels |
@@ -785,6 +791,11 @@ Current code notes:
   collision, no wind mask, and no save identity for these records.
 - For `world_version >= 63`, those small rocks are generated as clustered
   edge/patch groups rather than independent scatter-grid singletons.
+- For `world_version >= 65`, the native object packet may emit visual-only
+  `object_kind == 8` bushes. `object_variant` selects a layered asset directory
+  from `assets/sprites/flora/layered_bushes`, and `object_size_px` is
+  interpreted as visible bush width. The runtime creates no collision and no
+  save identity for these records; the family does carry a wind mask.
 - For `world_version >= 61`, native object packet emission keeps local
   mountain-edge clearance for living flora, spiky flora, trees, and small rocks
   so batched decor does not spawn under the organic runtime mountain mask.
@@ -1206,7 +1217,7 @@ Current code notes:
 ### `ObjectPresentationBufferResult`
 
 Returned by native
-`WorldCore.build_object_presentation_buffers(object_kind, object_local_x_px_q4, object_local_y_px_q4, object_size_px, object_atlas_index, object_variant, object_flags, object_tint, object_phase, tree_metrics, rock_metrics, params)`.
+`WorldCore.build_object_presentation_buffers(object_kind, object_local_x_px_q4, object_local_y_px_q4, object_size_px, object_atlas_index, object_variant, object_flags, object_tint, object_phase, tree_metrics, rock_metrics, bush_metrics, params)`.
 Governing spec:
 `docs/02_system_specs/world/world_object_placement_v0.md`.
 
@@ -1214,6 +1225,8 @@ Governing spec:
 {
   "tree_atlas_bucket_buffers": Array,      # DEPTH_STRIPES_PER_CHUNK (64)
   "rock_atlas_bucket_buffers": Array,      # DEPTH_STRIPES_PER_CHUNK (64)
+  "bush_atlas_bucket_buffers": Array,      # 64 stripes when count > 0;
+                                             # empty Array when count == 0
   "living_flora_bucket_buffers": Array,    # 64 stripes when count > 0;
                                              # empty Array when count == 0
   "living_flora_shadow_buffer": PackedFloat32Array,
@@ -1235,6 +1248,7 @@ Governing spec:
   "object_count": int,
   "tree_instance_count": int,
   "rock_instance_count": int,
+  "bush_instance_count": int,
   "living_flora_count": int,               # presented count after policy
   "spiky_flora_count": int,                # presented count after policy
   "living_flora_record_count": int,        # canonical packet count

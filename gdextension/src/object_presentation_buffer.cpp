@@ -18,6 +18,7 @@ constexpr uint8_t OBJECT_KIND_LIVING_FLORA = 2;
 constexpr uint8_t OBJECT_KIND_SPIKY_FLORA = 3;
 constexpr uint8_t OBJECT_KIND_TREE = 4;
 constexpr uint8_t OBJECT_KIND_SMALL_ROCK = 7;
+constexpr uint8_t OBJECT_KIND_BUSH = 8;
 constexpr int32_t BUFFER_STRIDE = 12;
 constexpr int32_t COLLISION_RECORD_STRIDE = 3;
 constexpr int32_t MAX_DEPTH_STRIPE_COUNT = 4096;
@@ -34,6 +35,7 @@ Dictionary make_empty_result() {
 	Dictionary result;
 	result["tree_atlas_bucket_buffers"] = Array();
 	result["rock_atlas_bucket_buffers"] = Array();
+	result["bush_atlas_bucket_buffers"] = Array();
 	result["living_flora_bucket_buffers"] = Array();
 	result["living_flora_shadow_buffer"] = PackedFloat32Array();
 	result["spiky_flora_atlas_bucket_buffers"] = Array();
@@ -42,6 +44,7 @@ Dictionary make_empty_result() {
 	result["object_count"] = 0;
 	result["tree_instance_count"] = 0;
 	result["rock_instance_count"] = 0;
+	result["bush_instance_count"] = 0;
 	result["living_flora_count"] = 0;
 	result["spiky_flora_count"] = 0;
 	result["living_flora_record_count"] = 0;
@@ -209,6 +212,7 @@ Dictionary build_buffers(
 		const PackedByteArray &p_object_phase,
 		const PackedFloat32Array &p_tree_metrics,
 		const PackedFloat32Array &p_rock_metrics,
+		const PackedFloat32Array &p_bush_metrics,
 		const PackedFloat32Array &p_params) {
 	Dictionary result = make_empty_result();
 	const int64_t object_count = p_object_kind.size();
@@ -294,15 +298,21 @@ Dictionary build_buffers(
 
 	std::vector<Metric> tree_metrics;
 	std::vector<Metric> rock_metrics;
+	std::vector<Metric> bush_metrics;
 	String metric_error;
 	if (!decode_metrics(p_tree_metrics, "tree", tree_metrics, metric_error) ||
-			!decode_metrics(p_rock_metrics, "rock", rock_metrics, metric_error)) {
+			!decode_metrics(p_rock_metrics, "rock", rock_metrics, metric_error) ||
+			!decode_metrics(p_bush_metrics, "bush", bush_metrics, metric_error)) {
 		result["error"] = metric_error;
 		return result;
 	}
 
 	std::vector<std::vector<float>> tree_atlas_buckets(static_cast<size_t>(depth_stripe_count));
 	std::vector<std::vector<float>> rock_atlas_buckets(static_cast<size_t>(depth_stripe_count));
+	// Bushes allocate their stripe table lazily: a world built before the family
+	// existed, or one with bush placement disabled, must not pay 64 empty
+	// PackedFloat32Array objects per chunk.
+	std::vector<std::vector<float>> bush_atlas_buckets;
 	// These optional families allocate their bucket tables lazily on the first
 	// matching packet record. With placement disabled, the warm payload remains
 	// three empty values rather than 192 empty PackedFloat32Array objects.
@@ -321,6 +331,7 @@ Dictionary build_buffers(
 	const uint8_t *phases = p_object_phase.ptr();
 	int32_t tree_count = 0;
 	int32_t rock_count = 0;
+	int32_t bush_count = 0;
 	int32_t living_count = 0;
 	int32_t spiky_count = 0;
 	int32_t living_record_count = 0;
@@ -414,16 +425,22 @@ Dictionary build_buffers(
 			spiky_count++;
 			continue;
 		}
-		if (kind != OBJECT_KIND_TREE && kind != OBJECT_KIND_SMALL_ROCK) {
+		if (kind != OBJECT_KIND_TREE && kind != OBJECT_KIND_SMALL_ROCK && kind != OBJECT_KIND_BUSH) {
 			ignored_count++;
 			continue;
 		}
 
-		const std::vector<Metric> &metrics = kind == OBJECT_KIND_TREE ? tree_metrics : rock_metrics;
+		const std::vector<Metric> &metrics = kind == OBJECT_KIND_TREE
+				? tree_metrics
+				: (kind == OBJECT_KIND_BUSH ? bush_metrics : rock_metrics);
 		if (metrics.empty()) {
-			result["error"] = kind == OBJECT_KIND_TREE ?
-					"object_presentation: tree packet records require tree metrics" :
-					"object_presentation: rock packet records require rock metrics";
+			if (kind == OBJECT_KIND_TREE) {
+				result["error"] = "object_presentation: tree packet records require tree metrics";
+			} else if (kind == OBJECT_KIND_BUSH) {
+				result["error"] = "object_presentation: bush packet records require bush metrics";
+			} else {
+				result["error"] = "object_presentation: rock packet records require rock metrics";
+			}
 			return result;
 		}
 		const uint8_t packet_variant = variants[index];
@@ -435,7 +452,9 @@ Dictionary build_buffers(
 		const float root_y = (static_cast<float>(ys[index]) + 0.5f) * local_px_quantum;
 		const int32_t stripe = depth_stripe_for(root_y, depth_stripe_px, depth_stripe_count);
 		float scale = metric.scale_or_visible_width;
-		if (kind == OBJECT_KIND_SMALL_ROCK) {
+		if (kind == OBJECT_KIND_SMALL_ROCK || kind == OBJECT_KIND_BUSH) {
+			// Rocks and bushes are sized by the packet byte against their visible
+			// width, so authored size tiers land in world pixels directly.
 			scale = std::clamp(static_cast<float>(sizes[index]), 1.0f, 254.0f) /
 					metric.scale_or_visible_width;
 		}
@@ -461,6 +480,13 @@ Dictionary build_buffers(
 			collision_records.push_back(root_y - radius * 0.5f);
 			collision_records.push_back(radius);
 			tree_count++;
+		} else if (kind == OBJECT_KIND_BUSH) {
+			if (bush_atlas_buckets.empty()) {
+				bush_atlas_buckets.resize(static_cast<size_t>(depth_stripe_count));
+			}
+			// Walk-through decor: no collision record is emitted for a bush.
+			append_instance(bush_atlas_buckets[static_cast<size_t>(stripe)], instance);
+			bush_count++;
 		} else {
 			append_instance(rock_atlas_buckets[static_cast<size_t>(stripe)], instance);
 			rock_count++;
@@ -469,6 +495,7 @@ Dictionary build_buffers(
 
 	result["tree_atlas_bucket_buffers"] = pack_buckets(tree_atlas_buckets);
 	result["rock_atlas_bucket_buffers"] = pack_buckets(rock_atlas_buckets);
+	result["bush_atlas_bucket_buffers"] = pack_buckets(bush_atlas_buckets);
 	result["living_flora_bucket_buffers"] = pack_buckets(living_flora_buckets);
 	result["living_flora_shadow_buffer"] = pack_vector(living_flora_shadow_buffer);
 	result["spiky_flora_atlas_bucket_buffers"] = pack_atlas_buckets(spiky_flora_atlas_buckets);
@@ -477,13 +504,14 @@ Dictionary build_buffers(
 	result["object_count"] = object_count;
 	result["tree_instance_count"] = tree_count;
 	result["rock_instance_count"] = rock_count;
+	result["bush_instance_count"] = bush_count;
 	result["living_flora_count"] = living_count;
 	result["spiky_flora_count"] = spiky_count;
 	result["living_flora_record_count"] = living_record_count;
 	result["spiky_flora_record_count"] = spiky_record_count;
 	result["suppressed_instance_count"] = suppressed_count;
 	result["ignored_instance_count"] = ignored_count;
-	const int64_t buffer_float_count = static_cast<int64_t>((tree_count + rock_count + spiky_count) * BUFFER_STRIDE +
+	const int64_t buffer_float_count = static_cast<int64_t>((tree_count + rock_count + bush_count + spiky_count) * BUFFER_STRIDE +
 			static_cast<int64_t>(living_count) * BUFFER_STRIDE * 2 +
 			static_cast<int64_t>(tree_count) * COLLISION_RECORD_STRIDE);
 	result["buffer_float_count"] = buffer_float_count;

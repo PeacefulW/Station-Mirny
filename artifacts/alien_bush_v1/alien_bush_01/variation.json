@@ -1,0 +1,31 @@
+{
+	"profile_id": "station_peaceful_alien_bush_v1",
+	"version": 1,
+	"variant": {
+		"id": "alien_bush_01",
+		"title_ru": "чашевидный куст с капсулами",
+		"seed": 20260729,
+		"yaw_degrees": 90.0,
+		"embed_fraction": 0.07,
+		"world_scale": 1.0
+	},
+	"framing": {
+		"ortho_scale": 0.8174468278884888,
+		"pixels_per_world_unit": 939.5106492538325,
+		"world_bbox": [
+			-0.24523405730724335,
+			-0.2280333936214447,
+			-0.024288134649395943,
+			0.24523405730724335,
+			0.2280333936214447,
+			0.322685182094574
+		],
+		"world_width": 0.4904681146144867,
+		"world_depth": 0.4560667872428894,
+		"world_height": 0.3469733167439699
+	},
+	"part_counts": {
+		"foliage": 40,
+		"trunk": 8
+	}
+}

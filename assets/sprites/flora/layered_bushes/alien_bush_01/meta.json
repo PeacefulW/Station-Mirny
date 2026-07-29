@@ -1,0 +1,46 @@
+{
+	"asset": "alien_bush_01",
+	"source_glb": "",
+	"frame_width": 768,
+	"frame_height": 768,
+	"anchor": [
+		384,
+		485
+	],
+	"bake_profile": {
+		"profile_id": "station_peaceful_layered_asset_bake_v1",
+		"version": 4,
+		"frame_size": 768,
+		"sun_azimuth_degrees": 225.0,
+		"albedo_sun_elevation_degrees": 52.0,
+		"shadow_sun_elevation_degrees": 42.0,
+		"root_embed_fraction": 0.07
+	},
+	"sort_offset": 485,
+	"collision_radius": 0,
+	"plant_depth_px": 0,
+	"wind_strength": 0.55,
+	"snow_capacity": 0.8,
+	"layers": {
+		"albedo": "albedo.png",
+		"trunk": "trunk.png",
+		"foliage": "foliage.png",
+		"shadow": "shadow.png",
+		"wind_mask": "wind_mask.png",
+		"snow_mask": "snow_mask.png",
+		"snow_overlay": "snow_overlay.png",
+		"season_mask": "season_mask.png",
+		"height": "height.png",
+		"normal": "normal.png"
+	},
+	"alpha_bbox": [
+		155,
+		169,
+		454,
+		351
+	],
+	"notes": "Procedural alien bush. Walk-through decor: no collider. Layered trunk/foliage with wind mask, baked on the shared layered asset bake contract.",
+	"source": "procedural",
+	"generator": "tools/bush_atlas/blender_alien_bush_bake.py",
+	"blocks_movement": false
+}

@@ -43,7 +43,7 @@ uniform float modulation_contrast = 1.08;
 uniform float back_rim_darkening = 0.94;
 uniform float organic_overlay_strength = 0.0;
 uniform float detail_world_scale_px = 540.0;
-uniform float soil_field_scale_px = 1500.0;
+uniform float soil_field_scale_px = 2400.0;
 uniform float grass_field_scale_px = 2400.0;
 uniform float grass_coverage = 0.55;
 uniform float grass_dissolve = 0.30;
@@ -56,8 +56,8 @@ uniform float rock_coverage = 0.26;
 // mirrored in grass_scatter.cpp). More visible rock, zero placement impact, no
 // WORLD_VERSION bump. See plains_ground_field_composition.md Iteration 4.
 uniform float rock_visual_coverage = 0.26;
-uniform float macro_drift_scale_px = 5200.0;
-uniform float macro_drift_strength = 0.08;
+uniform float macro_drift_scale_px = 4600.0;
+uniform float macro_drift_strength = 0.16;
 // Macro-mass coverage field (very long wavelength) and procedural paths:
 // see docs/02_system_specs/world/plains_ground_field_composition.md. These two
 // fields modulate grass_density across large regions and along sinuous trails;
@@ -359,13 +359,32 @@ void fragment() {
 
 			// --- large aperiodic tone drift: keeps far zoom alive, no grid ---
 			if (macro_drift_strength > 0.001 && macro_drift_scale_px > 1.0) {
-				// Mostly-warm drift: the cool pole stays nearly neutral so wide
-				// gravel areas never collapse into cold grey fields.
+				// Expand the naturally narrow fbm range into broad readable
+				// soil/dust masses. Weight the tint toward open ground so the
+				// macro pattern does not repaint dense grass as one flat wash.
 				float drift = fbm2(world_pos / macro_drift_scale_px + vec2(3.1, -8.7));
-				float drift_brightness = mix(1.0 - macro_drift_strength, 1.0 + macro_drift_strength, drift);
-				vec3 warm_tint = vec3(1.0 + macro_drift_strength * 0.40, 1.0, 1.0 - macro_drift_strength * 0.50);
-				vec3 cool_tint = vec3(1.0 - macro_drift_strength * 0.15, 1.0, 1.0 + macro_drift_strength * 0.10);
-				top_color *= drift_brightness * mix(cool_tint, warm_tint, drift);
+				float drift_shape = smoothstep(0.32, 0.68, drift);
+				float drift_brightness = mix(
+					1.0 - macro_drift_strength,
+					1.0 + macro_drift_strength,
+					drift_shape
+				);
+				vec3 warm_tint = vec3(
+					1.0 + macro_drift_strength * 0.40,
+					1.0,
+					1.0 - macro_drift_strength * 0.50
+				);
+				vec3 cool_tint = vec3(
+					1.0 - macro_drift_strength * 0.15,
+					1.0,
+					1.0 + macro_drift_strength * 0.10
+				);
+				vec3 drift_tint = (
+					drift_brightness
+					* mix(cool_tint, warm_tint, drift_shape)
+				);
+				float open_ground_weight = mix(1.0, 0.38, grass_total);
+				top_color *= mix(vec3(1.0), drift_tint, open_ground_weight);
 			}
 
 			// --- cosmetic large-scale shading (ADR-0005: visual only) ---

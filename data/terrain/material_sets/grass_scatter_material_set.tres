@@ -1,4 +1,4 @@
-[gd_resource type="Resource" script_class="TerrainMaterialSet" load_steps=4 format=3]
+[gd_resource type="Resource" script_class="TerrainMaterialSet" format=3]
 
 [ext_resource type="Script" path="res://data/terrain/terrain_material_set.gd" id="1"]
 [ext_resource type="Texture2D" path="res://assets/textures/world/biomes/plains/flora/grass_tuft_atlas.png" id="2"]
@@ -21,7 +21,7 @@ sampling_params = {
 "base_tint_max": 1.28,
 "base_tint_min": 0.55,
 "candidate_grid_side": 80.0,
-"density_scale": 5.0,
+"density_scale": 4.0,
 "directional_shadow_alpha": 0.72,
 "dry_frame_count": 16.0,
 "height_scale": 1.0,
@@ -47,10 +47,9 @@ sampling_params = {
 "spore_orange_threshold": 0.26,
 "spore_size_px": 12.0,
 "storm_lean_fraction": 0.57,
-"tuft_max_height_px": 55.0,
+"tuft_max_height_px": 64.0,
 "tuft_max_width_px": 116.0,
 "tuft_min_height_px": 24.0,
 "tuft_min_width_px": 40.0,
 "wind_sway_fraction": 0.19
 }
-
