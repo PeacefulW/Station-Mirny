@@ -1,6 +1,6 @@
 class_name PlayerSunShadow
 extends Sprite2D
-## Visual-only sun-tied silhouette shadow for the local player.
+## Visual-only fixed-azimuth silhouette shadow for the local player.
 
 const WorldRuntimeConstants = preload("res://core/systems/world/world_runtime_constants.gd")
 const WorldVisualLightingProfile = preload("res://core/systems/world/world_visual_lighting_profile.gd")

@@ -4,8 +4,8 @@ doc_type: system_spec
 status: approved
 owner: design+engineering
 source_of_truth: true
-version: 0.3
-last_updated: 2026-06-25
+version: 0.4
+last_updated: 2026-07-29
 related_docs:
   - player_visual_animation_v0.md
   - ../world/weather_runtime.md
@@ -56,8 +56,9 @@ V0 includes:
 - a procedural soft contact pool (`GradientTexture2D` radial) anchored at the
   feet and elongated along the sun-opposite direction, drawn behind the
   silhouette, that roots the cast so it does not read as detached;
-- sun direction and dawn/day/dusk fade derived from the documented
-  `TimeManager` / `WorldVisualLightingProfile` sun model;
+- one fixed north-west sun azimuth from `WorldVisualLightingProfile`, so the
+  shadow always projects screen south-east; dawn/day/dusk change only
+  projection length and fade through the documented `TimeManager` progress;
 - direct-sun attenuation from `WeatherRuntime.get_cloud_occlusion()`, so the
   body shadow follows the same direct-sun-blocked scalar as the real sun;
 - coarse surface gating for building indoor cells and mountain interiors.
@@ -89,8 +90,8 @@ V0 does not include:
 - The clip atlas pipeline (`assemble_player_mixamo_clip_atlas.py`) owns the
   baked `frame_contact_uv` metadata; the shadow reads it, never re-derives it
   from pixels at runtime.
-- `TimeManager.get_sun_angle()` / `get_sun_progress()` expose the current sun
-  model.
+- `TimeManager.get_sun_angle()` exposes the fixed north-west visual azimuth;
+  `get_sun_progress()` exposes the time-varying elevation phase.
 - `WorldVisualLightingProfile` owns shadow visibility, low-sun length, and
   dawn/dusk fade curves.
 - `WeatherRuntime.get_cloud_occlusion()` attenuates direct-sun body shadows
@@ -106,6 +107,8 @@ V0 does not include:
   line and re-ground that contact to one fixed ground line, so the shadow base
   neither detaches into the frame padding nor wanders with the per-frame body
   bob.
+- The shadow direction must remain screen south-east at every hour. Time of day
+  may change projection length, softness, visibility, and opacity only.
 - The shadow must read the baked `frame_contact_uv` table (cached per clip
   texture); it must not read texture pixels or recompute contact at runtime.
 - The shadow must update only one local sprite/material; it must not scan
@@ -137,8 +140,10 @@ V0 does not include:
       animation frames (no detachment into padding, no per-frame wander).
 - [ ] A soft contact pool at the feet roots the cast so the laid-down silhouette
       does not read as detached from the feet.
-- [ ] Shadow direction follows `TimeManager.get_sun_angle() + PI` and opacity
-      follows `WorldVisualLightingProfile` daylight visibility.
+- [ ] Shadow direction follows the fixed
+      `TimeManager.get_sun_angle() + PI` south-east vector at every hour;
+      projection length and opacity follow `WorldVisualLightingProfile`
+      low-sun/daylight curves.
 - [ ] Overcast and indoor/mountain-interior context can hide the distinct cast
       shadow without affecting gameplay systems.
 - [ ] Runtime work remains O(1) local presentation and does not touch save/load,

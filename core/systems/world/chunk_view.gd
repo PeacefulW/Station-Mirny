@@ -854,7 +854,11 @@ func _stage_grass_scatter_stripe(
 		layer = _create_grass_scatter_layer(stripe_index, grass_atlas, grass_material)
 		_grass_scatter_layers[stripe_index] = layer
 	layer.visible = false
-	_ensure_grass_depth_ladder().register_item(layer, stripe_index, 0)
+	_ensure_grass_depth_ladder().register_item(
+		layer,
+		stripe_index,
+		WorldRuntimeConstants.DEPTH_CHANNEL_GROUND_SURFACE_OFFSET,
+	)
 	var multimesh: MultiMesh = _prepare_grass_multimesh(layer.multimesh, stripe_count)
 	multimesh.buffer = buffer
 	layer.multimesh = multimesh

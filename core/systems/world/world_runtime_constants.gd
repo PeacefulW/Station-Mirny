@@ -159,15 +159,16 @@ const DEFAULT_SAVE_SLOT: String = "save_001"
 const DEPTH_STRIPE_PX: int = 16
 const DEPTH_STRIPES_PER_CHUNK: int = 64
 const DEPTH_LADDER_HALF_RANGE_STRIPES: int = 48
+## Каналы одной depth-полосы. Тень всегда ниже тела того же объекта; следующие
+## полосы по Y сохраняют строгий порядок между северными и южными объектами.
+const DEPTH_CHANNEL_GROUND_SURFACE_OFFSET: int = 0
+const DEPTH_CHANNEL_GROUND_SHADOW_OFFSET: int = DEPTH_CHANNEL_GROUND_SURFACE_OFFSET
+const DEPTH_CHANNEL_OBJECT_BASE_OFFSET: int = 1
+const DEPTH_CHANNEL_OBJECT_OVERLAY_OFFSET: int = 2
+const DEPTH_CHANNEL_OBJECT_TOP_OVERLAY_OFFSET: int = 3
 ## Контактные тени травы — на земле, под всей лесенкой травы/декора.
 const Z_GRASS_SHADOW: int = 18
 const Z_MID_LADDER_BASE: int = 21
-## Отбрасываемые тени объектов (силуэт дерева) — ПОВЕРХ всей травяной/объектной
-## лесенки (макс. z = Z_MID_LADDER_BASE + (48+48)*2 + 1 = 214) и поверх игрока
-## (фиксированный z = 118): тень ложится на траву/камни/игрока, а не под них.
-## Ниже спор. Гора теперь тоже ниже лесенки (см. Z_MOUNTAIN_TOP) — тень дерева
-## может лечь на скалу рядом, что физически корректно.
-const Z_CAST_SHADOW: int = 215
 ## Споры биополя — в воздухе над травой.
 const Z_GRASS_SPORE: int = 290
 ## Гора — НИЖЕ всей объектной лесенки: деревья/камни/игрок рисуются ПОВЕРХ горы.
@@ -197,7 +198,9 @@ static func z_for_stripe_vs_anchor(world_stripe: int, anchor_stripe: int, is_obj
 		DEPTH_LADDER_HALF_RANGE_STRIPES,
 	)
 	var z: int = Z_MID_LADDER_BASE + (relative + DEPTH_LADDER_HALF_RANGE_STRIPES) * 2
-	return z + 1 if is_object_layer else z
+	if is_object_layer:
+		return z + DEPTH_CHANNEL_OBJECT_BASE_OFFSET
+	return z + DEPTH_CHANNEL_GROUND_SURFACE_OFFSET
 
 
 static func chunk_origin_px(chunk_coord: Vector2i) -> Vector2:

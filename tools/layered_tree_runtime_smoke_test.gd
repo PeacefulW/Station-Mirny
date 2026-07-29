@@ -1,6 +1,7 @@
 extends SceneTree
 
 const WorldObjectPacketLayer = preload("res://core/systems/world/world_object_packet_layer.gd")
+const WorldVisualLightingProfile = preload("res://core/systems/world/world_visual_lighting_profile.gd")
 
 const OBJECT_KIND_TREE: int = 4
 const LAYERED_TREE_DIR: String = "res://assets/sprites/flora/layered_trees/tree_01"
@@ -21,7 +22,7 @@ func _run() -> void:
 	root.add_child(layer)
 	layer.set_layered_tree_asset_dirs([LAYERED_TREE_DIR, LAYERED_TREE_DIR_2, LAYERED_TREE_DIR_3, LAYERED_TREE_DIR_4, LAYERED_TREE_DIR_5])
 	layer.configure_packet(_single_tree_packet())
-	layer.set_sun_lighting(234.0, 78.0, 0.62, 24.0)
+	layer.set_sun_lighting(WorldVisualLightingProfile.FIXED_LIGHT_ANGLE_DEG, 78.0, 0.62, 24.0)
 	layer.update_ladder_z(0)
 
 	var state: Dictionary = layer.get_debug_state()

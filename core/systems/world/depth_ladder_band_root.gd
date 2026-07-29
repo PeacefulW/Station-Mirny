@@ -51,9 +51,9 @@ func set_world_origin_y(world_origin_y: float) -> void:
 	_reclassify_all_items()
 
 
-## Registers one already-bucketed stripe CanvasItem. local_z_offset is relative
-## to the grass parity of that stripe: grass/shadow=0, object=1, extra authored
-## channels (foliage/snow) add their existing +1/+2 offsets.
+## Registers one already-bucketed stripe CanvasItem. local_z_offset follows the
+## shared DEPTH_CHANNEL_* contract: ground surface/shadow, object base,
+## authored overlay, then top overlay.
 func register_item(item: CanvasItem, stripe_index: int, local_z_offset: int) -> void:
 	if item == null or not is_instance_valid(item):
 		return
@@ -111,6 +111,15 @@ func is_presentation_envelope_ready() -> bool:
 		if band_root == null or not is_instance_valid(band_root):
 			return false
 	return true
+
+
+## Makes every possible reparent target visible to a dedicated Canvas cull
+## pass. Callers still choose which leaf CanvasItems carry that layer.
+func include_visibility_layer(layer_mask: int) -> void:
+	_ensure_band_roots()
+	visibility_layer |= layer_mask
+	for band_root: Node2D in _band_roots:
+		band_root.visibility_layer |= layer_mask
 
 
 func update_anchor(anchor_stripe: int) -> void:

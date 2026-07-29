@@ -25,6 +25,10 @@ const WorldDiffStore = preload("res://core/systems/world/world_diff_store.gd")
 const WorldRuntimeConstants = preload("res://core/systems/world/world_runtime_constants.gd")
 const WorldVisualLightingProfile = preload("res://core/systems/world/world_visual_lighting_profile.gd")
 const WorldVisualWindProfile = preload("res://core/systems/world/world_visual_wind_profile.gd")
+const WorldHeightShadowField = preload("res://core/systems/world/world_height_shadow_field.gd")
+const WorldHeightShadowProfile = preload(
+	"res://core/systems/world/world_height_shadow_profile.gd"
+)
 const TerrainPresentationRegistry = preload("res://core/systems/world/terrain_presentation_registry.gd")
 const WorldLayeredObjectAssetCatalog = preload("res://core/systems/world/world_layered_object_asset_catalog.gd")
 const GRASS_SHADOW_SHADER = preload("res://assets/shaders/grass_shadow_batch.gdshader")
@@ -508,6 +512,7 @@ var _grass_scatter_material: ShaderMaterial = null
 var _grass_shadow_atlas_material: ShaderMaterial = null
 var _grass_shadow_material: ShaderMaterial = null
 var _grass_spore_material: ShaderMaterial = null
+var _height_shadow_field: WorldHeightShadowField = null
 var _grass_scatter_atlas: Texture2D = null
 var _grass_shadow_atlas: Texture2D = null
 var _grass_scatter_params: PackedFloat32Array = PackedFloat32Array()
@@ -638,6 +643,31 @@ func _ready() -> void:
 
 func _process(delta: float) -> void:
 	_advance_mountain_roof_reveal_transition(delta)
+
+
+func bind_height_shadow_field(field: WorldHeightShadowField) -> void:
+	_height_shadow_field = field
+	if _height_shadow_field == null or not is_instance_valid(_height_shadow_field):
+		return
+	_ensure_grass_scatter_sources()
+	_height_shadow_field.bind_receiver(
+		_grass_scatter_material,
+		WorldHeightShadowProfile.ReceiverClass.GRASS,
+	)
+	_height_shadow_field.bind_receiver(
+		_layered_object_asset_catalog.get_rock_albedo_material(),
+		WorldHeightShadowProfile.ReceiverClass.SMALL_ROCK,
+	)
+	_height_shadow_field.bind_receiver(
+		_layered_object_asset_catalog.get_rock_snow_material(),
+		WorldHeightShadowProfile.ReceiverClass.SMALL_ROCK,
+	)
+
+
+func get_height_shadow_debug_state() -> Dictionary:
+	if _height_shadow_field == null or not is_instance_valid(_height_shadow_field):
+		return {"ready": false}
+	return _height_shadow_field.get_debug_state()
 
 
 func _exit_tree() -> void:
@@ -4902,6 +4932,8 @@ func _ensure_hot_object_presentation_root() -> Node2D:
 	# root visible lets a promoted GPU layer remain world-parented, avoiding a
 	# costly Node/CanvasItem reparent on the reveal-critical frame.
 	_hot_object_presentation_root.visible = true
+	_hot_object_presentation_root.visibility_layer |= \
+			WorldHeightShadowProfile.CASTER_VISIBILITY_LAYER
 	add_child(_hot_object_presentation_root)
 	return _hot_object_presentation_root
 

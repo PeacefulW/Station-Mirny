@@ -5,8 +5,11 @@ const TREE_DIR: String = "res://assets/sprites/flora/layered_trees/tree_01"
 const FOLIAGE_WIND_SHADER: Shader = preload("res://assets/shaders/layered_tree_foliage_wind.gdshader")
 const SNOW_ACCUMULATION_SHADER: Shader = preload("res://assets/shaders/layered_tree_snow_accumulation.gdshader")
 const TRUNK_SEASON_SHADER: Shader = preload("res://assets/shaders/layered_tree_trunk_season.gdshader")
+const WorldVisualLightingProfile = preload(
+	"res://core/systems/world/world_visual_lighting_profile.gd"
+)
 const MAX_WIND_STRENGTH_PX: float = 18.0
-const SHADOW_DIRECTION: Vector2 = Vector2(0.887216, -0.461354)
+const SHADOW_DIRECTION: Vector2 = WorldVisualLightingProfile.FIXED_SHADOW_DIRECTION
 
 var _meta: Dictionary = {}
 var _root_position: Vector2 = Vector2(512.0, 620.0)
@@ -200,7 +203,7 @@ func _build_hud() -> void:
 func _update_hud() -> void:
 	if _hud_label == null:
 		return
-	_hud_label.text = "Layered tree asset lab | Space winter | Z/X season %.2f | +/- wind %.1f/%0.0f px | Q/E fixed NE shadow %.1f h | 1/2/3" % [
+	_hud_label.text = "Layered tree asset lab | Space winter | Z/X season %.2f | +/- wind %.1f/%0.0f px | Q/E fixed SE shadow %.1f h | 1/2/3" % [
 		_season_amount,
 		_wind_strength_px,
 		MAX_WIND_STRENGTH_PX,

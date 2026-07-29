@@ -9,7 +9,7 @@ const SNOW_ACCUMULATION_SHADER: Shader = preload("res://assets/shaders/layered_t
 const LADDER_ANCHOR_UNSET: int = 1 << 30
 ## Must match the baked sun: rocks migrated to azimuth 225, shadows screen
 ## south-east. Stretching against the bake walks the shadow off its own sprite.
-const SHADOW_DIRECTION: Vector2 = Vector2(0.887216, 0.461354)
+const SHADOW_DIRECTION: Vector2 = WorldVisualLightingProfile.FIXED_SHADOW_DIRECTION
 const DEFAULT_ASSET_DIR: String = "res://assets/sprites/decor/plains/layered_small_rocks/small_rock_01"
 const FALLBACK_VISIBLE_WIDTH_PX: float = 360.0
 const USE_PACKET_TINT: bool = true

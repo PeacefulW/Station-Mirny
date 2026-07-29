@@ -8,6 +8,7 @@ const PlainsSmallRockPlacementSettings = preload("res://core/resources/plains_sm
 const WorldBoundsSettings = preload("res://core/resources/world_bounds_settings.gd")
 const WorldObjectPacketLayer = preload("res://core/systems/world/world_object_packet_layer.gd")
 const WorldRuntimeConstants = preload("res://core/systems/world/world_runtime_constants.gd")
+const WorldVisualLightingProfile = preload("res://core/systems/world/world_visual_lighting_profile.gd")
 
 const DefaultFoundationGenSettings = preload("res://data/balance/foundation_gen_settings.tres")
 const DefaultLakeGenSettings = preload("res://data/balance/lake_gen_settings.tres")
@@ -157,7 +158,7 @@ func _assert_packet_layer_consumes_packet(packet: Dictionary) -> void:
 		"res://assets/sprites/decor/plains/layered_small_rocks/small_rock_01",
 	])
 	layer.configure_packet(packet)
-	layer.set_sun_lighting(234.0, 96.0, 0.55, 18.0)
+	layer.set_sun_lighting(WorldVisualLightingProfile.FIXED_LIGHT_ANGLE_DEG, 96.0, 0.55, 18.0)
 
 	var state: Dictionary = layer.get_debug_state()
 	_assert(int(state.get("spiky_flora_count", 0)) > 0, "WorldObjectPacketLayer must render spiky flora packet records.")

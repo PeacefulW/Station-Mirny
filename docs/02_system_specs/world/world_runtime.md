@@ -4,8 +4,8 @@ doc_type: system_spec
 status: approved
 owner: engineering
 source_of_truth: true
-version: 2.2
-last_updated: 2026-07-23
+version: 2.4
+last_updated: 2026-07-29
 related_docs:
   - ../../README.md
   - ../../00_governance/WORKFLOW.md
@@ -189,6 +189,25 @@ identical state cannot multiply RenderingServer writes by the loaded view count.
 Pooled/cold batch layers read the current catalog season and sun values when
 configured; their compatibility setters update only local visibility/state and
 must never write shared catalog uniforms.
+
+Every layered object cast shadow is registered in the caster's own feet stripe
+at `DEPTH_CHANNEL_GROUND_SHADOW_OFFSET`. The object's base, overlay, and top
+overlay occupy the following shared depth channels. No layered family may use
+an absolute cast-shadow z-index: a northern caster's shadow must remain below
+the body of an object in the same or any more southern stripe.
+
+Tall-caster shadow reception is an orthogonal material-height contract, not
+another z ladder. Tree shadow CanvasItems also opt into the reserved
+`WorldHeightShadowProfile.CASTER_VISIBILITY_LAYER`; `WorldHeightShadowField`
+renders only that layer through a half-resolution `SubViewport` sharing the
+current `World2D` and camera canvas transform. Grass and small-rock shared
+materials sample its alpha through `SCREEN_UV` and receive it only when
+`caster_height > receiver_height`. Tree/bush/player materials are not
+receivers. Heights, receiver strengths, tint, and render scale are authored in
+`data/world_objects/presentation_profiles/world_height_shadow_profile.tres`.
+The pass is viewport-bounded, reuses existing MultiMeshes/materials, does no
+per-instance CPU work, and leaves canonical packets, worldgen, gameplay,
+collision, and saves unchanged.
 
 Only approved tree trunks expose collision in the current proof. Their collision
 must be chunk-scoped through one `StaticBody2D` with shape owners per loaded
@@ -445,11 +464,14 @@ accepted 2D mountain look:
   mining, lake simulation, or save/load.
 - Visual sun/shadow parameters are locked in
   `WorldVisualLightingProfile`. Runtime `WorldStreamer` reads the current
-  `TimeManager` hour/progress, derives sun angle, projected shadow length,
-  opacity, softness, and dusk/dawn fade from that profile, then pushes only
-  shader material parameters into loaded `ChunkView` instances. This is visual
-  presentation work; it does not create a gameplay light authority and does not
-  mutate world generation, save state, terrain ids, or walkability.
+  `TimeManager` hour/progress, takes the fixed north-west sun azimuth from that
+  profile, derives projected shadow length, opacity, softness, and dusk/dawn
+  fade from time, then pushes only shader material parameters into loaded
+  `ChunkView` instances. Object shadows therefore always project screen
+  south-east with a planted caster foot; dawn/dusk stretch them without rotating
+  them. This is visual presentation work; it does not create a gameplay light
+  authority and does not mutate world generation, save state, terrain ids, or
+  walkability.
   Small generated decor, such as `plains` rocks, may clamp projected shadow
   length to zero and use a centered contact shadow when a directional cast
   shadow makes the sprite read as floating.

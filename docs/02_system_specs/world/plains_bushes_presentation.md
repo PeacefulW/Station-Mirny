@@ -4,7 +4,7 @@ doc_type: system_spec
 status: draft
 owner: engineering+design
 source_of_truth: true
-version: 0.1
+version: 0.2
 last_updated: 2026-07-29
 related_docs:
   - ../../00_governance/ENGINEERING_STANDARDS.md
@@ -80,7 +80,7 @@ low, dark, wine-purple plant with amber blade tips and turquoise capsules that
 | Must it work on unloaded chunks? | Placement derivable on demand; no whole-world state. |
 | C++ compute or main-thread apply? | Native placement and buffer packing; bounded main-thread apply on the existing visual upload path. |
 | Dirty unit | One chunk's object presentation buffer. No new dirty unit. |
-| Single owner | Placement: `WorldCore`. Buffers/lifecycle: `WorldStreamer` + `WorldObjectPacketLayer`. Depth: `WorldStreamer`. Wind: `WindRuntime`. Sun: `TimeManager`. |
+| Single owner | Placement: `WorldCore`. Buffers/lifecycle: `WorldStreamer` + `WorldObjectPacketLayer`. Depth: `WorldStreamer`. Wind: `WindRuntime`. Fixed sun azimuth: `WorldVisualLightingProfile`; time-varying shadow length: `TimeManager` progress. |
 | 10x / 100x scale path | More bushes stay inside per-stripe batch buffers; cost is bounded by the authored per-chunk cap. |
 | Main-thread blocking risk | None new; one more family in the existing bounded apply. |
 | Hidden fallback? | Forbidden. A missing asset directory or an atlas that was not rebuilt fails loudly. |
@@ -116,8 +116,8 @@ The asset is baked on the tree contract and therefore ships `trunk`, `foliage`,
 `shadow`, `wind_mask`, `snow_mask`, `snow_overlay`, `season_mask`. Presentation
 reuses the layered tree channel set so the bush gets:
 
-- a sun-tied shadow that stretches away from a pinned root (bake direction
-  `screen south-east`, the shared `SHADOW_DIRECTION`);
+- a fixed-azimuth shadow that stretches screen south-east away from a pinned
+  root; dawn/dusk change length, never the shared `SHADOW_DIRECTION`;
 - canopy wind from the shared wind globals, damped relative to trees;
 - snow accumulation for free when the season system drives it.
 
@@ -161,7 +161,8 @@ either a larger authored size or shorter grass; the proof sheet
 | Per-stripe batch apply + lifecycle | `WorldObjectPacketLayer` + `WorldStreamer` |
 | Depth ladder anchor + z | `WorldStreamer` |
 | Wind | `WindRuntime` (read-only consumer) |
-| Sun angle / shadow length | `TimeManager` (read-only consumer) |
+| Fixed sun azimuth | `WorldVisualLightingProfile` + layered bake contract |
+| Time-varying shadow length | `TimeManager` progress read through `WorldVisualLightingProfile` |
 
 Placement mirrors the tree scatter: grid cells with hashed jitter, plain-tile and
 mountain-clearance tests, the grass gate, a minimum spacing pass, then a hashed
@@ -200,8 +201,8 @@ V0 is acceptable when:
   per-stripe batches — no node-per-object, no per-object `z_index` (static check);
 - the player walks **through** a bush (no collider) and sorts in front of / behind
   it by feet stripe;
-- the bush shadow runs screen south-east like trees and rocks, and lengthens with
-  the sun; it is never a baked-in fixed blob under the sprite;
+- the bush shadow always runs screen south-east like trees and rocks; dawn/dusk
+  lengthen only its far side while the root stays pinned;
 - rendered size lands in the authored `26..42 px` range at default zoom;
 - the bake contract test still passes and the new asset records the shared
   `bake_profile` block;

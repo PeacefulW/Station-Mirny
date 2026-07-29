@@ -383,9 +383,21 @@ func _sync_slot(slot: Dictionary, stripe_index: int, buffer: PackedFloat32Array)
 	_resident_slot_count = maxi(_resident_slot_count, _active_slot_count + 1)
 	var depth_ladder: DepthLadderBandRoot = _ensure_depth_ladder()
 	var ladder_started_usec: int = WorldPerfProbe.begin()
-	depth_ladder.register_item(slot.get("albedo") as MultiMeshInstance2D, stripe_index, 1)
-	depth_ladder.register_item(slot.get("snow") as MultiMeshInstance2D, stripe_index, 2)
-	depth_ladder.register_item(slot.get("shadow") as MultiMeshInstance2D, stripe_index, 0)
+	depth_ladder.register_item(
+		slot.get("shadow") as MultiMeshInstance2D,
+		stripe_index,
+		WorldRuntimeConstants.DEPTH_CHANNEL_GROUND_SHADOW_OFFSET,
+	)
+	depth_ladder.register_item(
+		slot.get("albedo") as MultiMeshInstance2D,
+		stripe_index,
+		WorldRuntimeConstants.DEPTH_CHANNEL_OBJECT_BASE_OFFSET,
+	)
+	depth_ladder.register_item(
+		slot.get("snow") as MultiMeshInstance2D,
+		stripe_index,
+		WorldRuntimeConstants.DEPTH_CHANNEL_OBJECT_OVERLAY_OFFSET,
+	)
 	WorldPerfProbe.end("WorldObjectPacketLayer.rock.ladder_register", ladder_started_usec)
 	(slot.get("albedo") as MultiMeshInstance2D).visible = true
 	(slot.get("snow") as MultiMeshInstance2D).visible = _season_amount > 0.01

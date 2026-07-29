@@ -17,6 +17,8 @@ WORLD_STREAMER_PATH = ROOT / "core" / "systems" / "world" / "world_streamer.gd"
 TREE_IDS = ("tree_01", "tree_02", "tree_03", "tree_04", "tree_05", "tree_06")
 CATALOG_PATH = ROOT / "core" / "systems" / "world" / "world_layered_object_asset_catalog.gd"
 ROCK_LAYER_PATH = ROOT / "core" / "systems" / "world" / "layered_rock_object_layer.gd"
+LIGHTING_PROFILE_PATH = ROOT / "core" / "systems" / "world" / "world_visual_lighting_profile.gd"
+SHADOW_SHADER_PATH = ROOT / "assets" / "shaders" / "layered_object_shadow_batch.gdshader"
 ROCK_IDS = tuple(f"small_rock_{index:02d}" for index in range(1, 23))
 BUSH_IDS = ("alien_bush_01",)
 
@@ -177,11 +179,27 @@ class LayeredAssetBakeContractTest(unittest.TestCase):
         self.assertTrue(CATALOG_PATH.is_file())
         catalog = CATALOG_PATH.read_text(encoding="utf-8")
 
-        self.assertIn("const TREE_SHADOW_DIRECTION: Vector2 = Vector2(0.887216, 0.461354)", catalog)
+        self.assertTrue(LIGHTING_PROFILE_PATH.is_file())
+        lighting_profile = LIGHTING_PROFILE_PATH.read_text(encoding="utf-8")
+        self.assertIn(
+            "const FIXED_SHADOW_DIRECTION: Vector2 = Vector2(0.887216, 0.461354)",
+            lighting_profile,
+        )
+        self.assertIn(
+            "const TREE_SHADOW_DIRECTION: Vector2 = WorldVisualLightingProfile.FIXED_SHADOW_DIRECTION",
+            catalog,
+        )
+        self.assertIn(
+            "const BUSH_SHADOW_DIRECTION: Vector2 = WorldVisualLightingProfile.FIXED_SHADOW_DIRECTION",
+            catalog,
+        )
         self.assertIn("const TREE_SHADOW_OUTPUT_UV_MIN: Vector2 = Vector2(-0.10, -0.10)", catalog)
         self.assertIn("const TREE_SHADOW_OUTPUT_UV_MAX: Vector2 = Vector2(1.70, 1.50)", catalog)
         # Rocks migrated to the same sun, so their framing must open south-east too.
-        self.assertIn("const SHADOW_DIRECTION: Vector2 = Vector2(0.887216, 0.461354)", catalog)
+        self.assertIn(
+            "const SHADOW_DIRECTION: Vector2 = WorldVisualLightingProfile.FIXED_SHADOW_DIRECTION",
+            catalog,
+        )
         self.assertIn("const SHADOW_OUTPUT_UV_MIN: Vector2 = Vector2(-0.10, -0.10)", catalog)
         self.assertIn("const SHADOW_OUTPUT_UV_MAX: Vector2 = Vector2(1.70, 1.50)", catalog)
 
@@ -189,7 +207,19 @@ class LayeredAssetBakeContractTest(unittest.TestCase):
         # disagree the shadow stretches away from where it was rasterised.
         self.assertTrue(ROCK_LAYER_PATH.is_file())
         rock_layer = ROCK_LAYER_PATH.read_text(encoding="utf-8")
-        self.assertIn("const SHADOW_DIRECTION: Vector2 = Vector2(0.887216, 0.461354)", rock_layer)
+        self.assertIn(
+            "const SHADOW_DIRECTION: Vector2 = WorldVisualLightingProfile.FIXED_SHADOW_DIRECTION",
+            rock_layer,
+        )
+
+        self.assertTrue(SHADOW_SHADER_PATH.is_file())
+        shadow_shader = SHADOW_SHADER_PATH.read_text(encoding="utf-8")
+        self.assertIn("uniform vec2 shadow_direction = vec2(0.887216, 0.461354);", shadow_shader)
+        self.assertIn("if (forward_distance > 0.0)", shadow_shader)
+        self.assertIn(
+            "delta -= direction * forward_distance * (1.0 - 1.0 / safe_scale);",
+            shadow_shader,
+        )
 
     def test_runtime_streamer_registers_all_layered_tree_assets(self) -> None:
         self.assertTrue(WORLD_STREAMER_PATH.is_file(), "World streamer must declare layered tree assets.")

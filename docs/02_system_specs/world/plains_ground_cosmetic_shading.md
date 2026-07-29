@@ -4,8 +4,8 @@ doc_type: system_spec
 status: approved
 source_of_truth: true
 owner: engineering+art
-version: 1.0
-last_updated: 2026-06-24
+version: 1.1
+last_updated: 2026-07-29
 related_docs:
   - terrain_hybrid_presentation.md
   - plains_ground_field_composition.md
@@ -80,8 +80,8 @@ to the composited ground color:
   that give form even at night. Aperiodic, no per-chunk state, gradient-noise only
   (same field rules as the rest of the ground).
 - **Sun-directional component (day, fades at night):** the same field sampled
-  with a small offset along the sun direction yields a slope; sun-facing slopes
-  brighten, away-facing darken. Scaled by a daylight factor from
+  with a small offset along the fixed north-west sun direction yields a slope;
+  sun-facing slopes brighten, away-facing darken. Scaled by a daylight factor from
   `WorldVisualLightingProfile` so it disappears at night (leaving the ambient
   form). This unifies the ground with the objects' sun-driven shadows.
 
@@ -101,7 +101,8 @@ wired generically to shader uniforms:
 - `shade_dir_strength` (`0.16`) — daytime directional shade depth.
 
 Runtime-driven uniforms (NOT in tres; set from the sun model, sensible defaults
-for a static daytime look): `ground_sun_angle_deg` (default `234.0`),
+for a static daytime look): `ground_sun_angle_deg` (fixed north-west fallback
+`-152.525483`, matching `WorldVisualLightingProfile`),
 `ground_sun_day` (default `1.0`).
 
 ## Runtime Architecture

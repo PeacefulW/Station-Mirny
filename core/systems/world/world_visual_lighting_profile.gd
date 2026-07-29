@@ -3,7 +3,12 @@ extends RefCounted
 
 const HOURS_PER_DAY: float = 24.0
 const DEFAULT_PREVIEW_HOUR: float = 10.0
-const DEFAULT_LIGHT_ANGLE_DEG: float = 234.0
+## The authored world has one fixed north-west sun azimuth. Its screen-space
+## opposite matches the layered-asset bake direction exactly, so every runtime
+## cast shadow points south-east while time of day changes only length/softness.
+const FIXED_SHADOW_DIRECTION: Vector2 = Vector2(0.887216, 0.461354)
+const FIXED_LIGHT_ANGLE_DEG: float = -152.525483
+const DEFAULT_LIGHT_ANGLE_DEG: float = FIXED_LIGHT_ANGLE_DEG
 const DEFAULT_SHADOW_LENGTH_PX: float = 78.0
 const DEFAULT_SHADOW_OPACITY: float = 0.0
 const DEFAULT_SHADOW_SOFTNESS_PX: float = 24.0
@@ -28,12 +33,11 @@ const SHADOW_SOFTNESS_EPSILON_PX: float = 0.05
 static func sun_progress_for_hour(hour: float) -> float:
 	return fposmod(hour / HOURS_PER_DAY + 0.5, 1.0)
 
-static func light_angle_deg_for_sun_progress(sun_progress: float) -> float:
-	var shadow_angle: float = fposmod(sun_progress - 0.75 + 1.0, 1.0) * TAU
-	return rad_to_deg(shadow_angle - PI)
+static func light_angle_deg_for_sun_progress(_sun_progress: float) -> float:
+	return FIXED_LIGHT_ANGLE_DEG
 
-static func light_angle_deg_for_hour(hour: float) -> float:
-	return light_angle_deg_for_sun_progress(sun_progress_for_hour(hour))
+static func light_angle_deg_for_hour(_hour: float) -> float:
+	return FIXED_LIGHT_ANGLE_DEG
 
 static func low_sun_for_progress(sun_progress: float) -> float:
 	var elevation: float = maxf(cos(sun_progress * TAU), 0.0)

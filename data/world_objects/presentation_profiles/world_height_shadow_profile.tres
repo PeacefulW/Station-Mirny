@@ -1,0 +1,20 @@
+[gd_resource type="Resource" script_class="WorldHeightShadowProfile" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://core/systems/world/world_height_shadow_profile.gd" id="1"]
+
+[resource]
+script = ExtResource("1")
+mask_resolution_scale = 0.5
+receiver_tint = Color(0.32, 0.34, 0.4, 1)
+height_fade = 0.14
+caster_class = 4
+ground_height = 0.0
+grass_height = 0.12
+small_rock_height = 0.34
+bush_height = 0.66
+tree_height = 1.0
+ground_strength = 1.0
+grass_strength = 0.88
+small_rock_strength = 0.94
+bush_strength = 0.72
+tree_strength = 0.0

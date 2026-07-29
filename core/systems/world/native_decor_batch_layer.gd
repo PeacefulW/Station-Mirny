@@ -469,7 +469,11 @@ func _sync_sprite_slot(
 	slot["instance_count"] = count
 	_resident_slot_count = maxi(_resident_slot_count, slot_index + 1)
 	var ladder_started_usec: int = WorldPerfProbe.begin()
-	_ensure_depth_ladder_root().register_item(layer, stripe_index, 1)
+	_ensure_depth_ladder_root().register_item(
+		layer,
+		stripe_index,
+		WorldRuntimeConstants.DEPTH_CHANNEL_OBJECT_BASE_OFFSET,
+	)
 	WorldPerfProbe.end("WorldObjectPacketLayer.decor.ladder_register", ladder_started_usec)
 
 

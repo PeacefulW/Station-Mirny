@@ -3,6 +3,7 @@ extends SceneTree
 const FOLIAGE_WIND_SHADER: Shader = preload("res://assets/shaders/layered_tree_foliage_wind.gdshader")
 const SNOW_ACCUMULATION_SHADER: Shader = preload("res://assets/shaders/layered_tree_snow_accumulation.gdshader")
 const TRUNK_SEASON_SHADER: Shader = preload("res://assets/shaders/layered_tree_trunk_season.gdshader")
+const WorldVisualLightingProfile = preload("res://core/systems/world/world_visual_lighting_profile.gd")
 
 const TREE_DIR: String = "res://assets/sprites/flora/layered_trees/tree_01"
 const OUTPUT_DIR: String = "res://artifacts/layered_tree_lighting_diagnosis"
@@ -18,7 +19,7 @@ const COLOR_OVERCAST_TINT: Color = Color(0.66, 0.72, 0.84)
 const SUN_DAY_ENERGY: float = 0.45
 const SUN_COLOR_DAY: Color = Color(1.0, 0.92, 0.74)
 const SUN_COLOR_LOW: Color = Color(1.0, 0.72, 0.46)
-const SUN_ROTATION_DEG: float = 234.0
+const SUN_ROTATION_DEG: float = WorldVisualLightingProfile.FIXED_LIGHT_ANGLE_DEG
 
 var _meta: Dictionary = {}
 var _results: Array[Dictionary] = []

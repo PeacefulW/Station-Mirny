@@ -6,7 +6,7 @@ uniform float atlas_columns = 1.0;
 uniform float atlas_rows = 1.0;
 uniform float atlas_frame_count = 1.0;
 uniform vec2 frame_texel_size = vec2(0.0013020833);
-uniform vec2 shadow_direction = vec2(0.887216, -0.461354);
+uniform vec2 shadow_direction = vec2(0.887216, 0.461354);
 uniform float shadow_length_scale = 1.0;
 uniform float shadow_opacity = 0.0;
 uniform vec2 output_uv_min = vec2(-0.10, -0.50);
@@ -33,6 +33,7 @@ void fragment() {
 	vec2 direction = normalize(shadow_direction);
 	vec2 delta = output_point - anchor;
 	float forward_distance = dot(delta, direction);
+	// Stretch only the projected side; the caster/root side stays glued to anchor.
 	if (forward_distance > 0.0) {
 		float safe_scale = max(shadow_length_scale, 0.001);
 		delta -= direction * forward_distance * (1.0 - 1.0 / safe_scale);

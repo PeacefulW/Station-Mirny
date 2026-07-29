@@ -1,5 +1,7 @@
 extends SceneTree
 
+const WorldVisualLightingProfile = preload("res://core/systems/world/world_visual_lighting_profile.gd")
+
 # Windowed render diagnostic for the mountain torch SHADOW FIELD (the shader
 # ground+facade occlusion redesign of world_dynamic_lighting_2d.md Iteration 2).
 #
@@ -186,7 +188,7 @@ func _build_mountain(parent: Node2D) -> void:
 		"runtime_visual_clip_to_target_rect": true,
 	}
 	_view.apply_mountain_render_page(result, top_texture, face_texture)
-	_view.apply_sun_lighting(234.0, 0.0, 0.0, 1.0)
+	_view.apply_sun_lighting(WorldVisualLightingProfile.FIXED_LIGHT_ANGLE_DEG, 0.0, 0.0, 1.0)
 
 
 func _build_torch(parent: Node2D) -> void:

@@ -9,6 +9,9 @@ const LayeredRockBatchLayer = preload("res://core/systems/world/layered_rock_bat
 const LayeredBushBatchLayer = preload("res://core/systems/world/layered_bush_batch_layer.gd")
 const NativeDecorBatchLayer = preload("res://core/systems/world/native_decor_batch_layer.gd")
 const WorldLayeredObjectAssetCatalog = preload("res://core/systems/world/world_layered_object_asset_catalog.gd")
+const WorldHeightShadowProfile = preload(
+	"res://core/systems/world/world_height_shadow_profile.gd"
+)
 const WorldVisualLightingProfile = preload("res://core/systems/world/world_visual_lighting_profile.gd")
 const TREE_BATCH_SHADER = preload("res://assets/shaders/tree_decor_atlas_batch.gdshader")
 const TREE_SHADOW_SHADER = preload("res://assets/shaders/tree_silhouette_shadow.gdshader")
@@ -63,9 +66,10 @@ const TREE_SHADOW_CENTER_Y_SCALE: float = 0.02
 const TREE_SHADOW_MIN_WIDTH_PX: float = 18.0
 const TREE_SHADOW_MIN_HEIGHT_PX: float = 6.0
 const TREE_CONTACT_SHADOW_ENABLED: bool = false
-# Силуэт-тень — поверх ВСЕЙ травяной/объектной лесенки и поверх игрока
-# (WorldRuntimeConstants.Z_CAST_SHADOW), а не под травой.
-const TREE_SHADOW_Z_INDEX: int = WorldRuntimeConstants.Z_CAST_SHADOW
+# Старый flat-atlas fallback не умеет сортировать отдельные тени по полосам,
+# поэтому держит весь batch на земле под общей depth-лесенкой. Основной
+# layered runtime сортирует каждую shadow bucket по полосе ног объекта.
+const TREE_SHADOW_Z_INDEX: int = WorldRuntimeConstants.Z_GRASS_SHADOW
 # Дерево — препятствие: маленький круг у комля (ствол), крона проходима.
 # Chunk-scoped статика готова к reveal вместе с объектным слоем; шейп-овнеры
 # на одном теле, не нода-на-дерево.
@@ -100,7 +104,7 @@ var _debug_collisions_visible: bool = false
 var _tree_debug_rects: Array[Rect2] = []
 var _tree_shadow_layer: MultiMeshInstance2D = null
 var _tree_shadow_material: ShaderMaterial = null
-var _sun_light_angle_deg: float = 120.0
+var _sun_light_angle_deg: float = WorldVisualLightingProfile.DEFAULT_LIGHT_ANGLE_DEG
 var _sun_shadow_length_px: float = 78.0
 var _sun_shadow_opacity: float = 0.0
 var _living_flora_count: int = 0
@@ -2298,6 +2302,7 @@ func _ensure_tree_shadow_layer() -> MultiMeshInstance2D:
 	_tree_shadow_layer.texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS
 	_tree_shadow_layer.material = _ensure_tree_shadow_material()
 	add_child(_tree_shadow_layer)
+	WorldHeightShadowProfile.mark_tall_caster_path(_tree_shadow_layer)
 	return _tree_shadow_layer
 
 

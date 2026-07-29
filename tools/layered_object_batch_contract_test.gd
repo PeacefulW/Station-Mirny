@@ -109,13 +109,25 @@ func _run() -> void:
 	_expect(rock_layer.apply_next_batch(1), "rock apply remains staged after first occupied stripe")
 	_expect(
 		bool(tree_layer.get_debug_state().get("last_slice_created_slot", false)) \
-				and int(tree_layer.get_debug_state().get("next_stripe", -1)) == 7,
-		"tree first-use slot allocation is separate from raw upload",
+				and int(tree_layer.get_debug_state().get("next_stripe", -1)) == 0,
+		"tree first-use capacity allocation is separate from cursor scan and raw upload",
 	)
 	_expect(
 		bool(rock_layer.get_debug_state().get("last_slice_created_slot", false)) \
-				and int(rock_layer.get_debug_state().get("next_stripe", -1)) == 7,
-		"rock first-use slot allocation is separate from raw upload",
+				and int(rock_layer.get_debug_state().get("next_stripe", -1)) == 0,
+		"rock first-use capacity allocation is separate from cursor scan and raw upload",
+	)
+	_expect(tree_layer.apply_next_batch(1), "tree allocates its second required stripe slot")
+	_expect(rock_layer.apply_next_batch(1), "rock allocates its second required stripe slot")
+	_expect(
+		bool(tree_layer.get_debug_state().get("last_slice_created_slot", false)) \
+				and int(tree_layer.get_debug_state().get("next_stripe", -1)) == 0,
+		"tree completes required capacity before raw upload",
+	)
+	_expect(
+		bool(rock_layer.get_debug_state().get("last_slice_created_slot", false)) \
+				and int(rock_layer.get_debug_state().get("next_stripe", -1)) == 0,
+		"rock completes required capacity before raw upload",
 	)
 	_expect(tree_layer.apply_next_batch(1), "tree uploads after its allocation phase")
 	_expect(rock_layer.apply_next_batch(1), "rock uploads after its allocation phase")
@@ -347,7 +359,14 @@ func _make_native_result(catalog: AssetCatalog) -> Dictionary:
 		if stripe_seven.size() >= 24:
 			_expect(is_equal_approx(stripe_seven[3], 122.0), "native q4 half-quantum X decode")
 			_expect(is_equal_approx(stripe_seven[0], 768.0 * 0.64), "native fixed tree scale")
-			_expect(is_equal_approx(stripe_seven[20], 1.0 / 255.0), "native modulo tree atlas frame")
+			var expected_modulo_frame: float = float(
+				6 % AssetCatalog.TREE_SOURCE_DIRS.size(),
+			) / 255.0
+			_expect(
+				is_equal_approx(stripe_seven[20], expected_modulo_frame),
+				"native modulo tree atlas frame: expected %.9f, got %.9f"
+						% [expected_modulo_frame, stripe_seven[20]],
+			)
 	return result
 
 

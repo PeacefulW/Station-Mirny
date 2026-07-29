@@ -2,6 +2,9 @@ class_name LayeredTreeObjectLayer
 extends Node2D
 
 const WorldRuntimeConstants = preload("res://core/systems/world/world_runtime_constants.gd")
+const WorldHeightShadowProfile = preload(
+	"res://core/systems/world/world_height_shadow_profile.gd"
+)
 const WorldVisualLightingProfile = preload("res://core/systems/world/world_visual_lighting_profile.gd")
 
 const FOLIAGE_WIND_SHADER: Shader = preload("res://assets/shaders/layered_tree_foliage_wind.gdshader")
@@ -10,7 +13,7 @@ const TRUNK_SEASON_SHADER: Shader = preload("res://assets/shaders/layered_tree_t
 
 const LADDER_ANCHOR_UNSET: int = 1 << 30
 ## Trees are baked with sun azimuth 225: the shadow runs screen south-east.
-const SHADOW_DIRECTION: Vector2 = Vector2(0.887216, 0.461354)
+const SHADOW_DIRECTION: Vector2 = WorldVisualLightingProfile.FIXED_SHADOW_DIRECTION
 const DEFAULT_ASSET_DIR: String = "res://assets/sprites/flora/layered_trees/tree_01"
 const BASE_WIND_STRENGTH_PX: float = 3.0
 const FIXED_TREE_FRAME_SCALE: float = 0.64
@@ -87,6 +90,14 @@ func update_ladder_z(anchor_stripe: int) -> void:
 		var position: Vector2 = tree_root.get_meta("tree_position", Vector2.ZERO) as Vector2
 		var world_stripe: int = WorldRuntimeConstants.depth_stripe_for_world_y(_world_origin_y + position.y)
 		tree_root.z_index = WorldRuntimeConstants.z_for_stripe_vs_anchor(world_stripe, anchor_stripe, true)
+		if index < _shadow_nodes.size():
+			var shadow_root: Node2D = _shadow_nodes[index]
+			if shadow_root != null and is_instance_valid(shadow_root):
+				shadow_root.z_index = WorldRuntimeConstants.z_for_stripe_vs_anchor(
+					world_stripe,
+					anchor_stripe,
+					false,
+				)
 
 
 func set_season_amount(season_amount: float) -> void:
@@ -219,7 +230,7 @@ func _ensure_roots() -> void:
 	if _shadow_root == null or not is_instance_valid(_shadow_root):
 		_shadow_root = Node2D.new()
 		_shadow_root.name = "LayeredTreeShadowRoot"
-		_shadow_root.z_index = WorldRuntimeConstants.Z_CAST_SHADOW
+		_shadow_root.z_index = WorldRuntimeConstants.DEPTH_CHANNEL_GROUND_SHADOW_OFFSET
 		add_child(_shadow_root)
 	if _visual_root == null or not is_instance_valid(_visual_root):
 		_visual_root = Node2D.new()
@@ -305,6 +316,7 @@ func _build_shadow_tree(index: int, asset: Dictionary, position: Vector2, scale_
 		polygon.texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS
 		polygon.modulate = Color(1.0, 1.0, 1.0, _shadow_opacity)
 		root.add_child(polygon)
+		WorldHeightShadowProfile.mark_tall_caster_path(polygon)
 	_rebuild_shadow_polygons_for(root, asset, scale_factor)
 	return root
 

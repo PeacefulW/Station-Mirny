@@ -2,6 +2,9 @@ class_name LayeredTreeBatchLayer
 extends Node2D
 
 const WorldRuntimeConstants = preload("res://core/systems/world/world_runtime_constants.gd")
+const WorldHeightShadowProfile = preload(
+	"res://core/systems/world/world_height_shadow_profile.gd"
+)
 const AssetCatalog = preload("res://core/systems/world/world_layered_object_asset_catalog.gd")
 const DepthLadderBandRoot = preload("res://core/systems/world/depth_ladder_band_root.gd")
 
@@ -400,13 +403,33 @@ func _sync_slot(slot: Dictionary, stripe_index: int, buffer: PackedFloat32Array)
 	slot["instance_count"] = count
 	_resident_slot_count = maxi(_resident_slot_count, _active_slot_count + 1)
 	var depth_ladder: DepthLadderBandRoot = _ensure_depth_ladder()
+	depth_ladder.include_visibility_layer(
+		WorldHeightShadowProfile.CASTER_VISIBILITY_LAYER,
+	)
 	var ladder_started_usec: int = WorldPerfProbe.begin()
-	depth_ladder.register_item(slot.get("trunk") as MultiMeshInstance2D, stripe_index, 1)
-	depth_ladder.register_item(slot.get("foliage") as MultiMeshInstance2D, stripe_index, 2)
-	depth_ladder.register_item(slot.get("snow") as MultiMeshInstance2D, stripe_index, 3)
-	# Cast shadows own one fixed layer above the complete ladder; rebasing them
-	# with the tree feet would change their visual contract.
-	(slot.get("shadow") as MultiMeshInstance2D).z_index = WorldRuntimeConstants.Z_CAST_SHADOW
+	depth_ladder.register_item(
+		slot.get("shadow") as MultiMeshInstance2D,
+		stripe_index,
+		WorldRuntimeConstants.DEPTH_CHANNEL_GROUND_SHADOW_OFFSET,
+	)
+	WorldHeightShadowProfile.mark_tall_caster_path(
+		slot.get("shadow") as MultiMeshInstance2D,
+	)
+	depth_ladder.register_item(
+		slot.get("trunk") as MultiMeshInstance2D,
+		stripe_index,
+		WorldRuntimeConstants.DEPTH_CHANNEL_OBJECT_BASE_OFFSET,
+	)
+	depth_ladder.register_item(
+		slot.get("foliage") as MultiMeshInstance2D,
+		stripe_index,
+		WorldRuntimeConstants.DEPTH_CHANNEL_OBJECT_OVERLAY_OFFSET,
+	)
+	depth_ladder.register_item(
+		slot.get("snow") as MultiMeshInstance2D,
+		stripe_index,
+		WorldRuntimeConstants.DEPTH_CHANNEL_OBJECT_TOP_OVERLAY_OFFSET,
+	)
 	WorldPerfProbe.end("WorldObjectPacketLayer.tree.ladder_register", ladder_started_usec)
 	(slot.get("trunk") as MultiMeshInstance2D).visible = true
 	(slot.get("foliage") as MultiMeshInstance2D).visible = true

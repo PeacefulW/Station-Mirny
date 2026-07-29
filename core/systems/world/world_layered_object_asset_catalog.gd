@@ -130,17 +130,17 @@ const CLASSIC_CONTACT_SHADOW_MAX_OPACITY: float = 0.40
 ## the next family to migrate will need its own.
 const SHADOW_OUTPUT_UV_MIN: Vector2 = Vector2(-0.10, -0.10)
 const SHADOW_OUTPUT_UV_MAX: Vector2 = Vector2(1.70, 1.50)
-const SHADOW_DIRECTION: Vector2 = Vector2(0.887216, 0.461354)
+const SHADOW_DIRECTION: Vector2 = WorldVisualLightingProfile.FIXED_SHADOW_DIRECTION
 ## Trees are baked with sun azimuth 225, so their shadow runs screen south-east.
 const TREE_SHADOW_OUTPUT_UV_MIN: Vector2 = Vector2(-0.10, -0.10)
 const TREE_SHADOW_OUTPUT_UV_MAX: Vector2 = Vector2(1.70, 1.50)
-const TREE_SHADOW_DIRECTION: Vector2 = Vector2(0.887216, 0.461354)
+const TREE_SHADOW_DIRECTION: Vector2 = WorldVisualLightingProfile.FIXED_SHADOW_DIRECTION
 ## Bushes were baked on the same revision-4 sun, so their framing opens
 ## south-east too. It stays a separate constant per family, as the contract in
 ## docs/art/layered_asset_bake_contract.md requires.
 const BUSH_SHADOW_OUTPUT_UV_MIN: Vector2 = Vector2(-0.10, -0.10)
 const BUSH_SHADOW_OUTPUT_UV_MAX: Vector2 = Vector2(1.70, 1.50)
-const BUSH_SHADOW_DIRECTION: Vector2 = Vector2(0.887216, 0.461354)
+const BUSH_SHADOW_DIRECTION: Vector2 = WorldVisualLightingProfile.FIXED_SHADOW_DIRECTION
 ## A bush is a fraction of a tree in world pixels, so the same authored sway in
 ## pixels would read as a storm. Wind is scaled to the family's size.
 const BUSH_WIND_STRENGTH_PX: float = 1.2

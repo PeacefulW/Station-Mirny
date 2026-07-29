@@ -4,8 +4,8 @@ doc_type: system_spec
 status: draft
 owner: engineering+design
 source_of_truth: true
-version: 0.1
-last_updated: 2026-07-14
+version: 0.3
+last_updated: 2026-07-29
 related_docs:
   - ../../00_governance/ENGINEERING_STANDARDS.md
   - ../../00_governance/WORKFLOW.md
@@ -38,12 +38,13 @@ This spec rides `world_object_placement_v0.md` (placement, batching, depth
 ladder) and `wind_and_grass_scatter_presentation.md` (wind, the per-stripe
 mid-layer ladder) instead of inventing a parallel system. It establishes the
 procedural tree atlas authoring path, the batched per-stripe presentation, wind
-response, and sun-tied silhouette shadows. Collision and harvest are deferred.
+response, and fixed-azimuth time-stretched silhouette shadows. Collision and
+harvest are deferred.
 
 ### Why this spec exists
 
 A throwaway visual sketch proved the **look** (procedural generator, muted
-autumn palette, smooth continuous trunk, sun-tied shadows, wind sway). But the
+autumn palette, smooth continuous trunk, time-stretched shadows, wind sway). But the
 sketch placed trees as a flat overlay **outside** the streamer's depth
 ownership and produced two project anti-patterns:
 
@@ -69,7 +70,8 @@ in the world:
   on screen), never the whole tree;
 - the player walks correctly **in front of / behind** trees;
 - canopies sway on the **same wind** as the grass;
-- shadows fall **with the sun** (time of day), not in a fixed baked direction;
+- shadows always fall **screen south-east** from the fixed north-west authored
+  sun; dawn/dusk stretch them while the root stays planted;
 - adding a new tree / bush / flora type later requires only **data + an atlas**,
   never new depth code.
 
@@ -87,10 +89,14 @@ in the world:
   + `update_mid_ladder_z` re-assignment). Trees carry no independent z.
 - **Wind** response: the shared wind global uniforms drive a tree wind material
   (canopy sways, base planted), no new wind owner.
-- **Sun-tied silhouette cast shadow**: direction and length derived from the
-  canonical sun model (`TimeManager.get_sun_angle()` /
-  `get_shadow_length_factor()`), on the fixed cast-shadow layer outside the
-  player-relative depth ladder.
+- **Fixed-azimuth silhouette cast shadow**: fixed south-east direction from
+  `WorldVisualLightingProfile` / the layered bake contract, with length and
+  visibility derived from time of day. Each shadow bucket rides its caster's
+  feet stripe at the shared ground-shadow offset for bare-ground composition.
+  The same batched silhouette is also isolated by `WorldHeightShadowField` into
+  a camera-aligned mask. Low material classes (grass and small rocks) receive
+  that mask according to `WorldHeightShadowProfile`; tree bodies do not. There
+  is no absolute cast-shadow z outside the player-relative depth ladder.
 - **Deterministic per-instance variation** (atlas variant, scale tier, tint,
   wind phase) from a hash of seed / chunk / tile (no `randf` — LAW: deterministic
   hashing).
@@ -125,10 +131,10 @@ in the world:
 | Save/load required? | No in V0 (placement is derived from seed+version; presentation is derived). Harvest iteration adds a runtime diff. |
 | Deterministic? | Placement: yes — pure function of seed, version, chunk, settings, content set. Wind/shadow animation: intentionally non-deterministic visual drift, never read by gameplay. |
 | Must it work on unloaded chunks? | Placement is derivable on demand. CPU results may live in bounded source/warm caches and GPU layers in bounded hot/pool/retire residency without a `ChunkView`; no whole-world presentation state is retained. |
-| C++ compute or main-thread apply? | Placement solve and packet build in C++ (`WorldCore`). Main thread only applies finished per-stripe buffers and rebases their shared three-band depth roots. |
-| Dirty unit | One chunk's tree presentation buffer (rebuild on diff, like grass). Depth dirty unit: one ladder-owner root plus a clamp-boundary stripe on anchor change (no buffer rebuild). |
-| Single owner | Placement: `WorldCore`. Scheduling/cache/envelope/pool/retirement: `WorldStreamer` + `WorldObjectPacketLayer`. `ChunkView` owns only the adopted reveal/collision reference. Ladder anchor + z assignment: `WorldStreamer`. Wind state: `WindRuntime` (read-only consumer). |
-| 10x / 100x scale path | More trees stay in per-stripe batch buffers (no per-instance calls). More object types share the **one** ladder (no per-type depth code). |
+| C++ compute or main-thread apply? | Placement solve and packet build in C++ (`WorldCore`). Main thread only applies finished per-stripe buffers, rebases their shared three-band depth roots, and synchronizes one viewport transform/size for the visual receiver field. |
+| Dirty unit | One chunk's tree presentation buffer (rebuild on diff, like grass). Depth dirty unit: one ladder-owner root plus a clamp-boundary stripe on anchor change (no buffer rebuild). Receiver field follows the current viewport and never scans object instances. |
+| Single owner | Placement: `WorldCore`. Scheduling/cache/envelope/pool/retirement: `WorldStreamer` + `WorldObjectPacketLayer`. `ChunkView` owns only the adopted reveal/collision reference. Ladder anchor + z assignment: `WorldStreamer`. Height-shadow field: `WorldHeightShadowField`, with tiers/tuning in `WorldHeightShadowProfile`. Wind state: `WindRuntime` (read-only consumer). |
+| 10x / 100x scale path | More trees stay in per-stripe batch buffers (no per-instance calls). More object types share the **one** ladder and opt into authored caster/receiver height tiers; the receiver pass stays viewport-bounded. |
 | Main-thread blocking risk | Bounded per-chunk buffer apply through the existing decorative visual upload path; a 16 px anchor move is one linear-root z write plus clamp-boundary migrations, not a 64-stripe walk. |
 | Hidden fallback? | Forbidden (LAW 9). No GDScript placement fallback when native is unavailable; fail explicitly. |
 | Could it become heavy later? | Yes (dense forests, collision, harvest) — which is why placement is native-first and depth is on the shared ladder now. |
@@ -196,16 +202,42 @@ stretch (same contract as grass). Trees respond more slowly and weakly than
 grass via authored per-material params. No new wind owner, no per-consumer
 broadcast.
 
-### Sun-tied silhouette shadow, not baked, not fixed
+### Fixed-azimuth silhouette shadow, time-stretched from a planted root
 
 The cast shadow is the tree silhouette projected onto the ground (the same
-texture, flattened and sheared from the base), **tied to the canonical sun**:
-direction from `TimeManager.get_sun_angle()` and length from
-`get_shadow_length_factor()` — the same sun model the mountain shadow uses. It
-is a derived presentation layer **below** the grass stripes (so grass overdraws
-it on the ground) and updates as the sun moves (shader uniform / bounded
-per-stripe transform update owned by presentation), never a baked direction and
-never painted into the atlas.
+texture, flattened and sheared from the base). The authored sun azimuth is
+fixed north-west, so the projection always runs screen south-east. Time of day
+changes only length, softness, and visibility; the shader stretches only the
+far side while the root side remains pinned to the object anchor.
+
+The shadow is registered in the same shared depth stripe as its caster at
+`DEPTH_CHANNEL_GROUND_SHADOW_OFFSET`, below trunk/body, foliage, and snow.
+Consequently a northern tree's shadow is below every southern object's body
+without a global fixed `z_index`, while the existing three-band ladder keeps
+anchor rebases bounded.
+
+Feet depth and physical height are deliberately separate axes. Scalar
+`z_index` cannot simultaneously express all three requirements: a tree shadow
+must cover low grass/stone pixels, a tree body must cover that shadow, and
+ordinary bodies must still sort by their feet. `WorldHeightShadowField` solves
+that cycle without changing body depth:
+
+- tree shadow batches opt into one reserved Canvas visibility layer in addition
+  to their ordinary layer;
+- a half-resolution `SubViewport` shares the current `World2D`, copies the main
+  canvas transform, and renders only that caster layer into transparent alpha;
+- grass and small-rock shared materials sample the mask through `SCREEN_UV`;
+- the authored
+  `data/world_objects/presentation_profiles/world_height_shadow_profile.tres`
+  resource compares the tree caster tier with the material's receiver tier and
+  applies authored strength only when the caster is taller;
+- tree, bush, player, and other non-receiver materials keep their normal
+  feet-based ordering and are never darkened by this pass.
+
+This adds one viewport-bounded GPU pass and O(1) transform/resize
+synchronization, not one node, draw update, or CPU test per tree. The normal
+shadow remains in the caster stripe so bare ground and ground overlays keep the
+existing composition.
 
 ### Procedural atlas, generator-first; palette is data
 
@@ -288,7 +320,9 @@ generator tool. Runtime preloads the PNG only; runtime atlas painting forbidden.
 | Mid-layer **depth ladder anchor + z assignment** | `WorldStreamer` (`_ladder_anchor_stripe`, `update_mid_ladder_z`) |
 | Tree look + wind response | tree batch shader/material + authored profile |
 | Wind state + globals write | `WindRuntime` (read-only consumer here) |
-| Sun model (angle + shadow length) | `TimeManager` (read-only consumer here) |
+| Fixed sun azimuth | `WorldVisualLightingProfile` + layered asset bake contract |
+| Time-varying shadow length/visibility | `TimeManager` progress read through `WorldVisualLightingProfile` |
+| Tall-caster receiver mask | `WorldHeightShadowField`; height/tint/strength policy in `WorldHeightShadowProfile` |
 
 ### Placement flow (LAW 6)
 
@@ -323,11 +357,14 @@ per-frame `set_shader_parameter` broadcast (the globals are written once by
 
 ### Shadow
 
-A derived silhouette shadow layer renders below the grass stripes
-(`Z_GRASS_SHADOW` neighborhood), reading the canonical sun for direction and
-length. It updates as the sun moves through shader uniforms / a bounded
-per-stripe transform update, never per-object CPU geometry rebuilds and never a
-baked direction.
+Each per-stripe silhouette shadow batch shares its caster's depth-band root at
+the ground-shadow channel offset. Direction is the fixed south-east authored
+projection; shared catalog uniforms update only length/opacity as time changes.
+There is no per-object CPU geometry rebuild, no absolute z above the object
+ladder, and no chunk-wide depth walk. The same CanvasItem is visible to the
+dedicated tall-caster `SubViewport`; grass and small-rock materials receive its
+alpha by authored height tier, without moving either family out of the shared
+feet ladder.
 
 ### Diff refresh
 
@@ -370,11 +407,13 @@ stable / deterministic instance identity, never display names or asset paths.
   reveal (LAW 10).
 - Depth rebase: one linear-root `z_index` write per loaded tree batch owner plus
   only active nodes crossing a clamp boundary on each 16 px anchor step —
-  O(loaded chunk owners), no 64-stripe walk and no buffer rebuild. Fixed cast
-  shadows remain outside the rebased roots.
+  O(loaded chunk owners), no 64-stripe walk and no buffer rebuild. Shadow,
+  trunk, foliage, and snow migrate together as channels of the same stripe.
 - Wind: O(1) global write per frame (shared), shader animates.
 - Shadow: shader-uniform / bounded transform update per frame; no per-object
-  rebuild.
+  rebuild. Height reception adds one half-resolution viewport pass over the
+  already-batched visible tree shadow CanvasItems plus O(1) viewport transform
+  synchronization; its CPU cost is independent of tree count.
 - Target scale: a walkable forest across loaded chunks; authored per-chunk
   instance cap; importance-ordered buffers + zoom `visible_instance_count`
   trimming available later (as grass), no rebuild.
@@ -386,6 +425,9 @@ stable / deterministic instance identity, never display names or asset paths.
 - New tree / bush / flora type = a new `WorldObjectData` + atlas + placement set
   entry. It inherits depth, wind, and shadow from the shared systems with **no
   new depth code** — the explicit scalability goal of this spec.
+- A new material receiver class adds one enum identity and authored height /
+  strength values to `world_height_shadow_profile.tres`; it does not add a
+  project-wide z rule or an object-overlap loop.
 - Look / density / palette tuning is authored data, not code constants. Plains
   tree density and spacing are tuned in
   `data/world_objects/placement_groups/plains_trees.tres`.
@@ -404,9 +446,14 @@ V0 is acceptable when:
     grass (the sketch bug is gone) — verified by a before/after panel at two
     player positions;
   - the player sorts in front of / behind trees by feet stripe;
+  - a northern tree shadow renders below a southern tree/bush/rock body; within
+    one stripe the strict order is shadow → body/trunk → foliage → snow;
+  - the same shadow visibly darkens overlapping grass tufts and small-rock
+    albedo/snow because their receiver height is below the tree caster height;
+    it does not stamp across another tree body;
   - static check: no per-tree `z_index` assignment, no baked grass fringe in the
-    atlas pipeline, no tree z layer outside the shared ladder, no GDScript
-    per-frame tree-z loop;
+    atlas pipeline, no absolute cast-shadow z outside the shared ladder, no
+    GDScript per-frame tree-z loop;
 - trees are emitted from the **native object packet**, not a GDScript scatter
   loop, and rendered as **per-stripe `MultiMeshInstance2D` batches**, not one
   node per tree (static check);
@@ -416,8 +463,8 @@ V0 is acceptable when:
   atlas painting;
 - canopies sway on the shared wind (strength 0 freezes sway; pause stops it);
   the runtime contains no per-frame wind broadcast for trees;
-- shadows fall in the **sun direction** and change with time of day; setting the
-  hour changes shadow direction/length; the shadow is not baked into the atlas;
+- shadows always fall screen south-east; setting the hour changes length,
+  softness, and visibility but never direction, and the root stays planted;
 - tree visuals and loaded trunk collision remain one coherent transaction; the
   visual layer may not be removed independently while claiming unchanged
   collision/gameplay semantics.
@@ -431,7 +478,8 @@ This design is wrong if:
   interleaved on the ladder;
 - tree placement appears in a GDScript loop or as one node per tree;
 - the shared wind gets a second writer or a per-tree broadcast path returns;
-- the shadow direction is fixed/baked rather than sun-tied;
+- any runtime consumer rotates a sun shadow away from screen south-east, or
+  stretches the root side away from the object anchor;
 - tree preparation runs synchronously on the main thread, or a tree-bearing
   chunk reveals before its matching trunk collision is committed;
 - VRAM/buffer growth: dense-chunk tree buffer must stay within the authored cap.
@@ -472,7 +520,8 @@ This design is wrong if:
   `world_version` (canonical placement output changes — LAW 4).
 - World-parented `WorldObjectPacketLayer`: per-stripe batches interleaved with
   grass, z and lifecycle owned by `WorldStreamer`; `ChunkView` adopts by reference.
-- Wind material + shared globals; sun-tied silhouette shadow layer.
+- Wind material + shared globals; fixed-azimuth, time-stretched silhouette
+  shadow channel on the shared ladder.
 - Render probes: the depth acceptance criteria (grass-covers-base, player sort,
   no flip on movement), density/seam/zoom series, wind freeze, shadow vs hour.
 - Doc updates in the same task: `packet_schemas.md` (tree packet value + any

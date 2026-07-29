@@ -4,8 +4,8 @@ doc_type: system_spec
 status: approved
 source_of_truth: true
 owner: engineering+art
-version: 2.2
-last_updated: 2026-07-14
+version: 2.3
+last_updated: 2026-07-29
 related_docs:
   - wind_and_grass_scatter_presentation.md
   - plains_trees_presentation.md
@@ -54,8 +54,10 @@ player and break the confirmed player↔tree Y-sort.
 
 - The interior roof (`RoofLayer`, `Z_DEBUG_OVERLAY = 350`) still hides unrevealed
   cavities — unchanged.
-- Tree cast shadows (`Z_CAST_SHADOW = 215`) can now fall onto rock near the base of
-  a mountain — physically plausible, accepted.
+- Layered object cast shadows ride the caster's feet stripe in the shared
+  ground-shadow depth channel. They can fall onto rock near the base of a
+  mountain, but remain below object bodies in the same or any more southern
+  stripe — physically plausible, accepted.
 - Biofield spores (`Z_GRASS_SPORE = 290`) now render above mountain pixels at edges —
   they are airborne particles, accepted.
 - The mountain's projected sun shadow (part of the BASE mask sprite, z 19)

@@ -1,6 +1,8 @@
 class_name TimeManagerSingleton
 extends Node
 
+const WorldVisualLightingProfile = preload("res://core/systems/world/world_visual_lighting_profile.gd")
+
 ## Глобальный менеджер времени. Считает игровое время,
 ## определяет фазу дня (рассвет/день/закат/ночь) и сезон.
 ## Не знает о других системах — сообщает через EventBus.
@@ -57,17 +59,15 @@ func get_hour() -> int:
 func get_day_progress() -> float:
 	return current_hour / float(balance.hours_per_day)
 
-## Получить нормализованное "положение солнца" (0.0 = полночь, 0.5 = полдень).
+## Нормализованная фаза высоты солнца (азимут при этом не меняется).
 func get_sun_progress() -> float:
 	return fmod(current_hour / float(balance.hours_per_day) + 0.5, 1.0)
 
-## Угол солнца в радианах.
-## Восход слева (запад), полдень сверху (север), закат справа (восток).
-## Тени: утром → вправо, днём → вниз (юг), вечером → влево.
+## Художественный угол солнца в радианах.
+## Азимут всегда зафиксирован на северо-западе; время суток меняет высоту
+## (длину/видимость тени), но не вращает тени вокруг объектов.
 func get_sun_angle() -> float:
-	var progress: float = get_sun_progress()
-	var shadow_angle: float = fmod(progress - 0.75 + 1.0, 1.0) * TAU
-	return shadow_angle - PI
+	return deg_to_rad(WorldVisualLightingProfile.FIXED_LIGHT_ANGLE_DEG)
 
 ## Коэффициент длины тени (1.0 = полдень, 6.0 = рассвет/закат/ночь).
 func get_shadow_length_factor() -> float:

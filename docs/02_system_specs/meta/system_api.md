@@ -4,8 +4,8 @@ doc_type: system_spec
 status: draft
 owner: engineering
 source_of_truth: true
-version: 0.12
-last_updated: 2026-07-28
+version: 0.14
+last_updated: 2026-07-29
 related_docs:
   - ../README.md
   - commands.md
@@ -119,9 +119,9 @@ Confirmed readable state:
 | `current_time_of_day` | variable | Current day-phase enum value |
 | `get_hour()` | method | Whole hour |
 | `get_day_progress()` | method | `0.0..1.0` day progress |
-| `get_sun_progress()` | method | Normalized sun progress |
-| `get_sun_angle()` | method | Shadow angle in radians |
-| `get_shadow_length_factor()` | method | Derived shadow-length factor |
+| `get_sun_progress()` | method | Normalized time/elevation phase used by visual intensity and shadow length |
+| `get_sun_angle()` | method | Fixed north-west visual sun angle in radians |
+| `get_shadow_length_factor()` | method | Time-derived shadow-length factor; does not rotate the shadow |
 | `is_time_paused()` | method | Pause query |
 | `get_time_scale()` | method | Time scale query |
 
@@ -462,6 +462,7 @@ Confirmed readable entrypoints:
 | `get_mountain_contour_debug_state(chunk_coord: Vector2i)` | `Dictionary` | Debug-only readback for the loaded chunk's L1 grid/mask/contour overlay state. Returns `ready: false` if the chunk view is not loaded. |
 | `get_streaming_readiness_debug_snapshot()` | `Dictionary` | Developer-only bounded read of the existing streaming working set. Returns `StreamingReadinessDiagnosticSnapshot`; it may inspect only resident/demand dictionaries, never schedules work, and is called only by explicit captures/probes/finalization rather than the four-Hz HUD context path. |
 | `get_initial_loading_state()` | `Dictionary` | O(1) read of the transient `InitialWorldLoadingState` owned by `WorldStreamer`. Used by the loading UI and deterministic probes; it never scans chunks or schedules work. |
+| `get_height_shadow_debug_state()` | `Dictionary` | O(1) presentation diagnostic for the viewport-bounded tall-caster mask (`ready`, source/mask sizes, scale, cull layer); never scans chunks or objects. |
 
 Confirmed mutation entrypoints:
 
@@ -473,6 +474,7 @@ Confirmed mutation entrypoints:
 | `load_world_state(data: Dictionary) -> bool` | Restores only current-version `world.json` payloads. Returns `false` before mutating runtime state when `world_version` is missing/non-current or the current `worldgen_settings` shape is incomplete; on success restores `world_seed` / `world_version`, rebuilds `worldgen_settings.world_bounds`, `worldgen_settings.foundation`, `worldgen_settings.mountains`, `worldgen_settings.lakes`, `worldgen_settings.plains_trees`, `worldgen_settings.plains_small_rocks`, and `worldgen_settings.plains_bare_ground_stones` from `world.json`, and clears runtime state |
 | `load_chunk_diffs(entries: Array)` | Loads serialized chunk diffs into `WorldDiffStore` |
 | `acknowledge_initial_world_presented()` | Called only by `WorldRuntimeV0Scene` after the first unobscured world frame. Records presentation timing and releases the startup-only maximum-zoom plus movement-reserve materialization pin. It cannot close an unready gate. |
+| `bind_height_shadow_field(field: WorldHeightShadowField)` | Scene-composition wiring called by `WorldRuntimeV0Scene`; binds the field's shared mask texture and authored receiver-height metadata to grass and small-rock shared materials. It does not mutate world data or walk loaded chunks. |
 | `try_harvest_at_world(world_pos: Vector2)` | Single-tile harvest path; converts one nearest qualifying diggable surface tile into its dug state and rejects diagonal-only sealed rock |
 | `set_active_mountain_component(mountain_id: int, component_id: int)` | World-domain cover selection surface used by `MountainResolver`. Updates the immediate gameplay target selection; the construction-roof presentation independently retains a displayed component and fades its reveal blend (`150 ms` enter; `60 + 180 ms` exit), see `mountain_generation.md` M7 |
 | `toggle_debug_tile_grid()` | Toggles the developer-only `F6` 64 px grid overlay for loaded chunks |
