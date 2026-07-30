@@ -5,7 +5,7 @@
 	"frame_height": 768,
 	"anchor": [
 		384,
-		536
+		529
 	],
 	"bake_profile": {
 		"profile_id": "station_peaceful_layered_asset_bake_v1",
@@ -16,7 +16,7 @@
 		"shadow_sun_elevation_degrees": 42.0,
 		"root_embed_fraction": 0.07
 	},
-	"sort_offset": 536,
+	"sort_offset": 529,
 	"collision_radius": 18,
 	"plant_depth_px": 0,
 	"wind_strength": 0.45,
@@ -34,10 +34,10 @@
 		"normal": "normal.png"
 	},
 	"alpha_bbox": [
-		277,
-		119,
-		221,
-		490
+		229,
+		129,
+		311,
+		460
 	],
 	"notes": "Prototype layered tree asset from one GLB. Static trunk/foliage layers; runtime wind should use wind_mask and keep trunk/root pinned."
 }

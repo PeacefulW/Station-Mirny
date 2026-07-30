@@ -131,10 +131,23 @@ def ramp_rgb(stops: dict, amount: float, tip_power: float = 1.0) -> tuple[float,
     return lerp_rgb(stops["mid"], stops["tip"], (shaped - 0.5) / 0.5)
 
 
-_MATERIAL_CACHE: dict[tuple, bpy.types.Material] = {}
+COLOR_ATTRIBUTE: str = "rust_crown_color"
+
+_MATERIAL_CACHE: dict[str, bpy.types.Material] = {}
 
 
-def make_material(name: str, srgb: tuple[float, float, float], roughness: float) -> bpy.types.Material:
+def vertex_color_material(name: str, roughness: float) -> bpy.types.Material:
+    """One material per family, reading colour from the mesh's vertex colours.
+
+    Colouring by handing a mesh N stepped materials paints it in visible bands:
+    every face lands wholly in one rung of the ramp, so a trunk ends up ringed
+    like a barber pole - which is exactly what shows up on approach in game.
+    A per-vertex colour interpolates across each face instead, so the gradient
+    is continuous, and the whole tree needs two materials rather than hundreds.
+    """
+    cached = _MATERIAL_CACHE.get(name)
+    if cached is not None:
+        return cached
     mat = bpy.data.materials.new(name)
     mat.use_nodes = True
     nodes = mat.node_tree.nodes
@@ -142,62 +155,45 @@ def make_material(name: str, srgb: tuple[float, float, float], roughness: float)
     nodes.clear()
     output = nodes.new("ShaderNodeOutputMaterial")
     principled = nodes.new("ShaderNodeBsdfPrincipled")
-    principled.inputs["Base Color"].default_value = linear_rgba(srgb)
+    attribute = nodes.new("ShaderNodeVertexColor")
+    attribute.layer_name = COLOR_ATTRIBUTE
+    links.new(attribute.outputs["Color"], principled.inputs["Base Color"])
     principled.inputs["Roughness"].default_value = float(roughness)
     if "Specular IOR Level" in principled.inputs:
         principled.inputs["Specular IOR Level"].default_value = 0.28
     elif "Specular" in principled.inputs:
         principled.inputs["Specular"].default_value = 0.28
     links.new(principled.outputs["BSDF"], output.inputs["Surface"])
-    mat.diffuse_color = (srgb[0], srgb[1], srgb[2], 1.0)
+    _MATERIAL_CACHE[name] = mat
     return mat
 
 
-def bark_step_material(profile: dict, tier_index: int, step: int, steps: int) -> bpy.types.Material:
-    key = ("bark", tier_index, step)
-    cached = _MATERIAL_CACHE.get(key)
-    if cached is not None:
-        return cached
+def paint_vertices(obj: bpy.types.Object, colors: list[tuple[float, float, float]]) -> None:
+    """Write one linear colour per vertex; float colour attributes are linear."""
+    mesh = obj.data
+    attribute = mesh.color_attributes.new(name=COLOR_ATTRIBUTE, type="FLOAT_COLOR", domain="POINT")
+    for index, srgb in enumerate(colors):
+        attribute.data[index].color = linear_rgba(srgb)
+
+
+def bark_material(profile: dict) -> bpy.types.Material:
+    return vertex_color_material("rust_crown_bark", float(profile["material"]["bark_roughness"]))
+
+
+def leaf_material(profile: dict) -> bpy.types.Material:
+    return vertex_color_material("rust_crown_leaf", float(profile["material"]["leaf_roughness"]))
+
+
+def paint_bark(obj: bpy.types.Object, profile: dict, vertex_t: list[float], tier_index: int) -> None:
     palette = profile["palette"]
     tier = float(palette["shade_tiers"][tier_index])
-    base = ramp_rgb(ramp_stops(palette["bark_ramp"]), step / max(steps - 1, 1))
-    mat = make_material(
-        f"rust_crown_bark_t{tier_index}_s{step}",
-        (base[0] * tier, base[1] * tier, base[2] * tier),
-        float(profile["material"]["bark_roughness"]),
-    )
-    _MATERIAL_CACHE[key] = mat
-    return mat
-
-
-def leaf_step_material(
-    profile: dict,
-    hue_index: int,
-    hue_steps: int,
-    tier_index: int,
-    tone_index: int,
-    step: int,
-    steps: int,
-) -> bpy.types.Material:
-    """One rung of the red -> gold crown gradient, at one depth and tone."""
-    key = ("leaf", hue_index, tier_index, tone_index, step)
-    cached = _MATERIAL_CACHE.get(key)
-    if cached is not None:
-        return cached
-    palette = profile["palette"]
-    # Depth tier darkens by how far the burst leans away from the camera; the
-    # tone jitter is per blade, so two neighbours at the same depth still differ.
-    scale = float(palette["shade_tiers"][tier_index]) * float(palette["leaf_tone_jitter"][tone_index])
-    hue = hue_index / max(hue_steps - 1, 1)
-    stops = blend_stops(ramp_stops(palette["leaf_ramp_red"]), ramp_stops(palette["leaf_ramp_gold"]), hue)
-    base = ramp_rgb(stops, step / max(steps - 1, 1), float(palette["leaf_tip_power"]))
-    mat = make_material(
-        f"rust_crown_leaf_h{hue_index}_t{tier_index}_j{tone_index}_s{step}",
-        (base[0] * scale, base[1] * scale, base[2] * scale),
-        float(profile["material"]["leaf_roughness"]),
-    )
-    _MATERIAL_CACHE[key] = mat
-    return mat
+    stops = ramp_stops(palette["bark_ramp"])
+    obj.data.materials.append(bark_material(profile))
+    colors: list[tuple[float, float, float]] = []
+    for t in vertex_t:
+        base = ramp_rgb(stops, t)
+        colors.append((base[0] * tier, base[1] * tier, base[2] * tier))
+    paint_vertices(obj, colors)
 
 
 def paint_leaves(leaves: list[dict], profile: dict, rng: random.Random) -> None:
@@ -213,8 +209,10 @@ def paint_leaves(leaves: list[dict], profile: dict, rng: random.Random) -> None:
         return
     palette = profile["palette"]
     bias = palette["leaf_hue_bias"]
-    steps = int(palette["color_steps"])
-    hue_steps = int(bias["steps"])
+    red_stops = ramp_stops(palette["leaf_ramp_red"])
+    gold_stops = ramp_stops(palette["leaf_ramp_gold"])
+    tip_power = float(palette["leaf_tip_power"])
+    material = leaf_material(profile)
     height_weight = float(bias["height_weight"])
     light_weight = float(bias["light_weight"])
     jitter = float(bias["jitter"])
@@ -240,15 +238,17 @@ def paint_leaves(leaves: list[dict], profile: dict, rng: random.Random) -> None:
             + rng.gauss(0.0, jitter)
         )
         hue = max(0.0, min(1.0, 0.5 + 0.5 * amount))
-        hue_index = int(round(hue * (hue_steps - 1)))
-        assign_ramp_materials(
-            entry["object"],
-            [
-                leaf_step_material(profile, hue_index, hue_steps, entry["tier"], entry["tone"], step, steps)
-                for step in range(steps)
-            ],
-            entry["face_t"],
-        )
+        # Depth tier darkens by how far the burst leans away from the camera; the
+        # tone jitter is per blade, so two neighbours at the same depth differ.
+        scale = float(palette["shade_tiers"][entry["tier"]]) * float(palette["leaf_tone_jitter"][entry["tone"]])
+        stops = blend_stops(red_stops, gold_stops, hue)
+        blade: bpy.types.Object = entry["object"]
+        blade.data.materials.append(material)
+        colors: list[tuple[float, float, float]] = []
+        for t in entry["vertex_t"]:
+            base = ramp_rgb(stops, t, tip_power)
+            colors.append((base[0] * scale, base[1] * scale, base[2] * scale))
+        paint_vertices(blade, colors)
 
 
 # --- sampling helpers ------------------------------------------------------
@@ -351,6 +351,7 @@ def tube_mesh(
     """A closed tapered tube through world-space points, capped at both ends."""
     tangents, normals = polyline_frames(points)
     verts: list[tuple[float, float, float]] = []
+    vertex_t: list[float] = []
     spans = max(len(points) - 1, 1)
     for index, point in enumerate(points):
         tangent = tangents[index]
@@ -362,40 +363,39 @@ def tube_mesh(
             angle = math.tau * side / sides
             offset = normal * math.cos(angle) + binormal * math.sin(angle)
             verts.append(tuple(point + offset * radius * relief_scale(relief, angle, t)))
+            vertex_t.append(t)
     # Both ends get a cap. An open start ring is a hole, and wherever a limb
     # attaches at the surface of its parent instead of inside it - roots on a
     # braided strand especially - that hole reads as a snapped-off stump.
     base_index = len(verts)
     verts.append(tuple(points[0] - tangents[0] * radii[0] * 0.4))
+    vertex_t.append(0.0)
     tip_index = len(verts)
     verts.append(tuple(points[-1] + tangents[-1] * radii[-1] * 1.4))
+    vertex_t.append(1.0)
 
     faces: list[tuple[int, ...]] = []
-    face_t: list[float] = []
     rings = len(points)
     for side in range(sides):
         side_next = (side + 1) % sides
         faces.append((side_next, side, base_index))
-        face_t.append(0.0)
     for ring in range(rings - 1):
         base = ring * sides
         nxt = (ring + 1) * sides
         for side in range(sides):
             side_next = (side + 1) % sides
             faces.append((base + side, base + side_next, nxt + side_next, nxt + side))
-            face_t.append((ring + 0.5) / (rings - 1))
     last = (rings - 1) * sides
     for side in range(sides):
         side_next = (side + 1) % sides
         faces.append((last + side, last + side_next, tip_index))
-        face_t.append(1.0)
 
     mesh = bpy.data.meshes.new(name)
     mesh.from_pydata(verts, [], faces)
     mesh.update()
     for polygon in mesh.polygons:
         polygon.use_smooth = True
-    return mesh, face_t
+    return mesh, vertex_t
 
 
 def blade_mesh(
@@ -413,6 +413,7 @@ def blade_mesh(
     crease keeps the blade from vanishing when it turns edge-on to the camera.
     """
     verts: list[tuple[float, float, float]] = []
+    vertex_t: list[float] = []
     for index in range(segments + 1):
         t = index / segments
         width = half_width * max(0.05, (1.0 - t) ** 0.7 * (0.4 + 0.6 * min(1.0, t * 4.0)))
@@ -421,35 +422,21 @@ def blade_mesh(
         verts.append((-width, length * t, z))
         verts.append((0.0, length * t, z + lift))
         verts.append((width, length * t, z))
+        vertex_t.extend((t, t, t))
 
     faces: list[tuple[int, ...]] = []
-    face_t: list[float] = []
     for index in range(segments):
         base = index * 3
         nxt = (index + 1) * 3
         faces.append((base, base + 1, nxt + 1, nxt))
-        face_t.append((index + 0.5) / segments)
         faces.append((base + 1, base + 2, nxt + 2, nxt + 1))
-        face_t.append((index + 0.5) / segments)
 
     mesh = bpy.data.meshes.new(name)
     mesh.from_pydata(verts, [], faces)
     mesh.update()
     for polygon in mesh.polygons:
         polygon.use_smooth = True
-    return mesh, face_t
-
-
-def assign_ramp_materials(
-    obj: bpy.types.Object,
-    materials: list[bpy.types.Material],
-    face_t: list[float],
-) -> None:
-    for material in materials:
-        obj.data.materials.append(material)
-    steps = len(materials)
-    for polygon, t in zip(obj.data.polygons, face_t):
-        polygon.material_index = max(0, min(steps - 1, int(t * steps)))
+    return mesh, vertex_t
 
 
 def link_object(name: str, mesh: bpy.types.Mesh, matrix: Matrix | None = None) -> bpy.types.Object:
@@ -512,18 +499,13 @@ def add_burst(
     crown = profile["geometry"]["crown"]
     palette = profile["palette"]
     tiers = len(palette["shade_tiers"])
-    steps = int(palette["color_steps"])
     blade_segments = int(crown["blade_segments"])
 
     nub_radius = uniform_pair(rng, crown["nub_radius"]) * scale
     nub_points = [center - axis.normalized() * nub_radius * 1.2, center + axis.normalized() * nub_radius * 1.2]
-    nub_mesh, nub_face_t = tube_mesh(f"{name}_nub", nub_points, [nub_radius * 0.7, nub_radius], 6)
+    nub_mesh, nub_vertex_t = tube_mesh(f"{name}_nub", nub_points, [nub_radius * 0.7, nub_radius], 6)
     nub = link_object(f"{name}_nub", nub_mesh)
-    assign_ramp_materials(
-        nub,
-        [bark_step_material(profile, depth_tier(axis, tiers, rng), step, steps) for step in range(steps)],
-        nub_face_t,
-    )
+    paint_bark(nub, profile, nub_vertex_t, depth_tier(axis, tiers, rng))
     parts.append((nub, "trunk"))
 
     count = max(4, int(round(randint_pair(rng, crown["blades"]) * blade_density)))
@@ -545,7 +527,7 @@ def add_burst(
             blade_dir = blade_dir.lerp(radial.normalized(), outward_bias).normalized()
 
         length = uniform_pair(rng, crown["blade_length"]) * scale * uniform_pair(rng, crown["length_jitter"])
-        mesh, face_t = blade_mesh(
+        mesh, vertex_t = blade_mesh(
             f"{name}_blade_{index:02d}",
             length,
             uniform_pair(rng, crown["blade_half_width"]) * scale,
@@ -568,7 +550,7 @@ def add_burst(
         leaves.append(
             {
                 "object": blade,
-                "face_t": face_t,
+                "vertex_t": vertex_t,
                 "tier": depth_tier(blade_dir, tiers, rng),
                 "tone": rng.randrange(len(palette["leaf_tone_jitter"])),
                 "height": base.z,
@@ -595,7 +577,6 @@ def grow_branch(
     palette = profile["palette"]
     branching = geometry["branching"]
     levels = int(branching["levels"])
-    steps = int(palette["color_steps"])
     tiers = len(palette["shade_tiers"])
 
     segments = int(branching["segments"])
@@ -609,7 +590,7 @@ def grow_branch(
     tip_radius = radius * taper
     radii = [radius + (tip_radius - radius) * (index / segments) for index in range(segments + 1)]
     # Relief fades out with branch order: a gnarled twig is noise at sprite size.
-    mesh, face_t = tube_mesh(
+    mesh, vertex_t = tube_mesh(
         f"rust_crown_{path}",
         points,
         radii,
@@ -618,11 +599,7 @@ def grow_branch(
     )
     branch = link_object(f"rust_crown_{path}", mesh)
     tip_direction = (points[-1] - points[-2]).normalized()
-    assign_ramp_materials(
-        branch,
-        [bark_step_material(profile, depth_tier(tip_direction, tiers, rng), step, steps) for step in range(steps)],
-        face_t,
-    )
+    paint_bark(branch, profile, vertex_t, depth_tier(tip_direction, tiers, rng))
     parts.append((branch, "trunk"))
 
     crown = geometry["crown"]
@@ -672,16 +649,9 @@ def grow_branch(
                 points[-1], child_direction, child_length * 0.45, divergence * 0.5, wobble, 0.0, 3, rng
             )
             stub_radii = [child_radius * (1.0 - 0.7 * index / 3) for index in range(4)]
-            stub_mesh, stub_face_t = tube_mesh(f"rust_crown_{path}_{child_index}_stub", stub_points, stub_radii, 5)
+            stub_mesh, stub_vertex_t = tube_mesh(f"rust_crown_{path}_{child_index}_stub", stub_points, stub_radii, 5)
             stub = link_object(f"rust_crown_{path}_{child_index}_stub", stub_mesh)
-            assign_ramp_materials(
-                stub,
-                [
-                    bark_step_material(profile, depth_tier(child_direction, tiers, rng), step, steps)
-                    for step in range(steps)
-                ],
-                stub_face_t,
-            )
+            paint_bark(stub, profile, stub_vertex_t, depth_tier(child_direction, tiers, rng))
             parts.append((stub, "trunk"))
             continue
 
@@ -742,7 +712,6 @@ def add_root_fibers(
     geometry = profile["geometry"]
     palette = profile["palette"]
     roots = geometry["roots"]
-    steps = int(palette["color_steps"])
     tiers = len(palette["shade_tiers"])
     segments = int(roots["segments"])
     fiber_index = 0
@@ -790,7 +759,7 @@ def add_root_fibers(
             fiber_radii = [radius * (1.0 - 0.82 * (step_index / segments) ** 1.1) for step_index in range(segments + 1)]
             name = f"rust_crown_root_fiber_{fiber_index:02d}"
             fiber_index += 1
-            mesh, face_t = tube_mesh(
+            mesh, vertex_t = tube_mesh(
                 name,
                 fiber_points,
                 fiber_radii,
@@ -799,11 +768,7 @@ def add_root_fibers(
             )
             fiber = link_object(name, mesh)
             direction = (fiber_points[-1] - fiber_points[0]).normalized()
-            assign_ramp_materials(
-                fiber,
-                [bark_step_material(profile, depth_tier(direction, tiers, rng), step, steps) for step in range(steps)],
-                face_t,
-            )
+            paint_bark(fiber, profile, vertex_t, depth_tier(direction, tiers, rng))
             parts.append((fiber, "trunk"))
 
 
@@ -853,7 +818,6 @@ def grow_trunk(
     palette = profile["palette"]
     trunk_settings = geometry["trunk"]
     braid = trunk_settings["braid"]
-    steps = int(palette["color_steps"])
     tiers = len(palette["shade_tiers"])
 
     segments = int(trunk_settings["segments"])
@@ -890,21 +854,47 @@ def grow_trunk(
             value * (1.0 + collar_flare * max(0.0, 1.0 - (step_index / segments) / collar_height) ** collar_power)
             for step_index, value in enumerate(radii)
         ]
-        mesh, face_t = tube_mesh(
-            f"rust_crown_strand_{index:02d}",
-            points,
-            radii,
-            sides,
-            relief_settings(rng, trunk_settings.get("relief")),
-        )
-        strand = link_object(f"rust_crown_strand_{index:02d}", mesh)
         tip_direction = (points[-1] - points[-2]).normalized()
-        assign_ramp_materials(
-            strand,
-            [bark_step_material(profile, depth_tier(tip_direction, tiers, rng), step, steps) for step in range(steps)],
-            face_t,
-        )
-        parts.append((strand, "trunk"))
+        tier_index = depth_tier(tip_direction, tiers, rng)
+
+        # Second level of braiding: the strand is itself a bundle of cords with
+        # their own twist. One spiral reads as a smoothly bent pole no matter how
+        # much surface relief it carries; a spiral of spirals is what puts real
+        # depth into the silhouette, because the cords occlude each other.
+        sub = braid.get("sub")
+        if sub is None:
+            cord_specs = [(points, radii, f"rust_crown_strand_{index:02d}")]
+        else:
+            cord_specs = []
+            cord_count = randint_pair(rng, sub["count"])
+            cord_radius = radius * uniform_pair(rng, sub["radius_fraction"])
+            cord_closed = cord_radius * uniform_pair(rng, sub["bundle_closed_fraction"])
+            cord_open = radius * uniform_pair(rng, sub["bundle_open_fraction"])
+            cord_power = float(sub["bundle_open_power"])
+            cord_turns = uniform_pair(rng, sub["turns"]) * rng.choice((-1.0, 1.0))
+            for cord in range(cord_count):
+                cord_azimuth = math.tau * cord / cord_count + rng.gauss(0.0, 0.15)
+                cord_points = strand_polyline(
+                    points, cord_azimuth, cord_turns, cord_closed, cord_open, cord_power
+                )
+                # Cord thickness rides the strand profile, so the collar swell
+                # and the taper carry through to every cord.
+                scale = cord_radius / max(radius, 1e-6) * rng.uniform(0.85, 1.15)
+                cord_radii = [value * scale for value in radii]
+                cord_specs.append((cord_points, cord_radii, f"rust_crown_strand_{index:02d}_cord_{cord:02d}"))
+
+        for cord_points, cord_radii, cord_name in cord_specs:
+            mesh, vertex_t = tube_mesh(
+                cord_name,
+                cord_points,
+                cord_radii,
+                sides,
+                relief_settings(rng, trunk_settings.get("relief")),
+            )
+            cord_object = link_object(cord_name, mesh)
+            paint_bark(cord_object, profile, vertex_t, tier_index)
+            parts.append((cord_object, "trunk"))
+
         launches.append((points[-1], tip_direction, tip_radius, azimuth + turns * math.tau))
         paths.append((points, radii, azimuth))
     return launches, paths
