@@ -11,7 +11,7 @@ const ROCK_FRAME_SIZE: Vector2i = Vector2i(96, 96)
 ## Bushes are drawn at roughly 26-42 px in world; 128 px keeps a 3x linear
 ## margin at the largest authored size, like the rock family does at 96 px.
 const BUSH_FRAME_SIZE: Vector2i = Vector2i(128, 128)
-const TREE_COLUMNS: int = 9
+const TREE_COLUMNS: int = 8
 const TREE_ROWS: int = 1
 const ROCK_COLUMNS: int = 5
 const ROCK_ROWS: int = 5
@@ -19,15 +19,14 @@ const BUSH_COLUMNS: int = 4
 const BUSH_ROWS: int = 1
 
 const TREE_SOURCE_DIRS: Array[String] = [
-	"res://assets/sprites/flora/layered_trees/tree_01",
-	"res://assets/sprites/flora/layered_trees/tree_02",
-	"res://assets/sprites/flora/layered_trees/tree_03",
-	"res://assets/sprites/flora/layered_trees/tree_04",
-	"res://assets/sprites/flora/layered_trees/tree_05",
-	"res://assets/sprites/flora/layered_trees/tree_06",
 	"res://assets/sprites/flora/layered_trees/rust_crown_01",
 	"res://assets/sprites/flora/layered_trees/rust_crown_02",
 	"res://assets/sprites/flora/layered_trees/rust_crown_03",
+	"res://assets/sprites/flora/layered_trees/rust_crown_04",
+	"res://assets/sprites/flora/layered_trees/rust_crown_05",
+	"res://assets/sprites/flora/layered_trees/rust_crown_06",
+	"res://assets/sprites/flora/layered_trees/rust_crown_07",
+	"res://assets/sprites/flora/layered_trees/rust_crown_08",
 ]
 const TREE_CHANNELS: Array[String] = [
 	"trunk",

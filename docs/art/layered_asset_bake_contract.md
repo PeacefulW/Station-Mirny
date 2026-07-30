@@ -323,8 +323,11 @@ shadow pass: two runs of the same profile produce identical layers.
 3. Check `comparison_world_scale.png`; check `applied.attachment.max_gap_after`
    in every `variation.json`.
 4. Copy the twelve output files plus `meta.json` into
-   `assets/sprites/flora/layered_trees/tree_NN`, setting `meta.asset` to match
-   the directory.
+   `assets/sprites/flora/layered_trees/<family>_NN`, setting `meta.asset` to
+   match the directory. The shipped plains family is `rust_crown_01..08`, grown
+   procedurally by `tools/tree_atlas/blender_rust_crown_tree_bake.py` rather
+   than imported from a GLB; the older `tree_01..06` bakes still sit on disk but
+   are no longer registered anywhere in the runtime.
 5. Register the new directories in **three** places, which must stay in sync:
    `TREE_SOURCE_DIRS` and `TREE_COLUMNS` in
    `world_layered_object_asset_catalog.gd`, the same two in

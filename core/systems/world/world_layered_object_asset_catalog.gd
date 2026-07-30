@@ -36,17 +36,14 @@ const ROCK_SNOW_OVERLAY_ATLAS: Texture2D = preload("res://assets/sprites/decor/a
 const ROCK_SNOW_MASK_ATLAS: Texture2D = preload("res://assets/sprites/decor/atlases/layered_small_rocks/snow_mask.png")
 
 const TREE_SOURCE_DIRS: Array[String] = [
-	"res://assets/sprites/flora/layered_trees/tree_01",
-	"res://assets/sprites/flora/layered_trees/tree_02",
-	"res://assets/sprites/flora/layered_trees/tree_03",
-	"res://assets/sprites/flora/layered_trees/tree_04",
-	"res://assets/sprites/flora/layered_trees/tree_05",
-	"res://assets/sprites/flora/layered_trees/tree_06",
-	## Procedural rust crown trees, appended so the existing indices keep meaning
-	## the same asset for already generated chunks.
 	"res://assets/sprites/flora/layered_trees/rust_crown_01",
 	"res://assets/sprites/flora/layered_trees/rust_crown_02",
 	"res://assets/sprites/flora/layered_trees/rust_crown_03",
+	"res://assets/sprites/flora/layered_trees/rust_crown_04",
+	"res://assets/sprites/flora/layered_trees/rust_crown_05",
+	"res://assets/sprites/flora/layered_trees/rust_crown_06",
+	"res://assets/sprites/flora/layered_trees/rust_crown_07",
+	"res://assets/sprites/flora/layered_trees/rust_crown_08",
 ]
 const ROCK_SOURCE_DIRS: Array[String] = [
 	"res://assets/sprites/decor/plains/layered_small_rocks/small_rock_01",
@@ -77,7 +74,7 @@ const BUSH_SOURCE_DIRS: Array[String] = [
 	"res://assets/sprites/flora/layered_bushes/alien_bush_01",
 ]
 
-const TREE_COLUMNS: int = 9
+const TREE_COLUMNS: int = 8
 const TREE_ROWS: int = 1
 const ROCK_COLUMNS: int = 5
 const ROCK_ROWS: int = 5
@@ -85,7 +82,7 @@ const BUSH_COLUMNS: int = 4
 const BUSH_ROWS: int = 1
 ## Bumped whenever the atlas layout or asset set changes: stale prepared buffers
 ## must be rejected rather than sampled against a grid that no longer matches.
-const CATALOG_GENERATION: int = 6
+const CATALOG_GENERATION: int = 7
 const TREE_METRIC_STRIDE: int = 5
 const ROCK_METRIC_STRIDE: int = 5
 const BUSH_METRIC_STRIDE: int = 5

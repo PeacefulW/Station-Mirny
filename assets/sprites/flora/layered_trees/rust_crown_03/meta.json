@@ -39,5 +39,5 @@
 		304,
 		434
 	],
-	"notes": "Procedural rust crown tree grown by tools/tree_atlas/blender_rust_crown_tree_bake.py and baked on the canonical layered contract. Continuous trunk cords gently flare into a branch collar, flow through a C1/Hermite fork, then crossfade inside the first-order branch core; bark progression stays continuous from root to twig."
+	"notes": "Procedural rust crown tree grown by tools/tree_atlas/blender_rust_crown_tree_bake.py on the canonical layered bake contract. Braided trunk with tangent-smooth fork, fibre root flare, vertex-colour bark and red-to-gold crown gradient."
 }

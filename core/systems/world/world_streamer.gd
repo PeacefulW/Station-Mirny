@@ -133,16 +133,14 @@ const GRASS_BLOB_OVERLAY_NORMAL_TEXTURE_PATH: String = "res://assets/textures/wo
 const PLAINS_TREE_ENABLED: bool = true
 const PLAINS_TREE_ATLAS: Texture2D = preload("res://assets/sprites/flora/atlases/plains_trees_atlas.png")
 const PLAINS_LAYERED_TREE_ASSET_DIRS: Array[String] = [
-	"res://assets/sprites/flora/layered_trees/tree_01",
-	"res://assets/sprites/flora/layered_trees/tree_02",
-	"res://assets/sprites/flora/layered_trees/tree_03",
-	"res://assets/sprites/flora/layered_trees/tree_04",
-	"res://assets/sprites/flora/layered_trees/tree_05",
-	"res://assets/sprites/flora/layered_trees/tree_06",
-	## Appended, never inserted: the index is what a generated chunk stores.
 	"res://assets/sprites/flora/layered_trees/rust_crown_01",
 	"res://assets/sprites/flora/layered_trees/rust_crown_02",
 	"res://assets/sprites/flora/layered_trees/rust_crown_03",
+	"res://assets/sprites/flora/layered_trees/rust_crown_04",
+	"res://assets/sprites/flora/layered_trees/rust_crown_05",
+	"res://assets/sprites/flora/layered_trees/rust_crown_06",
+	"res://assets/sprites/flora/layered_trees/rust_crown_07",
+	"res://assets/sprites/flora/layered_trees/rust_crown_08",
 ]
 const PLAINS_SMALL_ROCK_ENABLED: bool = true
 const PLAINS_LAYERED_SMALL_ROCK_ASSET_DIRS: Array[String] = [

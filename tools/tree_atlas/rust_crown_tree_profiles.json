@@ -8,7 +8,7 @@
 	},
 	"lighting": {
 		"bounce": {
-			"energy": 75.0
+			"energy": 95.0
 		}
 	},
 	"material": {
@@ -424,6 +424,73 @@
 			"blade_density": 0.88,
 			"camera_fit": {
 				"fit_width_fraction": 0.55,
+				"fit_height_fraction": 0.62
+			}
+		},
+		{
+			"id": "var_04",
+			"title": "tall_slim",
+			"title_ru": "высокое узкое",
+			"seed": 71044,
+			"yaw_degrees": 82.0,
+			"world_scale": 1.0,
+			"height_scale": 1.24,
+			"crown_scale": 0.8,
+			"blade_density": 0.95,
+			"camera_fit": {
+				"fit_width_fraction": 0.55,
+				"fit_height_fraction": 0.62
+			}
+		},
+		{
+			"id": "var_05",
+			"title": "squat_dense",
+			"title_ru": "приземистое плотное",
+			"seed": 71055,
+			"yaw_degrees": 116.0,
+			"world_scale": 1.0,
+			"height_scale": 0.82,
+			"crown_scale": 1.12,
+			"blade_density": 1.25,
+			"camera_fit": {
+				"fit_width_fraction": 0.48,
+				"fit_height_fraction": 0.56
+			}
+		},
+		{
+			"id": "var_06",
+			"title": "sparse_old",
+			"title_ru": "редкое старое",
+			"seed": 71066,
+			"yaw_degrees": 68.0,
+			"world_scale": 1.0,
+			"height_scale": 1.02,
+			"crown_scale": 1.04,
+			"blade_density": 0.7
+		},
+		{
+			"id": "var_07",
+			"title": "young_small",
+			"title_ru": "молодое мелкое",
+			"seed": 71077,
+			"yaw_degrees": 96.0,
+			"world_scale": 1.0,
+			"height_scale": 0.94,
+			"crown_scale": 0.84,
+			"blade_density": 1.08
+		},
+		{
+			"id": "var_08",
+			"title": "broad_spread",
+			"title_ru": "раскидистое",
+			"seed": 71088,
+			"yaw_degrees": 110.0,
+			"world_scale": 1.0,
+			"height_scale": 1.0,
+			"crown_scale": 1.28,
+			"blade_density": 1.0,
+			"camera_fit": {
+				"fit_width_fraction": 0.56,
 				"fit_height_fraction": 0.62
 			}
 		}

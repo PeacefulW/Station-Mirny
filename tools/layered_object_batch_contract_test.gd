@@ -58,7 +58,7 @@ func _run() -> void:
 	_expect(catalog.is_ready(), "catalog must prepare before chunk publish")
 	_verify_layered_quad_uv_contract(catalog)
 	_verify_shared_catalog_single_owner(catalog)
-	_expect(catalog.get_catalog_generation() == 6, "catalog generation")
+	_expect(catalog.get_catalog_generation() == 7, "catalog generation")
 	_expect(
 		catalog.get_tree_native_metrics().size()
 				== AssetCatalog.TREE_SOURCE_DIRS.size() * AssetCatalog.TREE_METRIC_STRIDE,

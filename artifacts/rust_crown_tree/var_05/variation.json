@@ -10,11 +10,15 @@
 		"world_scale": 1.0,
 		"height_scale": 0.82,
 		"crown_scale": 1.12,
-		"blade_density": 1.25
+		"blade_density": 1.25,
+		"camera_fit": {
+			"fit_width_fraction": 0.48,
+			"fit_height_fraction": 0.56
+		}
 	},
 	"framing": {
-		"ortho_scale": 0.9955746531486511,
-		"pixels_per_world_unit": 771.413773513706,
+		"ortho_scale": 1.1738343238830566,
+		"pixels_per_world_unit": 654.2660956270623,
 		"world_bbox": [
 			-0.24496065080165863,
 			-0.2126292735338211,
