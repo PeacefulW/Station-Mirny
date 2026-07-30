@@ -34,9 +34,9 @@
 		"normal": "normal.png"
 	},
 	"alpha_bbox": [
-		240,
-		141,
-		300,
+		237,
+		142,
+		304,
 		434
 	],
 	"notes": "Prototype layered tree asset from one GLB. Static trunk/foliage layers; runtime wind should use wind_mask and keep trunk/root pinned."

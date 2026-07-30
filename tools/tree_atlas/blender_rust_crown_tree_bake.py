@@ -110,6 +110,16 @@ def lerp_rgb(
     return tuple(left[index] * (1.0 - t) + right[index] * t for index in range(3))
 
 
+def lerp_float(left: float, right: float, amount: float) -> float:
+    t = max(0.0, min(1.0, amount))
+    return left * (1.0 - t) + right * t
+
+
+def smoothstep01(amount: float) -> float:
+    t = max(0.0, min(1.0, amount))
+    return t * t * (3.0 - 2.0 * t)
+
+
 def ramp_stops(ramp: dict) -> dict:
     return {key: rgb_255(ramp[key]) for key in ("root", "mid", "tip")}
 
@@ -184,16 +194,44 @@ def leaf_material(profile: dict) -> bpy.types.Material:
     return vertex_color_material("rust_crown_leaf", float(profile["material"]["leaf_roughness"]))
 
 
-def paint_bark(obj: bpy.types.Object, profile: dict, vertex_t: list[float], tier_index: int) -> None:
+def paint_bark(
+    obj: bpy.types.Object,
+    profile: dict,
+    vertex_t: list[float],
+    tier_index: int,
+    *,
+    ramp_start: float = 0.0,
+    ramp_end: float = 1.0,
+    end_tier_index: int | None = None,
+    tier_blend_start: float = 0.0,
+    tier_blend_end: float = 1.0,
+) -> None:
     palette = profile["palette"]
-    tier = float(palette["shade_tiers"][tier_index])
+    tier_start = float(palette["shade_tiers"][tier_index])
+    tier_end = float(palette["shade_tiers"][tier_index if end_tier_index is None else end_tier_index])
     stops = ramp_stops(palette["bark_ramp"])
     obj.data.materials.append(bark_material(profile))
     colors: list[tuple[float, float, float]] = []
     for t in vertex_t:
-        base = ramp_rgb(stops, t)
+        base = ramp_rgb(stops, lerp_float(ramp_start, ramp_end, t))
+        tier_amount = smoothstep01(
+            (t - tier_blend_start) / max(tier_blend_end - tier_blend_start, 1e-6)
+        )
+        tier = lerp_float(tier_start, tier_end, tier_amount)
         colors.append((base[0] * tier, base[1] * tier, base[2] * tier))
     paint_vertices(obj, colors)
+
+
+def bark_progress_range(profile: dict, level: int) -> tuple[float, float]:
+    """Allocate one continuous root-to-twig colour ramp across the tree."""
+    transition = profile["geometry"]["trunk_transition"]
+    trunk_end = float(transition["bark_trunk_end"])
+    if level <= 0:
+        return 0.0, trunk_end
+    branch_levels = max(int(profile["geometry"]["branching"]["levels"]) - 1, 1)
+    start = trunk_end + (1.0 - trunk_end) * min(level - 1, branch_levels) / branch_levels
+    end = trunk_end + (1.0 - trunk_end) * min(level, branch_levels) / branch_levels
+    return start, end
 
 
 def paint_leaves(leaves: list[dict], profile: dict, rng: random.Random) -> None:
@@ -347,8 +385,21 @@ def tube_mesh(
     radii: list[float],
     sides: int,
     relief: dict | None = None,
+    *,
+    cap_start: bool = True,
+    cap_end: bool = True,
+    path_t: list[float] | None = None,
+    relief_path_t: list[float] | None = None,
+    relief_t_start: float = 0.0,
+    relief_t_end: float = 1.0,
 ) -> tuple[bpy.types.Mesh, list[float]]:
-    """A closed tapered tube through world-space points, capped at both ends."""
+    """A tapered tube through world-space points with independently optional caps."""
+    if len(points) != len(radii):
+        raise ValueError(f"{name}: points/radii length mismatch")
+    if path_t is not None and len(path_t) != len(points):
+        raise ValueError(f"{name}: path_t length mismatch")
+    if relief_path_t is not None and len(relief_path_t) != len(points):
+        raise ValueError(f"{name}: relief_path_t length mismatch")
     tangents, normals = polyline_frames(points)
     verts: list[tuple[float, float, float]] = []
     vertex_t: list[float] = []
@@ -358,37 +409,41 @@ def tube_mesh(
         normal = normals[index]
         binormal = tangent.cross(normal).normalized()
         radius = radii[index]
-        t = index / spans
+        t = path_t[index] if path_t is not None else index / spans
+        relief_t = (
+            relief_path_t[index]
+            if relief_path_t is not None
+            else lerp_float(relief_t_start, relief_t_end, t)
+        )
         for side in range(sides):
             angle = math.tau * side / sides
             offset = normal * math.cos(angle) + binormal * math.sin(angle)
-            verts.append(tuple(point + offset * radius * relief_scale(relief, angle, t)))
+            verts.append(tuple(point + offset * radius * relief_scale(relief, angle, relief_t)))
             vertex_t.append(t)
-    # Both ends get a cap. An open start ring is a hole, and wherever a limb
-    # attaches at the surface of its parent instead of inside it - roots on a
-    # braided strand especially - that hole reads as a snapped-off stump.
-    base_index = len(verts)
-    verts.append(tuple(points[0] - tangents[0] * radii[0] * 0.4))
-    vertex_t.append(0.0)
-    tip_index = len(verts)
-    verts.append(tuple(points[-1] + tangents[-1] * radii[-1] * 1.4))
-    vertex_t.append(1.0)
 
     faces: list[tuple[int, ...]] = []
     rings = len(points)
-    for side in range(sides):
-        side_next = (side + 1) % sides
-        faces.append((side_next, side, base_index))
+    if cap_start:
+        base_index = len(verts)
+        verts.append(tuple(points[0] - tangents[0] * radii[0] * 0.4))
+        vertex_t.append(path_t[0] if path_t is not None else 0.0)
+        for side in range(sides):
+            side_next = (side + 1) % sides
+            faces.append((side_next, side, base_index))
     for ring in range(rings - 1):
         base = ring * sides
         nxt = (ring + 1) * sides
         for side in range(sides):
             side_next = (side + 1) % sides
             faces.append((base + side, base + side_next, nxt + side_next, nxt + side))
-    last = (rings - 1) * sides
-    for side in range(sides):
-        side_next = (side + 1) % sides
-        faces.append((last + side, last + side_next, tip_index))
+    if cap_end:
+        tip_index = len(verts)
+        verts.append(tuple(points[-1] + tangents[-1] * radii[-1] * 1.4))
+        vertex_t.append(path_t[-1] if path_t is not None else 1.0)
+        last = (rings - 1) * sides
+        for side in range(sides):
+            side_next = (side + 1) % sides
+            faces.append((last + side, last + side_next, tip_index))
 
     mesh = bpy.data.meshes.new(name)
     mesh.from_pydata(verts, [], faces)
@@ -483,6 +538,176 @@ def branch_points(
     return points
 
 
+def hermite_fork_points(
+    origin: Vector,
+    incoming_direction: Vector,
+    target_direction: Vector,
+    length: float,
+    curl: float,
+    wobble: float,
+    upright_pull: float,
+    segments: int,
+    rng: random.Random,
+    transition: dict,
+) -> list[Vector]:
+    """Continue the trunk tangent through a short Hermite sleeve before branching."""
+    transition_length = length * float(transition["length_fraction"])
+    rings = max(4, int(transition["rings"]))
+    handle = transition_length * float(transition["tangent_handle_fraction"])
+    incoming = incoming_direction.normalized()
+    target = target_direction.normalized()
+    chord_direction = incoming.lerp(target, 0.5)
+    if chord_direction.length < 1e-6:
+        chord_direction = target.copy()
+    endpoint = origin + chord_direction.normalized() * transition_length
+    tangent_start = incoming * handle
+    tangent_end = target * handle
+
+    sleeve: list[Vector] = []
+    for ring in range(rings):
+        t = ring / max(rings - 1, 1)
+        t2 = t * t
+        t3 = t2 * t
+        h00 = 2.0 * t3 - 3.0 * t2 + 1.0
+        h10 = t3 - 2.0 * t2 + t
+        h01 = -2.0 * t3 + 3.0 * t2
+        h11 = t3 - t2
+        sleeve.append(origin * h00 + tangent_start * h10 + endpoint * h01 + tangent_end * h11)
+
+    tail_length = max(length - transition_length, length * 0.1)
+    tail = branch_points(endpoint, target, tail_length, curl, wobble, upright_pull, segments, rng)
+    return sleeve[:-1] + tail
+
+
+def polyline_length_fractions(points: list[Vector]) -> list[float]:
+    distances = [0.0]
+    for index in range(1, len(points)):
+        distances.append(distances[-1] + (points[index] - points[index - 1]).length)
+    total = max(distances[-1], 1e-9)
+    return [distance / total for distance in distances]
+
+
+def sample_polyline(points: list[Vector], fraction: float) -> Vector:
+    fractions = polyline_length_fractions(points)
+    target = max(0.0, min(1.0, fraction))
+    for index in range(1, len(points)):
+        if target <= fractions[index]:
+            span = max(fractions[index] - fractions[index - 1], 1e-9)
+            amount = (target - fractions[index - 1]) / span
+            return points[index - 1].lerp(points[index], amount)
+    return points[-1].copy()
+
+
+def add_fork_continuations(
+    parts: list[tuple[bpy.types.Object, str]],
+    profile: dict,
+    entry_cords: list[dict],
+    branch_axis: list[Vector],
+    root_radius: float,
+    tip_radius: float,
+    bark_start: float,
+    bark_end: float,
+    start_tier: int,
+    end_tier: int,
+) -> None:
+    """Extend each trunk cord into the branch inside one continuous tube mesh."""
+    transition = profile["geometry"]["trunk_transition"]
+    rib_fraction = float(transition["cord_continuation_fraction"])
+    rib_segments = max(3, int(transition["cord_segments"]))
+    core_start = float(transition["core_start_fraction"])
+    bundle_radius_fraction = float(transition["cord_bundle_radius_fraction"])
+    cord_turns = float(transition["cord_turns"])
+    cord_end_radius_fraction = float(transition["cord_end_radius_fraction"])
+    cord_core_inset = float(transition["cord_core_inset"])
+
+    axis_points = [
+        sample_polyline(branch_axis, rib_fraction * index / rib_segments)
+        for index in range(rib_segments + 1)
+    ]
+    tangents, normals = polyline_frames(axis_points)
+    binormals = [tangents[index].cross(normals[index]).normalized() for index in range(len(axis_points))]
+    branch_origin = branch_axis[0]
+    rib_bark_end = lerp_float(bark_start, bark_end, rib_fraction)
+    tip_radius_scale = tip_radius / max(root_radius, 1e-6)
+
+    for cord in entry_cords:
+        initial_offset = cord["position"] - branch_origin
+        if initial_offset.length < 1e-6:
+            initial_offset = normals[0] * max(float(cord["radius"]), 1e-4)
+        angle = math.atan2(initial_offset.dot(binormals[0]), initial_offset.dot(normals[0]))
+        initial_offset_radius = initial_offset.length
+        cord_radius = float(cord["radius"])
+        rib_points: list[Vector] = []
+        rib_radii: list[float] = []
+        for index, axis_point in enumerate(axis_points):
+            u = index / rib_segments
+            eased = smoothstep01(u)
+            axis_fraction = rib_fraction * u
+            merge = smoothstep01(
+                (axis_fraction - core_start) / max(rib_fraction - core_start, 1e-6)
+            )
+            base_rib_radius = cord_radius * lerp_float(1.0, tip_radius_scale, eased)
+            rib_radius = base_rib_radius * lerp_float(
+                1.0,
+                cord_end_radius_fraction,
+                merge,
+            )
+            core_radius = lerp_float(
+                root_radius,
+                tip_radius,
+                axis_fraction,
+            )
+            free_offset = lerp_float(
+                initial_offset_radius,
+                base_rib_radius * bundle_radius_fraction,
+                eased,
+            )
+            embedded_offset = max(core_radius - rib_radius * cord_core_inset, 0.0)
+            offset_radius = lerp_float(free_offset, embedded_offset, merge)
+            cord_angle = angle + cord_turns * math.tau * u
+            offset = normals[index] * math.cos(cord_angle) + binormals[index] * math.sin(cord_angle)
+            rib_points.append(axis_point + offset * offset_radius)
+            rib_radii.append(rib_radius)
+
+        cord_path_t = polyline_length_fractions(cord["points"])
+        combined_points = cord["points"] + rib_points[1:]
+        combined_radii = cord["radii"] + rib_radii[1:]
+        bark_path_t = [
+            lerp_float(0.0, bark_start, amount)
+            for amount in cord_path_t
+        ] + [
+            lerp_float(bark_start, rib_bark_end, index / rib_segments)
+            for index in range(1, rib_segments + 1)
+        ]
+        relief_path_t = cord_path_t + [
+            1.0 + rib_fraction * index / rib_segments
+            for index in range(1, rib_segments + 1)
+        ]
+        cord_mesh, cord_vertex_t = tube_mesh(
+            cord["name"],
+            combined_points,
+            combined_radii,
+            int(transition["first_order_sides"]),
+            cord["relief"],
+            cap_end=True,
+            path_t=bark_path_t,
+            relief_path_t=relief_path_t,
+        )
+        cord_object = link_object(cord["name"], cord_mesh)
+        paint_bark(
+            cord_object,
+            profile,
+            cord_vertex_t,
+            start_tier,
+            ramp_start=0.0,
+            ramp_end=1.0,
+            end_tier_index=end_tier,
+            tier_blend_start=bark_start,
+            tier_blend_end=bark_end,
+        )
+        parts.append((cord_object, "trunk"))
+
+
 def add_burst(
     parts: list[tuple[bpy.types.Object, str]],
     leaves: list[dict],
@@ -572,6 +797,9 @@ def grow_branch(
     radius: float,
     level: int,
     path: str,
+    inherited_tier: int | None = None,
+    entry_direction: Vector | None = None,
+    entry_cords: list[dict] | None = None,
 ) -> None:
     geometry = profile["geometry"]
     palette = profile["palette"]
@@ -580,27 +808,106 @@ def grow_branch(
     tiers = len(palette["shade_tiers"])
 
     segments = int(branching["segments"])
-    sides = int(branching["sides"])
+    transition = geometry["trunk_transition"]
+    first_order_transition = entry_direction is not None and bool(entry_cords)
+    sides = int(transition["first_order_sides"]) if first_order_transition else int(branching["sides"])
     curl = math.radians(uniform_pair(rng, branching["curl_degrees"]))
     wobble = math.radians(uniform_pair(rng, branching["wobble_degrees"]))
     upright_pull = uniform_pair(rng, branching["upright_pull"])
     taper = uniform_pair(rng, branching["radius_fraction"])
 
-    points = branch_points(origin, direction, length, curl, wobble, upright_pull, segments, rng)
-    tip_radius = radius * taper
-    radii = [radius + (tip_radius - radius) * (index / segments) for index in range(segments + 1)]
+    visible_root_radius = radius
+    shaft_root_radius = radius
+    if first_order_transition:
+        points = hermite_fork_points(
+            origin,
+            entry_direction,
+            direction,
+            length,
+            curl,
+            wobble,
+            upright_pull,
+            segments,
+            rng,
+            transition,
+        )
+        area_radius = math.sqrt(sum(float(cord["radius"]) ** 2 for cord in entry_cords))
+        visible_root_radius = max(
+            area_radius * float(transition["area_radius_scale"]),
+            radius * float(transition["radius_floor_fraction"]),
+        )
+    else:
+        points = branch_points(origin, direction, length, curl, wobble, upright_pull, segments, rng)
+    path_t = polyline_length_fractions(points)
+    # The braided cords may flare at the fork to form a natural branch collar.
+    # Keep that larger root section, but taper back toward the authored shaft
+    # radius instead of making the whole first-order branch uniformly thicker.
+    tip_radius = shaft_root_radius * taper
+    radii = [lerp_float(visible_root_radius, tip_radius, amount) for amount in path_t]
+    mesh_points = points
+    mesh_path_t = path_t
+    mesh_radii = radii
+    if first_order_transition:
+        core_start = float(transition["core_start_fraction"])
+        cord_end = float(transition["cord_continuation_fraction"])
+        core_entry_radius_fraction = float(transition["core_entry_radius_fraction"])
+        mesh_points = [sample_polyline(points, core_start)]
+        mesh_path_t = [core_start]
+        for point, amount in zip(points, path_t):
+            if amount > core_start + 1e-6:
+                mesh_points.append(point)
+                mesh_path_t.append(amount)
+        mesh_radii = []
+        for amount in mesh_path_t:
+            merge = smoothstep01(
+                (amount - core_start) / max(cord_end - core_start, 1e-6)
+            )
+            core_scale = lerp_float(core_entry_radius_fraction, 1.0, merge)
+            base_core_radius = lerp_float(visible_root_radius, tip_radius, amount)
+            mesh_radii.append(base_core_radius * core_scale)
     # Relief fades out with branch order: a gnarled twig is noise at sprite size.
+    relief_scale_amount = (
+        float(transition["first_order_relief_scale"])
+        if first_order_transition
+        else 1.0 / (1.0 + level)
+    )
     mesh, vertex_t = tube_mesh(
         f"rust_crown_{path}",
-        points,
-        radii,
+        mesh_points,
+        mesh_radii,
         sides,
-        relief_settings(rng, branching.get("relief"), 1.0 / (1.0 + level)),
+        relief_settings(rng, branching.get("relief"), relief_scale_amount),
+        cap_start=not first_order_transition,
+        path_t=mesh_path_t,
     )
     branch = link_object(f"rust_crown_{path}", mesh)
     tip_direction = (points[-1] - points[-2]).normalized()
-    paint_bark(branch, profile, vertex_t, depth_tier(tip_direction, tiers, rng))
+    target_tier = depth_tier(tip_direction, tiers, rng)
+    start_tier = target_tier if inherited_tier is None else inherited_tier
+    bark_start, bark_end = bark_progress_range(profile, level)
+    paint_bark(
+        branch,
+        profile,
+        vertex_t,
+        start_tier,
+        ramp_start=bark_start,
+        ramp_end=bark_end,
+        end_tier_index=target_tier,
+    )
     parts.append((branch, "trunk"))
+    if first_order_transition:
+        add_fork_continuations(
+            parts,
+            profile,
+            entry_cords,
+            points,
+            visible_root_radius,
+            tip_radius,
+            bark_start,
+            bark_end,
+            start_tier,
+            target_tier,
+        )
 
     crown = geometry["crown"]
     crown_scale = float(variant.get("crown_scale", 1.0)) * float(variant.get("world_scale", 1.0))
@@ -651,7 +958,17 @@ def grow_branch(
             stub_radii = [child_radius * (1.0 - 0.7 * index / 3) for index in range(4)]
             stub_mesh, stub_vertex_t = tube_mesh(f"rust_crown_{path}_{child_index}_stub", stub_points, stub_radii, 5)
             stub = link_object(f"rust_crown_{path}_{child_index}_stub", stub_mesh)
-            paint_bark(stub, profile, stub_vertex_t, depth_tier(child_direction, tiers, rng))
+            stub_end_tier = depth_tier(child_direction, tiers, rng)
+            stub_bark_start, stub_bark_end = bark_progress_range(profile, level + 1)
+            paint_bark(
+                stub,
+                profile,
+                stub_vertex_t,
+                target_tier,
+                ramp_start=stub_bark_start,
+                ramp_end=stub_bark_end,
+                end_tier_index=stub_end_tier,
+            )
             parts.append((stub, "trunk"))
             continue
 
@@ -668,6 +985,7 @@ def grow_branch(
             child_radius,
             level + 1,
             f"{path}_{child_index}",
+            target_tier,
         )
 
     # Bursts hanging off inner forks, not only the outermost twigs: the
@@ -779,19 +1097,43 @@ def strand_polyline(
     bundle_closed: float,
     bundle_open: float,
     open_power: float,
+    fork_open_fraction: float,
+    fork_open_start_fraction: float,
 ) -> list[Vector]:
-    """One strand winding around the trunk axis: fused, opened, fused again.
+    """One strand winding around the trunk axis, opening into the crown fork.
 
-    The bundle radius has to collapse at both ends. Held wide at the foot, the
-    strands never touch and the trunk stands on separate legs - which is what
-    reads as a broken root system rather than as a braid.
+    The bundle still collapses at the foot, but the crown end retains a
+    data-driven share of its opening. Closing both ends creates an hourglass
+    pinch immediately before the branches even when the tube meshes themselves
+    are continuous.
     """
     tangents, normals = polyline_frames(axis_points)
     spans = max(len(axis_points) - 1, 1)
+    start_sine = max(math.sin(math.pi * fork_open_start_fraction), 1e-6)
+    bulge_start = start_sine**open_power
+    slope_start = (
+        open_power
+        * math.pi
+        * math.cos(math.pi * fork_open_start_fraction)
+        * start_sine ** (open_power - 1.0)
+    )
+    tail_tangent = slope_start * (1.0 - fork_open_start_fraction)
     points: list[Vector] = []
     for index, point in enumerate(axis_points):
         t = index / spans
-        radius = bundle_closed + (bundle_open - bundle_closed) * math.sin(math.pi * t) ** open_power
+        bulge = math.sin(math.pi * t) ** open_power
+        if fork_open_fraction <= 0.0 or t <= fork_open_start_fraction:
+            envelope = bulge
+        else:
+            u = (t - fork_open_start_fraction) / max(1.0 - fork_open_start_fraction, 1e-6)
+            u2 = u * u
+            u3 = u2 * u
+            h00 = 2.0 * u3 - 3.0 * u2 + 1.0
+            h10 = u3 - 2.0 * u2 + u
+            h01 = -2.0 * u3 + 3.0 * u2
+            envelope = h00 * bulge_start + h10 * tail_tangent + h01 * fork_open_fraction
+            envelope = max(0.0, min(1.0, envelope))
+        radius = bundle_closed + (bundle_open - bundle_closed) * envelope
         angle = azimuth + turns * math.tau * t
         binormal = tangents[index].cross(normals[index]).normalized()
         points.append(point + (normals[index] * math.cos(angle) + binormal * math.sin(angle)) * radius)
@@ -806,7 +1148,7 @@ def grow_trunk(
     direction: Vector,
     length: float,
     base_radius: float,
-) -> tuple[list[tuple[Vector, Vector, float, float]], list[tuple[list[Vector], list[float], float]]]:
+) -> tuple[list[dict], list[tuple[list[Vector], list[float], float]]]:
     """Braid several strands into one trunk. Returns each strand's top and path.
 
     A single tapered tube reads as a pole no matter how much relief it carries.
@@ -818,10 +1160,10 @@ def grow_trunk(
     palette = profile["palette"]
     trunk_settings = geometry["trunk"]
     braid = trunk_settings["braid"]
+    transition = geometry["trunk_transition"]
     tiers = len(palette["shade_tiers"])
 
     segments = int(trunk_settings["segments"])
-    sides = int(trunk_settings["sides"])
     curl = math.radians(uniform_pair(rng, trunk_settings["curl_degrees"]))
     wobble = math.radians(uniform_pair(rng, trunk_settings["wobble_degrees"]))
     axis = branch_points(origin, direction, length, curl, wobble, 0.0, segments, rng)
@@ -832,14 +1174,35 @@ def grow_trunk(
     bundle_closed = strand_radius * uniform_pair(rng, braid["bundle_closed_fraction"])
     bundle_open = base_radius * uniform_pair(rng, braid["bundle_open_fraction"])
     open_power = float(braid["bundle_open_power"])
+    fork_open_fraction = float(braid["fork_open_fraction"])
+    fork_open_start_fraction = float(braid["fork_open_start_fraction"])
     turns = uniform_pair(rng, braid["turns"]) * rng.choice((-1.0, 1.0))
     taper = uniform_pair(rng, trunk_settings["taper"])
 
-    launches: list[tuple[Vector, Vector, float, float]] = []
+    launches: list[dict] = []
     paths: list[tuple[list[Vector], list[float], float]] = []
     for index in range(strands):
         azimuth = math.tau * index / strands + rng.gauss(0.0, 0.12)
-        points = strand_polyline(axis, azimuth, turns, bundle_closed, bundle_open, open_power)
+        points = strand_polyline(
+            axis,
+            azimuth,
+            turns,
+            bundle_closed,
+            bundle_open,
+            open_power,
+            fork_open_fraction,
+            fork_open_start_fraction,
+        )
+        branch_axis_points = strand_polyline(
+            axis,
+            azimuth,
+            turns,
+            bundle_closed,
+            bundle_open,
+            open_power,
+            0.0,
+            fork_open_start_fraction,
+        )
         radius = strand_radius * rng.uniform(0.88, 1.12)
         tip_radius = radius * taper
         radii = [radius + (tip_radius - radius) * (step_index / segments) for step_index in range(segments + 1)]
@@ -854,8 +1217,26 @@ def grow_trunk(
             value * (1.0 + collar_flare * max(0.0, 1.0 - (step_index / segments) / collar_height) ** collar_power)
             for step_index, value in enumerate(radii)
         ]
-        tip_direction = (points[-1] - points[-2]).normalized()
-        tier_index = depth_tier(tip_direction, tiers, rng)
+        # Let the braided cords thicken before they peel into first-order
+        # branches. This creates a procedural branch collar and avoids the
+        # hourglass silhouette produced by a wide braid feeding thin shafts.
+        tip_flare_start = float(transition["cord_tip_flare_start_fraction"])
+        tip_flare_scale = float(transition["cord_tip_flare_scale"])
+        radii = [
+            value
+            * lerp_float(
+                1.0,
+                tip_flare_scale,
+                smoothstep01(
+                    ((step_index / segments) - tip_flare_start)
+                    / max(1.0 - tip_flare_start, 1e-6)
+                ),
+            )
+            for step_index, value in enumerate(radii)
+        ]
+        visual_tip_direction = (points[-1] - points[-2]).normalized()
+        branch_tip_direction = (branch_axis_points[-1] - branch_axis_points[-2]).normalized()
+        tier_index = depth_tier(branch_tip_direction, tiers, rng)
 
         # Second level of braiding: the strand is itself a bundle of cords with
         # their own twist. One spiral reads as a smoothly bent pole no matter how
@@ -871,11 +1252,20 @@ def grow_trunk(
             cord_closed = cord_radius * uniform_pair(rng, sub["bundle_closed_fraction"])
             cord_open = radius * uniform_pair(rng, sub["bundle_open_fraction"])
             cord_power = float(sub["bundle_open_power"])
+            cord_fork_open_fraction = float(sub["fork_open_fraction"])
+            cord_fork_open_start_fraction = float(sub["fork_open_start_fraction"])
             cord_turns = uniform_pair(rng, sub["turns"]) * rng.choice((-1.0, 1.0))
             for cord in range(cord_count):
                 cord_azimuth = math.tau * cord / cord_count + rng.gauss(0.0, 0.15)
                 cord_points = strand_polyline(
-                    points, cord_azimuth, cord_turns, cord_closed, cord_open, cord_power
+                    points,
+                    cord_azimuth,
+                    cord_turns,
+                    cord_closed,
+                    cord_open,
+                    cord_power,
+                    cord_fork_open_fraction,
+                    cord_fork_open_start_fraction,
                 )
                 # Cord thickness rides the strand profile, so the collar swell
                 # and the taper carry through to every cord.
@@ -883,19 +1273,32 @@ def grow_trunk(
                 cord_radii = [value * scale for value in radii]
                 cord_specs.append((cord_points, cord_radii, f"rust_crown_strand_{index:02d}_cord_{cord:02d}"))
 
+        cord_tips: list[dict] = []
         for cord_points, cord_radii, cord_name in cord_specs:
-            mesh, vertex_t = tube_mesh(
-                cord_name,
-                cord_points,
-                cord_radii,
-                sides,
-                relief_settings(rng, trunk_settings.get("relief")),
+            cord_relief = relief_settings(rng, trunk_settings.get("relief"))
+            cord_tips.append(
+                {
+                    "name": cord_name,
+                    "points": cord_points,
+                    "radii": cord_radii,
+                    "position": cord_points[-1],
+                    "direction": (cord_points[-1] - cord_points[-2]).normalized(),
+                    "radius": cord_radii[-1],
+                    "relief": cord_relief,
+                }
             )
-            cord_object = link_object(cord_name, mesh)
-            paint_bark(cord_object, profile, vertex_t, tier_index)
-            parts.append((cord_object, "trunk"))
 
-        launches.append((points[-1], tip_direction, tip_radius, azimuth + turns * math.tau))
+        launches.append(
+            {
+                "position": points[-1],
+                "entry_direction": visual_tip_direction,
+                "branch_direction": branch_tip_direction,
+                "radius": tip_radius,
+                "azimuth": azimuth + turns * math.tau,
+                "tier_index": tier_index,
+                "cords": cord_tips,
+            }
+        )
         paths.append((points, radii, azimuth))
     return launches, paths
 
@@ -931,12 +1334,17 @@ def create_tree(variant: dict, profile: dict, sun_to_light: Vector) -> list[tupl
 
     branching = geometry["branching"]
     spread = math.radians(uniform_pair(rng, trunk_settings["braid"]["strand_spread_degrees"]))
-    for index, (position, tip_direction, tip_radius, azimuth) in enumerate(launches):
+    for index, launch in enumerate(launches):
+        position: Vector = launch["position"]
+        entry_direction: Vector = launch["entry_direction"]
+        branch_direction: Vector = launch["branch_direction"]
+        tip_radius = float(launch["radius"])
+        azimuth = float(launch["azimuth"])
         # Each strand leaves the fork leaning away from the bundle axis, so the
         # braid opens into a candelabra instead of a bouquet of parallel poles.
-        bend_axis = perpendicular(tip_direction)
-        bend_axis.rotate(Quaternion(tip_direction, azimuth))
-        launch_direction = tip_direction.copy()
+        bend_axis = perpendicular(branch_direction)
+        bend_axis.rotate(Quaternion(branch_direction, azimuth))
+        launch_direction = branch_direction.copy()
         launch_direction.rotate(Quaternion(bend_axis, spread))
         grow_branch(
             parts,
@@ -951,6 +1359,9 @@ def create_tree(variant: dict, profile: dict, sun_to_light: Vector) -> list[tupl
             tip_radius,
             1,
             f"branch{index}",
+            int(launch["tier_index"]),
+            entry_direction,
+            launch["cords"],
         )
 
     paint_leaves(leaves, profile, rng)

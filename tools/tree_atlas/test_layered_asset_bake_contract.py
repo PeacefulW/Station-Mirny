@@ -9,6 +9,8 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 PROFILE_PATH = ROOT / "tools" / "tree_atlas" / "layered_asset_bake_profile.json"
+RUST_CROWN_PROFILE_PATH = ROOT / "tools" / "tree_atlas" / "rust_crown_tree_profiles.json"
+RUST_CROWN_GENERATOR_PATH = ROOT / "tools" / "tree_atlas" / "blender_rust_crown_tree_bake.py"
 DOC_PATH = ROOT / "docs" / "art" / "layered_asset_bake_contract.md"
 TREE_DIR = ROOT / "assets" / "sprites" / "flora" / "layered_trees"
 ROCK_DIR = ROOT / "assets" / "sprites" / "decor" / "plains" / "layered_small_rocks"
@@ -65,6 +67,69 @@ class LayeredAssetBakeContractTest(unittest.TestCase):
         self.assertEqual(profile["lighting"]["shadow_sun_elevation_degrees"], 42.0)
         self.assertEqual(profile["planting"]["root_embed_fraction"], 0.07)
         self.assertFalse(profile["runtime"]["normal_maps_enabled"])
+
+    def test_rust_crown_uses_a_continuous_data_driven_fork_transition(self) -> None:
+        profile = json.loads(RUST_CROWN_PROFILE_PATH.read_text(encoding="utf-8"))
+        transition = profile["geometry"]["trunk_transition"]
+        braid = profile["geometry"]["trunk"]["braid"]
+        branching = profile["geometry"]["branching"]
+        generator = RUST_CROWN_GENERATOR_PATH.read_text(encoding="utf-8")
+
+        self.assertEqual(profile["version"], 2)
+        self.assertGreater(transition["length_fraction"], 0.0)
+        self.assertLess(transition["length_fraction"], transition["core_start_fraction"])
+        self.assertLess(transition["core_start_fraction"], transition["cord_continuation_fraction"])
+        self.assertLessEqual(transition["cord_continuation_fraction"], 1.0)
+        self.assertGreaterEqual(transition["cord_segments"], 8)
+        self.assertGreaterEqual(transition["rings"], 4)
+        self.assertEqual(transition["first_order_sides"], profile["geometry"]["trunk"]["sides"])
+        self.assertGreater(transition["first_order_relief_scale"], 0.5)
+        self.assertGreaterEqual(transition["radius_floor_fraction"], 0.9)
+        self.assertLessEqual(transition["cord_turns"], 0.25)
+        self.assertGreater(transition["cord_end_radius_fraction"], 0.0)
+        self.assertLessEqual(transition["cord_end_radius_fraction"], 0.15)
+        self.assertGreaterEqual(transition["cord_core_inset"], 1.0)
+        self.assertGreater(transition["area_radius_scale"], 0.0)
+        self.assertGreater(transition["core_entry_radius_fraction"], 0.0)
+        self.assertLess(transition["core_entry_radius_fraction"], 1.0)
+        self.assertGreater(transition["cord_tip_flare_start_fraction"], 0.5)
+        self.assertLess(transition["cord_tip_flare_start_fraction"], 1.0)
+        self.assertGreater(transition["cord_tip_flare_scale"], 1.0)
+        self.assertLess(transition["bark_trunk_end"], 1.0)
+        self.assertGreater(braid["fork_open_fraction"], 0.0)
+        self.assertLess(braid["fork_open_fraction"], 1.0)
+        self.assertGreater(braid["fork_open_start_fraction"], 0.5)
+        self.assertLess(braid["fork_open_start_fraction"], 1.0)
+        self.assertGreater(braid["sub"]["fork_open_fraction"], 0.0)
+        self.assertLess(braid["sub"]["fork_open_fraction"], 1.0)
+        self.assertGreater(braid["sub"]["fork_open_start_fraction"], 0.5)
+        self.assertLess(braid["sub"]["fork_open_start_fraction"], 1.0)
+        self.assertGreater(min(branching["radius_fraction"]), 0.0)
+        self.assertLessEqual(max(branching["radius_fraction"]), 1.0)
+        self.assertGreaterEqual(
+            transition["radius_floor_fraction"],
+            max(branching["radius_fraction"]),
+        )
+        for required in (
+            "def hermite_fork_points(",
+            "def add_fork_continuations(",
+            "tail_tangent = slope_start * (1.0 - fork_open_start_fraction)",
+            "fork_open_fraction <= 0.0 or t <= fork_open_start_fraction",
+            "envelope = h00 * bulge_start + h10 * tail_tangent + h01 * fork_open_fraction",
+            '"entry_direction": visual_tip_direction',
+            '"branch_direction": branch_tip_direction',
+            "cap_start=not first_order_transition",
+            'combined_points = cord["points"] + rib_points[1:]',
+            "embedded_offset = max(core_radius - rib_radius * cord_core_inset, 0.0)",
+            "core_scale = lerp_float(core_entry_radius_fraction, 1.0, merge)",
+            "tip_flare_scale = float(transition[\"cord_tip_flare_scale\"])",
+            "tip_radius = shaft_root_radius * taper",
+            "tier_blend_end=bark_end",
+            "relief_path_t=relief_path_t",
+            "ramp_start=bark_start",
+            "end_tier_index=target_tier",
+        ):
+            self.assertIn(required, generator)
 
     def test_contract_doc_exists_and_names_required_rules(self) -> None:
         self.assertTrue(DOC_PATH.is_file(), "Layered asset bake contract must be documented.")

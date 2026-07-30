@@ -5,7 +5,7 @@
 	"frame_height": 768,
 	"anchor": [
 		384,
-		529
+		527
 	],
 	"bake_profile": {
 		"profile_id": "station_peaceful_layered_asset_bake_v1",
@@ -16,7 +16,7 @@
 		"shadow_sun_elevation_degrees": 42.0,
 		"root_embed_fraction": 0.07
 	},
-	"sort_offset": 529,
+	"sort_offset": 527,
 	"collision_radius": 18,
 	"plant_depth_px": 0,
 	"wind_strength": 0.45,
@@ -34,10 +34,10 @@
 		"normal": "normal.png"
 	},
 	"alpha_bbox": [
-		221,
-		152,
-		324,
-		459
+		227,
+		149,
+		314,
+		458
 	],
-	"notes": "Procedural rust crown tree grown by tools/tree_atlas/blender_rust_crown_tree_bake.py and baked on the canonical layered contract. Two-level braided trunk (strands of cords), fibre root flare, vertex-colour bark gradient, red-to-gold crown gradient."
+	"notes": "Procedural rust crown tree grown by tools/tree_atlas/blender_rust_crown_tree_bake.py and baked on the canonical layered contract. Continuous trunk cords gently flare into a branch collar, flow through a C1/Hermite fork, then crossfade inside the first-order branch core; bark progression stays continuous from root to twig."
 }

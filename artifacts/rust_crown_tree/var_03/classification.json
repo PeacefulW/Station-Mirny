@@ -3,7 +3,7 @@
 	"source": "procedural",
 	"generator": "tools/tree_atlas/blender_rust_crown_tree_bake.py",
 	"tree_profile_id": "station_peaceful_rust_crown_tree_v1",
-	"tree_profile_version": 1,
+	"tree_profile_version": 2,
 	"variant_id": "var_03",
 	"frame_width": 768,
 	"frame_height": 768,
@@ -25,24 +25,6 @@
 	},
 	"runtime_plant_depth_px": 0,
 	"classification": {
-		"rust_crown_strand_00_cord_00": {
-			"layer": "trunk"
-		},
-		"rust_crown_strand_00_cord_01": {
-			"layer": "trunk"
-		},
-		"rust_crown_strand_01_cord_00": {
-			"layer": "trunk"
-		},
-		"rust_crown_strand_01_cord_01": {
-			"layer": "trunk"
-		},
-		"rust_crown_strand_02_cord_00": {
-			"layer": "trunk"
-		},
-		"rust_crown_strand_02_cord_01": {
-			"layer": "trunk"
-		},
 		"rust_crown_root_fiber_00": {
 			"layer": "trunk"
 		},
@@ -152,6 +134,12 @@
 			"layer": "trunk"
 		},
 		"rust_crown_branch0": {
+			"layer": "trunk"
+		},
+		"rust_crown_strand_00_cord_00": {
+			"layer": "trunk"
+		},
+		"rust_crown_strand_00_cord_01": {
 			"layer": "trunk"
 		},
 		"rust_crown_branch0_0": {
@@ -3280,6 +3268,12 @@
 		"rust_crown_branch1": {
 			"layer": "trunk"
 		},
+		"rust_crown_strand_01_cord_00": {
+			"layer": "trunk"
+		},
+		"rust_crown_strand_01_cord_01": {
+			"layer": "trunk"
+		},
 		"rust_crown_branch1_0": {
 			"layer": "trunk"
 		},
@@ -5150,6 +5144,12 @@
 			"layer": "foliage"
 		},
 		"rust_crown_branch2": {
+			"layer": "trunk"
+		},
+		"rust_crown_strand_02_cord_00": {
+			"layer": "trunk"
+		},
+		"rust_crown_strand_02_cord_01": {
 			"layer": "trunk"
 		},
 		"rust_crown_branch2_0": {

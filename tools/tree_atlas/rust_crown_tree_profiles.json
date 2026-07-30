@@ -1,7 +1,7 @@
 {
 	"profile_id": "station_peaceful_rust_crown_tree_v1",
-	"version": 1,
-	"notes": "Procedural 'rust crown' tree grown from a seed to match the art-direction reference frame: a dark, nearly black twisted trunk that forks low into an open candelabra, and rust-orange foliage carried as discrete radiating leaf bursts at the twig tips instead of one dense canopy blob. Bake settings are not owned here - camera, lighting, sun angles, the layer cross-shadow rule and the Cycles shadow pass all come from layered_asset_bake_profile.json, the same contract the shipped trees ride. Layer split follows the tree contract: everything that should move on the wind (leaf blades) is foliage, everything planted (roots, trunk, branches, twigs) is trunk.",
+	"version": 2,
+	"notes": "Procedural 'rust crown' tree grown from a seed to match the art-direction reference frame: a dark, nearly black twisted trunk whose visible cords continue through a tangent-smooth fork into an open candelabra, and rust-orange foliage carried as discrete radiating leaf bursts at the twig tips instead of one dense canopy blob. Bake settings are not owned here - camera, lighting, sun angles, the layer cross-shadow rule and the Cycles shadow pass all come from layered_asset_bake_profile.json, the same contract the shipped trees ride. Layer split follows the tree contract: everything that should move on the wind (leaf blades) is foliage, everything planted (roots, trunk, fork bridges, branches, twigs) is trunk.",
 	"camera_fit": {
 		"fit_width_fraction": 0.6,
 		"fit_height_fraction": 0.66
@@ -195,6 +195,8 @@
 					1.45
 				],
 				"bundle_open_power": 0.75,
+				"fork_open_fraction": 0.55,
+				"fork_open_start_fraction": 0.58,
 				"sub": {
 					"count": [
 						2,
@@ -213,6 +215,8 @@
 						0.9
 					],
 					"bundle_open_power": 0.5,
+					"fork_open_fraction": 0.7,
+					"fork_open_start_fraction": 0.58,
 					"turns": [
 						1.2,
 						2.6
@@ -252,6 +256,26 @@
 				],
 				"power": 2.2
 			}
+		},
+		"trunk_transition": {
+			"length_fraction": 0.22,
+			"rings": 5,
+			"core_start_fraction": 0.24,
+			"cord_continuation_fraction": 0.58,
+			"cord_segments": 16,
+			"cord_bundle_radius_fraction": 0.72,
+			"cord_turns": 0.1,
+			"cord_end_radius_fraction": 0.08,
+			"cord_core_inset": 1.1,
+			"core_entry_radius_fraction": 0.9,
+			"area_radius_scale": 1.0,
+			"radius_floor_fraction": 1.0,
+			"cord_tip_flare_start_fraction": 0.78,
+			"cord_tip_flare_scale": 1.5,
+			"tangent_handle_fraction": 0.8,
+			"first_order_sides": 12,
+			"first_order_relief_scale": 0.85,
+			"bark_trunk_end": 0.58
 		},
 		"branching": {
 			"levels": 5,
