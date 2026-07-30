@@ -1,0 +1,38 @@
+{
+	"profile_id": "station_peaceful_rust_crown_tree_v1",
+	"version": 2,
+	"variant": {
+		"id": "var_08",
+		"title": "broad_spread",
+		"title_ru": "раскидистое",
+		"seed": 71088,
+		"yaw_degrees": 110.0,
+		"world_scale": 1.0,
+		"height_scale": 1.0,
+		"crown_scale": 1.28,
+		"blade_density": 1.0,
+		"camera_fit": {
+			"fit_width_fraction": 0.56,
+			"fit_height_fraction": 0.62
+		}
+	},
+	"framing": {
+		"ortho_scale": 1.5339508056640625,
+		"pixels_per_world_unit": 500.6679465626834,
+		"world_bbox": [
+			-0.29578179121017456,
+			-0.3554890751838684,
+			-0.06300975382328033,
+			0.26280373334884644,
+			0.39715632796287537,
+			0.8371295928955078
+		],
+		"world_width": 0.558585524559021,
+		"world_depth": 0.7526454031467438,
+		"world_height": 0.9001393467187881
+	},
+	"part_counts": {
+		"foliage": 4639,
+		"trunk": 402
+	}
+}

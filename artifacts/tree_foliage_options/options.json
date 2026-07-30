@@ -1,0 +1,264 @@
+{
+	"variant": "var_01",
+	"seed": 71011,
+	"locked_ortho_scale": 1.7463893651962281,
+	"frame_size": 768,
+	"options": [
+		{
+			"id": "a_current",
+			"title": "A - текущий (колючие пучки)",
+			"note": "как в репозитории сейчас",
+			"crown_patch": {},
+			"custom_mesh": false,
+			"gravity_aligned": false,
+			"foliage_parts": 5707,
+			"trunk_parts": 458,
+			"world_width": 0.5527523756027222,
+			"world_height": 0.942884273827076
+		},
+		{
+			"id": "b_broadleaf",
+			"title": "B - широкий лист",
+			"note": "меньше листьев, каждый крупнее; крона плотнее и мягче",
+			"crown_patch": {
+				"blades": [
+					9,
+					14
+				],
+				"blade_length": [
+					0.03,
+					0.052
+				],
+				"blade_half_width": [
+					0.026,
+					0.042
+				],
+				"blade_droop": [
+					0.15,
+					0.55
+				],
+				"blade_crease": [
+					0.22,
+					0.5
+				],
+				"blade_segments": 5,
+				"spread_degrees": [
+					95,
+					150
+				],
+				"length_jitter": [
+					0.85,
+					1.15
+				]
+			},
+			"custom_mesh": false,
+			"gravity_aligned": false,
+			"foliage_parts": 2855,
+			"trunk_parts": 458,
+			"world_width": 0.523405522108078,
+			"world_height": 0.9448013380169868
+		},
+		{
+			"id": "c_weeping",
+			"title": "C - плакучая (каскад)",
+			"note": "длинные узкие листья, провис по гравитации — крона течёт вниз",
+			"crown_patch": {
+				"blades": [
+					24,
+					36
+				],
+				"blade_length": [
+					0.06,
+					0.115
+				],
+				"blade_half_width": [
+					0.006,
+					0.012
+				],
+				"blade_droop": [
+					0.95,
+					1.8
+				],
+				"blade_crease": [
+					0.5,
+					0.95
+				],
+				"blade_segments": 6,
+				"spread_degrees": [
+					105,
+					165
+				],
+				"outward_bias": [
+					0.5,
+					0.85
+				]
+			},
+			"custom_mesh": false,
+			"gravity_aligned": true,
+			"foliage_parts": 7489,
+			"trunk_parts": 458,
+			"world_width": 0.7002362906932831,
+			"world_height": 0.9453270509839058
+		},
+		{
+			"id": "d_needle",
+			"title": "D - хвойная щётка",
+			"note": "много тонких коротких игл, узкий конус — плотные кисти",
+			"crown_patch": {
+				"blades": [
+					55,
+					82
+				],
+				"blade_length": [
+					0.022,
+					0.042
+				],
+				"blade_half_width": [
+					0.0032,
+					0.0062
+				],
+				"blade_droop": [
+					0.0,
+					0.25
+				],
+				"blade_crease": [
+					0.6,
+					1.05
+				],
+				"blade_segments": 3,
+				"spread_degrees": [
+					45,
+					88
+				],
+				"outward_bias": [
+					0.12,
+					0.4
+				]
+			},
+			"custom_mesh": false,
+			"gravity_aligned": false,
+			"foliage_parts": 17107,
+			"trunk_parts": 458,
+			"world_width": 0.5255745053291321,
+			"world_height": 0.9450264647603035
+		},
+		{
+			"id": "e_frond",
+			"title": "E - перистая вайя",
+			"note": "новая геометрия: рахис с парными листочками (папоротник/цикас)",
+			"crown_patch": {
+				"blades": [
+					5,
+					8
+				],
+				"blade_length": [
+					0.055,
+					0.098
+				],
+				"blade_half_width": [
+					0.013,
+					0.023
+				],
+				"blade_droop": [
+					0.35,
+					0.85
+				],
+				"blade_crease": [
+					0.3,
+					0.6
+				],
+				"blade_segments": 7,
+				"spread_degrees": [
+					70,
+					132
+				],
+				"outward_bias": [
+					0.35,
+					0.7
+				]
+			},
+			"custom_mesh": true,
+			"gravity_aligned": true,
+			"foliage_parts": 1604,
+			"trunk_parts": 458,
+			"world_width": 0.6229888796806335,
+			"world_height": 0.9551063254475594
+		},
+		{
+			"id": "f_ribbon",
+			"title": "F - ленты",
+			"note": "немного очень длинных широких лент, сильная складка — водоросль",
+			"crown_patch": {
+				"blades": [
+					7,
+					11
+				],
+				"blade_length": [
+					0.075,
+					0.14
+				],
+				"blade_half_width": [
+					0.016,
+					0.03
+				],
+				"blade_droop": [
+					0.55,
+					1.15
+				],
+				"blade_crease": [
+					0.7,
+					1.25
+				],
+				"blade_segments": 7,
+				"spread_degrees": [
+					85,
+					145
+				]
+			},
+			"custom_mesh": false,
+			"gravity_aligned": true,
+			"foliage_parts": 2218,
+			"trunk_parts": 458,
+			"world_width": 0.7181016206741333,
+			"world_height": 0.9839833453297615
+		},
+		{
+			"id": "g_pad",
+			"title": "G - округлые пластины",
+			"note": "новая геометрия: тупой округлый лист, развёрнут к небу",
+			"crown_patch": {
+				"blades": [
+					6,
+					10
+				],
+				"blade_length": [
+					0.032,
+					0.058
+				],
+				"blade_half_width": [
+					0.024,
+					0.042
+				],
+				"blade_droop": [
+					0.1,
+					0.45
+				],
+				"blade_crease": [
+					0.12,
+					0.38
+				],
+				"blade_segments": 6,
+				"spread_degrees": [
+					88,
+					150
+				]
+			},
+			"custom_mesh": true,
+			"gravity_aligned": true,
+			"foliage_parts": 1970,
+			"trunk_parts": 458,
+			"world_width": 0.5379286408424377,
+			"world_height": 0.9316343739628792
+		}
+	]
+}

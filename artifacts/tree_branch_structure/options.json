@@ -1,0 +1,98 @@
+{
+	"variant": "var_01",
+	"seed": 71011,
+	"locked_ortho_scale": 2.7263949871063233,
+	"options": [
+		{
+			"id": "s0_baseline",
+			"title": "S0 - как сейчас",
+			"note": "вся листва только над развилкой",
+			"laterals": 0,
+			"stubs": 0,
+			"profile_patch": {},
+			"trunk_matches_baseline": true,
+			"foliage_parts": 5707,
+			"trunk_parts": 458
+		},
+		{
+			"id": "s1_two_low",
+			"title": "S1 - две низкие ветки",
+			"note": "две длинные боковые по разные стороны, ниже развилки",
+			"laterals": 2,
+			"stubs": 0,
+			"profile_patch": {},
+			"trunk_matches_baseline": true,
+			"foliage_parts": 6082,
+			"trunk_parts": 483
+		},
+		{
+			"id": "s2_stepped",
+			"title": "S2 - ступенями",
+			"note": "четыре боковые 0.42→0.80, чередуются стороны, короче к верху",
+			"laterals": 4,
+			"stubs": 0,
+			"profile_patch": {},
+			"trunk_matches_baseline": true,
+			"foliage_parts": 6492,
+			"trunk_parts": 511
+		},
+		{
+			"id": "s3_many_short",
+			"title": "S3 - много коротких",
+			"note": "семь коротких боковых с мелкими клумпами по всему стволу",
+			"laterals": 7,
+			"stubs": 0,
+			"profile_patch": {},
+			"trunk_matches_baseline": true,
+			"foliage_parts": 6126,
+			"trunk_parts": 483
+		},
+		{
+			"id": "s4_stepped_stubs",
+			"title": "S4 - ступени + голые сучья",
+			"note": "S2 плюс три обломанных сучка без листвы, как на референсе",
+			"laterals": 4,
+			"stubs": 3,
+			"profile_patch": {},
+			"trunk_matches_baseline": true,
+			"foliage_parts": 6492,
+			"trunk_parts": 514
+		},
+		{
+			"id": "s5_tall_trunk",
+			"title": "S5 - высокий ствол + ступени",
+			"note": "ствол в 1.7 раза длиннее — пропорция ближе к референсу",
+			"laterals": 4,
+			"stubs": 3,
+			"profile_patch": {
+				"geometry.trunk.height": [
+					0.4,
+					0.52
+				]
+			},
+			"trunk_matches_baseline": false,
+			"foliage_parts": 6492,
+			"trunk_parts": 514
+		},
+		{
+			"id": "s6_tall_small_top",
+			"title": "S6 - высокий ствол + сжатая верхушка",
+			"note": "S5, но верхние ветки короче — ствол доминирует, крона стала одной из клумп",
+			"laterals": 4,
+			"stubs": 3,
+			"profile_patch": {
+				"geometry.trunk.height": [
+					0.4,
+					0.52
+				],
+				"geometry.branching.length_fraction": [
+					0.44,
+					0.58
+				]
+			},
+			"trunk_matches_baseline": false,
+			"foliage_parts": 6492,
+			"trunk_parts": 514
+		}
+	]
+}

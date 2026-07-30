@@ -1,0 +1,34 @@
+{
+	"profile_id": "station_peaceful_rust_crown_tree_v1",
+	"version": 2,
+	"variant": {
+		"id": "var_06",
+		"title": "sparse_old",
+		"title_ru": "редкое старое",
+		"seed": 71066,
+		"yaw_degrees": 68.0,
+		"world_scale": 1.0,
+		"height_scale": 1.02,
+		"crown_scale": 1.04,
+		"blade_density": 0.7
+	},
+	"framing": {
+		"ortho_scale": 1.4979379177093506,
+		"pixels_per_world_unit": 512.7048263618475,
+		"world_bbox": [
+			-0.25656193494796753,
+			-0.30077028274536133,
+			-0.06709765642881393,
+			0.22134828567504883,
+			0.31672343611717224,
+			0.8914402723312378
+		],
+		"world_width": 0.47791022062301636,
+		"world_depth": 0.6174937188625336,
+		"world_height": 0.9585379287600517
+	},
+	"part_counts": {
+		"foliage": 1725,
+		"trunk": 209
+	}
+}

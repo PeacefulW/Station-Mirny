@@ -1,0 +1,490 @@
+{
+	"profile_id": "station_peaceful_rust_crown_tree_v1",
+	"version": 2,
+	"notes": "Procedural 'rust crown' tree grown from a seed to match the art-direction reference frame: a dark, nearly black twisted trunk whose visible cords continue through a tangent-smooth fork into an open candelabra, and rust-orange foliage carried as discrete radiating leaf bursts at the twig tips instead of one dense canopy blob. Bake settings are not owned here - camera, lighting, sun angles, the layer cross-shadow rule and the Cycles shadow pass all come from layered_asset_bake_profile.json, the same contract the shipped trees ride. Layer split follows the tree contract: everything that should move on the wind (leaf blades) is foliage, everything planted (roots, trunk, fork bridges, branches, twigs) is trunk.",
+	"camera_fit": {
+		"fit_width_fraction": 0.6,
+		"fit_height_fraction": 0.66
+	},
+	"lighting": {
+		"bounce": {
+			"energy": 75.0
+		}
+	},
+	"material": {
+		"bark_roughness": 0.86,
+		"leaf_roughness": 0.7
+	},
+	"palette": {
+		"bark_ramp": {
+			"root": [
+				30,
+				22,
+				18
+			],
+			"mid": [
+				42,
+				31,
+				24
+			],
+			"tip": [
+				60,
+				44,
+				33
+			]
+		},
+		"shade_tiers": [
+			1.0,
+			0.87,
+			0.74
+		],
+		"leaf_tone_jitter": [
+			0.9,
+			1.0,
+			1.09
+		],
+		"leaf_tip_power": 1.45,
+		"leaf_ramp_red": {
+			"root": [
+				92,
+				25,
+				13
+			],
+			"mid": [
+				152,
+				43,
+				18
+			],
+			"tip": [
+				204,
+				72,
+				30
+			]
+		},
+		"leaf_ramp_gold": {
+			"root": [
+				142,
+				68,
+				21
+			],
+			"mid": [
+				206,
+				120,
+				35
+			],
+			"tip": [
+				246,
+				178,
+				82
+			]
+		},
+		"leaf_hue_bias": {
+			"center": -0.22,
+			"height_weight": 0.42,
+			"light_weight": 0.4,
+			"jitter": 0.32,
+			"steps": 6
+		}
+	},
+	"geometry": {
+		"roots": {
+			"fibers_per_strand": [
+				10,
+				16
+			],
+			"start_height_fraction": [
+				0.12,
+				0.6
+			],
+			"bury_depth": [
+				0.02,
+				0.05
+			],
+			"spread": [
+				0.05,
+				0.13
+			],
+			"spread_power": [
+				1.8,
+				3.0
+			],
+			"twist_degrees": [
+				-45.0,
+				45.0
+			],
+			"radius_fraction": [
+				0.3,
+				0.55
+			],
+			"wobble": 0.004,
+			"segments": 7,
+			"sides": 6,
+			"relief": {
+				"amount": [
+					0.07,
+					0.15
+				],
+				"lobes": [
+					2,
+					3
+				],
+				"twist": [
+					0.3,
+					1.1
+				],
+				"bulge": [
+					0.05,
+					0.12
+				],
+				"bulge_cycles": [
+					0.8,
+					2.0
+				]
+			}
+		},
+		"trunk": {
+			"height": [
+				0.24,
+				0.32
+			],
+			"base_radius": [
+				0.036,
+				0.052
+			],
+			"taper": [
+				0.62,
+				0.76
+			],
+			"lean_degrees": [
+				2.0,
+				9.0
+			],
+			"curl_degrees": [
+				10.0,
+				26.0
+			],
+			"wobble_degrees": [
+				3.0,
+				8.0
+			],
+			"segments": 28,
+			"sides": 12,
+			"braid": {
+				"strands": [
+					2,
+					4
+				],
+				"strand_radius_fraction": [
+					0.5,
+					0.68
+				],
+				"turns": [
+					0.4,
+					1.0
+				],
+				"strand_spread_degrees": [
+					18.0,
+					42.0
+				],
+				"bundle_closed_fraction": [
+					0.6,
+					0.85
+				],
+				"bundle_open_fraction": [
+					0.9,
+					1.45
+				],
+				"bundle_open_power": 0.75,
+				"fork_open_fraction": 0.55,
+				"fork_open_start_fraction": 0.58,
+				"sub": {
+					"count": [
+						2,
+						3
+					],
+					"radius_fraction": [
+						0.4,
+						0.52
+					],
+					"bundle_closed_fraction": [
+						0.5,
+						0.75
+					],
+					"bundle_open_fraction": [
+						0.62,
+						0.9
+					],
+					"bundle_open_power": 0.5,
+					"fork_open_fraction": 0.7,
+					"fork_open_start_fraction": 0.58,
+					"turns": [
+						1.2,
+						2.6
+					]
+				}
+			},
+			"relief": {
+				"amount": [
+					0.06,
+					0.12
+				],
+				"lobes": [
+					5,
+					8
+				],
+				"twist": [
+					0.8,
+					2.6
+				],
+				"bulge": [
+					0.05,
+					0.12
+				],
+				"bulge_cycles": [
+					1.4,
+					3.2
+				]
+			},
+			"collar": {
+				"flare": [
+					0.3,
+					0.6
+				],
+				"height_fraction": [
+					0.14,
+					0.26
+				],
+				"power": 2.2
+			}
+		},
+		"trunk_transition": {
+			"length_fraction": 0.22,
+			"rings": 5,
+			"core_start_fraction": 0.24,
+			"cord_continuation_fraction": 0.58,
+			"cord_segments": 16,
+			"cord_bundle_radius_fraction": 0.72,
+			"cord_turns": 0.1,
+			"cord_end_radius_fraction": 0.08,
+			"cord_core_inset": 1.1,
+			"core_entry_radius_fraction": 0.9,
+			"area_radius_scale": 1.0,
+			"radius_floor_fraction": 1.0,
+			"cord_tip_flare_start_fraction": 0.78,
+			"cord_tip_flare_scale": 1.5,
+			"tangent_handle_fraction": 0.8,
+			"first_order_sides": 12,
+			"first_order_relief_scale": 0.85,
+			"bark_trunk_end": 0.58
+		},
+		"branching": {
+			"levels": 5,
+			"children": [
+				2,
+				3
+			],
+			"extra_child_chance": 0.6,
+			"length_fraction": [
+				0.62,
+				0.8
+			],
+			"radius_fraction": [
+				0.6,
+				0.76
+			],
+			"divergence_degrees": [
+				36.0,
+				72.0
+			],
+			"divergence_falloff": 0.86,
+			"upright_pull": [
+				0.05,
+				0.22
+			],
+			"curl_degrees": [
+				14.0,
+				42.0
+			],
+			"wobble_degrees": [
+				4.0,
+				11.0
+			],
+			"segments": 5,
+			"sides": 8,
+			"min_radius": 0.0022,
+			"stub_chance": 0.12,
+			"relief": {
+				"amount": [
+					0.08,
+					0.16
+				],
+				"lobes": [
+					3,
+					5
+				],
+				"twist": [
+					0.5,
+					1.8
+				],
+				"bulge": [
+					0.04,
+					0.1
+				],
+				"bulge_cycles": [
+					1.2,
+					2.8
+				]
+			}
+		},
+		"crown": {
+			"burst_levels": [
+				2,
+				2
+			],
+			"bursts_per_twig": [
+				2,
+				3
+			],
+			"burst_offset": [
+				0.4,
+				1.0
+			],
+			"blades": [
+				18,
+				28
+			],
+			"blade_length": [
+				0.032,
+				0.065
+			],
+			"blade_half_width": [
+				0.01,
+				0.019
+			],
+			"blade_droop": [
+				0.0,
+				0.45
+			],
+			"blade_crease": [
+				0.35,
+				0.8
+			],
+			"blade_segments": 4,
+			"spread_degrees": [
+				74.0,
+				142.0
+			],
+			"outward_bias": [
+				0.3,
+				0.68
+			],
+			"length_jitter": [
+				0.72,
+				1.24
+			],
+			"nub_radius": [
+				0.006,
+				0.012
+			],
+			"burst_jitter": 0.9
+		}
+	},
+	"variants": [
+		{
+			"id": "var_01",
+			"title": "young_open",
+			"title_ru": "молодое раскрытое",
+			"seed": 71011,
+			"yaw_degrees": 90.0,
+			"world_scale": 1.0,
+			"height_scale": 1.06,
+			"crown_scale": 0.94,
+			"blade_density": 1.0
+		},
+		{
+			"id": "var_02",
+			"title": "broad_old",
+			"title_ru": "раскидистое старое",
+			"seed": 71022,
+			"yaw_degrees": 74.0,
+			"world_scale": 1.12,
+			"height_scale": 0.92,
+			"crown_scale": 1.18,
+			"blade_density": 1.12
+		},
+		{
+			"id": "var_03",
+			"title": "wind_leaned",
+			"title_ru": "склонённое ветром",
+			"seed": 71033,
+			"yaw_degrees": 104.0,
+			"world_scale": 0.94,
+			"height_scale": 1.12,
+			"crown_scale": 0.86,
+			"blade_density": 0.88,
+			"camera_fit": {
+				"fit_width_fraction": 0.55,
+				"fit_height_fraction": 0.62
+			}
+		},
+		{
+			"id": "var_04",
+			"title": "tall_slim",
+			"title_ru": "высокое узкое",
+			"seed": 71044,
+			"yaw_degrees": 82.0,
+			"world_scale": 1.0,
+			"height_scale": 1.24,
+			"crown_scale": 0.8,
+			"blade_density": 0.95
+		},
+		{
+			"id": "var_05",
+			"title": "squat_dense",
+			"title_ru": "приземистое плотное",
+			"seed": 71055,
+			"yaw_degrees": 116.0,
+			"world_scale": 1.0,
+			"height_scale": 0.82,
+			"crown_scale": 1.12,
+			"blade_density": 1.25
+		},
+		{
+			"id": "var_06",
+			"title": "sparse_old",
+			"title_ru": "редкое старое",
+			"seed": 71066,
+			"yaw_degrees": 68.0,
+			"world_scale": 1.0,
+			"height_scale": 1.02,
+			"crown_scale": 1.04,
+			"blade_density": 0.7
+		},
+		{
+			"id": "var_07",
+			"title": "young_small",
+			"title_ru": "молодое мелкое",
+			"seed": 71077,
+			"yaw_degrees": 96.0,
+			"world_scale": 1.0,
+			"height_scale": 0.94,
+			"crown_scale": 0.84,
+			"blade_density": 1.08
+		},
+		{
+			"id": "var_08",
+			"title": "broad_spread",
+			"title_ru": "раскидистое",
+			"seed": 71088,
+			"yaw_degrees": 110.0,
+			"world_scale": 1.0,
+			"height_scale": 1.0,
+			"crown_scale": 1.28,
+			"blade_density": 1.0,
+			"camera_fit": {
+				"fit_width_fraction": 0.56,
+				"fit_height_fraction": 0.62
+			}
+		}
+	]
+}
