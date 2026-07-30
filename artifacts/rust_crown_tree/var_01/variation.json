@@ -13,8 +13,8 @@
 		"blade_density": 1.0
 	},
 	"framing": {
-		"ortho_scale": 1.7766426801681519,
-		"pixels_per_world_unit": 432.2760049462011,
+		"ortho_scale": 1.370552897453308,
+		"pixels_per_world_unit": 560.3577953299422,
 		"world_bbox": [
 			-0.202292338013649,
 			-0.2949969470500946,

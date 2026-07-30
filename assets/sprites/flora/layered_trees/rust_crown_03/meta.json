@@ -1,11 +1,11 @@
 {
-	"asset": "var_01_layered_glb",
+	"asset": "rust_crown_03_procedural",
 	"source_glb": "",
 	"frame_width": 768,
 	"frame_height": 768,
 	"anchor": [
 		384,
-		536
+		539
 	],
 	"bake_profile": {
 		"profile_id": "station_peaceful_layered_asset_bake_v1",
@@ -16,7 +16,7 @@
 		"shadow_sun_elevation_degrees": 42.0,
 		"root_embed_fraction": 0.07
 	},
-	"sort_offset": 536,
+	"sort_offset": 539,
 	"collision_radius": 18,
 	"plant_depth_px": 0,
 	"wind_strength": 0.45,
@@ -34,10 +34,10 @@
 		"normal": "normal.png"
 	},
 	"alpha_bbox": [
-		277,
-		119,
-		221,
+		245,
+		118,
+		274,
 		490
 	],
-	"notes": "Prototype layered tree asset from one GLB. Static trunk/foliage layers; runtime wind should use wind_mask and keep trunk/root pinned."
+	"notes": "Procedural rust crown tree grown by tools/tree_atlas/blender_rust_crown_tree_bake.py and baked on the canonical layered contract. Braided trunk, fibre root flare, red-to-gold crown gradient."
 }

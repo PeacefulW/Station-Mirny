@@ -14,7 +14,19 @@ TREE_DIR = ROOT / "assets" / "sprites" / "flora" / "layered_trees"
 ROCK_DIR = ROOT / "assets" / "sprites" / "decor" / "plains" / "layered_small_rocks"
 BUSH_DIR = ROOT / "assets" / "sprites" / "flora" / "layered_bushes"
 WORLD_STREAMER_PATH = ROOT / "core" / "systems" / "world" / "world_streamer.gd"
-TREE_IDS = ("tree_01", "tree_02", "tree_03", "tree_04", "tree_05", "tree_06")
+TREE_IDS = (
+    "tree_01",
+    "tree_02",
+    "tree_03",
+    "tree_04",
+    "tree_05",
+    "tree_06",
+    # Procedural rust crown trees: grown rather than imported from a GLB, but
+    # baked on the same shared profile, so they answer to the same contract.
+    "rust_crown_01",
+    "rust_crown_02",
+    "rust_crown_03",
+)
 CATALOG_PATH = ROOT / "core" / "systems" / "world" / "world_layered_object_asset_catalog.gd"
 ROCK_LAYER_PATH = ROOT / "core" / "systems" / "world" / "layered_rock_object_layer.gd"
 LIGHTING_PROFILE_PATH = ROOT / "core" / "systems" / "world" / "world_visual_lighting_profile.gd"
