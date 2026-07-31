@@ -80,9 +80,6 @@ func _build_ui() -> void:
 	var btn_settings := _make_button(Localization.t("UI_MAIN_SETTINGS"), _on_settings_pressed)
 	_buttons_container.add_child(btn_settings)
 
-	var btn_worldlab := _make_button("WorldLab", _on_worldlab_pressed)
-	_buttons_container.add_child(btn_worldlab)
-
 	var btn_quit := _make_button(Localization.t("UI_MAIN_QUIT"), _on_quit_pressed)
 	_buttons_container.add_child(btn_quit)
 
@@ -110,8 +107,6 @@ func _on_load_pressed() -> void:
 func _on_settings_pressed() -> void:
 	_buttons_container.visible = false
 	_settings_panel.visible = true
-func _on_worldlab_pressed() -> void:
-	get_tree().change_scene_to_file(WORLD_REBUILD_SCENE_PATH)
 func _on_quit_pressed() -> void:
 	get_tree().quit()
 
