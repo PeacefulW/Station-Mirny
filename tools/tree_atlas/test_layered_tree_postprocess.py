@@ -16,6 +16,7 @@ from postprocess_layered_tree_asset import (
     make_snow_mask,
     make_snow_overlay,
     processed_shadow,
+    validated_collision_footprint,
 )
 
 
@@ -69,6 +70,41 @@ def _dark_vertical_gap_count(image: Image.Image, alpha: Image.Image, bbox: tuple
 
 
 class LayeredTreePostprocessTest(unittest.TestCase):
+    def test_collision_footprint_validation_preserves_authored_geometry(self) -> None:
+        footprint = {"offset_x_px": -79, "width_px": 81, "depth_px": 36}
+
+        self.assertEqual(
+            validated_collision_footprint(
+                {"collision_footprint": footprint},
+                (384, 519),
+                (768, 768),
+            ),
+            footprint,
+        )
+
+    def test_collision_footprint_validation_rejects_invalid_geometry(self) -> None:
+        invalid_footprints = (
+            {"offset_x_px": 0.0, "width_px": 0, "depth_px": 36},
+            {"offset_x_px": 0.0, "width_px": 36},
+            {"offset_x_px": 760.0, "width_px": 36, "depth_px": 36},
+            {"offset_x_px": 0.0, "width_px": 36, "depth_px": 600},
+        )
+
+        for footprint in invalid_footprints:
+            with self.subTest(footprint=footprint):
+                with self.assertRaises(SystemExit):
+                    validated_collision_footprint(
+                        {"collision_footprint": footprint},
+                        (384, 519),
+                        (768, 768),
+                    )
+
+    def test_collision_footprint_validation_keeps_legacy_centered_default(self) -> None:
+        self.assertEqual(
+            validated_collision_footprint({}, (384, 676), (768, 768)),
+            {"offset_x_px": 0.0, "width_px": 36.0, "depth_px": 36.0},
+        )
+
     def test_processed_shadow_preserves_clean_blender_shadow_extent(self) -> None:
         albedo = load_rgba(ASSET_DIR / "albedo.png")
         raw_shadow = load_rgba(ASSET_DIR / "shadow_raw.png")

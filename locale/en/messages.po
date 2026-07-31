@@ -1625,3 +1625,21 @@ msgstr "deep water"
 
 msgid "UI_VISUAL_LAB_TERRAIN_UNKNOWN"
 msgstr "unknown terrain"
+
+msgid "UI_TREE_COLLISION_LAB_TITLE"
+msgstr "Tree collision and depth — all 8 production variants"
+
+msgid "UI_TREE_COLLISION_LAB_HINT"
+msgstr "WASD / arrows — move all players · R — reset behind trees · red — trunk · cyan — player · pink line — base"
+
+msgid "UI_TREE_COLLISION_LAB_LOADING"
+msgstr "Building trees through the production native renderer…"
+
+msgid "UI_TREE_COLLISION_LAB_READY"
+msgstr "Ready: {count} per-tree footprints from meta.json × {scale} scale · rear depth clearance ≥34px"
+
+msgid "UI_TREE_COLLISION_LAB_TREE_LABEL"
+msgstr "{number} · {width}×{depth}px · Δx={offset}px"
+
+msgid "UI_TREE_COLLISION_LAB_ERROR"
+msgstr "Lab error: {reason}"

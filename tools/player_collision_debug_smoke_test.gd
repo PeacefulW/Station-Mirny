@@ -35,8 +35,19 @@ func _init() -> void:
 		"Player body collision must be narrow and roughly half as tall as the previous torso box.",
 	)
 	_assert(
-		player_scene_source.contains("[node name=\"CollisionShape2D\" type=\"CollisionShape2D\" parent=\".\" unique_id=543236914]\nposition = Vector2(0, 22)\nshape = SubResource(\"player_shape\")"),
-		"Player body collision must sit higher around the legs instead of below the visual feet.",
+		player_scene_source.contains("[node name=\"CollisionShape2D\" type=\"CollisionShape2D\" parent=\".\" unique_id=543236914]\nposition = Vector2(0, 15)\nshape = SubResource(\"player_shape\")"),
+		"Player body collision must remain authored around the feet.",
+	)
+	_assert(
+		player_source.contains("const PLAYER_FEET_OFFSET_PX: float = 41.0"),
+		"Player depth sorting must retain the grass-safe visual-feet anchor.",
+	)
+	var streamer_source: String = FileAccess.get_file_as_string(
+		"res://core/systems/world/world_streamer.gd",
+	)
+	_assert(
+		streamer_source.contains("player.global_position.y + Player.PLAYER_FEET_OFFSET_PX"),
+		"WorldStreamer must keep grass and the player on the visual-feet ladder.",
 	)
 	_assert(
 		debug_layer_source.contains("func get_debug_box_count() -> int:"),

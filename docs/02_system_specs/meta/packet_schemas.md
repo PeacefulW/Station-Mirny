@@ -4,8 +4,8 @@ doc_type: system_spec
 status: draft
 owner: engineering
 source_of_truth: true
-version: 1.9
-last_updated: 2026-07-23
+version: 1.10
+last_updated: 2026-07-31
 related_docs:
   - ../README.md
   - system_api.md
@@ -1243,8 +1243,11 @@ Governing spec:
                                              # color = (atlas_variant/255,
                                              #          tint, phase, alpha)
   "tree_collision_records": PackedFloat32Array,
-                                             # flat triples (local_x, local_y,
-                                             # radius_px), one per tree
+                                             # flat quadruples (center_x,
+                                             # center_y, width_px, height_px),
+                                             # one per tree;
+                                             # center_y + height_px * 0.5
+                                             # == root_y
   "object_count": int,
   "tree_instance_count": int,
   "rock_instance_count": int,
@@ -1284,23 +1287,32 @@ Current contract notes:
   data, never a new `ChunkPacketV1` field and never save data;
 - native computes `buffer_float_count` and `payload_bytes` from its accepted
   family counters:
-  `12 * (tree + rock + spiky + 2 * living) + 3 * tree`, with
+  `12 * (tree + rock + bush + spiky + 2 * living) + 4 * tree`, with
   `payload_bytes == buffer_float_count * 4`. Warm-cache admission may use that
   trusted producer metadata in O(1). Before upload or commit,
   `WorldObjectPacketLayer` accumulates actual packed-array sizes in the existing
   phased structural validation and requires exact equality with both fields;
   ABI drift is rejected, not cached as a committed presentation;
-- `tree_metrics` and `rock_metrics` are boot-prepared flat records with stride
-  `5`: `(frame_width, frame_height, anchor_x, anchor_y,
-  fixed_tree_scale_or_rock_visible_width)`. They reproduce the authored layered
-  asset transforms without file/path/JSON/resource access in the worker;
+- `tree_metrics` is a boot-prepared flat record with stride `8`:
+  `(frame_width, frame_height, anchor_x, anchor_y, fixed_tree_scale,
+  collision_center_x_offset_px, collision_width_px, collision_depth_px)`.
+  The last three values come from each variant's
+  `meta.json.collision_footprint`; `rock_metrics` and `bush_metrics` retain
+  stride `5`: `(frame_width, frame_height, anchor_x, anchor_y, visible_width)`.
+  They reproduce authored layered transforms and the rectangular tree-trunk
+  footprint without file/path/JSON/resource access in the worker;
 - `params` is a 20-float layout owned by
   `object_presentation::ParamIndex`: local-pixel quantum, depth-stripe pixels,
-  depth-stripe count, tree collision radius scale/min/max, then the authored
-  classic-decor stripe anchor, spiky atlas-bank count, living/spiky alpha, and
-  living contact-shadow scales/minima/alpha, followed by living/spiky prepared-
-  source enable flags. The script-side catalog owns these values so native code
-  does not carry a second drifting copy of visual tuning;
+  depth-stripe count, tree collision width multiplier (`params[3] = 1.0`),
+  tree collision depth multiplier (`params[4] = 1.0`), and minimum scaled tree
+  collision depth (`params[5] = 34.0`), then the authored classic-decor stripe
+  anchor, spiky atlas-bank count, living/spiky alpha, and living contact-shadow
+  scales/minima/alpha, followed by living/spiky prepared-source enable flags.
+  Native multiplies the authored width/depth by the fixed visual scale and the
+  corresponding multiplier, then enforces the minimum depth; the authored X
+  offset uses the same fixed visual scale. Packet `object_size_px` does not
+  resize or recenter the collider. The script-side catalog owns these values so
+  native code does not carry a second drifting copy of visual tuning;
 - quantized roots decode at the centre of their `q4` cell
   (`byte * quantum + quantum * 0.5`), matching the canonical packet consumer;
 - tree and rock variants are mapped to the prepared atlas catalog modulo its
@@ -1325,13 +1337,22 @@ Current contract notes:
 - the native call runs on a worker-local `WorldCore`. Only after main-thread
   `epoch + revision + catalog_generation` and exact structural validation may
   `WorldObjectPacketLayer` stage reusable `MultiMesh` buffers and chunk-scoped
-  tree collision shapes;
+  tree collision shapes. The tree metric/collider ABI revision uses catalog
+  generation `8`; this is derived presentation invalidation, not a canonical
+  `world_version` or save-schema change;
 - main-thread flora apply consumes at most the configured number of non-empty
   raw buffers per scheduler slice, uses pooled stripe slots, and remains hidden
   in the same atomic object transaction until trees, collisions, both flora
   families, and small rocks are all staged;
-- depth bucket is derived from the object's ground/root Y, so atlas anchor
-  offsets do not change player-relative ordering;
+- every tree collision record describes one chunk-owned `RectangleShape2D`.
+  Its centre X includes the variant-authored offset, while its centre Y is
+  derived so `center_y + height * 0.5 == root_y`; the tree depth bucket is
+  derived from that same ground/root Y. The player retains the visual-feet
+  ladder anchor required by grass presentation. The 34-pixel minimum tree
+  depth bridges the 18-pixel gap between that visual anchor and the player's
+  blocking-shape south edge, plus one full 16-pixel stripe. Therefore rear
+  physical contact is strictly behind the tree for every stripe phase without
+  changing player/grass ordering;
 - source channel atlases and shared materials are boot-prepared. The result
   contains no `Texture`, `Material`, `Mesh`, `Node`, or other scene/GPU object;
 - an `error` key means the input/catalog contract was violated. Consumers must

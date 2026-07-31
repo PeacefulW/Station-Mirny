@@ -11,6 +11,11 @@
 		"height_scale": 0.82,
 		"crown_scale": 1.12,
 		"blade_density": 1.25,
+		"collision_footprint": {
+			"offset_x_px": 25,
+			"width_px": 85,
+			"depth_px": 36
+		},
 		"camera_fit": {
 			"fit_width_fraction": 0.48,
 			"fit_height_fraction": 0.56

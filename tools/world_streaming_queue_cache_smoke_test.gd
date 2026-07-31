@@ -105,14 +105,17 @@ func _test_object_queue_revision_replacement() -> void:
 		"object_tint": PackedByteArray([255]),
 		"object_phase": PackedByteArray([0]),
 	}
-	var tree_metrics := PackedFloat32Array([768.0, 768.0, 384.0, 539.0, 0.64])
+	var tree_metrics := PackedFloat32Array(
+		[768.0, 768.0, 384.0, 539.0, 0.64, 0.0, 36.0, 36.0],
+	)
 	var rock_metrics := PackedFloat32Array([768.0, 768.0, 384.0, 482.0, 440.0])
-	var params := PackedFloat32Array([4.0, 16.0, 64.0, 0.065, 9.0, 20.0])
+	var bush_metrics := PackedFloat32Array()
+	var params := PackedFloat32Array([4.0, 16.0, 64.0, 1.0, 1.0, 34.0])
 	backend.queue_object_presentation_request(
-		coord, packet, tree_metrics, rock_metrics, params, 1, 9, 1, 12,
+		coord, packet, tree_metrics, rock_metrics, bush_metrics, params, 1, 9, 1, 12,
 	)
 	backend.queue_object_presentation_request(
-		coord, packet, tree_metrics, rock_metrics, params, 1, 9, 2, 1,
+		coord, packet, tree_metrics, rock_metrics, bush_metrics, params, 1, 9, 2, 1,
 	)
 	_expect(backend._pending_requests.size() == 1, "new object revision must replace stale queued work")
 	_expect(int(backend._pending_requests[0].get("revision", -1)) == 2, "latest object revision must win")
@@ -143,7 +146,7 @@ func _test_shared_compute_priority_contract() -> void:
 	)
 	backend.queue_object_presentation_request(
 		Vector2i(8, 0), {}, PackedFloat32Array(), PackedFloat32Array(),
-		PackedFloat32Array(), 1, 3, 1, 64,
+		PackedFloat32Array(), PackedFloat32Array(), 1, 3, 1, 64,
 	)
 	var first: Dictionary = backend._take_highest_priority_request_locked()
 	_expect(
@@ -158,7 +161,7 @@ func _test_shared_compute_priority_contract() -> void:
 	backend._request_dispatch_turn = 100
 	backend.queue_object_presentation_request(
 		Vector2i(8, 0), {}, PackedFloat32Array(), PackedFloat32Array(),
-		PackedFloat32Array(), 1, 3, 1, 64,
+		PackedFloat32Array(), PackedFloat32Array(), 1, 3, 1, 64,
 	)
 	var aged_class_first: Dictionary = backend._take_highest_priority_request_locked()
 	_expect(
@@ -169,7 +172,8 @@ func _test_shared_compute_priority_contract() -> void:
 	for dispatch_index: int in range(WorldChunkPacketBackend.MAX_REVEAL_DISPATCH_BURST + 2):
 		backend.queue_object_presentation_request(
 			Vector2i(dispatch_index, 9), {}, PackedFloat32Array(), PackedFloat32Array(),
-			PackedFloat32Array(), 1, 3, dispatch_index + 10, dispatch_index,
+			PackedFloat32Array(), PackedFloat32Array(), 1, 3,
+			dispatch_index + 10, dispatch_index,
 		)
 		backend._take_highest_priority_request_locked()
 	_expect(
@@ -179,7 +183,7 @@ func _test_shared_compute_priority_contract() -> void:
 	backend.queue_packet_request(Vector2i(99, 9), 7, 1, PackedFloat32Array(), 3, 999)
 	backend.queue_object_presentation_request(
 		Vector2i(0, 10), {}, PackedFloat32Array(), PackedFloat32Array(),
-		PackedFloat32Array(), 1, 3, 99, 0,
+		PackedFloat32Array(), PackedFloat32Array(), 1, 3, 99, 0,
 	)
 	_expect(
 		str(backend._take_highest_priority_request_locked().get("kind", "")) \
@@ -194,7 +198,8 @@ func _test_shared_compute_priority_contract() -> void:
 	for dispatch_index: int in range(WorldChunkPacketBackend.MAX_REVEAL_DISPATCH_BURST + 1):
 		backend.queue_object_presentation_request(
 			Vector2i(dispatch_index, 1), {}, PackedFloat32Array(), PackedFloat32Array(),
-			PackedFloat32Array(), 1, 3, dispatch_index + 1, dispatch_index,
+			PackedFloat32Array(), PackedFloat32Array(), 1, 3,
+			dispatch_index + 1, dispatch_index,
 		)
 		var fair_dispatch: Dictionary = backend._take_highest_priority_request_locked()
 		if str(fair_dispatch.get("kind", "")) == "packet":
@@ -215,7 +220,8 @@ func _test_shared_compute_priority_contract() -> void:
 	for dispatch_index: int in range(WorldChunkPacketBackend.MAX_REVEAL_DISPATCH_BURST):
 		backend.queue_object_presentation_request(
 			Vector2i(dispatch_index, 3), {}, PackedFloat32Array(), PackedFloat32Array(),
-			PackedFloat32Array(), 1, 3, dispatch_index + 30, dispatch_index,
+			PackedFloat32Array(), PackedFloat32Array(), 1, 3,
+			dispatch_index + 30, dispatch_index,
 		)
 		backend._take_highest_priority_request_locked()
 	_expect(
@@ -228,7 +234,7 @@ func _test_shared_compute_priority_contract() -> void:
 	)
 	backend.queue_object_presentation_request(
 		Vector2i(0, 4), {}, PackedFloat32Array(), PackedFloat32Array(),
-		PackedFloat32Array(), 1, 3, 40, 0,
+		PackedFloat32Array(), PackedFloat32Array(), 1, 3, 40, 0,
 	)
 	_expect(
 		str(backend._take_highest_priority_request_locked().get("kind", "")) \
@@ -266,7 +272,8 @@ func _test_shared_compute_priority_contract() -> void:
 	):
 		backend.queue_object_presentation_request(
 			Vector2i(dispatch_index, 6), {}, PackedFloat32Array(), PackedFloat32Array(),
-			PackedFloat32Array(), 1, 3, dispatch_index + 50, dispatch_index,
+			PackedFloat32Array(), PackedFloat32Array(), 1, 3,
+			dispatch_index + 50, dispatch_index,
 		)
 		backend._take_highest_priority_request_locked()
 	_expect(
@@ -281,7 +288,7 @@ func _test_shared_compute_priority_contract() -> void:
 	)
 	backend.queue_object_presentation_request(
 		Vector2i(0, 7), {}, PackedFloat32Array(), PackedFloat32Array(),
-		PackedFloat32Array(), 1, 3, 90, 0,
+		PackedFloat32Array(), PackedFloat32Array(), 1, 3, 90, 0,
 	)
 	_expect(
 		str(backend._take_highest_priority_request_locked().get("kind", "")) \
@@ -809,13 +816,13 @@ func _make_live_object_completion(
 		"ignored_instance_count": 0,
 		"tree_atlas_bucket_buffers": tree_buffers,
 		"rock_atlas_bucket_buffers": rock_buffers,
-		"tree_collision_records": PackedFloat32Array([32.0, 32.0, 10.0]),
+		"tree_collision_records": PackedFloat32Array([32.0, 17.0, 20.0, 34.0]),
 		"living_flora_bucket_buffers": [],
 		"living_flora_shadow_buffer": PackedFloat32Array(),
 		"spiky_flora_atlas_bucket_buffers": [],
 		"spiky_flora_atlas_bank_count": 0,
-		"buffer_float_count": 15,
-		"payload_bytes": 60,
+		"buffer_float_count": 16,
+		"payload_bytes": 64,
 	}
 
 

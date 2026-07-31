@@ -24,6 +24,11 @@
 		"root_embed_fraction": 0.07
 	},
 	"runtime_plant_depth_px": 0,
+	"collision_footprint": {
+		"offset_x_px": -35,
+		"width_px": 77,
+		"depth_px": 35
+	},
 	"classification": {
 		"rust_crown_root_fiber_00": {
 			"layer": "trunk"

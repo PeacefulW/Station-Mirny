@@ -4,8 +4,8 @@ doc_type: system_spec
 status: draft
 owner: engineering+design
 source_of_truth: true
-version: 0.3
-last_updated: 2026-07-29
+version: 0.4
+last_updated: 2026-07-31
 related_docs:
   - ../../00_governance/ENGINEERING_STANDARDS.md
   - ../../00_governance/WORKFLOW.md
@@ -38,8 +38,8 @@ This spec rides `world_object_placement_v0.md` (placement, batching, depth
 ladder) and `wind_and_grass_scatter_presentation.md` (wind, the per-stripe
 mid-layer ladder) instead of inventing a parallel system. It establishes the
 procedural tree atlas authoring path, the batched per-stripe presentation, wind
-response, and fixed-azimuth time-stretched silhouette shadows. Collision and
-harvest are deferred.
+response, fixed-azimuth time-stretched silhouette shadows, and the accepted
+chunk-scoped trunk-collision proof. Harvest remains deferred.
 
 ### Why this spec exists
 
@@ -445,7 +445,17 @@ V0 is acceptable when:
   - **moving the player** north/south does **not** flip whole trees above/below
     grass (the sketch bug is gone) — verified by a before/after panel at two
     player positions;
-  - the player sorts in front of / behind trees by feet stripe;
+- the shared player/grass ladder retains the player's visual-feet anchor. The
+  tree root is the southern edge of its rectangular trunk footprint, and its
+  scaled depth is at least 34 pixels: the 18-pixel visual-feet-to-collider
+  clearance plus one full 16-pixel depth stripe;
+- at rear collision contact every one of the eight production tree variants
+  strictly renders above the player, including depth-stripe boundary phases;
+  at southern collision contact the player strictly renders above the trunk;
+- the per-variant
+  `meta.json.collision_footprint { offset_x_px, width_px, depth_px }`
+  aligns the collider with the visible trunk base. Offset and dimensions use
+  the same fixed visual scale, and do not change with packet size tier;
   - a northern tree shadow renders below a southern tree/bush/rock body; within
     one stripe the strict order is shadow → body/trunk → foliage → snow;
   - the same shadow visibly darkens overlapping grass tufts and small-rock
@@ -467,7 +477,10 @@ V0 is acceptable when:
   softness, and visibility but never direction, and the root stays planted;
 - tree visuals and loaded trunk collision remain one coherent transaction; the
   visual layer may not be removed independently while claiming unchanged
-  collision/gameplay semantics.
+  collision/gameplay semantics;
+- `res://scenes/dev/tree_collision_depth_dev_scene.tscn` shows all eight current
+  `rust_crown` variants through the production native buffer path, with exact
+  highlighted tree/player collision and every player reset behind its tree.
 
 ## Failure Cases / Risks
 
@@ -541,10 +554,16 @@ This design is wrong if:
   version / settings can now intentionally produce different tree placement
   when the authored profile changes before new-world creation.
 
-### Iteration 3 — Collision (optional) + tuning
+### Iteration 3 — Collision + tuning
 
-- Optional chunk-scoped static collision at the trunk base (large-rock proof
-  pattern), reveal-ready (LAW 10).
+- Chunk-scoped static collision at the trunk base (large-rock proof pattern),
+  reveal-ready (LAW 10). Each variant authors
+  `collision_footprint { offset_x_px, width_px, depth_px }`; native
+  scales it into one `RectangleShape2D` whose southern edge ends at the tree
+  root. A 34-pixel runtime minimum guarantees collision-relative rear ordering
+  while preserving the existing grass-safe visual-feet player anchor.
+- Eight-variant collision/depth lab scene plus native contract and scene smoke
+  tests.
 - Density / palette / scale / wind / shadow tuning via authored data + probes.
 - Optional importance-ordered buffers + zoom `visible_instance_count` trimming.
 
@@ -558,14 +577,15 @@ This design is wrong if:
 
 - `docs/README.md` and `docs/02_system_specs/README.md`: link this spec (done
   with spec landing).
-- `packet_schemas.md`: updated for the tree packet family and
-  `worldgen_settings.plains_trees`.
+- `packet_schemas.md`: updated for the tree packet family,
+  `worldgen_settings.plains_trees`, and the authored rectangular collision
+  footprint record.
 - `world_object_placement_v0.md`: cross-reference this spec for the tree family
-  (Iteration 2).
+  (Iteration 2) and document the collision-relative depth invariant.
 - `world_version` (`WorldRuntimeConstants.WORLD_VERSION`): bumped to `60` for
   the data-driven tree placement profile.
-- `system_api.md`: updated for the optional new-world tree profile argument and
-  settings resource.
+- `system_api.md`: updated for the optional new-world tree profile argument,
+  settings resource, and stride-`4` rectangular collision result.
 - `save_and_persistence.md`: updated for frozen per-save tree settings.
 - `event_contracts.md`, `commands.md`: required at the harvest iteration
   (Iteration 4), not before; recheck at each iteration.

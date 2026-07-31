@@ -12,6 +12,11 @@ import numpy as np
 from PIL import Image, ImageChops, ImageDraw, ImageFilter
 
 DEFAULT_PROFILE_PATH = Path(__file__).with_name("layered_asset_bake_profile.json")
+LEGACY_COLLISION_FOOTPRINT = {
+    "offset_x_px": 0.0,
+    "width_px": 36.0,
+    "depth_px": 36.0,
+}
 
 
 def parse_args() -> argparse.Namespace:
@@ -45,6 +50,38 @@ def bake_profile_summary(profile: dict, classification: dict, frame_size: int) -
 
 def profile_or_default(profile: dict | None) -> dict:
     return profile if profile is not None else load_profile(DEFAULT_PROFILE_PATH)
+
+
+def validated_collision_footprint(
+    classification: dict,
+    anchor: tuple[int, int],
+    frame_size: tuple[int, int],
+) -> dict:
+    """Return the authored root-aligned blocker after validating its geometry."""
+    authored = classification.get("collision_footprint", LEGACY_COLLISION_FOOTPRINT)
+    required_keys = {"offset_x_px", "width_px", "depth_px"}
+    if not isinstance(authored, dict) or set(authored) != required_keys:
+        raise SystemExit(
+            "collision_footprint must contain exactly offset_x_px, width_px, and depth_px"
+        )
+
+    for key in required_keys:
+        value = authored[key]
+        if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value):
+            raise SystemExit(f"collision_footprint.{key} must be a finite number")
+    if authored["width_px"] <= 0 or authored["depth_px"] <= 0:
+        raise SystemExit("collision_footprint width_px and depth_px must be positive")
+
+    anchor_x, anchor_y = anchor
+    frame_width, frame_height = frame_size
+    center_x = anchor_x + float(authored["offset_x_px"])
+    half_width = float(authored["width_px"]) * 0.5
+    top = anchor_y - float(authored["depth_px"])
+    if center_x - half_width < 0 or center_x + half_width > frame_width:
+        raise SystemExit("collision_footprint extends beyond the horizontal frame bounds")
+    if top < 0 or anchor_y > frame_height:
+        raise SystemExit("collision_footprint extends beyond the vertical frame bounds")
+    return dict(authored)
 
 
 def rgb_from_profile(profile: dict, key: str) -> tuple[int, int, int]:
@@ -512,6 +549,7 @@ def save_outputs(asset_dir: Path, copy_to: Path | None = None, profile: dict | N
         classification = json.load(fh)
     anchor_values = classification.get("anchor", [albedo.width // 2, int(albedo.height * 0.88)])
     anchor = (int(anchor_values[0]), int(anchor_values[1]))
+    collision_footprint = validated_collision_footprint(classification, anchor, albedo.size)
 
     alpha = alpha_of(albedo)
     shadow = processed_shadow(raw_shadow, alpha, anchor, profile)
@@ -542,7 +580,7 @@ def save_outputs(asset_dir: Path, copy_to: Path | None = None, profile: dict | N
         "anchor": list(anchor),
         "bake_profile": bake_profile_summary(profile, classification, albedo.width),
         "sort_offset": anchor[1],
-        "collision_radius": 18,
+        "collision_footprint": collision_footprint,
         "plant_depth_px": int(classification.get("runtime_plant_depth_px", 0)),
         "wind_strength": 0.45,
         "snow_capacity": 0.8,

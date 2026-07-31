@@ -17,7 +17,14 @@ enum MetricIndex {
 	METRIC_ANCHOR_Y_PX = 3,
 	// Tree: authored fixed frame scale. Rock and bush: alpha-bbox visible width.
 	METRIC_SCALE_OR_VISIBLE_WIDTH = 4,
-	METRIC_STRIDE = 5,
+	BASE_METRIC_STRIDE = 5,
+	// Tree-only authored rectangular trunk footprint before the fixed visual
+	// scale is applied. X is relative to the visual/depth root; Y is forced by
+	// the builder so the footprint's southern edge remains exactly at root_y.
+	METRIC_TREE_COLLISION_CENTER_X_OFFSET_PX = 5,
+	METRIC_TREE_COLLISION_WIDTH_PX = 6,
+	METRIC_TREE_COLLISION_DEPTH_PX = 7,
+	TREE_METRIC_STRIDE = 8,
 };
 
 // Presentation tuning is supplied by the script-side catalog/contract rather
@@ -26,9 +33,9 @@ enum ParamIndex {
 	PARAM_LOCAL_PX_QUANTUM = 0,
 	PARAM_DEPTH_STRIPE_PX = 1,
 	PARAM_DEPTH_STRIPE_COUNT = 2,
-	PARAM_TREE_COLLISION_RADIUS_SCALE = 3,
-	PARAM_TREE_COLLISION_MIN_RADIUS_PX = 4,
-	PARAM_TREE_COLLISION_MAX_RADIUS_PX = 5,
+	PARAM_TREE_COLLISION_WIDTH_MULTIPLIER = 3,
+	PARAM_TREE_COLLISION_DEPTH_MULTIPLIER = 4,
+	PARAM_TREE_COLLISION_MIN_DEPTH_PX = 5,
 	// Classic atlas-decor contract. These values are authored script-side so
 	// the worker reproduces the legacy presentation exactly without embedding
 	// a second, drifting copy of visual tuning in native code.

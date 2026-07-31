@@ -58,7 +58,8 @@ func _run() -> void:
 	_expect(catalog.is_ready(), "catalog must prepare before chunk publish")
 	_verify_layered_quad_uv_contract(catalog)
 	_verify_shared_catalog_single_owner(catalog)
-	_expect(catalog.get_catalog_generation() == 7, "catalog generation")
+	_expect(catalog.get_catalog_generation() == 8, "catalog generation")
+	_expect(AssetCatalog.TREE_METRIC_STRIDE == 8, "tree metric stride")
 	_expect(
 		catalog.get_tree_native_metrics().size()
 				== AssetCatalog.TREE_SOURCE_DIRS.size() * AssetCatalog.TREE_METRIC_STRIDE,
@@ -75,9 +76,9 @@ func _run() -> void:
 		_expect(is_equal_approx(native_params[0], 4.0), "native position quantization")
 		_expect(is_equal_approx(native_params[1], 16.0), "native depth stripe size")
 		_expect(is_equal_approx(native_params[2], 64.0), "native depth stripe count")
-		_expect(is_equal_approx(native_params[3], 0.065), "native collision scale")
-		_expect(is_equal_approx(native_params[4], 9.0), "native collision minimum")
-		_expect(is_equal_approx(native_params[5], 20.0), "native collision maximum")
+		_expect(is_equal_approx(native_params[3], 1.0), "native collision width multiplier")
+		_expect(is_equal_approx(native_params[4], 1.0), "native collision depth multiplier")
+		_expect(is_equal_approx(native_params[5], 34.0), "native collision minimum depth")
 		_expect(is_equal_approx(native_params[6], 0.45), "native classic decor depth anchor")
 		_expect(is_equal_approx(native_params[7], 2.0), "native spiky atlas bank count")
 		_expect(is_equal_approx(native_params[8], 0.96), "native living alpha")
@@ -344,6 +345,11 @@ func _make_native_result(catalog: AssetCatalog) -> Dictionary:
 	_expect(int(result.get("tree_instance_count", -1)) == 3, "native tree count")
 	_expect(int(result.get("rock_instance_count", -1)) == 3, "native rock count")
 	_expect(
+		(result.get("tree_collision_records", PackedFloat32Array()) as PackedFloat32Array).size()
+				== 3 * 4,
+		"native tree collision record stride",
+	)
+	_expect(
 		int(result.get("payload_bytes", -1)) == int(result.get("buffer_float_count", 0)) * 4,
 		"native payload bytes",
 	)
@@ -401,6 +407,20 @@ func _verify_coherent_object_commit(catalog: AssetCatalog, native_result: Dictio
 		"prepared collision waits for owning chunk reveal",
 	)
 	_expect(int(committed.get("tree_collider_count", 0)) == 3, "all tree colliders committed")
+	var collision_body: StaticBody2D = object_layer.get_node_or_null(
+		"TreeObjectPacketCollisionBody",
+	) as StaticBody2D
+	_expect(collision_body != null, "tree collision body exists")
+	if collision_body != null:
+		var owner_ids: PackedInt32Array = collision_body.get_shape_owners()
+		_expect(owner_ids.size() == 3, "one shape owner per tree collider")
+		for owner_id: int in owner_ids:
+			_expect(
+				collision_body.shape_owner_get_shape_count(owner_id) == 1
+						and collision_body.shape_owner_get_shape(owner_id, 0)
+								is RectangleShape2D,
+				"tree collision owners use RectangleShape2D",
+			)
 	_expect(object_layer.is_blocking_presentation_ready(), "coherent commit is blocking-ready")
 	_expect(object_layer.is_presentation_complete(), "coherent object presentation completes")
 	object_layer.set_blocking_collision_active(true)

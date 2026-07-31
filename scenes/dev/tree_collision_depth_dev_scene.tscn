@@ -1,0 +1,47 @@
+[gd_scene load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://scenes/dev/tree_collision_depth_dev_scene.gd" id="1_script"]
+
+[node name="TreeCollisionDepthDevScene" type="Node2D"]
+script = ExtResource("1_script")
+
+[node name="WorldBackdrop" type="Polygon2D" parent="."]
+z_index = -30
+polygon = PackedVector2Array(-1400, -220, 1400, -220, 1400, 1450, -1400, 1450)
+color = Color(0.055, 0.075, 0.052, 1)
+
+[node name="Camera2D" type="Camera2D" parent="."]
+position = Vector2(0, 650)
+zoom = Vector2(0.45, 0.45)
+
+[node name="HUD" type="CanvasLayer" parent="."]
+
+[node name="Panel" type="PanelContainer" parent="HUD"]
+offset_left = 18.0
+offset_top = 18.0
+offset_right = 1262.0
+offset_bottom = 140.0
+
+[node name="Margin" type="MarginContainer" parent="HUD/Panel"]
+theme_override_constants/margin_left = 18
+theme_override_constants/margin_top = 12
+theme_override_constants/margin_right = 18
+theme_override_constants/margin_bottom = 12
+
+[node name="VBox" type="VBoxContainer" parent="HUD/Panel/Margin"]
+theme_override_constants/separation = 3
+
+[node name="TitleLabel" type="Label" parent="HUD/Panel/Margin/VBox"]
+unique_name_in_owner = true
+theme_override_colors/font_color = Color(0.95, 0.97, 0.9, 1)
+theme_override_font_sizes/font_size = 24
+
+[node name="HintLabel" type="Label" parent="HUD/Panel/Margin/VBox"]
+unique_name_in_owner = true
+theme_override_colors/font_color = Color(0.72, 0.82, 0.72, 1)
+theme_override_font_sizes/font_size = 16
+
+[node name="StatusLabel" type="Label" parent="HUD/Panel/Margin/VBox"]
+unique_name_in_owner = true
+theme_override_colors/font_color = Color(0.98, 0.62, 0.35, 1)
+theme_override_font_sizes/font_size = 15

@@ -542,7 +542,7 @@ func _verify_native_result(
 	_expect(int(result.get("rock_instance_count", -1)) == rock_count, "%s rock count" % label)
 	_expect(
 		(result.get("tree_collision_records", PackedFloat32Array()) as PackedFloat32Array).size()
-				== tree_count * 3,
+				== tree_count * 4,
 		"%s collision record count" % label,
 	)
 	var tree_buffers: Array = result.get("tree_atlas_bucket_buffers", []) as Array

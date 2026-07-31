@@ -17,7 +17,11 @@
 		"root_embed_fraction": 0.07
 	},
 	"sort_offset": 514,
-	"collision_radius": 18,
+	"collision_footprint": {
+		"offset_x_px": 6,
+		"width_px": 47,
+		"depth_px": 26
+	},
 	"plant_depth_px": 0,
 	"wind_strength": 0.45,
 	"snow_capacity": 0.8,

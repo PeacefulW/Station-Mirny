@@ -10,7 +10,12 @@
 		"world_scale": 1.12,
 		"height_scale": 0.92,
 		"crown_scale": 1.18,
-		"blade_density": 1.12
+		"blade_density": 1.12,
+		"collision_footprint": {
+			"offset_x_px": -48,
+			"width_px": 67,
+			"depth_px": 31
+		}
 	},
 	"framing": {
 		"ortho_scale": 1.6423715353012085,

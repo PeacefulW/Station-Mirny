@@ -1496,6 +1496,7 @@ def main() -> None:
         "root_embed_fraction": embed_fraction,
         "bake_profile": BAKE.bake_profile_summary(bake_profile, frame_size, sun_angle_degrees, embed_fraction),
         "runtime_plant_depth_px": 0,
+        "collision_footprint": dict(variant["collision_footprint"]),
         "classification": classification,
         "layers": {
             "albedo": "albedo.png",

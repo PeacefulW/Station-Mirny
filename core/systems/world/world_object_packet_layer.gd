@@ -25,6 +25,7 @@ const OBJECT_KIND_BUSH: int = 8
 const OBJECT_LOCAL_PX_QUANTUM: float = 4.0
 const OBJECT_COLLISION_LAYER: int = 2
 const NATIVE_MULTIMESH_BUFFER_STRIDE: int = 12
+const TREE_COLLISION_RECORD_STRIDE: int = 4
 const NATIVE_FLOAT_BYTE_SIZE: int = 4
 
 const LIVING_FLORA_FRAME_COLUMNS: int = 16
@@ -70,13 +71,17 @@ const TREE_CONTACT_SHADOW_ENABLED: bool = false
 # поэтому держит весь batch на земле под общей depth-лесенкой. Основной
 # layered runtime сортирует каждую shadow bucket по полосе ног объекта.
 const TREE_SHADOW_Z_INDEX: int = WorldRuntimeConstants.Z_GRASS_SHADOW
-# Дерево — препятствие: маленький круг у комля (ствол), крона проходима.
+# Дерево — препятствие: неглубокий прямоугольник у комля, крона проходима.
 # Chunk-scoped статика готова к reveal вместе с объектным слоем; шейп-овнеры
 # на одном теле, не нода-на-дерево.
 const TREE_COLLISION_ENABLED: bool = true
-const TREE_COLLISION_RADIUS_SCALE: float = 0.065
-const TREE_COLLISION_MIN_RADIUS_PX: float = 9.0
-const TREE_COLLISION_MAX_RADIUS_PX: float = 20.0
+## Legacy synchronous compatibility path only. Production native presentation
+## uses the per-variant authored footprint prepared by the asset catalog.
+const LEGACY_TREE_COLLISION_WIDTH_SCALE: float = 0.13
+const LEGACY_TREE_COLLISION_MIN_WIDTH_PX: float = 18.0
+const LEGACY_TREE_COLLISION_MAX_WIDTH_PX: float = 40.0
+const LEGACY_TREE_COLLISION_DEPTH_PX: float = \
+		WorldLayeredObjectAssetCatalog.TREE_COLLISION_MIN_DEPTH_PX
 
 var _living_flora_atlas: Texture2D = null
 var _spiky_flora_atlases: Array[Texture2D] = []
@@ -102,6 +107,7 @@ var _tree_collider_count: int = 0
 var _collision_debug_layer: ObjectCollisionDebugLayer = null
 var _debug_collisions_visible: bool = false
 var _tree_debug_rects: Array[Rect2] = []
+static var _layered_tree_collision_footprints_by_asset_dir: Dictionary = { }
 var _tree_shadow_layer: MultiMeshInstance2D = null
 var _tree_shadow_material: ShaderMaterial = null
 var _sun_light_angle_deg: float = WorldVisualLightingProfile.DEFAULT_LIGHT_ANGLE_DEG
@@ -611,7 +617,7 @@ func _advance_incremental_begin_header() -> bool:
 		push_error("WorldObjectPacketLayer: native tree collision records have an invalid type")
 		return _fail_incremental_presentation_begin()
 	var collision_records: PackedFloat32Array = collision_value as PackedFloat32Array
-	if collision_records.size() != tree_count * 3:
+	if collision_records.size() != tree_count * TREE_COLLISION_RECORD_STRIDE:
 		push_error(
 			"WorldObjectPacketLayer: native tree collision record count does not match tree instances",
 		)
@@ -880,7 +886,8 @@ func apply_next_presentation_slice(
 			return true
 		NativeApplyState.TREE_COLLISIONS:
 			_apply_native_tree_collision_slice(maxi(1, colliders_per_slice))
-			if _native_collision_record_index * 3 >= _native_collision_records.size():
+			if _native_collision_record_index * TREE_COLLISION_RECORD_STRIDE \
+					>= _native_collision_records.size():
 				_native_apply_state = _first_native_flora_or_rock_state()
 			return true
 		NativeApplyState.LIVING_FLORA_BUFFERS:
@@ -1645,28 +1652,29 @@ func _apply_native_tree_collision_slice(max_colliders: int) -> void:
 	var collision_started_usec: int = WorldPerfProbe.begin()
 	var body: StaticBody2D = _ensure_tree_collision_body()
 	body.collision_layer = 0
-	var record_count: int = _native_collision_records.size() / 3
+	var record_count: int = _native_collision_records.size() / TREE_COLLISION_RECORD_STRIDE
 	var end_index: int = mini(_native_collision_record_index + max_colliders, record_count)
 	while _native_collision_record_index < end_index:
-		var offset: int = _native_collision_record_index * 3
+		var offset: int = _native_collision_record_index * TREE_COLLISION_RECORD_STRIDE
 		var position := Vector2(
 			_native_collision_records[offset],
 			_native_collision_records[offset + 1],
 		)
-		var radius: float = _native_collision_records[offset + 2]
-		var shape: CircleShape2D = _native_asset_catalog.get_tree_collision_shape(radius) \
+		var size := Vector2(
+			_native_collision_records[offset + 2],
+			_native_collision_records[offset + 3],
+		)
+		var shape: RectangleShape2D = _native_asset_catalog.get_tree_collision_shape(size) \
 				if _native_asset_catalog != null else null
 		if shape == null:
-			shape = CircleShape2D.new()
-			shape.radius = radius
+			shape = RectangleShape2D.new()
+			shape.size = size
 		var owner_id: int = body.create_shape_owner(body)
 		body.shape_owner_add_shape(owner_id, shape)
 		body.shape_owner_set_transform(owner_id, Transform2D(0.0, position))
 		_tree_collision_shape_owner_ids.append(owner_id)
 		if _debug_collisions_visible:
-			_tree_debug_rects.append(
-				Rect2(position - Vector2.ONE * radius, Vector2.ONE * radius * 2.0),
-			)
+			_tree_debug_rects.append(Rect2(position - size * 0.5, size))
 		_native_collision_record_index += 1
 	_tree_collider_count = _tree_collision_shape_owner_ids.size()
 	WorldPerfProbe.end(
@@ -2014,15 +2022,13 @@ func _append_tree(
 			},
 		)
 		if TREE_COLLISION_ENABLED:
-			var layered_collision_radius: float = clampf(
-				size_px * TREE_COLLISION_RADIUS_SCALE,
-				TREE_COLLISION_MIN_RADIUS_PX,
-				TREE_COLLISION_MAX_RADIUS_PX,
+			var footprint: Rect2 = _layered_tree_collision_footprint_for_variant(
+				frame_index,
 			)
 			tree_collision_records.append(
 				{
-					"position": position - Vector2(0.0, layered_collision_radius * 0.5),
-					"radius": layered_collision_radius,
+					"position": position + footprint.get_center(),
+					"size": footprint.size,
 				},
 			)
 		_tree_count += 1
@@ -2060,17 +2066,18 @@ func _append_tree(
 			maxf(size_px / 96.0, 0.42),
 		)
 	if TREE_COLLISION_ENABLED:
-		var collision_radius: float = clampf(
-			size_px * TREE_COLLISION_RADIUS_SCALE,
-			TREE_COLLISION_MIN_RADIUS_PX,
-			TREE_COLLISION_MAX_RADIUS_PX,
+		var collision_width: float = clampf(
+			size_px * LEGACY_TREE_COLLISION_WIDTH_SCALE,
+			LEGACY_TREE_COLLISION_MIN_WIDTH_PX,
+			LEGACY_TREE_COLLISION_MAX_WIDTH_PX,
 		)
+		var collision_size := Vector2(collision_width, LEGACY_TREE_COLLISION_DEPTH_PX)
 		tree_collision_records.append(
 			{
-				# Круг чуть выше точки земли (утоплен в ствол): игрок может
-				# подойти к дереву вплотную с юга (запрос пользователя 2026-07-04).
-				"position": position - Vector2(0.0, collision_radius * 0.5),
-				"radius": collision_radius,
+				# Южный край прямоугольника совпадает с точкой комля: физическое
+				# основание и depth-якорь дерева имеют один ground point.
+				"position": position - Vector2(0.0, collision_size.y * 0.5),
+				"size": collision_size,
 			},
 		)
 	_tree_count += 1
@@ -2345,8 +2352,8 @@ func _sync_tree_collision(collision_records: Array[Dictionary]) -> void:
 		var body: StaticBody2D = _ensure_tree_collision_body()
 		body.collision_layer = OBJECT_COLLISION_LAYER
 		for record: Dictionary in collision_records:
-			var shape := CircleShape2D.new()
-			shape.radius = float(record.get("radius", 12.0))
+			var shape := RectangleShape2D.new()
+			shape.size = record.get("size", Vector2(24.0, 16.0)) as Vector2
 			var owner_id: int = body.create_shape_owner(body)
 			body.shape_owner_add_shape(owner_id, shape)
 			body.shape_owner_set_transform(
@@ -2383,8 +2390,8 @@ static func _debug_rects_from_records(records: Array[Dictionary]) -> Array[Rect2
 	var rects: Array[Rect2] = []
 	for record: Dictionary in records:
 		var position: Vector2 = record.get("position", Vector2.ZERO) as Vector2
-		var radius: float = float(record.get("radius", 10.0))
-		rects.append(Rect2(position - Vector2(radius, radius), Vector2(radius, radius) * 2.0))
+		var size: Vector2 = record.get("size", Vector2(20.0, 16.0)) as Vector2
+		rects.append(Rect2(position - size * 0.5, size))
 	return rects
 
 
@@ -2407,10 +2414,14 @@ func set_debug_collisions_visible(enabled: bool) -> void:
 
 static func _debug_rects_from_packed_collision_records(records: PackedFloat32Array) -> Array[Rect2]:
 	var rects: Array[Rect2] = []
-	for offset: int in range(0, records.size() - 2, 3):
+	for offset: int in range(
+		0,
+		records.size() - TREE_COLLISION_RECORD_STRIDE + 1,
+		TREE_COLLISION_RECORD_STRIDE,
+	):
 		var position := Vector2(records[offset], records[offset + 1])
-		var radius: float = records[offset + 2]
-		rects.append(Rect2(position - Vector2.ONE * radius, Vector2.ONE * radius * 2.0))
+		var size := Vector2(records[offset + 2], records[offset + 3])
+		rects.append(Rect2(position - size * 0.5, size))
 	return rects
 
 
@@ -2476,6 +2487,70 @@ func _layered_tree_asset_dir_for_variant(frame_index: int) -> String:
 	if _layered_tree_asset_dirs.is_empty():
 		return ""
 	return _layered_tree_asset_dirs[abs(frame_index) % _layered_tree_asset_dirs.size()]
+
+
+func _layered_tree_collision_footprint_for_variant(frame_index: int) -> Rect2:
+	var asset_dir: String = _layered_tree_asset_dir_for_variant(frame_index)
+	var fallback_size := Vector2(
+		LEGACY_TREE_COLLISION_MIN_WIDTH_PX,
+		LEGACY_TREE_COLLISION_DEPTH_PX,
+	)
+	var fallback := Rect2(
+		Vector2(-fallback_size.x * 0.5, -fallback_size.y),
+		fallback_size,
+	)
+	if asset_dir.is_empty():
+		return fallback
+	if _layered_tree_collision_footprints_by_asset_dir.has(asset_dir):
+		return _layered_tree_collision_footprints_by_asset_dir[asset_dir] as Rect2
+	var metadata_path: String = "%s/meta.json" % asset_dir
+	if not FileAccess.file_exists(metadata_path):
+		push_error(
+			"WorldObjectPacketLayer: missing layered tree collision metadata %s" \
+					% metadata_path,
+		)
+		_layered_tree_collision_footprints_by_asset_dir[asset_dir] = fallback
+		return fallback
+	var parsed: Variant = JSON.parse_string(FileAccess.get_file_as_string(metadata_path))
+	if not parsed is Dictionary:
+		push_error("WorldObjectPacketLayer: invalid layered tree metadata %s" % metadata_path)
+		_layered_tree_collision_footprints_by_asset_dir[asset_dir] = fallback
+		return fallback
+	var metadata: Dictionary = parsed as Dictionary
+	var footprint_value: Variant = metadata.get("collision_footprint", null)
+	if not footprint_value is Dictionary:
+		push_error(
+			"WorldObjectPacketLayer: missing collision_footprint in %s" % metadata_path,
+		)
+		_layered_tree_collision_footprints_by_asset_dir[asset_dir] = fallback
+		return fallback
+	var authored: Dictionary = footprint_value as Dictionary
+	var visual_scale: float = WorldLayeredObjectAssetCatalog.TREE_FIXED_FRAME_SCALE
+	var authored_width_px: float = float(authored.get("width_px", 0.0))
+	var authored_depth_px: float = float(authored.get("depth_px", 0.0))
+	var collision_width: float = (
+		authored_width_px
+		* visual_scale
+		* WorldLayeredObjectAssetCatalog.TREE_COLLISION_WIDTH_MULTIPLIER
+	)
+	var collision_depth: float = maxf(
+		authored_depth_px
+		* visual_scale
+		* WorldLayeredObjectAssetCatalog.TREE_COLLISION_DEPTH_MULTIPLIER,
+		WorldLayeredObjectAssetCatalog.TREE_COLLISION_MIN_DEPTH_PX,
+	)
+	var size := Vector2(collision_width, collision_depth)
+	if size.x <= 0.0:
+		push_error("WorldObjectPacketLayer: invalid collision_footprint in %s" % metadata_path)
+		_layered_tree_collision_footprints_by_asset_dir[asset_dir] = fallback
+		return fallback
+	var center_x_offset: float = float(authored.get("offset_x_px", 0.0)) * visual_scale
+	var footprint := Rect2(
+		Vector2(center_x_offset - size.x * 0.5, -size.y),
+		size,
+	)
+	_layered_tree_collision_footprints_by_asset_dir[asset_dir] = footprint
+	return footprint
 
 
 func _layered_small_rock_asset_dir_for_variant(frame_index: int) -> String:

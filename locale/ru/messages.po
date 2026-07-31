@@ -1625,3 +1625,21 @@ msgstr "глубокая вода"
 
 msgid "UI_VISUAL_LAB_TERRAIN_UNKNOWN"
 msgstr "неизвестный terrain"
+
+msgid "UI_TREE_COLLISION_LAB_TITLE"
+msgstr "Коллизия и глубина деревьев — все 8 production-вариантов"
+
+msgid "UI_TREE_COLLISION_LAB_HINT"
+msgstr "WASD / стрелки — двигать всех игроков · R — вернуть за деревья · красный — ствол · голубой — игрок · розовая риска — основание"
+
+msgid "UI_TREE_COLLISION_LAB_LOADING"
+msgstr "Собираю деревья через production native renderer…"
+
+msgid "UI_TREE_COLLISION_LAB_READY"
+msgstr "Готово: {count} индивидуальных оснований из meta.json × масштаб {scale} · запас глубины сзади ≥34px"
+
+msgid "UI_TREE_COLLISION_LAB_TREE_LABEL"
+msgstr "{number} · {width}×{depth}px · Δx={offset}px"
+
+msgid "UI_TREE_COLLISION_LAB_ERROR"
+msgstr "Ошибка лаборатории: {reason}"

@@ -19,8 +19,13 @@ func _initialize() -> void:
 func _run() -> void:
 	var catalog: AssetCatalog = AssetCatalog.new()
 	_expect(catalog.is_ready(), "asset catalog is ready")
-	_expect(catalog.get_catalog_generation() == 5, "flora policy contract bumps catalog generation")
-	_expect(catalog.get_native_params().size() == 20, "native flora parameter layout")
+	_expect(catalog.get_catalog_generation() == 8, "flora policy uses current catalog generation")
+	var native_params: PackedFloat32Array = catalog.get_native_params()
+	_expect(native_params.size() == 20, "native flora parameter layout")
+	if native_params.size() == 20:
+		_expect(is_equal_approx(native_params[3], 1.0), "tree collision width multiplier")
+		_expect(is_equal_approx(native_params[4], 1.0), "tree collision depth multiplier")
+		_expect(is_equal_approx(native_params[5], 34.0), "tree collision minimum depth")
 	_verify_chunk_view_lazy_source_sync()
 	_verify_pool_envelope_prepares_fixed_render_graph(catalog)
 	var world_core: Object = ClassDB.instantiate("WorldCore")

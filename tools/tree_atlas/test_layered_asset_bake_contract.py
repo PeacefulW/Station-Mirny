@@ -6,17 +6,30 @@ import json
 import unittest
 from pathlib import Path
 
+from PIL import Image
+
 
 ROOT = Path(__file__).resolve().parents[2]
 PROFILE_PATH = ROOT / "tools" / "tree_atlas" / "layered_asset_bake_profile.json"
 RUST_CROWN_PROFILE_PATH = ROOT / "tools" / "tree_atlas" / "rust_crown_tree_profiles.json"
 RUST_CROWN_GENERATOR_PATH = ROOT / "tools" / "tree_atlas" / "blender_rust_crown_tree_bake.py"
+RUST_CROWN_ARTIFACT_DIR = ROOT / "artifacts" / "rust_crown_tree"
 DOC_PATH = ROOT / "docs" / "art" / "layered_asset_bake_contract.md"
 TREE_DIR = ROOT / "assets" / "sprites" / "flora" / "layered_trees"
 ROCK_DIR = ROOT / "assets" / "sprites" / "decor" / "plains" / "layered_small_rocks"
 BUSH_DIR = ROOT / "assets" / "sprites" / "flora" / "layered_bushes"
 WORLD_STREAMER_PATH = ROOT / "core" / "systems" / "world" / "world_streamer.gd"
 TREE_IDS = tuple(f"rust_crown_{index:02d}" for index in range(1, 9))
+RUST_CROWN_FOOTPRINTS = (
+    {"offset_x_px": 49, "width_px": 68, "depth_px": 31},
+    {"offset_x_px": -48, "width_px": 67, "depth_px": 31},
+    {"offset_x_px": 6, "width_px": 47, "depth_px": 26},
+    {"offset_x_px": 21, "width_px": 46, "depth_px": 26},
+    {"offset_x_px": 25, "width_px": 85, "depth_px": 36},
+    {"offset_x_px": -35, "width_px": 77, "depth_px": 35},
+    {"offset_x_px": -79, "width_px": 81, "depth_px": 36},
+    {"offset_x_px": 24, "width_px": 94, "depth_px": 36},
+)
 CATALOG_PATH = ROOT / "core" / "systems" / "world" / "world_layered_object_asset_catalog.gd"
 ROCK_LAYER_PATH = ROOT / "core" / "systems" / "world" / "layered_rock_object_layer.gd"
 LIGHTING_PROFILE_PATH = ROOT / "core" / "systems" / "world" / "world_visual_lighting_profile.gd"
@@ -118,6 +131,82 @@ class LayeredAssetBakeContractTest(unittest.TestCase):
             "end_tier_index=target_tier",
         ):
             self.assertIn(required, generator)
+
+    def test_rust_crown_collision_footprints_flow_from_profile_to_assets(self) -> None:
+        profile = json.loads(RUST_CROWN_PROFILE_PATH.read_text(encoding="utf-8"))
+        variants = profile["variants"]
+        generator = RUST_CROWN_GENERATOR_PATH.read_text(encoding="utf-8")
+
+        self.assertEqual(len(variants), len(RUST_CROWN_FOOTPRINTS))
+        self.assertIn('"collision_footprint": dict(variant["collision_footprint"])', generator)
+        for index, expected in enumerate(RUST_CROWN_FOOTPRINTS, start=1):
+            variant_id = f"var_{index:02d}"
+            tree_id = f"rust_crown_{index:02d}"
+            with self.subTest(tree_id=tree_id):
+                self.assertEqual(variants[index - 1]["id"], variant_id)
+                self.assertEqual(variants[index - 1]["collision_footprint"], expected)
+
+                production_meta = json.loads(
+                    (TREE_DIR / tree_id / "meta.json").read_text(encoding="utf-8")
+                )
+                artifact_classification = json.loads(
+                    (RUST_CROWN_ARTIFACT_DIR / variant_id / "classification.json").read_text(
+                        encoding="utf-8"
+                    )
+                )
+                artifact_meta = json.loads(
+                    (RUST_CROWN_ARTIFACT_DIR / variant_id / "meta.json").read_text(encoding="utf-8")
+                )
+                artifact_variation = json.loads(
+                    (RUST_CROWN_ARTIFACT_DIR / variant_id / "variation.json").read_text(
+                        encoding="utf-8"
+                    )
+                )
+
+                self.assertEqual(artifact_classification["collision_footprint"], expected)
+                self.assertEqual(artifact_meta["collision_footprint"], expected)
+                self.assertEqual(
+                    artifact_variation["variant"]["collision_footprint"],
+                    expected,
+                )
+                self.assertEqual(production_meta["collision_footprint"], expected)
+                self.assertNotIn("collision_radius", artifact_meta)
+                self.assertNotIn("collision_radius", production_meta)
+
+    def test_rust_crown_collision_footprints_align_with_the_dense_trunk_base(self) -> None:
+        for index, footprint in enumerate(RUST_CROWN_FOOTPRINTS, start=1):
+            tree_id = f"rust_crown_{index:02d}"
+            with self.subTest(tree_id=tree_id):
+                asset_dir = TREE_DIR / tree_id
+                metadata = json.loads(
+                    (asset_dir / "meta.json").read_text(encoding="utf-8")
+                )
+                anchor_x, anchor_y = metadata["anchor"]
+                center_x = anchor_x + footprint["offset_x_px"]
+                left = round(center_x - footprint["width_px"] * 0.5)
+                right = round(center_x + footprint["width_px"] * 0.5)
+                top = anchor_y - footprint["depth_px"]
+                alpha = Image.open(asset_dir / "trunk.png").convert("RGBA").getchannel("A")
+                opaque_by_column = [
+                    sum(
+                        alpha.getpixel((x, y)) >= 32
+                        for y in range(top, anchor_y + 1)
+                    )
+                    for x in range(alpha.width)
+                ]
+                footprint_width = right - left + 1
+                authored_opaque = sum(opaque_by_column[left : right + 1])
+                best_opaque = max(
+                    sum(opaque_by_column[x : x + footprint_width])
+                    for x in range(alpha.width - footprint_width + 1)
+                )
+                alignment = authored_opaque / best_opaque
+
+                self.assertGreaterEqual(
+                    alignment,
+                    0.85,
+                    f"{tree_id} collision footprint is horizontally misaligned",
+                )
 
     def test_contract_doc_exists_and_names_required_rules(self) -> None:
         self.assertTrue(DOC_PATH.is_file(), "Layered asset bake contract must be documented.")

@@ -4,8 +4,8 @@ doc_type: system_spec
 status: draft
 owner: engineering+design
 source_of_truth: true
-version: 0.9
-last_updated: 2026-07-28
+version: 0.10
+last_updated: 2026-07-31
 related_docs:
   - ../../00_governance/ENGINEERING_STANDARDS.md
   - ../../00_governance/PROJECT_GLOSSARY.md
@@ -549,14 +549,37 @@ Rules:
   shape owners, not one physics node per tree;
 - collision uses the obstacle-compatible layer expected by the player movement
   mask;
-- shape size is derived from the same visual `size_px` as the rendered tree and
-  must stay smaller than the crown footprint;
+- each variant authors
+  `meta.json.collision_footprint { offset_x_px, width_px, depth_px }`.
+  Native scales the X offset and dimensions with the same fixed frame scale as
+  the layered visual; `params[3]` and `params[4]` are the `1.0` width/depth
+  multipliers, while `params[5]` enforces a minimum 34-pixel scaled depth.
+  Packet `object_size_px` tiers do not resize or recenter a fixed-scale tree
+  collider;
+- native collision output uses stride `4`:
+  `(center_x, center_y, width, height)`. `WorldObjectPacketLayer` realizes each
+  record as one `RectangleShape2D`; its southern edge must equal the tree
+  root/base (`center_y + height * 0.5 == root_y`);
+- the player keeps the established visual-feet ladder anchor so grass does not
+  cover the lower animated body. That point is 18 pixels south of the blocking
+  shape. The 34-pixel minimum tree depth adds one full 16-pixel stripe beyond
+  that clearance, so rear physical contact is strictly northern for every
+  stripe phase; at southern contact the player remains strictly ahead. The
+  existing shadow → trunk → foliage → snow channel order remains unchanged;
+- collision must stay limited to the authored trunk width and remain smaller
+  than the crown footprint;
 - collision records are derived presentation/physics proof data, not saved
   authoritative world state;
 - this proof does not add harvesting, resource yield, object commands, object
   events, save diffs, non-`plains` placement, or mod script hooks;
 - accepted dense placement and collision for mod-scale content must remain in
   the native packet path before it is treated as production object gameplay.
+
+Developer proof scene:
+`res://scenes/dev/tree_collision_depth_dev_scene.tscn` builds all eight current
+`rust_crown` variants through `WorldCore.build_object_presentation_buffers`,
+shows the exact tree/player rectangles, and resets one player to rear collision
+contact behind every tree.
 
 ## Event Contracts
 

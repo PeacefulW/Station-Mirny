@@ -20,7 +20,7 @@ constexpr uint8_t OBJECT_KIND_TREE = 4;
 constexpr uint8_t OBJECT_KIND_SMALL_ROCK = 7;
 constexpr uint8_t OBJECT_KIND_BUSH = 8;
 constexpr int32_t BUFFER_STRIDE = 12;
-constexpr int32_t COLLISION_RECORD_STRIDE = 3;
+constexpr int32_t COLLISION_RECORD_STRIDE = 4;
 constexpr int32_t MAX_DEPTH_STRIPE_COUNT = 4096;
 
 struct Metric {
@@ -29,6 +29,9 @@ struct Metric {
 	float anchor_x_px = 0.0f;
 	float anchor_y_px = 0.0f;
 	float scale_or_visible_width = 0.0f;
+	float collision_center_x_offset_px = 0.0f;
+	float collision_width_px = 0.0f;
+	float collision_depth_px = 0.0f;
 };
 
 Dictionary make_empty_result() {
@@ -63,13 +66,15 @@ bool is_finite(float p_value) {
 bool decode_metrics(
 		const PackedFloat32Array &p_packed,
 		const char *p_family,
+		const int32_t p_stride,
+		const bool p_requires_collision_footprint,
 		std::vector<Metric> &r_metrics,
 		String &r_error) {
-	if (p_packed.size() % METRIC_STRIDE != 0) {
-		r_error = String("object_presentation: ") + p_family + " metrics size is not divisible by METRIC_STRIDE";
+	if (p_stride < BASE_METRIC_STRIDE || p_packed.size() % p_stride != 0) {
+		r_error = String("object_presentation: ") + p_family + " metrics size is not divisible by its stride";
 		return false;
 	}
-	const int64_t metric_count = p_packed.size() / METRIC_STRIDE;
+	const int64_t metric_count = p_packed.size() / p_stride;
 	if (metric_count > 256) {
 		r_error = String("object_presentation: ") + p_family + " metric count exceeds byte atlas frame capacity";
 		return false;
@@ -77,17 +82,29 @@ bool decode_metrics(
 	r_metrics.resize(static_cast<size_t>(metric_count));
 	const float *packed = p_packed.ptr();
 	for (int64_t index = 0; index < metric_count; ++index) {
-		const int64_t offset = index * METRIC_STRIDE;
+		const int64_t offset = index * p_stride;
 		Metric metric;
 		metric.frame_width_px = packed[offset + METRIC_FRAME_WIDTH_PX];
 		metric.frame_height_px = packed[offset + METRIC_FRAME_HEIGHT_PX];
 		metric.anchor_x_px = packed[offset + METRIC_ANCHOR_X_PX];
 		metric.anchor_y_px = packed[offset + METRIC_ANCHOR_Y_PX];
 		metric.scale_or_visible_width = packed[offset + METRIC_SCALE_OR_VISIBLE_WIDTH];
+		if (p_requires_collision_footprint) {
+			metric.collision_center_x_offset_px =
+					packed[offset + METRIC_TREE_COLLISION_CENTER_X_OFFSET_PX];
+			metric.collision_width_px = packed[offset + METRIC_TREE_COLLISION_WIDTH_PX];
+			metric.collision_depth_px = packed[offset + METRIC_TREE_COLLISION_DEPTH_PX];
+		}
 		if (!is_finite(metric.frame_width_px) || metric.frame_width_px <= 0.0f ||
 				!is_finite(metric.frame_height_px) || metric.frame_height_px <= 0.0f ||
 				!is_finite(metric.anchor_x_px) || !is_finite(metric.anchor_y_px) ||
-				!is_finite(metric.scale_or_visible_width) || metric.scale_or_visible_width <= 0.0f) {
+				!is_finite(metric.scale_or_visible_width) || metric.scale_or_visible_width <= 0.0f ||
+				(p_requires_collision_footprint &&
+						(!is_finite(metric.collision_center_x_offset_px) ||
+								!is_finite(metric.collision_width_px) ||
+								metric.collision_width_px <= 0.0f ||
+								!is_finite(metric.collision_depth_px) ||
+								metric.collision_depth_px <= 0.0f))) {
 			r_error = String("object_presentation: invalid ") + p_family + " metric at index " + String::num_int64(index);
 			return false;
 		}
@@ -241,9 +258,9 @@ Dictionary build_buffers(
 	const float local_px_quantum = params[PARAM_LOCAL_PX_QUANTUM];
 	const float depth_stripe_px = params[PARAM_DEPTH_STRIPE_PX];
 	const float stripe_count_f = params[PARAM_DEPTH_STRIPE_COUNT];
-	const float collision_scale = params[PARAM_TREE_COLLISION_RADIUS_SCALE];
-	const float collision_min = params[PARAM_TREE_COLLISION_MIN_RADIUS_PX];
-	const float collision_max = params[PARAM_TREE_COLLISION_MAX_RADIUS_PX];
+	const float collision_width_multiplier = params[PARAM_TREE_COLLISION_WIDTH_MULTIPLIER];
+	const float collision_depth_multiplier = params[PARAM_TREE_COLLISION_DEPTH_MULTIPLIER];
+	const float collision_min_depth = params[PARAM_TREE_COLLISION_MIN_DEPTH_PX];
 	const float decor_depth_anchor_y_scale = params[PARAM_DECOR_DEPTH_ANCHOR_Y_SCALE];
 	const float spiky_atlas_bank_count_f = params[PARAM_SPIKY_ATLAS_BANK_COUNT];
 	const float living_alpha = params[PARAM_LIVING_ALPHA];
@@ -261,9 +278,9 @@ Dictionary build_buffers(
 	if (!is_finite(local_px_quantum) || local_px_quantum <= 0.0f ||
 			!is_finite(depth_stripe_px) || depth_stripe_px <= 0.0f ||
 			!is_finite(stripe_count_f) || stripe_count_f < 1.0f || stripe_count_f > MAX_DEPTH_STRIPE_COUNT ||
-			!is_finite(collision_scale) || collision_scale < 0.0f ||
-			!is_finite(collision_min) || collision_min < 0.0f ||
-			!is_finite(collision_max) || collision_max < collision_min ||
+			!is_finite(collision_width_multiplier) || collision_width_multiplier <= 0.0f ||
+			!is_finite(collision_depth_multiplier) || collision_depth_multiplier <= 0.0f ||
+			!is_finite(collision_min_depth) || collision_min_depth < depth_stripe_px ||
 			!is_finite(decor_depth_anchor_y_scale) ||
 			!is_finite(spiky_atlas_bank_count_f) || spiky_atlas_bank_count_f < 1.0f || spiky_atlas_bank_count_f > 256.0f ||
 			!is_finite(living_alpha) || living_alpha < 0.0f || living_alpha > 1.0f ||
@@ -300,9 +317,27 @@ Dictionary build_buffers(
 	std::vector<Metric> rock_metrics;
 	std::vector<Metric> bush_metrics;
 	String metric_error;
-	if (!decode_metrics(p_tree_metrics, "tree", tree_metrics, metric_error) ||
-			!decode_metrics(p_rock_metrics, "rock", rock_metrics, metric_error) ||
-			!decode_metrics(p_bush_metrics, "bush", bush_metrics, metric_error)) {
+	if (!decode_metrics(
+				p_tree_metrics,
+				"tree",
+				TREE_METRIC_STRIDE,
+				true,
+				tree_metrics,
+				metric_error) ||
+			!decode_metrics(
+					p_rock_metrics,
+					"rock",
+					BASE_METRIC_STRIDE,
+					false,
+					rock_metrics,
+					metric_error) ||
+			!decode_metrics(
+					p_bush_metrics,
+					"bush",
+					BASE_METRIC_STRIDE,
+					false,
+					bush_metrics,
+					metric_error)) {
 		result["error"] = metric_error;
 		return result;
 	}
@@ -475,10 +510,18 @@ Dictionary build_buffers(
 
 		if (kind == OBJECT_KIND_TREE) {
 			append_instance(tree_atlas_buckets[static_cast<size_t>(stripe)], instance);
-			const float radius = std::clamp(static_cast<float>(sizes[index]) * collision_scale, collision_min, collision_max);
-			collision_records.push_back(root_x);
-			collision_records.push_back(root_y - radius * 0.5f);
-			collision_records.push_back(radius);
+			const float collision_width =
+					metric.collision_width_px * scale * collision_width_multiplier;
+			const float collision_depth = std::max(
+					metric.collision_depth_px * scale * collision_depth_multiplier,
+					collision_min_depth);
+			collision_records.push_back(
+					root_x + metric.collision_center_x_offset_px * scale);
+			// The southern edge is the authored root/base. This makes the tree
+			// depth key and its shallow physical footprint share one ground line.
+			collision_records.push_back(root_y - collision_depth * 0.5f);
+			collision_records.push_back(collision_width);
+			collision_records.push_back(collision_depth);
 			tree_count++;
 		} else if (kind == OBJECT_KIND_BUSH) {
 			if (bush_atlas_buckets.empty()) {

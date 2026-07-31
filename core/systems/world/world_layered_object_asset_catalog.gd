@@ -82,8 +82,8 @@ const BUSH_COLUMNS: int = 4
 const BUSH_ROWS: int = 1
 ## Bumped whenever the atlas layout or asset set changes: stale prepared buffers
 ## must be rejected rather than sampled against a grid that no longer matches.
-const CATALOG_GENERATION: int = 7
-const TREE_METRIC_STRIDE: int = 5
+const CATALOG_GENERATION: int = 8
+const TREE_METRIC_STRIDE: int = 8
 const ROCK_METRIC_STRIDE: int = 5
 const BUSH_METRIC_STRIDE: int = 5
 const METRIC_FRAME_WIDTH: int = 0
@@ -91,12 +91,18 @@ const METRIC_FRAME_HEIGHT: int = 1
 const METRIC_ANCHOR_X: int = 2
 const METRIC_ANCHOR_Y: int = 3
 const METRIC_VISIBLE_WIDTH: int = 4
+const TREE_METRIC_COLLISION_CENTER_X_OFFSET: int = 5
+const TREE_METRIC_COLLISION_WIDTH: int = 6
+const TREE_METRIC_COLLISION_DEPTH: int = 7
 const TREE_FIXED_FRAME_SCALE: float = 0.64
 const TREE_WIND_STRENGTH_PX: float = 3.0
 const OBJECT_POSITION_QUANTIZATION_PX: float = 4.0
-const TREE_COLLISION_RADIUS_SCALE: float = 0.065
-const TREE_COLLISION_RADIUS_MIN_PX: float = 9.0
-const TREE_COLLISION_RADIUS_MAX_PX: float = 20.0
+const TREE_COLLISION_WIDTH_MULTIPLIER: float = 1.0
+const TREE_COLLISION_DEPTH_MULTIPLIER: float = 1.0
+## Player visual feet sit 18px below the blocking shape. A 34px northward
+## footprint keeps rear collision contact at least one 16px depth stripe behind
+## the tree while preserving the grass-safe visual-feet ladder anchor.
+const TREE_COLLISION_MIN_DEPTH_PX: float = 34.0
 # Classic atlas-decor presentation constants live here because the worker must
 # reproduce that visual contract without hard-coded native tuning. The legacy
 # synchronous compatibility path aliases these same values.
@@ -154,9 +160,9 @@ var _native_params := PackedFloat32Array([
 	OBJECT_POSITION_QUANTIZATION_PX,
 	float(WorldRuntimeConstants.DEPTH_STRIPE_PX),
 	float(WorldRuntimeConstants.DEPTH_STRIPES_PER_CHUNK),
-	TREE_COLLISION_RADIUS_SCALE,
-	TREE_COLLISION_RADIUS_MIN_PX,
-	TREE_COLLISION_RADIUS_MAX_PX,
+	TREE_COLLISION_WIDTH_MULTIPLIER,
+	TREE_COLLISION_DEPTH_MULTIPLIER,
+	TREE_COLLISION_MIN_DEPTH_PX,
 	DECOR_DEPTH_ANCHOR_Y_SCALE,
 	float(SPIKY_ATLAS_BANK_COUNT),
 	LIVING_FLORA_ALPHA,
@@ -194,7 +200,7 @@ var _rock_shadow_material: ShaderMaterial = null
 var _living_flora_material: ShaderMaterial = null
 var _spiky_flora_material: ShaderMaterial = null
 var _classic_decor_shadow_material: ShaderMaterial = null
-var _tree_collision_shapes_by_radius: Dictionary = { }
+var _tree_collision_shapes_by_size: Dictionary = { }
 var _is_ready: bool = false
 var _season_amount: float = 0.0
 var _season_materials_initialized: bool = false
@@ -217,6 +223,32 @@ func get_catalog_generation() -> int:
 
 func get_tree_native_metrics() -> PackedFloat32Array:
 	return _tree_native_metrics
+
+
+func get_tree_collision_footprint_for_variant(variant: int) -> Rect2:
+	if _tree_native_metrics.is_empty():
+		return Rect2()
+	var variant_index: int = posmod(variant, TREE_SOURCE_DIRS.size())
+	var offset: int = variant_index * TREE_METRIC_STRIDE
+	var visual_scale: float = _tree_native_metrics[offset + METRIC_VISIBLE_WIDTH]
+	var center_x_offset: float = (
+		_tree_native_metrics[offset + TREE_METRIC_COLLISION_CENTER_X_OFFSET]
+		* visual_scale
+	)
+	var collision_width: float = (
+		_tree_native_metrics[offset + TREE_METRIC_COLLISION_WIDTH] * visual_scale
+	)
+	var collision_depth: float = (
+		_tree_native_metrics[offset + TREE_METRIC_COLLISION_DEPTH] * visual_scale
+	)
+	var size := Vector2(
+		collision_width * TREE_COLLISION_WIDTH_MULTIPLIER,
+		maxf(
+			collision_depth * TREE_COLLISION_DEPTH_MULTIPLIER,
+			TREE_COLLISION_MIN_DEPTH_PX,
+		),
+	)
+	return Rect2(Vector2(center_x_offset - size.x * 0.5, -size.y), size)
 
 
 func get_rock_native_metrics() -> PackedFloat32Array:
@@ -321,15 +353,15 @@ func get_sun_shadow_opacity() -> float:
 
 
 ## Immutable shared shape resources; each chunk keeps independent shape-owner
-## transforms, but identical authored radii do not allocate duplicate physics
-## resources while streaming.
-func get_tree_collision_shape(radius: float) -> CircleShape2D:
-	var radius_key: int = roundi(radius * 100000.0)
-	if _tree_collision_shapes_by_radius.has(radius_key):
-		return _tree_collision_shapes_by_radius.get(radius_key) as CircleShape2D
-	var shape := CircleShape2D.new()
-	shape.radius = radius
-	_tree_collision_shapes_by_radius[radius_key] = shape
+## transforms, but identical authored footprint sizes do not allocate duplicate
+## physics resources while streaming.
+func get_tree_collision_shape(size: Vector2) -> RectangleShape2D:
+	var size_key := Vector2i(roundi(size.x * 100000.0), roundi(size.y * 100000.0))
+	if _tree_collision_shapes_by_size.has(size_key):
+		return _tree_collision_shapes_by_size.get(size_key) as RectangleShape2D
+	var shape := RectangleShape2D.new()
+	shape.size = size
+	_tree_collision_shapes_by_size[size_key] = shape
 	return shape
 
 
@@ -397,7 +429,7 @@ func set_sun_lighting(shadow_length_px: float, shadow_opacity: float) -> void:
 
 func _prepare() -> void:
 	_prepare_native_param_policies()
-	_tree_native_metrics = _read_metrics(TREE_SOURCE_DIRS, TREE_FIXED_FRAME_SCALE)
+	_tree_native_metrics = _read_metrics(TREE_SOURCE_DIRS, TREE_FIXED_FRAME_SCALE, true)
 	_rock_native_metrics = _read_metrics(ROCK_SOURCE_DIRS, -1.0)
 	# Bushes are sized from the packet byte like rocks, so their metric carries
 	# the alpha-bbox visible width rather than an authored fixed frame scale.
@@ -637,7 +669,11 @@ func _set_atlas_layout(
 	)
 
 
-func _read_metrics(source_dirs: Array[String], fixed_scale: float) -> PackedFloat32Array:
+func _read_metrics(
+		source_dirs: Array[String],
+		fixed_scale: float,
+		include_collision_footprint: bool = false,
+) -> PackedFloat32Array:
 	var result := PackedFloat32Array()
 	for source_dir: String in source_dirs:
 		var path: String = "%s/meta.json" % source_dir
@@ -654,11 +690,31 @@ func _read_metrics(source_dirs: Array[String], fixed_scale: float) -> PackedFloa
 		if anchor.size() < 2 or alpha_bbox.size() < 4:
 			push_error("WorldLayeredObjectAssetCatalog: incomplete %s" % path)
 			return PackedFloat32Array()
+		var collision_footprint: Dictionary = { }
+		if include_collision_footprint:
+			var footprint_value: Variant = metadata.get("collision_footprint", null)
+			if not footprint_value is Dictionary:
+				push_error(
+					"WorldLayeredObjectAssetCatalog: missing collision_footprint in %s" % path,
+				)
+				return PackedFloat32Array()
+			collision_footprint = footprint_value as Dictionary
+			var collision_width: float = float(collision_footprint.get("width_px", 0.0))
+			var collision_depth: float = float(collision_footprint.get("depth_px", 0.0))
+			if collision_width <= 0.0 or collision_depth <= 0.0:
+				push_error(
+					"WorldLayeredObjectAssetCatalog: invalid collision_footprint in %s" % path,
+				)
+				return PackedFloat32Array()
 		result.append(float(metadata.get("frame_width", 0.0)))
 		result.append(float(metadata.get("frame_height", 0.0)))
 		result.append(float(anchor[0]))
 		result.append(float(anchor[1]))
 		result.append(fixed_scale if fixed_scale > 0.0 else float(alpha_bbox[2]))
+		if include_collision_footprint:
+			result.append(float(collision_footprint.get("offset_x_px", 0.0)))
+			result.append(float(collision_footprint.get("width_px", 0.0)))
+			result.append(float(collision_footprint.get("depth_px", 0.0)))
 	return result
 
 
