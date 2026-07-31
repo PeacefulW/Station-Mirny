@@ -38,6 +38,13 @@ light/visibility *authority*, not the renderer. Everything in this spec is
   — the single sun source already used by tree/grass/edge/mountain/player
   shadows. **No second lighting curve** (forbidden by `terrain_hybrid_presentation.md`).
 
+The micro-scale counterpart of this model is the gravel relief term
+([`plains_ground_gravel_relief.md`](plains_ground_gravel_relief.md), landed
+2026-07-31). It lights individual stones with the same hybrid split this spec
+established — a constant ambient form plus a `ground_sun_day`-faded directional
+component — reading the same `ground_sun_angle_deg` uniform. It introduces no
+sun of its own; if the sun model here changes, gravel follows automatically.
+
 ## Scope
 
 - **Iteration 1 (this landing):** large-scale cosmetic shading of the plains

@@ -305,6 +305,13 @@ dirt, painted in the ground shader from the existing rock textures.
 
 **Status: landed 2026-06-23** (verified via render probe).
 
+**Superseded in role on 2026-07-31.** Object-scale litter is now owned by the
+gravel relief term ([`plains_ground_gravel_relief.md`](plains_ground_gravel_relief.md)),
+which puts discrete lit stones on open soil and paths. Scree stays as the
+sub-object grain beneath it and keeps `scree_open_amount = 0.25`: the on/off
+render probe showed the two layers reading as grain-plus-stones rather than mud,
+so no retune was needed.
+
 ### Iteration 3 — Ecotone edge mottling (visual-only)
 
 The grass↔bare boundary read as a smooth fade; the reference has a ragged,

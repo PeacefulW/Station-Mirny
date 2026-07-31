@@ -138,6 +138,22 @@ func get_value(control_id: StringName) -> float:
 			return _param(ground.sampling_params, "rock_visual_coverage", 0.45)
 		&"ground.path_strength":
 			return _param(ground.sampling_params, "path_strength", 0.85)
+		&"gravel.coverage":
+			return _param(ground.sampling_params, "gravel_coverage", 0.55)
+		&"gravel.cell_px":
+			return _param(ground.sampling_params, "gravel_cell_px", 30.0)
+		&"gravel.size_min":
+			return _param(ground.sampling_params, "gravel_size_min", 0.20)
+		&"gravel.size_max":
+			return _param(ground.sampling_params, "gravel_size_max", 0.54)
+		&"gravel.relief_strength":
+			return _param(ground.sampling_params, "gravel_relief_strength", 0.55)
+		&"gravel.shadow_strength":
+			return _param(ground.sampling_params, "gravel_shadow_strength", 0.45)
+		&"gravel.tint":
+			return _param(ground.sampling_params, "gravel_tint", 0.35)
+		&"gravel.lod_fade_end_px":
+			return _param(ground.sampling_params, "gravel_lod_fade_end_px", 11.0)
 		&"grass.density_scale":
 			return _param(grass.sampling_params, "density_scale", 5.0)
 		&"grass.height_scale":
@@ -191,6 +207,38 @@ func set_value(control_id: StringName, value: float) -> void:
 		&"ground.path_strength":
 			_set_param(ground.sampling_params, "path_strength", clampf(value, 0.0, 1.0))
 			_sync_ground_field_settings()
+		# Gravel is colour-only: it never feeds grass_density, so unlike the
+		# ground knobs above it must NOT resync the native field settings.
+		&"gravel.coverage":
+			_set_param(ground.sampling_params, "gravel_coverage", clampf(value, 0.0, 1.0))
+		&"gravel.cell_px":
+			_set_param(ground.sampling_params, "gravel_cell_px", clampf(value, 8.0, 80.0))
+		&"gravel.size_min":
+			_set_param(
+				ground.sampling_params,
+				"gravel_size_min",
+				clampf(value, 0.05, get_value(&"gravel.size_max")),
+			)
+		&"gravel.size_max":
+			_set_param(
+				ground.sampling_params,
+				"gravel_size_max",
+				clampf(value, get_value(&"gravel.size_min"), 0.70),
+			)
+		&"gravel.relief_strength":
+			_set_param(ground.sampling_params, "gravel_relief_strength", clampf(value, 0.0, 1.5))
+		&"gravel.shadow_strength":
+			_set_param(ground.sampling_params, "gravel_shadow_strength", clampf(value, 0.0, 1.0))
+		&"gravel.tint":
+			_set_param(ground.sampling_params, "gravel_tint", clampf(value, 0.0, 1.0))
+		&"gravel.lod_fade_end_px":
+			# The fade window must stay ordered, or gravel pops instead of fading.
+			var fade_start: float = _param(ground.sampling_params, "gravel_lod_fade_start_px", 5.0)
+			_set_param(
+				ground.sampling_params,
+				"gravel_lod_fade_end_px",
+				clampf(value, fade_start + 1.0, 24.0),
+			)
 		&"grass.density_scale":
 			_set_param(grass.sampling_params, "density_scale", clampf(value, 0.0, 8.0))
 		&"grass.height_scale":

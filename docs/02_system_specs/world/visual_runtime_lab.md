@@ -61,7 +61,12 @@ V0 includes:
   - ground texture-zone mode;
   - existing tile-grid, mountain-mask, and object-collision overlays;
   - terrain/material inspection under the cursor;
-  - ground, grass, tree, small-rock, lake, and mountain tuning controls;
+  - ground, gravel, grass, tree, small-rock, lake, and mountain tuning controls.
+    Controls are an authored list in three places that must stay in sync
+    (`CONTROL_GROUPS` in the panel, `get_value` and `set_value` in the authoring
+    model) plus a localization key per control — the lab does **not** derive
+    sliders from `sampling_params`, so a new material knob is invisible here
+    until it is declared;
   - apply, reset, and save-to-runtime actions;
 - an exact ground-zone debug mode inside the production ground shader. It uses
   the already-computed shader fields and is disabled by default;

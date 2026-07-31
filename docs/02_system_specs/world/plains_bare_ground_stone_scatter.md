@@ -178,14 +178,24 @@ path are untouched.
 `min_distance_px` must be enforced **across both sets**, or edge clusters and
 bare-ground clusters will overlap where the two masks meet.
 
-### 4. Relationship to shader scree
+### 4. Relationship to shader scree and gravel relief
 
-Shader scree already litters the seam and, at `scree_open_amount = 0.25`, faintly
-litters open ground. Object stones now own the readable contour-scale accents;
-scree stays the sub-object grain underneath. Retune `scree_open_amount` only if
-the render probe shows mud. This is a visual tuning decision for the probe, not
-a formula change — it touches no field math and needs no `WORLD_VERSION` bump
-on its own.
+Ground stone is now three layers, each at its own scale:
+
+| layer | scale | mechanism | role |
+|---|---|---|---|
+| shader scree | sub-object grain | `fbm2` threshold into colour | grain under everything; `scree_open_amount = 0.25` |
+| gravel relief | `6..32 px` | jittered-grid cell field with analytic lighting ([`plains_ground_gravel_relief.md`](plains_ground_gravel_relief.md)) | the mass — volume across all open soil and paths |
+| `object_kind == 7` | `7..26 px` baked assets | `MultiMeshInstance2D` | sparse readable accents on the ecotone contour |
+
+Mass belongs in the shader and accents belong in instances. Covering open ground
+with instances instead would be roughly `1200` stones per chunk against the `21`
+this family averages, on a path whose cost is already the measured bottleneck.
+
+The gravel layer landed on 2026-07-31 without disturbing this family: it writes
+only ground colour, emits no packet, and creates no instance. Retune
+`scree_open_amount` only if a render probe shows mud — as of the gravel landing
+it does not.
 
 ## Data Model
 

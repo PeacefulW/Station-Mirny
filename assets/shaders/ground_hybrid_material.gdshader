@@ -76,6 +76,34 @@ uniform float scree_field_scale_px = 640.0;
 uniform float scree_density = 0.45;
 uniform float scree_strength = 0.9;
 uniform float scree_open_amount = 0.25;
+// Gravel relief: discrete lit micro-stones on open soil and paths. A jittered
+// grid, NOT fbm — fbm produces regions without an edge, which is exactly why
+// the scree above reads as dirt grain instead of stones. Each cell holds at
+// most one stone with an analytic dome height, its own sun-directional shading
+// and a contact shadow, so the ground gains volume with no normal map (terrain
+// normals are inert) and not one placed instance.
+// Visual-only: reads grass_density_visual / path_open / rock_region_visual and
+// writes only top_color, so it stays outside the field-mirror law.
+// See docs/02_system_specs/world/plains_ground_gravel_relief.md
+uniform float gravel_cell_px = 30.0;
+uniform float gravel_coverage = 0.55;
+uniform float gravel_size_min = 0.20;
+uniform float gravel_size_max = 0.54;
+// Above 1.0 skews the calibre toward small stones, so a few large ones stand
+// out of many fine ones instead of one uniform bumpy field.
+uniform float gravel_size_bias = 1.4;
+uniform float gravel_elongation = 1.6;
+uniform float gravel_ambient_strength = 0.22;
+uniform float gravel_relief_strength = 0.55;
+uniform float gravel_shadow_strength = 0.45;
+uniform float gravel_shadow_offset_px = 2.2;
+uniform float gravel_tint = 0.35;
+uniform float gravel_grass_start = 0.06;
+uniform float gravel_grass_end = 0.26;
+uniform float gravel_path_amount = 1.0;
+uniform float gravel_rock_suppress = 0.80;
+uniform float gravel_lod_fade_start_px = 5.0;
+uniform float gravel_lod_fade_end_px = 11.0;
 // Ecotone edge mottling: high-frequency break-up of the grass<->bare boundary,
 // applied ONLY inside the transition band, so the edge interfingers (grass
 // tongues, dirt bays, stranded clumps) like the reference instead of a smooth
@@ -356,6 +384,123 @@ void fragment() {
 				* (0.5 + 0.5 * scree_grain);
 			top_color = mix(top_color, rock_color * 0.96, clamp(scree * scree_strength, 0.0, 1.0));
 			rock_normal_mask = max(rock_normal_mask, clamp(scree * scree_strength, 0.0, 1.0) * 0.70);
+
+			// --- gravel relief: lit micro-stones on open soil and paths ---
+			// Sits above scree (which stays sub-object grain) and below the tone
+			// drift + cosmetic shading, so the large masses modulate the stones
+			// together with the soil under them instead of leaving them as a
+			// separately lit layer floating on top.
+			float gravel_open = 1.0 - smoothstep(gravel_grass_start, gravel_grass_end, grass_density_visual);
+			float gravel_path = clamp((1.0 - path_open) * gravel_path_amount, 0.0, 1.0);
+			float gravel_band = max(gravel_open, gravel_path);
+			gravel_band *= 1.0 - clamp(rock_region_visual * gravel_rock_suppress, 0.0, 1.0);
+
+			// One world unit measured in screen pixels. A 5..14 px stone drops
+			// below one screen pixel as the camera pulls back, and a procedural
+			// field has no mipmap to converge into, so it must be faded out
+			// explicitly instead of shimmering. Derivatives are taken outside
+			// the branch below: they require uniform control flow.
+			float gravel_world_px = fwidth(world_pos.x) + fwidth(world_pos.y);
+			float gravel_lod = 1.0 - smoothstep(gravel_lod_fade_start_px, gravel_lod_fade_end_px, gravel_world_px);
+			float gravel_weight = clamp(gravel_band * gravel_lod, 0.0, 1.0);
+
+			if (gravel_weight > 0.004) {
+				float gravel_cell = max(gravel_cell_px, 4.0);
+				vec2 gravel_base_cell = floor(world_pos / gravel_cell);
+				// Direction TOWARD the sun. Its negation is the baked shadow
+				// direction shared by every tree and rock asset, so there is
+				// exactly one sun in frame.
+				vec2 gravel_sun = vec2(cos(radians(ground_sun_angle_deg)), sin(radians(ground_sun_angle_deg)));
+				float gravel_edge = max(gravel_world_px, 0.35);
+
+				float stone_cover = 0.0;
+				float stone_height = 0.0;
+				vec2 stone_grad = vec2(0.0);
+				float stone_id = 0.0;
+				float stone_shadow = 0.0;
+
+				for (int gy = -1; gy <= 1; gy++) {
+					for (int gx = -1; gx <= 1; gx++) {
+						vec2 gcell = gravel_base_cell + vec2(float(gx), float(gy));
+						// An empty cell costs one hash and nothing else.
+						if (hash12(gcell + vec2(3.7, 11.3)) > gravel_coverage) {
+							continue;
+						}
+						// Jitter stays inside the middle half of the cell, so a
+						// stone can never reach past the 3x3 walk above.
+						vec2 gjit = vec2(
+							hash12(gcell + vec2(19.1, 5.9)),
+							hash12(gcell + vec2(-7.3, 27.7))
+						);
+						vec2 gcentre = (gcell + vec2(0.25) + gjit * 0.5) * gravel_cell;
+						float gradius = mix(
+							gravel_size_min,
+							gravel_size_max,
+							pow(hash12(gcell + vec2(41.9, -13.1)), max(gravel_size_bias, 0.05))
+						) * gravel_cell;
+						// Stones are not discs: a per-cell heading plus a squash
+						// on the cross axis gives elongated pebbles.
+						float gang = hash12(gcell + vec2(8.3, 63.1)) * 6.2831853;
+						vec2 gaxis = vec2(cos(gang), sin(gang));
+						vec2 gperp = vec2(-gaxis.y, gaxis.x);
+						float gsquash = mix(1.0, max(gravel_elongation, 1.0), hash12(gcell + vec2(-31.7, 4.4)));
+
+						vec2 gd = world_pos - gcentre;
+						vec2 gdl = vec2(dot(gd, gaxis), dot(gd, gperp) * gsquash);
+						float gdist = length(gdl);
+						float gcover = 1.0 - smoothstep(gradius - gravel_edge, gradius, gdist);
+						if (gcover > 0.0) {
+							// Keep the widest coverage so overlapping stones
+							// never let a sliver of soil through their union.
+							stone_cover = max(stone_cover, gcover);
+							float gt2 = clamp((gdist * gdist) / max(gradius * gradius, 0.001), 0.0, 1.0);
+							float gh = sqrt(max(1.0 - gt2, 0.0));
+							if (gh >= stone_height) {
+								stone_height = gh;
+								// Analytic dome gradient, rotated back into world
+								// space. Falls out of values already computed, so
+								// it costs no extra sample.
+								vec2 grad_local = -gdl / max(gradius * gradius * max(gh, 0.12), 0.001);
+								stone_grad = grad_local.x * gaxis + grad_local.y * gperp * gsquash;
+								stone_id = hash12(gcell + vec2(77.7, 12.9));
+							}
+						}
+
+						// Contact shadow: the same silhouette pushed away from
+						// the sun, softened toward its rim.
+						vec2 gds = world_pos - (gcentre - gravel_sun * gravel_shadow_offset_px);
+						vec2 gdsl = vec2(dot(gds, gaxis), dot(gds, gperp) * gsquash);
+						stone_shadow = max(
+							stone_shadow,
+							1.0 - smoothstep(gradius * 0.55, gradius * 1.05, length(gdsl))
+						);
+					}
+				}
+
+				// Contact shadow first, and only where no stone covers this
+				// fragment: a stone must never wear its neighbour's shadow.
+				// Day-only, like every other directional term here.
+				float gravel_day = clamp(ground_sun_day, 0.0, 1.0);
+				float shadow_here = stone_shadow * (1.0 - stone_cover) * gravel_shadow_strength * gravel_weight * gravel_day;
+				top_color *= 1.0 - shadow_here * 0.55;
+
+				if (stone_cover > 0.0) {
+					// Ambient form survives the night (the rim of a dome is
+					// always darker than its crown); the directional term fades
+					// with daylight, mirroring the cosmetic shading model.
+					float gravel_ambient = mix(1.0 - gravel_ambient_strength, 1.0, stone_height);
+					float gravel_lambert = dot(normalize(stone_grad + vec2(1e-5, 1e-5)), -gravel_sun);
+					float gravel_lit = gravel_ambient * (
+						1.0 + gravel_lambert * gravel_relief_strength * stone_height * gravel_day
+					);
+					vec3 stone_color = mix(
+						top_color,
+						rock_color * mix(0.88, 1.12, stone_id),
+						clamp(gravel_tint, 0.0, 1.0)
+					) * gravel_lit;
+					top_color = mix(top_color, stone_color, stone_cover * gravel_weight);
+				}
+			}
 
 			// --- large aperiodic tone drift: keeps far zoom alive, no grid ---
 			if (macro_drift_strength > 0.001 && macro_drift_scale_px > 1.0) {

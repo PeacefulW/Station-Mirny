@@ -29,6 +29,19 @@ const CONTROL_GROUPS: Array[Dictionary] = [
 		],
 	},
 	{
+		"title": &"UI_VISUAL_LAB_GROUP_GRAVEL",
+		"controls": [
+			[&"gravel.coverage", &"UI_VISUAL_LAB_GRAVEL_COVERAGE", 0.0, 1.0, 0.01],
+			[&"gravel.cell_px", &"UI_VISUAL_LAB_GRAVEL_CELL", 8.0, 80.0, 1.0],
+			[&"gravel.size_min", &"UI_VISUAL_LAB_GRAVEL_SIZE_MIN", 0.05, 0.55, 0.01],
+			[&"gravel.size_max", &"UI_VISUAL_LAB_GRAVEL_SIZE_MAX", 0.10, 0.70, 0.01],
+			[&"gravel.relief_strength", &"UI_VISUAL_LAB_GRAVEL_RELIEF", 0.0, 1.5, 0.01],
+			[&"gravel.shadow_strength", &"UI_VISUAL_LAB_GRAVEL_SHADOW", 0.0, 1.0, 0.01],
+			[&"gravel.tint", &"UI_VISUAL_LAB_GRAVEL_TINT", 0.0, 1.0, 0.01],
+			[&"gravel.lod_fade_end_px", &"UI_VISUAL_LAB_GRAVEL_LOD", 2.0, 24.0, 0.5],
+		],
+	},
+	{
 		"title": &"UI_VISUAL_LAB_GROUP_GRASS",
 		"controls": [
 			[&"grass.density_scale", &"UI_VISUAL_LAB_GRASS_DENSITY", 0.0, 8.0, 0.05],

@@ -1386,6 +1386,33 @@ msgstr "Автоприменение"
 msgid "UI_VISUAL_LAB_GROUP_GROUND"
 msgstr "Земля и зоны"
 
+msgid "UI_VISUAL_LAB_GROUP_GRAVEL"
+msgstr "Щебень"
+
+msgid "UI_VISUAL_LAB_GRAVEL_COVERAGE"
+msgstr "Плотность щебня"
+
+msgid "UI_VISUAL_LAB_GRAVEL_CELL"
+msgstr "Шаг камней, px"
+
+msgid "UI_VISUAL_LAB_GRAVEL_SIZE_MIN"
+msgstr "Мелкий калибр"
+
+msgid "UI_VISUAL_LAB_GRAVEL_SIZE_MAX"
+msgstr "Крупный калибр"
+
+msgid "UI_VISUAL_LAB_GRAVEL_RELIEF"
+msgstr "Объём от солнца"
+
+msgid "UI_VISUAL_LAB_GRAVEL_SHADOW"
+msgstr "Тень под камнем"
+
+msgid "UI_VISUAL_LAB_GRAVEL_TINT"
+msgstr "Отличие от грунта"
+
+msgid "UI_VISUAL_LAB_GRAVEL_LOD"
+msgstr "Дальность видимости"
+
 msgid "UI_VISUAL_LAB_GROUP_GRASS"
 msgstr "Трава"
 

@@ -229,6 +229,15 @@ by chunk-local masks or overlay sprites:
   `plains_ground_field_composition.md` and obey the same aperiodic, no-per-chunk
   rules; their math is mirrored 1:1 across the ground shader and the native
   field transcriptions so placed grass/trees stay coherent with the painting.
+- The ground composition additionally carries a **gravel relief** term owned by
+  `plains_ground_gravel_relief.md`: a jittered-grid field of discrete micro
+  stones on open soil and paths, each with an analytic dome height, a
+  sun-directional shading term and a contact shadow, faded out by zoom. It
+  reads `grass_density_visual` / `path_open` / `rock_region_visual` and writes
+  only colour, so it changes no placement field and needs no native mirror. It
+  obeys the same aperiodic, no-per-chunk rules as every other term here, and it
+  derives its sun from the same single cosmetic sun model — no second lighting
+  curve.
 - The composition holds no per-chunk state, so chunk-boundary seams cannot
   exist in the ground field by construction. Per-chunk decorative overlay
   sprites for grass/rock breakup are retired; they were the proven source of

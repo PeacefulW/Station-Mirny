@@ -1386,6 +1386,33 @@ msgstr "Auto apply"
 msgid "UI_VISUAL_LAB_GROUP_GROUND"
 msgstr "Ground and zones"
 
+msgid "UI_VISUAL_LAB_GROUP_GRAVEL"
+msgstr "Gravel"
+
+msgid "UI_VISUAL_LAB_GRAVEL_COVERAGE"
+msgstr "Gravel density"
+
+msgid "UI_VISUAL_LAB_GRAVEL_CELL"
+msgstr "Stone spacing, px"
+
+msgid "UI_VISUAL_LAB_GRAVEL_SIZE_MIN"
+msgstr "Small calibre"
+
+msgid "UI_VISUAL_LAB_GRAVEL_SIZE_MAX"
+msgstr "Large calibre"
+
+msgid "UI_VISUAL_LAB_GRAVEL_RELIEF"
+msgstr "Sun relief"
+
+msgid "UI_VISUAL_LAB_GRAVEL_SHADOW"
+msgstr "Contact shadow"
+
+msgid "UI_VISUAL_LAB_GRAVEL_TINT"
+msgstr "Tint vs soil"
+
+msgid "UI_VISUAL_LAB_GRAVEL_LOD"
+msgstr "Fade distance"
+
 msgid "UI_VISUAL_LAB_GROUP_GRASS"
 msgstr "Grass"
 
