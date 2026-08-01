@@ -1,67 +1,101 @@
 class_name PlayerSunShadow
 extends Sprite2D
-## Visual-only fixed-azimuth silhouette shadow for the local player.
+## Visual-only baked sun shadow for the local player.
+##
+## The body and shadow use separate atlases. The body owns the active clip,
+## direction and frame; this component mirrors only those integer indices into
+## the matching 76x48 baked-shadow atlas. The baked cast already points toward
+## screen south-east, so time of day may stretch/soften/fade it but never rotate
+## it or rebuild a silhouette at runtime.
 
 const WorldRuntimeConstants = preload("res://core/systems/world/world_runtime_constants.gd")
 const WorldVisualLightingProfile = preload("res://core/systems/world/world_visual_lighting_profile.gd")
 const PLAYER_SUN_SHADOW_SHADER = preload("res://assets/shaders/player_silhouette_shadow.gdshader")
 
-const PLAYER_FRAME_HEIGHT_PX: float = 256.0
-## Фиксированная линия земли под игроком (UV в кадре) — медиана контакта ног idle.
-## Каждый кадр шейдер пиннит контакт ног на эту линию: убирает отрыв и «дрожание».
-const GROUND_CONTACT_UV: float = 0.773
-## 16 кадров на направление; индекс контакта dir-major: idx = direction*16 + frame.
+const ATLAS_DIRECTIONS: int = 16
 const ATLAS_FRAMES_PER_DIRECTION: int = 16
-## Запасной контакт, если у клипа нет запечённого frame_contact_uv (логируем сбой).
-const DEFAULT_CONTACT_UV: float = 0.773
-const SHADOW_OPACITY_SCALE: float = 0.45
+const ALBEDO_FRAME_SIZE_PX: Vector2 = Vector2(208.0, 288.0)
+const SHADOW_FRAME_SIZE_PX: Vector2 = Vector2(76.0, 48.0)
+## The shadow pass is baked at one quarter of the albedo's linear resolution.
+## Its Sprite2D therefore needs four times the albedo node scale to preserve the
+## same projected world size.
+const SHADOW_DOWNSAMPLE_FACTOR: float = 4.0
+## Both passes align by the projection of the same 3D world origin. This is not
+## the old V0 `foot_contact_uv` silhouette hinge.
+const ALBEDO_WORLD_ORIGIN_UV: Vector2 = Vector2(0.5, 0.806)
+const SHADOW_WORLD_ORIGIN_PX: Vector2 = Vector2(26.0, 14.0)
+const SHADOW_ANCHOR_EPSILON_PX: float = 0.01
+
+## Baked layered-object shadows use this same noon-to-low-sun stretch range.
+const SHADOW_LENGTH_SCALE_MIN: float = 1.0
+const SHADOW_LENGTH_SCALE_MAX: float = 1.85
+## Transverse taps follow the tree-shadow material: the cast grows softer, but
+## its fixed authored direction and grounded origin do not change.
+const SHADOW_SOFTNESS_MIN_TEXELS: float = 0.75
+const SHADOW_SOFTNESS_MAX_TEXELS: float = 7.0
+const SHADOW_OPACITY_SCALE: float = 0.60
 const SHADOW_VISIBILITY_EPSILON: float = 0.006
-## Длина тени = доля высоты фигуры, «уложенной» на землю вдоль shadow_dir.
-## Минимум держим заметным: тело непрозрачно и рисуется ПОВЕРХ тени, поэтому при
-## высоком солнце тень обязана вылезать из-под тела (путь Factorio: видна всегда).
-const SHADOW_PROJECTION_MIN: float = 0.5
-const SHADOW_PROJECTION_MAX: float = 1.4
-## Контактное пятно: мягкий тёмный эллипс у ног, из которого «прорастает» силуэт.
-## Чистый уложенный силуэт человека отрывается у ног (тонкие ноги → бледная связь);
-## пятно прибивает тень к ступням и закрывает разрыв. Размеры — в пикселях кадра.
-const POOL_BASE_LENGTH_PX: float = 95.0
-const POOL_LENGTH_PER_PROJECTION_PX: float = 80.0
-const POOL_WIDTH_PX: float = 80.0
-const POOL_FORWARD_BIAS: float = 0.30
-const POOL_OPACITY_FACTOR: float = 0.85
-const POOL_TEXTURE_SIZE_PX: int = 128
-const SHADOW_TINT: Color = Color(0.045, 0.036, 0.026)
 const SHADOW_ABSOLUTE_Z_OFFSET: int = 1
 const PARAM_EPSILON: float = 0.001
 
 @export var visual_node_path: NodePath = ^"../Visual"
 
+@export_group("Albedo clip atlas references")
+@export var idle_albedo_texture: Texture2D = null
+@export var run_forward_albedo_texture: Texture2D = null
+@export var run_backward_albedo_texture: Texture2D = null
+@export var strafe_left_albedo_texture: Texture2D = null
+@export var strafe_right_albedo_texture: Texture2D = null
+
+@export_group("Baked shadow clip atlas references")
+@export var idle_shadow_texture: Texture2D = null
+@export var run_forward_shadow_texture: Texture2D = null
+@export var run_backward_shadow_texture: Texture2D = null
+@export var strafe_left_shadow_texture: Texture2D = null
+@export var strafe_right_shadow_texture: Texture2D = null
+
 var _visual: Sprite2D = null
 var _shadow_material: ShaderMaterial = null
 var _world_streamer: Node = null
 var _building_system: Node = null
-var _last_shadow_dir: Vector2 = Vector2.INF
-var _last_projection: float = -1.0
+## Keyed by the albedo Texture2D instance id. Five fixed entries keep clip
+## selection O(1) without `load()` or filename parsing on the gameplay path.
+var _clip_bindings: Dictionary = {}
+## Metadata is parsed exactly once per shadow atlas during `_ready()`.
+var _metadata_cache: Dictionary = {}
+var _reported_missing_binding_ids: Dictionary = {}
+var _last_shadow_texture: Texture2D = null
+var _last_frame_index: int = -1
+var _last_direction_index: int = -1
+var _last_anchor_px: Vector2 = Vector2.INF
+var _last_length_scale: float = -1.0
+var _last_softness_texels: float = -1.0
 var _last_opacity: float = -1.0
-var _last_contact_uv: float = -1.0
-var _contact_tables: Dictionary = {}
-var _contact_pool: Sprite2D = null
+var _has_valid_frame: bool = false
 
 
 func _ready() -> void:
+	# Player updates its Visual at the default priority. Run immediately after it
+	# so the baked cast never trails the body by one physics frame.
+	process_physics_priority = 1
 	centered = true
 	region_enabled = true
+	region_filter_clip_enabled = true
 	rotation = 0.0
+	flip_h = false
+	flip_v = false
 	z_as_relative = false
 	z_index = WorldRuntimeConstants.Z_GRASS_SHADOW + SHADOW_ABSOLUTE_Z_OFFSET
-	texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS
+	texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR
 	_shadow_material = ShaderMaterial.new()
 	_shadow_material.shader = PLAYER_SUN_SHADOW_SHADER
-	_shadow_material.set_shader_parameter("sprite_height_px", PLAYER_FRAME_HEIGHT_PX)
-	_shadow_material.set_shader_parameter("ground_uv_y", GROUND_CONTACT_UV)
+	_shadow_material.set_shader_parameter(
+		"shadow_direction",
+		WorldVisualLightingProfile.FIXED_SHADOW_DIRECTION,
+	)
+	_shadow_material.set_shader_parameter("shadow_frame_size_px", SHADOW_FRAME_SIZE_PX)
 	material = _shadow_material
-	_contact_pool = _build_contact_pool()
-	add_child(_contact_pool)
+	_build_clip_bindings()
 	_sync_visual_frame()
 	_update_shadow_from_environment()
 
@@ -71,86 +105,197 @@ func _physics_process(_delta: float) -> void:
 	_update_shadow_from_environment()
 
 
+func _build_clip_bindings() -> void:
+	_clip_bindings.clear()
+	_metadata_cache.clear()
+	_register_clip(&"idle", idle_albedo_texture, idle_shadow_texture)
+	_register_clip(&"run_forward", run_forward_albedo_texture, run_forward_shadow_texture)
+	_register_clip(&"run_backward", run_backward_albedo_texture, run_backward_shadow_texture)
+	_register_clip(&"strafe_left", strafe_left_albedo_texture, strafe_left_shadow_texture)
+	_register_clip(&"strafe_right", strafe_right_albedo_texture, strafe_right_shadow_texture)
+
+
+func _register_clip(clip_id: StringName, albedo_texture: Texture2D, shadow_texture: Texture2D) -> void:
+	if albedo_texture == null or shadow_texture == null:
+		push_error("PlayerSunShadow: clip %s is missing an explicit albedo/shadow atlas reference" % clip_id)
+		return
+	var metadata: Dictionary = _metadata_for_shadow(shadow_texture)
+	var anchor_px: Vector2 = _validated_shadow_anchor(clip_id, metadata)
+	var albedo_anchor_uv: Vector2 = _validated_albedo_anchor(clip_id, metadata)
+	_clip_bindings[albedo_texture.get_instance_id()] = {
+		"clip_id": clip_id,
+		"shadow_texture": shadow_texture,
+		"anchor_px": anchor_px,
+		"albedo_anchor_uv": albedo_anchor_uv,
+	}
+
+
+func _metadata_for_shadow(shadow_texture: Texture2D) -> Dictionary:
+	var texture_path: String = shadow_texture.resource_path
+	if texture_path.is_empty():
+		push_error("PlayerSunShadow: baked shadow texture has no resource_path")
+		return {}
+	var metadata_path: String = texture_path.get_basename() + ".json"
+	if _metadata_cache.has(metadata_path):
+		return _metadata_cache[metadata_path] as Dictionary
+	var result: Dictionary = {}
+	var json_text: String = FileAccess.get_file_as_string(metadata_path)
+	if json_text.is_empty():
+		push_error("PlayerSunShadow: missing baked shadow metadata %s" % metadata_path)
+	else:
+		var parsed: Variant = JSON.parse_string(json_text)
+		if parsed is Dictionary:
+			result = parsed as Dictionary
+		else:
+			push_error("PlayerSunShadow: invalid baked shadow metadata %s" % metadata_path)
+	_metadata_cache[metadata_path] = result
+	return result
+
+
+func _validated_shadow_anchor(clip_id: StringName, metadata: Dictionary) -> Vector2:
+	_validate_metadata_grid(clip_id, metadata)
+	var raw_anchor: Variant = metadata.get("shadow_anchor_px", metadata.get("anchor_px", []))
+	var anchor_px: Vector2 = SHADOW_WORLD_ORIGIN_PX
+	if raw_anchor is Array and (raw_anchor as Array).size() >= 2:
+		var values: Array = raw_anchor as Array
+		anchor_px = Vector2(float(values[0]), float(values[1]))
+	elif raw_anchor is Vector2:
+		anchor_px = raw_anchor as Vector2
+	else:
+		push_error("PlayerSunShadow: clip %s metadata has no shadow_anchor_px" % clip_id)
+	if anchor_px.distance_to(SHADOW_WORLD_ORIGIN_PX) > SHADOW_ANCHOR_EPSILON_PX:
+		push_error(
+			"PlayerSunShadow: clip %s shadow anchor %s does not match authored %s"
+			% [clip_id, anchor_px, SHADOW_WORLD_ORIGIN_PX]
+		)
+		# Keep presentation grounded even in a bad development bake; the contract
+		# test still fails on the metadata mismatch.
+		return SHADOW_WORLD_ORIGIN_PX
+	return anchor_px
+
+
+func _validated_albedo_anchor(clip_id: StringName, metadata: Dictionary) -> Vector2:
+	var raw_anchor: Variant = metadata.get("albedo_anchor_uv", [])
+	var anchor_uv: Vector2 = ALBEDO_WORLD_ORIGIN_UV
+	if raw_anchor is Array and (raw_anchor as Array).size() >= 2:
+		var values: Array = raw_anchor as Array
+		anchor_uv = Vector2(float(values[0]), float(values[1]))
+	elif raw_anchor is Vector2:
+		anchor_uv = raw_anchor as Vector2
+	else:
+		push_error("PlayerSunShadow: clip %s metadata has no albedo_anchor_uv" % clip_id)
+	if anchor_uv.distance_to(ALBEDO_WORLD_ORIGIN_UV) > PARAM_EPSILON:
+		push_error(
+			"PlayerSunShadow: clip %s albedo anchor %s does not match authored %s"
+			% [clip_id, anchor_uv, ALBEDO_WORLD_ORIGIN_UV]
+		)
+		return ALBEDO_WORLD_ORIGIN_UV
+	return anchor_uv
+
+
+func _validate_metadata_grid(clip_id: StringName, metadata: Dictionary) -> void:
+	if metadata.is_empty():
+		return
+	var directions: int = int(metadata.get("directions", 0))
+	var frames: int = int(metadata.get("frames_per_direction", 0))
+	var frame_width: int = int(metadata.get("frame_width_px", metadata.get("shadow_frame_width_px", 0)))
+	var frame_height: int = int(metadata.get("frame_height_px", metadata.get("shadow_frame_height_px", 0)))
+	if directions != ATLAS_DIRECTIONS or frames != ATLAS_FRAMES_PER_DIRECTION:
+		push_error(
+			"PlayerSunShadow: clip %s shadow grid is %sx%s, expected %sx%s"
+			% [clip_id, frames, directions, ATLAS_FRAMES_PER_DIRECTION, ATLAS_DIRECTIONS]
+		)
+	if frame_width != int(SHADOW_FRAME_SIZE_PX.x) or frame_height != int(SHADOW_FRAME_SIZE_PX.y):
+		push_error(
+			"PlayerSunShadow: clip %s shadow tile is %sx%s, expected %sx%s"
+			% [clip_id, frame_width, frame_height, int(SHADOW_FRAME_SIZE_PX.x), int(SHADOW_FRAME_SIZE_PX.y)]
+		)
+	if str(metadata.get("direction_zero", "")) != "screen_north" \
+			or str(metadata.get("direction_order", "")) != "clockwise":
+		push_error("PlayerSunShadow: clip %s shadow direction contract must be screen_north + clockwise" % clip_id)
+
+
 func _sync_visual_frame() -> void:
+	_has_valid_frame = false
 	if _visual == null or not is_instance_valid(_visual):
 		_visual = get_node_or_null(visual_node_path) as Sprite2D
-	if _visual == null:
+	if _visual == null or _visual.texture == null:
 		visible = false
 		return
-	texture = _visual.texture
-	region_enabled = _visual.region_enabled
-	region_rect = _visual.region_rect
-	scale = _visual.scale
-	position = _visual.position
-	offset = _visual.offset
-	centered = _visual.centered
-	flip_h = _visual.flip_h
-	flip_v = _visual.flip_v
-	rotation = 0.0
-	_apply_contact_uv()
-
-
-func _apply_contact_uv() -> void:
-	if _shadow_material == null or texture == null:
+	var visual_texture_id: int = _visual.texture.get_instance_id()
+	var binding_variant: Variant = _clip_bindings.get(visual_texture_id)
+	if not (binding_variant is Dictionary):
+		if not _reported_missing_binding_ids.has(visual_texture_id):
+			_reported_missing_binding_ids[visual_texture_id] = true
+			push_error(
+				"PlayerSunShadow: no baked shadow binding for %s"
+				% _visual.texture.resource_path
+			)
+		visible = false
 		return
-	var contact_uv: float = DEFAULT_CONTACT_UV
-	var table: PackedFloat32Array = _contact_table_for(texture)
-	if not table.is_empty():
-		var col: int = int(region_rect.position.x / PLAYER_FRAME_HEIGHT_PX)
-		var row: int = int(region_rect.position.y / PLAYER_FRAME_HEIGHT_PX)
-		var index: int = row * ATLAS_FRAMES_PER_DIRECTION + col
-		if index >= 0 and index < table.size():
-			contact_uv = table[index]
-	if absf(contact_uv - _last_contact_uv) > PARAM_EPSILON:
-		_last_contact_uv = contact_uv
-		_shadow_material.set_shader_parameter("contact_uv_y", contact_uv)
+	var binding: Dictionary = binding_variant as Dictionary
+	var shadow_texture: Texture2D = binding.get("shadow_texture") as Texture2D
+	if shadow_texture == null:
+		visible = false
+		return
 
+	var frame_index: int = clampi(
+		roundi(_visual.region_rect.position.x / ALBEDO_FRAME_SIZE_PX.x),
+		0,
+		ATLAS_FRAMES_PER_DIRECTION - 1,
+	)
+	var direction_index: int = clampi(
+		roundi(_visual.region_rect.position.y / ALBEDO_FRAME_SIZE_PX.y),
+		0,
+		ATLAS_DIRECTIONS - 1,
+	)
+	var anchor_px: Vector2 = binding.get("anchor_px", SHADOW_WORLD_ORIGIN_PX) as Vector2
+	var albedo_anchor_uv: Vector2 = binding.get(
+		"albedo_anchor_uv",
+		ALBEDO_WORLD_ORIGIN_UV,
+	) as Vector2
+	if shadow_texture != _last_shadow_texture \
+			or frame_index != _last_frame_index \
+			or direction_index != _last_direction_index:
+		_last_shadow_texture = shadow_texture
+		_last_frame_index = frame_index
+		_last_direction_index = direction_index
+		texture = shadow_texture
+		region_rect = Rect2(
+			frame_index * SHADOW_FRAME_SIZE_PX.x,
+			direction_index * SHADOW_FRAME_SIZE_PX.y,
+			SHADOW_FRAME_SIZE_PX.x,
+			SHADOW_FRAME_SIZE_PX.y,
+		)
+	if anchor_px.distance_to(_last_anchor_px) > PARAM_EPSILON:
+		_last_anchor_px = anchor_px
+		# With centered=true this makes the baked world-origin pixel land at the
+		# Sprite2D node origin, which is also the shader's stretch pivot.
+		offset = SHADOW_FRAME_SIZE_PX * 0.5 - anchor_px
+		_shadow_material.set_shader_parameter("shadow_anchor_px", anchor_px)
 
-func _contact_table_for(clip_texture: Texture2D) -> PackedFloat32Array:
-	var path: String = clip_texture.resource_path
-	if path.is_empty():
-		return PackedFloat32Array()
-	if _contact_tables.has(path):
-		var cached: PackedFloat32Array = _contact_tables[path]
-		return cached
-	var table: PackedFloat32Array = _load_contact_table(path)
-	_contact_tables[path] = table
-	return table
-
-
-func _load_contact_table(texture_path: String) -> PackedFloat32Array:
-	var json_path: String = texture_path.get_basename() + ".json"
-	var json_text: String = FileAccess.get_file_as_string(json_path)
-	if json_text.is_empty():
-		push_error("PlayerSunShadow: missing clip metadata %s" % json_path)
-		return PackedFloat32Array()
-	var parsed: Variant = JSON.parse_string(json_text)
-	if not (parsed is Dictionary) or not (parsed as Dictionary).has("frame_contact_uv"):
-		push_error("PlayerSunShadow: %s lacks baked frame_contact_uv" % json_path)
-		return PackedFloat32Array()
-	var raw: Variant = (parsed as Dictionary)["frame_contact_uv"]
-	if not (raw is Array):
-		push_error("PlayerSunShadow: frame_contact_uv in %s is not an array" % json_path)
-		return PackedFloat32Array()
-	var values: Array = raw as Array
-	var table: PackedFloat32Array = PackedFloat32Array()
-	table.resize(values.size())
-	for i: int in values.size():
-		table[i] = float(values[i])
-	return table
+	# Project the same 3D world origin used by the albedo bake into the player's
+	# local 2D space. Do not use the old lowest-alpha foot-contact compensation.
+	var albedo_origin_local_px := Vector2(
+		(albedo_anchor_uv.x - 0.5) * ALBEDO_FRAME_SIZE_PX.x + _visual.offset.x,
+		(albedo_anchor_uv.y - 0.5) * ALBEDO_FRAME_SIZE_PX.y + _visual.offset.y,
+	)
+	var target_position: Vector2 = _visual.transform * albedo_origin_local_px
+	if position.distance_to(target_position) > PARAM_EPSILON:
+		position = target_position
+	var target_scale: Vector2 = _visual.scale * SHADOW_DOWNSAMPLE_FACTOR
+	if scale.distance_to(target_scale) > PARAM_EPSILON:
+		scale = target_scale
+	_has_valid_frame = true
 
 
 func _update_shadow_from_environment() -> void:
-	if _shadow_material == null or texture == null:
+	if not _has_valid_frame or _shadow_material == null or texture == null:
 		visible = false
-		_set_contact_pool_visible(false)
 		return
 	var current_hour: float = _current_hour()
 	var sun_progress: float = _sun_progress()
 	var low_sun: float = WorldVisualLightingProfile.low_sun_for_progress(sun_progress)
-	var light_angle: float = _light_angle()
-	var shadow_angle: float = light_angle + PI
-	var shadow_dir := Vector2(cos(shadow_angle), sin(shadow_angle)).normalized()
 	var direct_sun_factor: float = _direct_sun_factor()
 	var surface_factor: float = _surface_context_factor()
 	var profile_opacity: float = WorldVisualLightingProfile.shadow_opacity_for_low_sun_and_hour(
@@ -164,54 +309,16 @@ func _update_shadow_from_environment() -> void:
 	)
 	if shadow_opacity <= SHADOW_VISIBILITY_EPSILON:
 		visible = false
-		_set_contact_pool_visible(false)
 		_apply_opacity_if_needed(0.0)
 		return
 	visible = true
-	var projection: float = lerpf(SHADOW_PROJECTION_MIN, SHADOW_PROJECTION_MAX, low_sun)
-	_apply_shadow_params_if_needed(shadow_dir, projection, shadow_opacity)
-	_update_contact_pool(shadow_dir, projection, shadow_opacity)
-
-
-func _build_contact_pool() -> Sprite2D:
-	var gradient := Gradient.new()
-	gradient.offsets = PackedFloat32Array([0.0, 1.0])
-	gradient.colors = PackedColorArray([Color(1.0, 1.0, 1.0, 1.0), Color(1.0, 1.0, 1.0, 0.0)])
-	var pool_texture := GradientTexture2D.new()
-	pool_texture.gradient = gradient
-	pool_texture.width = POOL_TEXTURE_SIZE_PX
-	pool_texture.height = POOL_TEXTURE_SIZE_PX
-	pool_texture.fill = GradientTexture2D.FILL_RADIAL
-	pool_texture.fill_from = Vector2(0.5, 0.5)
-	pool_texture.fill_to = Vector2(1.0, 0.5)
-	var pool := Sprite2D.new()
-	pool.texture = pool_texture
-	pool.centered = true
-	pool.show_behind_parent = true
-	pool.texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR
-	pool.visible = false
-	return pool
-
-
-func _update_contact_pool(shadow_dir: Vector2, projection: float, shadow_opacity: float) -> void:
-	if _contact_pool == null:
-		return
-	_contact_pool.visible = true
-	var feet_local := Vector2(0.0, (GROUND_CONTACT_UV - 0.5) * PLAYER_FRAME_HEIGHT_PX)
-	var pool_length: float = POOL_BASE_LENGTH_PX + projection * POOL_LENGTH_PER_PROJECTION_PX
-	_contact_pool.rotation = shadow_dir.angle()
-	_contact_pool.position = feet_local + shadow_dir * (pool_length * POOL_FORWARD_BIAS)
-	_contact_pool.scale = Vector2(
-		pool_length / float(POOL_TEXTURE_SIZE_PX),
-		POOL_WIDTH_PX / float(POOL_TEXTURE_SIZE_PX),
+	var length_scale: float = lerpf(SHADOW_LENGTH_SCALE_MIN, SHADOW_LENGTH_SCALE_MAX, low_sun)
+	var softness_texels: float = lerpf(
+		SHADOW_SOFTNESS_MIN_TEXELS,
+		SHADOW_SOFTNESS_MAX_TEXELS,
+		low_sun,
 	)
-	var pool_alpha: float = clampf(shadow_opacity * POOL_OPACITY_FACTOR, 0.0, 1.0)
-	_contact_pool.self_modulate = Color(SHADOW_TINT.r, SHADOW_TINT.g, SHADOW_TINT.b, pool_alpha)
-
-
-func _set_contact_pool_visible(pool_visible: bool) -> void:
-	if _contact_pool != null:
-		_contact_pool.visible = pool_visible
+	_apply_shadow_params_if_needed(length_scale, softness_texels, shadow_opacity)
 
 
 func _current_hour() -> float:
@@ -228,13 +335,6 @@ func _sun_progress() -> float:
 	if time_manager != null and time_manager.has_method("get_sun_progress"):
 		return float(time_manager.call("get_sun_progress"))
 	return WorldVisualLightingProfile.sun_progress_for_hour(_current_hour())
-
-
-func _light_angle() -> float:
-	var time_manager: Node = _get_time_manager()
-	if time_manager != null and time_manager.has_method("get_sun_angle"):
-		return float(time_manager.call("get_sun_angle"))
-	return deg_to_rad(WorldVisualLightingProfile.DEFAULT_LIGHT_ANGLE_DEG)
 
 
 func _direct_sun_factor() -> float:
@@ -317,14 +417,14 @@ func _apply_opacity_if_needed(shadow_opacity: float) -> void:
 
 
 func _apply_shadow_params_if_needed(
-		shadow_dir: Vector2,
-		projection: float,
+		length_scale: float,
+		softness_texels: float,
 		shadow_opacity: float,
 ) -> void:
-	if shadow_dir.distance_to(_last_shadow_dir) > PARAM_EPSILON:
-		_last_shadow_dir = shadow_dir
-		_shadow_material.set_shader_parameter("shadow_dir", shadow_dir)
-	if absf(projection - _last_projection) > PARAM_EPSILON:
-		_last_projection = projection
-		_shadow_material.set_shader_parameter("shadow_projection", projection)
+	if absf(length_scale - _last_length_scale) > PARAM_EPSILON:
+		_last_length_scale = length_scale
+		_shadow_material.set_shader_parameter("shadow_length_scale", length_scale)
+	if absf(softness_texels - _last_softness_texels) > PARAM_EPSILON:
+		_last_softness_texels = softness_texels
+		_shadow_material.set_shader_parameter("shadow_softness_texels", softness_texels)
 	_apply_opacity_if_needed(shadow_opacity)

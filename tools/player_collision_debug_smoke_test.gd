@@ -38,8 +38,10 @@ func _init() -> void:
 		player_scene_source.contains("[node name=\"CollisionShape2D\" type=\"CollisionShape2D\" parent=\".\" unique_id=543236914]\nposition = Vector2(0, 15)\nshape = SubResource(\"player_shape\")"),
 		"Player body collision must remain authored around the feet.",
 	)
+	# Значение выведено из кадра спрайта: (288/2 - offset 16px) * scale 0.30.
+	# Меняется вместе с раскладкой атласа (player_visual_presentation_v1.md).
 	_assert(
-		player_source.contains("const PLAYER_FEET_OFFSET_PX: float = 41.0"),
+		player_source.contains("const PLAYER_FEET_OFFSET_PX: float = 38.4"),
 		"Player depth sorting must retain the grass-safe visual-feet anchor.",
 	)
 	var streamer_source: String = FileAccess.get_file_as_string(

@@ -1,11 +1,12 @@
 ---
 title: Player Visual Animation V0
 doc_type: system_spec
-status: approved
+status: superseded
+superseded_by: player_visual_presentation_v1.md
 owner: design+engineering
-source_of_truth: true
-version: 0.2
-last_updated: 2026-06-23
+source_of_truth: false
+version: 0.3
+last_updated: 2026-07-31
 related_docs:
   - character_progression.md
   - ../../00_governance/ENGINEERING_STANDARDS.md
@@ -13,6 +14,11 @@ related_docs:
 ---
 
 # Player Visual Animation V0
+
+> **Superseded 2026-07-31 by [Player Visual Presentation V1](player_visual_presentation_v1.md).**
+> V1 landed Iteration 1: the model, the tree-canon camera (28.07° instead of 62°),
+> and a rectangular 208×288 frame replace the square 256 px Mixamo-era layout
+> described below. Read V1, not this file.
 
 ## Purpose
 

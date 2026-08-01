@@ -1,0 +1,82 @@
+{
+	"profile_id": "station_peaceful_player_asset_bake_v1",
+	"version": 4,
+	"spec": "docs/02_system_specs/progression/player_visual_presentation_v1.md",
+	"notes": "Camera and lighting are NOT authored here. They are inherited verbatim from tools/tree_atlas/layered_asset_bake_profile.json so the player sits in the same world as the trees. Only framing, the atlas grid and the clip list belong to this file.",
+	"inherits_bake_profile": "tools/tree_atlas/layered_asset_bake_profile.json",
+	"source": {
+		"_note": "Each Mixamo clip ships the rigged character itself, so the bake renders the clip directly. There is no retarget step: the previous version mapped mixamorig onto an AccuRig skeleton and distorted the body.",
+		"clip_dir": "M:/Downloads",
+		"reference_clip": "Standing Idle.fbx",
+		"reference_frame": 1,
+		"basecolor_override": "",
+		"_basecolor_note": "Empty on purpose. The 1024px basecolor from the Tripo source does NOT line up: Mixamo decimates the mesh from 988k to 9k verts and repacks the UVs on upload, so the source map renders as blotches. The clip ships its own 512px diffuse, which is what gets used."
+	},
+	"frame": {
+		"_measured": "Measured over every one of the final 5 x 16 x 16 frames. The most asymmetric strafe_left pose keeps 5px on its extended side (32px total horizontal clearance); every other clip keeps at least 16px. No frame touches a border, and the bake fails the run if any future frame does.",
+		"albedo_width_px": 208,
+		"albedo_height_px": 288,
+		"figure_height_fraction": 0.7,
+		"ground_anchor_y_fraction": 0.806
+	},
+	"shadow": {
+		"_note": "Physical Cycles shadow-catcher pass under the inherited tree sun. The 304x192 source keeps the same pixels-per-world-unit as the 208x288 albedo camera, then downsamples 4x for a deliberately soft 76x48 runtime tile. Width was raised from the 288px preflight estimate after a real run_forward cast left only one output pixel before the edge. The fixed source anchor leaves verified room before the feet and along the baked screen-south-east cast; runtime stretches from this anchor only.",
+		"source_width_px": 304,
+		"source_height_px": 192,
+		"output_width_px": 76,
+		"output_height_px": 48,
+		"downsample_factor": 4,
+		"source_anchor_px": [
+			104,
+			56
+		],
+		"runtime_length_scale_min": 1.0,
+		"runtime_length_scale_max": 1.85
+	},
+	"grid": {
+		"directions": 16,
+		"frames_per_direction": 16,
+		"direction_zero": "screen_north",
+		"direction_order": "clockwise",
+		"_note": "Project-wide turntable contract: rows are N, NNE, NE, ENE, E, ESE, SE, SSE, S, SSW, SW, WSW, W, WNW, NW, NNW. The current FBX faces screen south at yaw 0, so the measured bake conversion is yaw = 180 - row * 22.5."
+	},
+	"loop_validation": {
+		"_note": "Loop clips use the full authored cycle and uniform fractional samples on [start, end). The source endpoint pose check catches invalid crops before rendering; the pixel check catches a visible last-to-first hitch after rendering.",
+		"source_endpoint_pose_rms_max": 0.015,
+		"pixel_seam_to_direction_median_max": 1.75,
+		"pixel_median_seam_to_internal_median_max": 1.5
+	},
+	"clips": [
+		{
+			"clip_id": "idle",
+			"mixamo_file": "Standing Idle.fbx",
+			"loop": true,
+			"_note": "Standing Idle holds a steadier stance than Breathing Idle, whose body height wanders by ~1.5cm across the loop. Use its complete 1..361 authored cycle: the old 1..121 crop did not close and produced an 8.6x loop-seam spike."
+		},
+		{
+			"clip_id": "run_forward",
+			"mixamo_file": "Slow Run.fbx",
+			"loop": true
+		},
+		{
+			"clip_id": "run_backward",
+			"mixamo_file": "Running Backward.fbx",
+			"loop": true
+		},
+		{
+			"clip_id": "strafe_left",
+			"mixamo_file": "Jog Strafe Left.fbx",
+			"loop": true
+		},
+		{
+			"clip_id": "strafe_right",
+			"mixamo_file": "Jog Strafe Right.fbx",
+			"loop": true
+		}
+	],
+	"motion": {
+		"_note": "Mixamo clips travel: Slow Run moves 1.21 m, Jog Strafe Left 1.11 m across the clip. The game moves the body itself, so horizontal travel is cancelled per frame while the vertical bob is kept.",
+		"root_bone": "mixamorig:Hips",
+		"cancel_horizontal_travel": true
+	}
+}

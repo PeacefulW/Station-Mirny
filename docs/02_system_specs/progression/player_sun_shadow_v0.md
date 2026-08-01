@@ -1,12 +1,14 @@
 ---
 title: Player Sun Shadow V0
 doc_type: system_spec
-status: approved
+status: superseded
+superseded_by: player_visual_presentation_v1.md
 owner: design+engineering
-source_of_truth: true
-version: 0.4
-last_updated: 2026-07-29
+source_of_truth: false
+version: 0.5
+last_updated: 2026-08-01
 related_docs:
+  - player_visual_presentation_v1.md
   - player_visual_animation_v0.md
   - ../world/weather_runtime.md
   - ../world/cloud_occlusion_lighting.md
@@ -17,6 +19,11 @@ related_docs:
 ---
 
 # Player Sun Shadow V0
+
+> **Superseded 2026-08-01 by [Player Visual Presentation V1](player_visual_presentation_v1.md).**
+> I2 replaced the mirrored albedo silhouette and procedural contact pool with
+> physically rendered per-frame Cycles shadow atlases. Read V1 for the active
+> contract; the content below is retained only as the historical V0 design.
 
 ## Purpose
 

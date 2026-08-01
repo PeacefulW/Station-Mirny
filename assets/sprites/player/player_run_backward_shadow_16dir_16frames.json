@@ -1,0 +1,124 @@
+{
+  "asset_kind": "baked_player_sun_shadow",
+  "clip_id": "run_backward",
+  "spec": "docs/02_system_specs/progression/player_visual_presentation_v1.md",
+  "atlas": "player_run_backward_shadow_16dir_16frames.png",
+  "albedo_atlas": "player_run_backward_16dir_16frames.png",
+  "directions": 16,
+  "frames_per_direction": 16,
+  "frame_width_px": 76,
+  "frame_height_px": 48,
+  "atlas_width_px": 1216,
+  "atlas_height_px": 768,
+  "source_frame_width_px": 304,
+  "source_frame_height_px": 192,
+  "downsample_factor": 4,
+  "rendered_source_anchor_px": [
+    103.99999,
+    55.99999
+  ],
+  "rendered_source_frame_size_px": [
+    304,
+    192
+  ],
+  "source_reframe_offset_px": [
+    0,
+    0
+  ],
+  "shadow_anchor_px": [
+    26.0,
+    14.0
+  ],
+  "shadow_anchor_uv": [
+    0.342105,
+    0.291667
+  ],
+  "albedo_anchor_uv": [
+    0.5,
+    0.806
+  ],
+  "direction_zero": "screen_north",
+  "direction_order": "clockwise",
+  "direction_yaw_degrees": [
+    180.0,
+    157.5,
+    135.0,
+    112.5,
+    90.0,
+    67.5,
+    45.0,
+    22.5,
+    0.0,
+    337.5,
+    315.0,
+    292.5,
+    270.0,
+    247.5,
+    225.0,
+    202.5
+  ],
+  "sampled_source_frames": [
+    1.0,
+    3.125,
+    5.25,
+    7.375,
+    9.5,
+    11.625,
+    13.75,
+    15.875,
+    18.0,
+    20.125,
+    22.25,
+    24.375,
+    26.5,
+    28.625,
+    30.75,
+    32.875
+  ],
+  "source_frame_start": 1,
+  "source_frame_end": 35,
+  "loop": true,
+  "loop_pixel_seam": {
+    "internal_step_median": 0.0051949,
+    "internal_step_max": 0.0096424,
+    "seam_median": 0.00596271,
+    "seam_max": 0.00856688,
+    "median_seam_to_internal_median": 1.1478,
+    "direction_seam_ratio_median": 1.17654,
+    "direction_seam_ratio_max": 1.42711,
+    "worst_direction": 14
+  },
+  "render_mode": "cycles_shadow_catcher",
+  "inherits_bake_profile": "tools/tree_atlas/layered_asset_bake_profile.json",
+  "camera_elevation_degrees": 28.07248693585296,
+  "sun_azimuth_degrees": 225.0,
+  "shadow_sun_elevation_degrees": 42.0,
+  "shadow_sun_energy": 3.5,
+  "cycles_samples": 64,
+  "denoising": true,
+  "fixed_shadow_direction": "screen_south_east",
+  "fixed_shadow_direction_vector": [
+    0.887216,
+    0.461354
+  ],
+  "shadow_rgb": [
+    15,
+    11,
+    7
+  ],
+  "alpha_max": 215,
+  "min_margins_px": [
+    8,
+    6,
+    3,
+    11
+  ],
+  "border_alpha_max": 0,
+  "centroid_direction_error_degrees_median": 1.8866,
+  "centroid_direction_error_degrees_max": 5.5057,
+  "selected_raw_alpha_thresholds": [
+    8,
+    10
+  ],
+  "frames_rendered": 256
+}

@@ -12,16 +12,23 @@ const WorldStreamer = preload("res://core/systems/world/world_streamer.gd")
 const SCRAP_ITEM_ID: String = "base:scrap"
 const WOOD_ITEM_ID: String = "base:wood"
 const SHOW_MOUNTAIN_DEBUG_OVERLAY: bool = false
-## Низ ВИДИМОГО спрайта (Visual: 256px * scale 0.32 / 2 = 41) относительно
-## origin: опора depth-лесенки — визуальные ноги, не низ коллайдера, иначе
-## трава у ног классифицируется «южнее» и накрывает корпус целиком.
-const PLAYER_FEET_OFFSET_PX: float = 41.0
+## Низ ВИДИМОГО спрайта относительно origin: опора depth-лесенки — визуальные
+## ноги, не низ коллайдера, иначе трава у ног классифицируется «южнее» и
+## накрывает корпус целиком.
+## Низ кадра относительно origin: (288/2 - 16) * scale 0.30 = 38.4.
+const PLAYER_FEET_OFFSET_PX: float = 38.4
 const PLAYER_RUN_ATLAS_COLUMNS: int = 16
 const PLAYER_RUN_ATLAS_ROWS: int = 16
-const PLAYER_RUN_ATLAS_FRAME_SIZE: int = 256
+## Кадр прямоугольный: камера канона деревьев (28°) показывает фигуру почти в
+## полный рост, а strafe разводит руки — размеры измерены бейком, см.
+## docs/02_system_specs/progression/player_visual_presentation_v1.md
+const PLAYER_ATLAS_FRAME_WIDTH_PX: int = 208
+const PLAYER_ATLAS_FRAME_HEIGHT_PX: int = 288
 const PLAYER_RUN_ATLAS_FPS: float = 18.0
 const PLAYER_IDLE_ATLAS_FPS: float = 8.0
 const PLAYER_RUN_ATLAS_DIRECTION_STEP_DEGREES: float = 22.5
+## Общий turntable-контракт: row 0 = экранный север, далее по часовой стрелке.
+## Поэтому Godot screen-angle (-90° у Vector2.UP) сдвигается на +90°.
 const PLAYER_RUN_ATLAS_DIRECTION_OFFSET_DEGREES: float = 90.0
 const PLAYER_RUN_ATLAS_DEFAULT_DIRECTION: int = 0
 const PLAYER_VISUAL_MOVEMENT_THRESHOLD_SQ: float = 1.0
@@ -55,6 +62,9 @@ var _debug_collision_visible: bool = false
 var _visual: Sprite2D = null
 var _visual_time: float = 0.0
 var _visual_direction: int = PLAYER_RUN_ATLAS_DEFAULT_DIRECTION
+## Куда смотрит фигура. Держим отдельно от индекса направления, потому что
+## PlayerHelmetLamps направляет конус света непрерывно, а не по 16 ступеням.
+var _visual_facing: Vector2 = Vector2.UP
 var _visual_clip: PlayerVisualClip = PlayerVisualClip.IDLE
 
 
@@ -487,8 +497,10 @@ func _update_player_visual(delta: float) -> void:
 	var mouse_delta: Vector2 = get_global_mouse_position() - global_position
 	if mouse_delta.length_squared() > 0.0001:
 		_visual_direction = _atlas_direction_index_from_vector(mouse_delta)
+		_visual_facing = mouse_delta.normalized()
 	elif velocity.length_squared() > PLAYER_VISUAL_MOVEMENT_THRESHOLD_SQ:
 		_visual_direction = _atlas_direction_index_from_vector(velocity)
+		_visual_facing = velocity.normalized()
 	var next_clip: PlayerVisualClip = _select_player_visual_clip(mouse_delta, velocity)
 	if next_clip != _visual_clip:
 		_visual_time = 0.0
@@ -500,6 +512,12 @@ func _update_player_visual(delta: float) -> void:
 	)
 	var frame_index: int = int(floor(_visual_time)) % PLAYER_RUN_ATLAS_COLUMNS
 	_apply_player_visual_frame(_visual_clip, frame_index, _visual_direction)
+
+
+func get_visual_facing_vector() -> Vector2:
+	## Непрерывное направление взгляда для презентационных потребителей
+	## (PlayerHelmetLamps). Только чтение; на геймплей не влияет.
+	return _visual_facing
 
 
 func _select_player_visual_clip(facing_delta: Vector2, movement_velocity: Vector2) -> PlayerVisualClip:
@@ -527,7 +545,7 @@ func _atlas_fps_for_visual_clip(clip: PlayerVisualClip) -> float:
 
 func _atlas_direction_index_from_vector(direction: Vector2) -> int:
 	var angle_degrees: float = fposmod(
-		PLAYER_RUN_ATLAS_DIRECTION_OFFSET_DEGREES - rad_to_deg(direction.angle()),
+		rad_to_deg(direction.angle()) + PLAYER_RUN_ATLAS_DIRECTION_OFFSET_DEGREES,
 		360.0,
 	)
 	var raw_index: int = int(floor(angle_degrees / PLAYER_RUN_ATLAS_DIRECTION_STEP_DEGREES + 0.5))
@@ -542,10 +560,10 @@ func _apply_player_visual_frame(clip: PlayerVisualClip, frame_index: int, direct
 	_visual.texture = _texture_for_visual_clip(clip)
 	_visual.rotation = 0.0
 	_visual.region_rect = Rect2(
-		safe_frame * PLAYER_RUN_ATLAS_FRAME_SIZE,
-		safe_direction * PLAYER_RUN_ATLAS_FRAME_SIZE,
-		PLAYER_RUN_ATLAS_FRAME_SIZE,
-		PLAYER_RUN_ATLAS_FRAME_SIZE,
+		safe_frame * PLAYER_ATLAS_FRAME_WIDTH_PX,
+		safe_direction * PLAYER_ATLAS_FRAME_HEIGHT_PX,
+		PLAYER_ATLAS_FRAME_WIDTH_PX,
+		PLAYER_ATLAS_FRAME_HEIGHT_PX,
 	)
 
 

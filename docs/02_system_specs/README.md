@@ -47,8 +47,10 @@ Current transition strategy:
 ### Progression
 - [Resource Progression](progression/resource_progression.md)
 - [Character Progression](progression/character_progression.md)
-- [Player Visual Animation V0](progression/player_visual_animation_v0.md)
-- [Player Sun Shadow V0](progression/player_sun_shadow_v0.md)
+- [Player Visual Animation V0](progression/player_visual_animation_v0.md) (superseded)
+- [Player Sun Shadow V0](progression/player_sun_shadow_v0.md) (superseded)
+- [Player Visual Presentation V1](progression/player_visual_presentation_v1.md)
+- [Player Helmet Lamps V1](progression/player_helmet_lamps_v1.md) (proposed)
 - [Crafting and Decryption](progression/crafting_and_decryption.md)
 
 ### Survival
