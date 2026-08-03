@@ -1,6 +1,10 @@
-[gd_resource type="Resource" script_class="TimeBalance" load_steps=2 format=3]
+[gd_resource type="Resource" script_class="TimeBalance" load_steps=6 format=3]
 
 [ext_resource type="Script" path="res://data/balance/time_balance.gd" id="1"]
+[ext_resource type="Resource" path="res://data/seasons/warm.tres" id="2"]
+[ext_resource type="Resource" path="res://data/seasons/spore.tres" id="3"]
+[ext_resource type="Resource" path="res://data/seasons/cold.tres" id="4"]
+[ext_resource type="Resource" path="res://data/seasons/storm.tres" id="5"]
 
 [resource]
 script = ExtResource("1")
@@ -11,3 +15,4 @@ day_hour = 7
 dusk_hour = 18
 night_hour = 21
 season_length_days = 15
+season_profiles = [ExtResource("2"), ExtResource("3"), ExtResource("4"), ExtResource("5")]

@@ -4,8 +4,8 @@ doc_type: system_spec
 status: draft
 owner: engineering
 source_of_truth: true
-version: 1.10
-last_updated: 2026-07-31
+version: 1.12
+last_updated: 2026-08-03
 related_docs:
   - ../README.md
   - system_api.md
@@ -450,10 +450,16 @@ Current code note:
 }
 ```
 
+The three-field shape is unchanged by Seasons V0. Normalized season progress
+is derived from `current_hour + current_day` and the authored phase cadence;
+season profile modifiers are not serialized.
+
 ### `WeatherSaveData`
 
 Slow weather state only (ADR-0007); live axes (`cloud_cover`, wind targets,
-reserved axes) are NOT saved — they reconstruct from the regime + clock on load.
+authoritative humidity, global temperature, and rain kind/intensity) are NOT
+saved — they reconstruct from the weather regime/clock plus the restored
+`TimeSaveData.current_season` on load.
 
 ```text
 {

@@ -4,8 +4,8 @@ doc_type: system_spec
 status: approved
 owner: design+engineering
 source_of_truth: true
-version: 1.3
-last_updated: 2026-07-29
+version: 1.4
+last_updated: 2026-08-03
 related_docs:
   - ../../01_product/GAME_VISION_GDD.md
 ---
@@ -56,6 +56,9 @@ Presentation rules for those clusters:
   oxygen and for shelter without life support;
 - inside a powered shelter the environment cluster dims: the interface calms
   down together with the player and reinforces the inside/outside contrast;
+- the weather row groups localized weather state, cloud cover, signed Celsius
+  air temperature, and humidity on the same quiet instrument line; temperature
+  and humidity do not create a new card or claim the critical alarm channel;
 - the action bar is contextual, not a permanent cheat sheet: it is shown at
   session start and while a mode is active, then fades out;
 - key caps and captions are localization keys, never literals in widget code.

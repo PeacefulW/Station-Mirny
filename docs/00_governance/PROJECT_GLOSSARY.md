@@ -4,8 +4,8 @@ doc_type: governance
 status: approved
 owner: design+engineering
 source_of_truth: true
-version: 1.6
-last_updated: 2026-05-05
+version: 1.8
+last_updated: 2026-08-03
 related_docs:
   - ENGINEERING_STANDARDS.md
   - ../05_adrs/0001-runtime-work-and-dirty-update-foundation.md
@@ -194,13 +194,42 @@ Generation is the stable base. Runtime is the changing layer on top.
 Runtime dimension. Drives: ambient light level, shadow angles, fauna activity patterns, player visibility. Phases: dawn, day, dusk, night. Night = darkness = exposure pressure. Currently implemented in `TimeManager` + `DaylightSystem`.
 
 ### Season
-Runtime dimension on a slow cycle. Drives: base temperature offset, storm frequency, spore density, flora state. Phases: warm, spore, cold, storm. Each season shifts the balance of survival pressure. Currently: enum exists in `TimeManager`, gameplay effects not implemented.
+Authoritative slow environment-runtime dimension owned by `TimeManager`.
+Phases cycle `warm -> spore -> cold -> storm`; data-driven profiles smoothly
+shift global air temperature, humidity, and future weather-regime weights.
+Seasonal terrain/flora presentation and survival consequences are not yet
+implemented.
 
 ### Weather
-Runtime dimension. Transient events that modify environmental state: storms (reduce visibility, increase wind), fog (reduce visibility), clear sky. Weather is not biome — any biome can have any weather, but frequency differs. Not yet implemented.
+Runtime dimension owned by `WeatherRuntime`. The current global implementation
+evolves data-driven clear/cloudy/overcast regimes and publishes authoritative
+cloud cover, wind targets, humidity, global air temperature, and
+humidity-driven rain. `TimeManager` provides read-only seasonal modifiers;
+`WeatherRuntime` remains the writer of final weather axes. Presentation is
+derived. Weather is not biome or the generated `moisture` channel; regional
+variation and gameplay consequences remain future work.
+
+### Humidity
+Global environment-runtime axis (`0..1`) representing the atmosphere's current
+water saturation. It changes with the active weather regime, world clock, and
+season and is the authoritative input for current rain intensity. It is distinct from
+`Moisture`: moisture is immutable position-dependent worldgen data describing
+what a place IS, while humidity is evolving global runtime state describing what
+the atmosphere is doing RIGHT NOW. Seasonal bias is applied inside
+`WeatherRuntime`; the season never becomes a second weather writer.
 
 ### Wind
-Runtime dimension. Direction and strength. Drives: spore drift direction, storm severity, sound occlusion, flag/smoke animation. Gameplay-authoritative (affects spore spread, not just visuals). Not yet implemented.
+Runtime dimension with direction and strength. `WeatherRuntime` owns its target;
+`WindRuntime` smooths and publishes the current global wind used by vegetation
+and atmospheric presentation. Future spore spread, sound occlusion, and storm
+gameplay must read an authoritative wind surface rather than visual motion.
+
+### Global air temperature
+Authoritative global environment-runtime read in degrees Celsius, owned by
+`WeatherRuntime`. V0 combines the active weather profile's authored temperature
+band with the smooth seasonal offset from `TimeManager`. It is an outside-air
+baseline, not a per-position or player-body value; biome, altitude, shelter,
+time-of-day, and thermal gameplay terms remain future layers.
 
 ### Temperature exposure
 Runtime-computed value combining: biome base temperature + time-of-day modifier + season modifier + weather modifier + altitude modifier + shelter state. Determines thermal stress on the player. Inside sanctuary: controlled. Outside in exposure: driven by all these factors. Not yet implemented as gameplay system.

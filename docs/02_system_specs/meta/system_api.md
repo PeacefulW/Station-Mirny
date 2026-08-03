@@ -4,8 +4,8 @@ doc_type: system_spec
 status: draft
 owner: engineering
 source_of_truth: true
-version: 0.15
-last_updated: 2026-07-31
+version: 0.17
+last_updated: 2026-08-03
 related_docs:
   - ../README.md
   - commands.md
@@ -106,7 +106,9 @@ Not documented here as safe entrypoints:
 Owner file: `core/autoloads/time_manager.gd`
 
 Role:
-- authoritative runtime time state for hour, day, season, and day phase
+- authoritative runtime time state for hour, day, season, season progress, and
+  day phase; governing seasonal contract:
+  `docs/02_system_specs/world/seasons_and_temperature_runtime.md`
 
 Confirmed readable state:
 
@@ -115,7 +117,7 @@ Confirmed readable state:
 | `balance` | variable | Loaded from `res://data/balance/time_balance.tres` |
 | `current_hour` | variable | Current in-game hour as `float` |
 | `current_day` | variable | Current in-game day as `int` |
-| `current_season` | variable | Current season enum value |
+| `current_season` | variable | Authoritative natural season enum value; consumers that must respect dev forcing use `get_effective_season()` |
 | `current_time_of_day` | variable | Current day-phase enum value |
 | `get_hour()` | method | Whole hour |
 | `get_day_progress()` | method | `0.0..1.0` day progress |
@@ -124,6 +126,11 @@ Confirmed readable state:
 | `get_shadow_length_factor()` | method | Time-derived shadow-length factor; does not rotate the shadow |
 | `is_time_paused()` | method | Pause query |
 | `get_time_scale()` | method | Time scale query |
+| `get_effective_season()` | method | Current effective `WARM/SPORE/COLD/STORM` phase, including developer-only forcing |
+| `get_season_progress()` | method | Smooth normalized progress `0..1` through the effective phase; forced debug phases return the profile anchor |
+| `get_season_temperature_offset_c()` | method | Smooth data-driven seasonal Celsius offset; read by `WeatherRuntime` |
+| `get_season_humidity_offset()` | method | Smooth additive seasonal humidity offset; read by `WeatherRuntime` |
+| `get_weather_regime_weight_multiplier(regime_id)` | method | Smooth non-negative seasonal multiplier for an authored weather successor id; missing ids return neutral `1.0` |
 
 Confirmed mutation entrypoints:
 
@@ -133,6 +140,13 @@ Confirmed mutation entrypoints:
 | `restore_persisted_state(hour, day, season)` | method | Save/load restore path |
 | `set_paused(paused)` | method | Pause toggle |
 | `set_time_scale(scale)` | method | Runtime time scale |
+
+Developer-only (not for gameplay code):
+
+| Surface | Kind | Notes |
+|---|---|---|
+| `set_debug_season(season)` / `clear_debug_season()` | method | Pin/release the effective season without changing persisted natural phase |
+| `debug_cycle_season()` | method | Cycle forced `WARM -> SPORE -> COLD -> STORM`; TimeManager dev hotkey `J` |
 
 Not documented here as safe entrypoints:
 - `_calculate_speed()`
@@ -154,6 +168,7 @@ Role:
   `WindRuntime` publishes
 - governing specs:
   `docs/02_system_specs/world/weather_runtime.md`,
+  `docs/02_system_specs/world/humidity_and_rain_runtime.md`,
   `docs/02_system_specs/world/cloud_occlusion_lighting.md`
 
 Confirmed readable state (live axes; smooth values are pull-model getters):
@@ -167,8 +182,9 @@ Confirmed readable state (live axes; smooth values are pull-model getters):
 | `get_target_wind_strength()` | method | `0..1` wind target consumed by `WindRuntime` |
 | `get_target_wind_gustiness()` | method | `0..1` gust character target |
 | `get_target_wind_heading_deg()` | method | Wind heading target in degrees |
-| `get_precipitation_kind()` / `get_precipitation_intensity()` | method | Reserved axes, neutral in V0 (no consumers) |
-| `get_temperature_c()` / `get_humidity()` | method | Reserved axes, neutral in V0 (no consumers) |
+| `get_humidity()` | method | Authoritative global live humidity `0..1`; deterministic from regime bands, transition, and weather clock |
+| `get_precipitation_kind()` / `get_precipitation_intensity()` | method | Authoritative live precipitation read; V1 publishes `NONE`/`RAIN` and intensity `0..1` derived from humidity + cloud cover + regime tuning |
+| `get_temperature_c()` | method | Authoritative global outside-air Celsius read: authored weather band plus smooth seasonal offset; not yet biome/altitude/shelter/player exposure and not yet a snow resolver |
 
 Emits `weather_changed` on regime change (see `event_contracts.md`).
 
@@ -176,6 +192,7 @@ Developer-only (not for gameplay code):
 | `set_debug_regime(id)` / `clear_debug_regime()` | method | Freeze on / release a forced regime |
 | `debug_cycle_regime()` | method | Smooth ping-pong through clear→cloudy→overcast; bound to player hotkey `K` for in-game presentation checks |
 | `set_debug_cloud_cover(v)` / `nudge_debug_cloud_cover(delta)` / `clear_debug_cloud_cover()` | method | Pin/ramp/release `cloud_cover` in real time; player holds `+`/`-` to watch clouds grow, drift, merge (cloud occlusion tuning) |
+| `set_debug_humidity(v)` / `clear_debug_humidity()` | method | Pin/release humidity for causal rain probes; not a gameplay mutation path |
 
 Confirmed persistence entrypoints:
 

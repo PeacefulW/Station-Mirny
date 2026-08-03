@@ -10,10 +10,12 @@ cloud_cover = Vector2(0.72, 1.0)
 wind_strength = Vector2(0.45, 0.85)
 wind_gustiness = Vector2(0.5, 0.9)
 heading_drift_deg = 26.0
-precipitation_kind = 0
-precipitation_intensity = Vector2(0, 0)
+precipitation_kind = 1
+precipitation_intensity = Vector2(0.18, 1.0)
 temperature_c = Vector2(6, 9)
-humidity = Vector2(0.65, 0.85)
+humidity = Vector2(0.72, 0.96)
+precipitation_start_humidity = 0.72
+precipitation_start_cloud_cover = 0.65
 successor_weights = {
 &"core:cloudy": 1.0
 }

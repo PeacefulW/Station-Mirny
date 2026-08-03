@@ -28,8 +28,10 @@ signal hour_changed(hour: int)
 signal time_of_day_changed(new_phase: int, old_phase: int)
 @warning_ignore("unused_signal")
 signal day_changed(day_number: int)
+## Дискретная смена глобального сезона. TimeManager эмитит natural rollover и
+## initial publication; при initial publication оба аргумента совпадают.
 @warning_ignore("unused_signal")
-signal season_changed(new_season: int, old_season: int)
+signal season_changed(new_season: int, previous_season: int)
 
 ## Смена погодного режима (WeatherRuntime). Эмитится на смену режима и один
 ## раз при инициализации. Плавные оси погоды читаются геттерами, не событием.

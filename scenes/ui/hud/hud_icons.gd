@@ -14,6 +14,8 @@ enum Id {
 	DAWN,
 	DUSK,
 	CLOUD,
+	TEMPERATURE,
+	HUMIDITY,
 	SHELTER,
 	MOVE,
 	INTERACT,
@@ -33,7 +35,7 @@ static func draw_glyph(
 		rect: Rect2,
 		color: Color,
 		width: float = 1.5,
-	) -> void:
+) -> void:
 	match id:
 		Id.OXYGEN:
 			_draw_oxygen(canvas, rect, color, width)
@@ -51,6 +53,10 @@ static func draw_glyph(
 			_draw_horizon(canvas, rect, color, width, false)
 		Id.CLOUD:
 			_draw_cloud(canvas, rect, color, width)
+		Id.TEMPERATURE:
+			_draw_temperature(canvas, rect, color, width)
+		Id.HUMIDITY:
+			_draw_humidity(canvas, rect, color, width)
 		Id.SHELTER:
 			_draw_shelter(canvas, rect, color, width)
 		Id.MOVE:
@@ -81,7 +87,7 @@ static func draw_wind(
 		color: Color,
 		angle_rad: float,
 		width: float = 1.5,
-	) -> void:
+) -> void:
 	var center: Vector2 = rect.position + rect.size * 0.5
 	var reach: Vector2 = Vector2(rect.size.x * 0.40, 0.0).rotated(angle_rad)
 	var tip: Vector2 = center + reach
@@ -109,7 +115,7 @@ static func _polyline(
 		coords: PackedVector2Array,
 		color: Color,
 		width: float,
-	) -> void:
+) -> void:
 	var points: PackedVector2Array = PackedVector2Array()
 	for coord: Vector2 in coords:
 		points.append(_point(rect, coord.x, coord.y))
@@ -126,15 +132,17 @@ static func _draw_vitals(canvas: CanvasItem, rect: Rect2, color: Color, width: f
 	_polyline(
 		canvas,
 		rect,
-		PackedVector2Array([
-			Vector2(0.04, 0.55),
-			Vector2(0.26, 0.55),
-			Vector2(0.37, 0.22),
-			Vector2(0.50, 0.82),
-			Vector2(0.62, 0.44),
-			Vector2(0.72, 0.55),
-			Vector2(0.96, 0.55),
-		]),
+		PackedVector2Array(
+			[
+				Vector2(0.04, 0.55),
+				Vector2(0.26, 0.55),
+				Vector2(0.37, 0.22),
+				Vector2(0.50, 0.82),
+				Vector2(0.62, 0.44),
+				Vector2(0.72, 0.55),
+				Vector2(0.96, 0.55),
+			],
+		),
 		color,
 		width,
 	)
@@ -144,12 +152,14 @@ static func _draw_warning(canvas: CanvasItem, rect: Rect2, color: Color, width: 
 	_polyline(
 		canvas,
 		rect,
-		PackedVector2Array([
-			Vector2(0.50, 0.08),
-			Vector2(0.96, 0.90),
-			Vector2(0.04, 0.90),
-			Vector2(0.50, 0.08),
-		]),
+		PackedVector2Array(
+			[
+				Vector2(0.50, 0.08),
+				Vector2(0.96, 0.90),
+				Vector2(0.04, 0.90),
+				Vector2(0.50, 0.08),
+			],
+		),
 		color,
 		width,
 	)
@@ -191,7 +201,7 @@ static func _draw_horizon(
 		color: Color,
 		width: float,
 		is_rising: bool,
-	) -> void:
+) -> void:
 	var unit: float = minf(rect.size.x, rect.size.y)
 	var base: Vector2 = _point(rect, 0.5, 0.70)
 	canvas.draw_arc(base, unit * 0.25, PI, TAU, 18, color, width, true)
@@ -201,11 +211,13 @@ static func _draw_horizon(
 	_polyline(
 		canvas,
 		rect,
-		PackedVector2Array([
-			Vector2(0.34, wing_y),
-			Vector2(0.50, tip_y),
-			Vector2(0.66, wing_y),
-		]),
+		PackedVector2Array(
+			[
+				Vector2(0.34, wing_y),
+				Vector2(0.50, tip_y),
+				Vector2(0.66, wing_y),
+			],
+		),
 		color,
 		width,
 	)
@@ -225,27 +237,76 @@ static func _draw_cloud(canvas: CanvasItem, rect: Rect2, color: Color, width: fl
 	)
 
 
+static func _draw_temperature(
+		canvas: CanvasItem,
+		rect: Rect2,
+		color: Color,
+		width: float,
+) -> void:
+	var unit: float = minf(rect.size.x, rect.size.y)
+	var bulb_center: Vector2 = _point(rect, 0.38, 0.76)
+	canvas.draw_line(
+		_point(rect, 0.38, 0.14),
+		_point(rect, 0.38, 0.68),
+		color,
+		width * 1.35,
+		true,
+	)
+	canvas.draw_arc(bulb_center, unit * 0.18, 0.0, TAU, 18, color, width, true)
+	canvas.draw_circle(bulb_center, maxf(width * 0.85, 1.0), color)
+	canvas.draw_line(_point(rect, 0.60, 0.28), _point(rect, 0.82, 0.28), color, width, true)
+	canvas.draw_line(_point(rect, 0.60, 0.46), _point(rect, 0.75, 0.46), color, width, true)
+
+
+static func _draw_humidity(canvas: CanvasItem, rect: Rect2, color: Color, width: float) -> void:
+	_polyline(
+		canvas,
+		rect,
+		PackedVector2Array(
+			[
+				Vector2(0.50, 0.08),
+				Vector2(0.34, 0.31),
+				Vector2(0.18, 0.53),
+				Vector2(0.18, 0.68),
+				Vector2(0.29, 0.85),
+				Vector2(0.50, 0.92),
+				Vector2(0.71, 0.85),
+				Vector2(0.82, 0.68),
+				Vector2(0.82, 0.53),
+				Vector2(0.66, 0.31),
+				Vector2(0.50, 0.08),
+			],
+		),
+		color,
+		width,
+	)
+
+
 static func _draw_shelter(canvas: CanvasItem, rect: Rect2, color: Color, width: float) -> void:
 	_polyline(
 		canvas,
 		rect,
-		PackedVector2Array([
-			Vector2(0.08, 0.50),
-			Vector2(0.50, 0.16),
-			Vector2(0.92, 0.50),
-		]),
+		PackedVector2Array(
+			[
+				Vector2(0.08, 0.50),
+				Vector2(0.50, 0.16),
+				Vector2(0.92, 0.50),
+			],
+		),
 		color,
 		width,
 	)
 	_polyline(
 		canvas,
 		rect,
-		PackedVector2Array([
-			Vector2(0.20, 0.50),
-			Vector2(0.20, 0.86),
-			Vector2(0.80, 0.86),
-			Vector2(0.80, 0.50),
-		]),
+		PackedVector2Array(
+			[
+				Vector2(0.20, 0.50),
+				Vector2(0.20, 0.86),
+				Vector2(0.80, 0.86),
+				Vector2(0.80, 0.50),
+			],
+		),
 		color,
 		width,
 	)
@@ -258,11 +319,13 @@ static func _draw_move(canvas: CanvasItem, rect: Rect2, color: Color) -> void:
 		var direction: Vector2 = Vector2.RIGHT.rotated(TAU * float(index) / 4.0)
 		var side: Vector2 = direction.orthogonal()
 		canvas.draw_colored_polygon(
-			PackedVector2Array([
-				center + direction * unit * 0.46,
-				center + direction * unit * 0.20 + side * unit * 0.16,
-				center + direction * unit * 0.20 - side * unit * 0.16,
-			]),
+			PackedVector2Array(
+				[
+					center + direction * unit * 0.46,
+					center + direction * unit * 0.20 + side * unit * 0.16,
+					center + direction * unit * 0.20 - side * unit * 0.16,
+				],
+			),
 			color,
 		)
 
@@ -283,13 +346,15 @@ static func _draw_pack(canvas: CanvasItem, rect: Rect2, color: Color, width: flo
 	_polyline(
 		canvas,
 		rect,
-		PackedVector2Array([
-			Vector2(0.18, 0.36),
-			Vector2(0.82, 0.36),
-			Vector2(0.82, 0.88),
-			Vector2(0.18, 0.88),
-			Vector2(0.18, 0.36),
-		]),
+		PackedVector2Array(
+			[
+				Vector2(0.18, 0.36),
+				Vector2(0.82, 0.36),
+				Vector2(0.82, 0.88),
+				Vector2(0.18, 0.88),
+				Vector2(0.18, 0.36),
+			],
+		),
 		color,
 		width,
 	)
@@ -330,14 +395,16 @@ static func _draw_strike(canvas: CanvasItem, rect: Rect2, color: Color, width: f
 
 
 static func _draw_bolt(canvas: CanvasItem, rect: Rect2, color: Color) -> void:
-	var coords: PackedVector2Array = PackedVector2Array([
-		Vector2(0.58, 0.06),
-		Vector2(0.22, 0.56),
-		Vector2(0.46, 0.56),
-		Vector2(0.38, 0.94),
-		Vector2(0.78, 0.42),
-		Vector2(0.52, 0.42),
-	])
+	var coords: PackedVector2Array = PackedVector2Array(
+		[
+			Vector2(0.58, 0.06),
+			Vector2(0.22, 0.56),
+			Vector2(0.46, 0.56),
+			Vector2(0.38, 0.94),
+			Vector2(0.78, 0.42),
+			Vector2(0.52, 0.42),
+		],
+	)
 	var points: PackedVector2Array = PackedVector2Array()
 	for coord: Vector2 in coords:
 		points.append(_point(rect, coord.x, coord.y))
@@ -348,12 +415,14 @@ static func _draw_exit(canvas: CanvasItem, rect: Rect2, color: Color, width: flo
 	_polyline(
 		canvas,
 		rect,
-		PackedVector2Array([
-			Vector2(0.62, 0.14),
-			Vector2(0.14, 0.14),
-			Vector2(0.14, 0.86),
-			Vector2(0.62, 0.86),
-		]),
+		PackedVector2Array(
+			[
+				Vector2(0.62, 0.14),
+				Vector2(0.14, 0.14),
+				Vector2(0.14, 0.86),
+				Vector2(0.62, 0.86),
+			],
+		),
 		color,
 		width,
 	)
@@ -361,11 +430,13 @@ static func _draw_exit(canvas: CanvasItem, rect: Rect2, color: Color, width: flo
 	_polyline(
 		canvas,
 		rect,
-		PackedVector2Array([
-			Vector2(0.72, 0.32),
-			Vector2(0.90, 0.50),
-			Vector2(0.72, 0.68),
-		]),
+		PackedVector2Array(
+			[
+				Vector2(0.72, 0.32),
+				Vector2(0.90, 0.50),
+				Vector2(0.72, 0.68),
+			],
+		),
 		color,
 		width,
 	)
@@ -377,17 +448,19 @@ static func _draw_cell_mark(
 		color: Color,
 		width: float,
 		is_plus: bool,
-	) -> void:
+) -> void:
 	_polyline(
 		canvas,
 		rect,
-		PackedVector2Array([
-			Vector2(0.10, 0.16),
-			Vector2(0.90, 0.16),
-			Vector2(0.90, 0.84),
-			Vector2(0.10, 0.84),
-			Vector2(0.10, 0.16),
-		]),
+		PackedVector2Array(
+			[
+				Vector2(0.10, 0.16),
+				Vector2(0.90, 0.16),
+				Vector2(0.90, 0.84),
+				Vector2(0.10, 0.84),
+				Vector2(0.10, 0.16),
+			],
+		),
 		color,
 		width,
 	)

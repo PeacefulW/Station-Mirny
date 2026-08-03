@@ -13,7 +13,9 @@ heading_drift_deg = 6.0
 precipitation_kind = 0
 precipitation_intensity = Vector2(0, 0)
 temperature_c = Vector2(14, 16)
-humidity = Vector2(0.35, 0.45)
+humidity = Vector2(0.28, 0.45)
+precipitation_start_humidity = 1.0
+precipitation_start_cloud_cover = 1.0
 successor_weights = {
 &"core:cloudy": 1.0
 }

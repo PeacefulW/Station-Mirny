@@ -4,8 +4,8 @@ doc_type: system_spec
 status: draft
 owner: engineering
 source_of_truth: true
-version: 0.3
-last_updated: 2026-04-21
+version: 0.4
+last_updated: 2026-08-03
 related_docs:
   - ../README.md
   - system_api.md
@@ -90,6 +90,27 @@ Confirmed listeners:
 
 Current listener use:
 - updates `days_survived`
+
+### `season_changed(new_season: int, previous_season: int)`
+
+Emitter:
+- `TimeManager._on_new_day()` when the authored phase boundary is crossed
+- `TimeManager._emit_initial_state()`
+
+When it fires:
+- once on natural `WARM -> SPORE -> COLD -> STORM -> WARM` phase changes
+- once during initial/restore state publication with
+  `new_season == previous_season`
+
+Confirmed listeners:
+- none in Seasons V0; weather consumes smooth seasonal modifiers through typed
+  `TimeManager` pull reads rather than an event-side mutation
+
+Current listener use:
+- reserved for later seasonal presentation/audio/mod subscribers
+
+Governing spec:
+`docs/02_system_specs/world/seasons_and_temperature_runtime.md`
 
 ### `weather_changed(regime_id: StringName, previous_regime_id: StringName)`
 

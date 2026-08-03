@@ -4,8 +4,8 @@ doc_type: system_spec_index
 status: approved
 owner: engineering+design
 source_of_truth: true
-version: 1.13
-last_updated: 2026-07-28
+version: 1.15
+last_updated: 2026-08-03
 ---
 
 # System Specs
@@ -90,6 +90,8 @@ Current transition strategy:
 - [Plains Trees Presentation and Depth Layering V0](world/plains_trees_presentation.md) (draft)
 - [Plains Alien Bushes Presentation V0](world/plains_bushes_presentation.md) (draft)
 - [Weather Runtime V0](world/weather_runtime.md)
+- [Weather Runtime V1 - Humidity and Visual Rain](world/humidity_and_rain_runtime.md)
+- [Seasons and Global Temperature Runtime V0](world/seasons_and_temperature_runtime.md)
 - [Cloud Occlusion & Overcast Darkness](world/cloud_occlusion_lighting.md)
 
 The removed pre-rebuild world stack now rebuilds from this living world-grid contract

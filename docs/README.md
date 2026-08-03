@@ -4,8 +4,8 @@ doc_type: docs_index
 status: approved
 owner: design+engineering
 source_of_truth: true
-version: 1.15
-last_updated: 2026-07-22
+version: 1.17
+last_updated: 2026-08-03
 related_docs:
   - 00_governance/WORKFLOW.md
   - 00_governance/ENGINEERING_STANDARDS.md
@@ -79,6 +79,8 @@ Templates for future docs.
 - [Plains Trees Presentation and Depth Layering V0](02_system_specs/world/plains_trees_presentation.md) (draft)
 - [Plains Alien Bushes Presentation V0](02_system_specs/world/plains_bushes_presentation.md) (draft)
 - [Weather Runtime V0](02_system_specs/world/weather_runtime.md)
+- [Weather Runtime V1 - Humidity and Visual Rain](02_system_specs/world/humidity_and_rain_runtime.md)
+- [Seasons and Global Temperature Runtime V0](02_system_specs/world/seasons_and_temperature_runtime.md)
 - [Cloud Occlusion & Overcast Darkness](02_system_specs/world/cloud_occlusion_lighting.md)
 - [Engineering Networks](02_system_specs/base/engineering_networks.md)
 - [Building and Rooms](02_system_specs/base/building_and_rooms.md)

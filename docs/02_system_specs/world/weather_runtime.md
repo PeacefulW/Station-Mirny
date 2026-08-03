@@ -4,8 +4,8 @@ doc_type: system_spec
 status: approved
 owner: engineering+design
 source_of_truth: true
-version: 1.0
-last_updated: 2026-06-29
+version: 1.2
+last_updated: 2026-08-03
 related_docs:
   - ../../00_governance/ENGINEERING_STANDARDS.md
   - ../../00_governance/WORKFLOW.md
@@ -20,6 +20,8 @@ related_docs:
   - ../../05_adrs/0005-light-is-gameplay-system.md
   - ../../05_adrs/0007-environment-runtime-is-layered-and-distinct-from-worldgen.md
   - ../../01_product/NON_NEGOTIABLE_EXPERIENCE.md
+  - humidity_and_rain_runtime.md
+  - seasons_and_temperature_runtime.md
 ---
 
 # Weather Runtime V0
@@ -37,6 +39,14 @@ temperature, humidity) exist in the contract as neutral, stable, consumer-less
 values so later work plugs them in without touching the owner. This keeps the
 system extensible and cheap: one O(1)-per-frame owner, data-driven regimes,
 and pull-model reads.
+
+Current extensions: Weather Runtime V1 activates authoritative global humidity
+and humidity-driven rain plus derived visual rain. Seasons and Global
+Temperature V0 promotes temperature and applies read-only seasonal modifiers to
+temperature, humidity, and future-regime weights. The governing contracts are
+[`humidity_and_rain_runtime.md`](humidity_and_rain_runtime.md) and
+[`seasons_and_temperature_runtime.md`](seasons_and_temperature_runtime.md);
+the V0 sections below remain the historical baseline they describe.
 
 ## Gameplay Goal
 
@@ -90,6 +100,16 @@ Approved on 2026-06-29 for V0: `WeatherRuntime` owns weather state, live
 `get_cloud_occlusion()` read, and slow-state persistence. Remaining weather
 tuning items below are balance/presentation follow-ups, not blockers for the V0
 contract.
+
+The V1 humidity-driven visual-rain extension landed on 2026-08-02 under
+[`humidity_and_rain_runtime.md`](humidity_and_rain_runtime.md). It activates the
+existing humidity and precipitation reads while leaving temperature authored
+but consumer-less.
+
+The seasons/global-temperature extension landed on 2026-08-03 under
+[`seasons_and_temperature_runtime.md`](seasons_and_temperature_runtime.md).
+`TimeManager` remains the season owner; `WeatherRuntime` remains the writer of
+final temperature/humidity and applies seasonal regime-weight bias.
 
 ## Out of Scope
 
@@ -168,6 +188,12 @@ Reserved axes are part of the contract so consumers can be added later without
 changing the owner. They hold neutral values in V0 and are documented as
 "not authoritative yet".
 
+V1 promotion: `humidity`, `precipitation_kind`, and
+`precipitation_intensity` are now authoritative live reads governed by
+[`humidity_and_rain_runtime.md`](humidity_and_rain_runtime.md). Temperature
+is now an authoritative global outside-air read governed by
+[`seasons_and_temperature_runtime.md`](seasons_and_temperature_runtime.md).
+
 ### `WeatherRegimeProfile` (authored data resource)
 
 ```text
@@ -240,7 +266,8 @@ reading `WindRuntime` unchanged.
 
 ### Read model
 
-- Smooth values (`cloud_cover`, wind targets, future temperature/humidity) are
+- Smooth values (`cloud_cover`, wind targets, humidity, rain intensity, and the
+  future temperature consumer) are
   **pull-model**: consumers call `WeatherRuntime` getters each frame as needed.
 - Only the discrete `weather_changed` event fires on regime change, for UI,
   audio, and mods that react to "the weather turned".
@@ -359,8 +386,9 @@ Smooth values are not events; they are read through getters.
 
 - Persist **slow state only**: active `regime_id`, `next_regime_id`,
   `transition`, and the remaining-duration timer.
-- Live axis values (`cloud_cover`, wind targets, reserved axes) are NOT saved;
-  they reconstruct from the regime + clock on load.
+- Live axis values (`cloud_cover`, wind targets, humidity, rain kind/intensity,
+  and global temperature) are NOT saved; they reconstruct from the weather
+  regime/clock plus the restored `TimeManager` season state.
 - This adds a `WeatherSaveData` shape to `packet_schemas.md` and a field to the
   world/meta save payload at implementation time (ADR-0007: only slow world
   state is saved).
@@ -433,8 +461,9 @@ Resolved:
   adjacent-only transitions); a new game starts in `clear`.
 - Wind heading drift lives in the regime (`heading_drift_deg`);
   `WorldVisualWindProfile` keeps only gust shape.
-- Season does NOT bias regime selection in V0; the selection function takes a
-  `season` argument as a reserved hook for a later data-driven seasonal bias.
+- Historical V0 did not bias regime selection. The current selector multiplies
+  authored successor weights by the smooth data-driven season profile from
+  `TimeManager`; it keeps the existing weather hash/clock and owner boundary.
 - Active cloud presentation moved to
   [`cloud_occlusion_lighting.md`](cloud_occlusion_lighting.md): cloud cover now
   derives a real sun-occlusion scalar and a bounded `CloudOccluderField` shader
@@ -543,8 +572,9 @@ uses the real `DirectionalLight2D` sun instead of screen-space overlays.
 - Landed as `WeatherRuntime.export_save_dict()` / `restore_persisted_state()`,
   wired through `SaveCollectors.collect_weather()` /
   `SaveAppliers.apply_weather()` into a `weather.json` slot section. Live axes
-  (`cloud_cover`, wind targets, reserved axes) are NOT saved — they reconstruct
-  from the restored regime + clock. `_weather_time_hours` is persisted so cloud
+  (`cloud_cover`, wind targets, humidity, rain kind/intensity, and global
+  temperature) are NOT saved — they reconstruct from the restored regime,
+  clock, and `TimeManager` season. `_weather_time_hours` is persisted so cloud
   breathing and the heading meander stay continuous across load. On restore,
   `_last_hour` resets so the next `time_tick` re-syncs the delta without a jump;
   an unknown regime id or a missing `weather.json` falls back to `core:clear`.
@@ -556,10 +586,35 @@ uses the real `DirectionalLight2D` sun instead of screen-space overlays.
 - Doc updates: `packet_schemas.md` (`WeatherSaveData` + slot-layout row),
   `save_and_persistence.md` (weather slow-state section).
 
+### Iteration 4 — Humidity-driven visual rain — DONE
+
+- Keep `WeatherRuntime` as the one global authority and activate humidity as a
+  regime-derived live axis.
+- Derive rain kind/intensity from humidity, cloud cover, and authored regime
+  thresholds without adding another clock, RNG stream, or save field.
+- Present rain through one view-bounded, open-sky-gated shader layer.
+- Contract and verification details:
+  [`humidity_and_rain_runtime.md`](humidity_and_rain_runtime.md).
+
+### Iteration 5 — Seasons and global temperature — DONE
+
+- Keep `TimeManager` as season owner and `WeatherRuntime` as final weather-axis
+  owner; no parallel season/weather clock.
+- Apply smooth data-driven season offsets to temperature/humidity and multiply
+  successor weights without changing the deterministic roll.
+- Surface cloud cover, Celsius temperature, and humidity together in the
+  existing weather HUD widget.
+- Headless season/runtime/save/HUD probes and the project validation suite pass;
+  final visual balance remains a windowed human check.
+- Contract and verification details:
+  [`seasons_and_temperature_runtime.md`](seasons_and_temperature_runtime.md).
+
 ### Later (out of V0)
 
-- Precipitation axis + rain/snow presentation.
-- Temperature/humidity gameplay (survival, ice, fire).
+- Humidity-driven rain authority + visual presentation is specified by
+  [`humidity_and_rain_runtime.md`](humidity_and_rain_runtime.md).
+- Snow and other temperature-resolved precipitation kinds remain later work.
+- Temperature/humidity gameplay consequences (survival, ice, fire).
 - Regional/biome weather; multiplayer replication.
 
 ## Required Updates

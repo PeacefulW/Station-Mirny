@@ -1,0 +1,15 @@
+[gd_resource type="Resource" script_class="SeasonProfile" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://core/systems/world/season_profile.gd" id="1"]
+
+[resource]
+script = ExtResource("1")
+id = &"core:storm"
+season_kind = 3
+temperature_offset_c = -2.0
+humidity_offset = 0.12
+weather_regime_weight_multipliers = {
+&"core:clear": 0.45,
+&"core:cloudy": 1.2,
+&"core:overcast": 1.65
+}

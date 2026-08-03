@@ -1,6 +1,8 @@
 class_name TimeBalance
 extends Resource
 
+const SeasonProfile = preload("res://core/systems/world/season_profile.gd")
+
 ## Параметры баланса системы времени.
 ## Все числа здесь, не в коде.
 
@@ -23,3 +25,6 @@ extends Resource
 @export_group("Сезоны")
 ## Длительность одного сезона в игровых днях.
 @export var season_length_days: int = 15
+## Фиксированные V0-профили WARM/SPORE/COLD/STORM. TimeManager валидирует
+## полный набор и уникальные stable ids при boot.
+@export var season_profiles: Array[SeasonProfile] = []

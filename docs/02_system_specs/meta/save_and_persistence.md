@@ -4,8 +4,8 @@ doc_type: system_spec
 status: approved
 owner: engineering+design
 source_of_truth: true
-version: 1.11
-last_updated: 2026-07-28
+version: 1.13
+last_updated: 2026-08-03
 related_docs:
   - multiplayer_and_modding.md
   - ../../05_adrs/0003-immutable-base-plus-runtime-diff.md
@@ -66,9 +66,9 @@ saved). See `WeatherSaveData` in `packet_schemas.md`.
   flag + progress, the active regime's remaining duration, the weather-time
   accumulator, and the transition count.
 - **What is regenerated**: all live axes (`cloud_cover`, wind strength/heading/
-  gustiness targets, reserved precipitation/temperature/humidity) — they
-  reconstruct from the restored regime + the world clock via `WeatherRuntime`
-  getters; they are never written to the save.
+  gustiness targets, authoritative humidity, global air temperature, and rain
+  kind/intensity). They reconstruct from the restored weather regime/clock plus
+  the existing `TimeManager` season state; they are never written to the save.
 - **Who collects / applies**: `SaveCollectors.collect_weather()` →
   `WeatherRuntime.export_save_dict()`; `SaveAppliers.apply_weather()` →
   `WeatherRuntime.restore_persisted_state()`.
@@ -77,6 +77,20 @@ saved). See `WeatherSaveData` in `packet_schemas.md`.
   timers); an unknown regime id in the section also falls back to `core:clear`.
   This is an additive section — it does **not** change `world_version` or the
   chunk-diff shape, so old saves stay load-compatible.
+
+### Season and temperature reconstruction
+
+- `TimeSaveData` remains exactly `current_hour`, `current_day`, and
+  `current_season`; no season-progress field is added.
+- `TimeManager` reconstructs normalized phase progress from the restored day and
+  hour plus the authored `season_length_days` cadence.
+- Seasonal profile modifiers are derived resource data. `WeatherRuntime`
+  combines them with its restored regime state to reconstruct global
+  temperature and humidity.
+- Developer season forcing is transient, clears on reset/restore, and is never
+  serialized.
+- The change affects environment runtime only and does not bump
+  `world_version`.
 
 Current world generation extension:
 - `world.json` now records `world_version: 64` for the current finite-world

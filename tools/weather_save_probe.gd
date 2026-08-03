@@ -2,7 +2,8 @@ extends SceneTree
 
 # Проба сохранения медленного состояния погоды (Iteration 3):
 # - эволюционировавшее состояние переживает export -> reset -> restore бит-в-бит
-# - живые оси (cloud_cover, режим) реконструируются из восстановленного режима
+# - живые оси (cloud_cover, temperature, humidity, rain) реконструируются из
+#   slow weather + existing TimeSaveData season state
 # - старый сейв без секции weather -> дефолт clear
 # - неизвестный режим (контент изменился) -> безопасный дефолт clear
 # - связка collect_weather / apply_weather round-trip'ит то же состояние.
@@ -18,15 +19,19 @@ func _init() -> void:
 
 func _run() -> void:
 	var weather: Node = root.get_node_or_null("WeatherRuntime")
-	if weather == null:
-		print("weather_save_probe: WeatherRuntime autoload missing")
+	var tm: Node = root.get_node_or_null("TimeManager")
+	if weather == null or tm == null:
+		print("weather_save_probe: WeatherRuntime/TimeManager autoload missing")
 		quit(1)
 		return
 
 	# Эволюционируем погоду до нетривиального состояния (хотя бы один переход).
-	for _i: int in range(8):
+	for evolution_step: int in range(8):
 		weather.call("_advance", 5.0)
 	var evolved: Dictionary = weather.call("export_save_dict")
+	var evolved_humidity: float = float(weather.call("get_humidity"))
+	var evolved_rain: float = float(weather.call("get_precipitation_intensity"))
+	var evolved_kind: int = int(weather.call("get_precipitation_kind"))
 	print("weather_save_probe: evolved=%s" % str(evolved))
 
 	# Round-trip: reset -> restore -> export должен совпасть бит-в-бит.
@@ -38,7 +43,16 @@ func _run() -> void:
 		String(after_reset) == "core:clear",
 		"сброс пустым диктом -> clear (was %s)" % str(after_reset),
 	)
-	_check(_dicts_match(evolved, restored), "export->reset->restore->export бит-в-бит (%s)" % str(restored))
+	_check(
+		_dicts_match(evolved, restored),
+		"export->reset->restore->export бит-в-бит (%s)" % str(restored),
+	)
+	_check(
+		absf(float(weather.call("get_humidity")) - evolved_humidity) <= 0.0001
+		and absf(float(weather.call("get_precipitation_intensity")) - evolved_rain) <= 0.0001
+		and int(weather.call("get_precipitation_kind")) == evolved_kind,
+		"live humidity/rain детерминированно реконструированы",
+	)
 
 	# Crafted mid-transition: живые оси реконструируются (не залипают на clear).
 	weather.call(
@@ -55,11 +69,58 @@ func _run() -> void:
 	)
 	var mid_regime: StringName = weather.call("get_active_regime_id")
 	var mid_cover: float = weather.call("get_cloud_cover")
-	print("weather_save_probe: mid regime=%s cover=%.3f" % [str(mid_regime), mid_cover])
+	var mid_humidity: float = float(weather.call("get_humidity"))
+	var mid_rain: float = float(weather.call("get_precipitation_intensity"))
+	var mid_kind: int = int(weather.call("get_precipitation_kind"))
+	print(
+		"weather_save_probe: mid regime=%s cover=%.3f humidity=%.3f rain=%.3f kind=%d" % [
+			str(mid_regime),
+			mid_cover,
+			mid_humidity,
+			mid_rain,
+			mid_kind,
+		],
+	)
 	_check(String(mid_regime) == "core:cloudy", "mid-transition активный режим = cloudy")
 	_check(
 		mid_cover > 0.35 and mid_cover <= 1.0,
 		"живая облачность реконструирована из cloudy->overcast (cover=%.3f)" % mid_cover,
+	)
+	_check(
+		mid_humidity >= 0.58 and mid_humidity <= 0.96,
+		"живая humidity реконструирована из cloudy->overcast (humidity=%.3f)" % mid_humidity,
+	)
+	_check(
+		mid_rain >= 0.0
+		and mid_rain <= 1.0
+		and ((mid_rain > 0.0 and mid_kind == 1) or (is_zero_approx(mid_rain) and mid_kind == 0)),
+		"rain kind/intensity согласованы после crafted restore",
+	)
+
+	# TimeSaveData уже хранит current_day/current_season. При одинаковом slow
+	# weather state оно обязано реконструировать сезонные live axes без полей в
+	# weather.json.
+	var seasonal_weather_state: Dictionary = weather.call("export_save_dict") as Dictionary
+	tm.call("restore_persisted_state", 7.0, 46, 3)
+	weather.call("restore_persisted_state", seasonal_weather_state)
+	var storm_temperature: float = float(weather.call("get_temperature_c"))
+	var storm_humidity: float = float(weather.call("get_humidity"))
+	tm.call("restore_persisted_state", 7.0, 1, 0)
+	weather.call("restore_persisted_state", seasonal_weather_state)
+	var warm_temperature: float = float(weather.call("get_temperature_c"))
+	var warm_humidity: float = float(weather.call("get_humidity"))
+	_check(
+		warm_temperature > storm_temperature and storm_humidity > warm_humidity,
+		"season из TimeSaveData меняет reconstructed temperature/humidity "
+		+ "(warm %.2f/%.3f storm %.2f/%.3f)"
+		% [warm_temperature, warm_humidity, storm_temperature, storm_humidity],
+	)
+	tm.call("restore_persisted_state", 7.0, 46, 3)
+	weather.call("restore_persisted_state", seasonal_weather_state)
+	_check(
+		absf(float(weather.call("get_temperature_c")) - storm_temperature) <= 0.0001
+		and absf(float(weather.call("get_humidity")) - storm_humidity) <= 0.0001,
+		"seasonal live axes детерминированно реконструированы после restore",
 	)
 
 	# Неизвестный режим -> безопасный дефолт clear.
@@ -73,10 +134,20 @@ func _run() -> void:
 	)
 
 	# Повторный round-trip из другого эволюционировавшего состояния (стабильность).
-	for _j: int in range(6):
+	for second_evolution_step: int in range(6):
 		weather.call("_advance", 5.0)
 	var evolved2: Dictionary = weather.call("export_save_dict")
-	_check(evolved2.size() == 7, "export_save_dict отдаёт все 7 полей (got %d)" % evolved2.size())
+	_check(
+		evolved2.size() == 7,
+		"export_save_dict отдаёт все 7 полей (got %d)" % evolved2.size(),
+	)
+	_check(
+		not evolved2.has("humidity") \
+				and not evolved2.has("precipitation_kind") \
+				and not evolved2.has("precipitation_intensity") \
+				and not evolved2.has("temperature_c"),
+		"live temperature/humidity/rain не попадают в weather save payload",
+	)
 	weather.call("restore_persisted_state", { })
 	weather.call("restore_persisted_state", evolved2)
 	_check(

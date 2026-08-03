@@ -5,8 +5,11 @@ extends Node
 ## игровому времени (детерминированно от seed + дня), задаёт цель ветра для
 ## WindRuntime, эмитит weather_changed на смену режима. Плавные оси читаются
 ## геттерами (pull-модель), не событием в кадр. O(1) на тик.
-## V0: живые только облачность и ветер; прочие оси нейтральны, без потребителей.
-## Контракт: docs/02_system_specs/world/weather_runtime.md
+## V2: влажность и дождь — живые авторитетные оси; сезон TimeManager смещает
+## влажность, температуру и веса будущего режима, но не пишет погоду напрямую.
+## Контракты: docs/02_system_specs/world/weather_runtime.md и
+## docs/02_system_specs/world/humidity_and_rain_runtime.md и
+## docs/02_system_specs/world/seasons_and_temperature_runtime.md
 
 const WeatherRegimeProfile = preload("res://core/systems/world/weather_regime_profile.gd")
 const WorldRuntimeConstants = preload("res://core/systems/world/world_runtime_constants.gd")
@@ -22,6 +25,14 @@ const WIND_BASE_HEADING_DEG: float = -13.0
 ## Прямая солнечная окклюзия облаками: 0 = солнце открыто, 1 = прямой луч закрыт.
 const CLOUD_OCCLUSION_COVER_START: float = 0.10
 const CLOUD_OCCLUSION_COVER_END: float = 0.95
+
+enum PrecipitationKind {
+	NONE = 0,
+	RAIN = 1,
+	SNOW = 2,
+	ASH = 3,
+	SPORE = 4,
+}
 
 var _regimes_by_id: Dictionary = { }
 var _active_id: StringName = START_REGIME_ID
@@ -42,6 +53,8 @@ var _debug_fast_transition: bool = false
 ## Прямой дев-override облачности (клавиши +/-): пинит cloud_cover в реалтайме,
 ## чтобы вживую смотреть как тучки растут/плывут/сливаются. -1 = выключен.
 var _debug_cover_override: float = -1.0
+## Dev-only override влажности для причинных проб дождя. -1 = выключен.
+var _debug_humidity_override: float = -1.0
 
 
 func _ready() -> void:
@@ -65,7 +78,7 @@ func _process(delta: float) -> void:
 		_commit_transition()
 		_debug_fast_transition = false
 
-# --- Публичные чтения (живые оси V0) ---
+# --- Публичные чтения ---
 
 
 func get_active_regime_id() -> StringName:
@@ -75,7 +88,9 @@ func get_active_regime_id() -> StringName:
 
 
 func get_active_display_name_key() -> StringName:
-	var profile: WeatherRegimeProfile = _regimes_by_id.get(get_active_regime_id()) as WeatherRegimeProfile
+	var profile: WeatherRegimeProfile = (
+		_regimes_by_id.get(get_active_regime_id()) as WeatherRegimeProfile
+	)
 	if profile == null:
 		return &""
 	return profile.display_name_key
@@ -149,42 +164,86 @@ func get_target_wind_gustiness() -> float:
 
 ## Целевое направление ветра: базовое + дрейф амплитудой режима.
 func get_target_wind_heading_deg() -> float:
-	var active: WeatherRegimeProfile = _regimes_by_id.get(get_active_regime_id()) as WeatherRegimeProfile
+	var active: WeatherRegimeProfile = (
+		_regimes_by_id.get(get_active_regime_id()) as WeatherRegimeProfile
+	)
 	if active == null:
 		return WIND_BASE_HEADING_DEG
 	var drift_amp: float = active.heading_drift_deg
 	if _in_transition and _debug_regime_id.is_empty():
 		var nxt: WeatherRegimeProfile = _regimes_by_id.get(_next_id) as WeatherRegimeProfile
 		if nxt != null:
-			drift_amp = lerpf(drift_amp, nxt.heading_drift_deg, smoothstep(0.0, 1.0, _transition))
+			drift_amp = lerpf(
+				drift_amp,
+				nxt.heading_drift_deg,
+				smoothstep(0.0, 1.0, _transition),
+			)
 	# Медленный апериодичный мендр (value-noise по времени погоды) вместо
 	# предсказуемых синусов: ветер «поворачивает», а не качается с периодом.
 	var drift: float = _heading_meander(_weather_time_hours)
 	return WIND_BASE_HEADING_DEG + drift_amp * drift
 
-# --- Зарезервированные оси (V0 нейтральны, без потребителей) ---
+# --- Живые влажность и осадки ---
 
 
 func get_precipitation_kind() -> int:
-	return 0
+	if get_precipitation_intensity() <= 0.0:
+		return PrecipitationKind.NONE
+	return PrecipitationKind.RAIN
 
 
 func get_precipitation_intensity() -> float:
-	return 0.0
-
-
-func get_temperature_c() -> float:
-	return _blended_axis(func(p: WeatherRegimeProfile) -> Vector2: return p.temperature_c, 0.5)
+	var active: WeatherRegimeProfile = (
+		_regimes_by_id.get(get_active_regime_id()) as WeatherRegimeProfile
+	)
+	if active == null:
+		return 0.0
+	var humidity: float = get_humidity()
+	var cloud_cover: float = get_cloud_cover()
+	var intensity: float = _rain_intensity_for_profile(active, humidity, cloud_cover)
+	if _in_transition and _debug_regime_id.is_empty():
+		var nxt: WeatherRegimeProfile = _regimes_by_id.get(_next_id) as WeatherRegimeProfile
+		if nxt != null:
+			var next_intensity: float = _rain_intensity_for_profile(nxt, humidity, cloud_cover)
+			intensity = lerpf(intensity, next_intensity, smoothstep(0.0, 1.0, _transition))
+	return clampf(intensity, 0.0, 1.0)
 
 
 func get_humidity() -> float:
-	return _blended_axis(func(p: WeatherRegimeProfile) -> Vector2: return p.humidity, 0.5)
+	if _debug_humidity_override >= 0.0:
+		return _debug_humidity_override
+	return clampf(
+		_blended_axis(func(p: WeatherRegimeProfile) -> Vector2: return p.humidity, 0.5)
+		+ _season_humidity_offset(),
+		0.0,
+		1.0,
+	)
+
+
+## Dev-only: задаёт влажность без изменения режима, чтобы проверять причинную
+## связь humidity -> rain. Не является gameplay mutation path.
+func set_debug_humidity(value: float) -> void:
+	_debug_humidity_override = clampf(value, 0.0, 1.0)
+
+
+func clear_debug_humidity() -> void:
+	_debug_humidity_override = -1.0
+
+# --- Живая глобальная температура внешнего воздуха ---
+
+
+func get_temperature_c() -> float:
+	return (
+		_blended_axis(func(p: WeatherRegimeProfile) -> Vector2: return p.temperature_c, 0.5)
+		+ _season_temperature_offset_c()
+	)
 
 # --- Save / Persistence (ADR-0007: только медленное состояние) ---
 
 
 ## Медленное состояние погоды для сейва. Живые оси (cloud_cover, цели ветра,
-## зарезервированные) НЕ сохраняются — реконструируются из режима + часов.
+## humidity, precipitation и temperature-read) НЕ сохраняются —
+## реконструируются из режима + часов.
 func export_save_dict() -> Dictionary:
 	return {
 		"active_regime": String(_active_id),
@@ -217,6 +276,8 @@ func restore_persisted_state(data: Dictionary) -> void:
 	_weather_time_hours = maxf(float(data.get("weather_time_hours", 0.0)), 0.0)
 	_transition_count = maxi(int(data.get("transition_count", 0)), 0)
 	_debug_regime_id = &""
+	_debug_cover_override = -1.0
+	_debug_humidity_override = -1.0
 	_debug_fast_transition = false
 	_last_hour = -1.0
 	if not _in_transition and _remaining_hours <= 0.0:
@@ -278,17 +339,22 @@ func _commit_transition() -> void:
 	EventBus.weather_changed.emit(_active_id, previous_id)
 
 
-## Детерминированный взвешенный выбор преемника (соседние режимы в V0).
+## Детерминированный взвешенный выбор преемника. Сезон только умножает
+## authored-вес кандидата; roll/clock/transition остаются погодными.
 func _select_next_regime(current_id: StringName) -> StringName:
 	var profile: WeatherRegimeProfile = _regimes_by_id.get(current_id) as WeatherRegimeProfile
 	if profile == null or profile.successor_weights.is_empty():
 		return current_id
 	var total: float = 0.0
-	for weight_variant: Variant in profile.successor_weights.values():
-		total += maxf(float(weight_variant), 0.0)
+	for successor_variant: Variant in profile.successor_weights.keys():
+		var successor_id: StringName = successor_variant as StringName
+		var authored_weight: float = maxf(
+			float(profile.successor_weights[successor_variant]),
+			0.0,
+		)
+		total += authored_weight * _season_regime_weight_multiplier(successor_id)
 	if total <= 0.0:
 		return current_id
-	# season — зарезервированный хук, в V0 веса не смещает.
 	var roll: float = _hash_unit(
 		_world_seed,
 		_current_day(),
@@ -298,7 +364,11 @@ func _select_next_regime(current_id: StringName) -> StringName:
 	var acc: float = 0.0
 	for successor_variant: Variant in profile.successor_weights.keys():
 		var successor_id: StringName = successor_variant as StringName
-		acc += maxf(float(profile.successor_weights[successor_variant]), 0.0)
+		var authored_weight: float = maxf(
+			float(profile.successor_weights[successor_variant]),
+			0.0,
+		)
+		acc += authored_weight * _season_regime_weight_multiplier(successor_id)
 		if roll <= acc and _regimes_by_id.has(successor_id):
 			return successor_id
 	return current_id
@@ -316,7 +386,9 @@ func _roll_duration(regime_id: StringName, salt: int) -> float:
 ## смешанная с полосой следующего во время перехода. fallback — при пустом
 ## реестре (нейтральное значение для зарезервированных осей).
 func _blended_axis(band_getter: Callable, fallback: float) -> float:
-	var active: WeatherRegimeProfile = _regimes_by_id.get(get_active_regime_id()) as WeatherRegimeProfile
+	var active: WeatherRegimeProfile = (
+		_regimes_by_id.get(get_active_regime_id()) as WeatherRegimeProfile
+	)
 	if active == null:
 		return fallback
 	var value: float = _sample_band(band_getter.call(active) as Vector2)
@@ -333,6 +405,33 @@ func _sample_band(band: Vector2) -> float:
 	var breath: float = sin(_weather_time_hours * 0.9 + 0.4) * 0.6 \
 			+ sin(_weather_time_hours * 0.31 + 2.1) * 0.4
 	return lerpf(band.x, band.y, clampf(0.5 + 0.5 * breath, 0.0, 1.0))
+
+
+## Rain-only V1: профиль задаёт способность режима к осадкам, а фактическая
+## интенсивность причинно растёт только после порогов влажности и облачности.
+func _rain_intensity_for_profile(
+		profile: WeatherRegimeProfile,
+		humidity: float,
+		cloud_cover: float,
+) -> float:
+	if profile.precipitation_kind != PrecipitationKind.RAIN:
+		return 0.0
+	var humidity_pressure: float = smoothstep(
+		profile.precipitation_start_humidity,
+		1.0,
+		clampf(humidity, 0.0, 1.0),
+	)
+	var cloud_pressure: float = smoothstep(
+		profile.precipitation_start_cloud_cover,
+		1.0,
+		clampf(cloud_cover, 0.0, 1.0),
+	)
+	var rain_capacity: float = lerpf(
+		profile.precipitation_intensity.x,
+		profile.precipitation_intensity.y,
+		humidity_pressure,
+	)
+	return clampf(rain_capacity * humidity_pressure * cloud_pressure, 0.0, 1.0)
 
 
 ## Сглаженный value-noise по времени погоды в [-1, 1]: медленный апериодичный
@@ -382,6 +481,24 @@ func _hours_per_day() -> int:
 	if TimeManager != null and TimeManager.balance != null:
 		return TimeManager.balance.hours_per_day
 	return 24
+
+
+func _season_temperature_offset_c() -> float:
+	if TimeManager != null and TimeManager.has_method("get_season_temperature_offset_c"):
+		return float(TimeManager.get_season_temperature_offset_c())
+	return 0.0
+
+
+func _season_humidity_offset() -> float:
+	if TimeManager != null and TimeManager.has_method("get_season_humidity_offset"):
+		return float(TimeManager.get_season_humidity_offset())
+	return 0.0
+
+
+func _season_regime_weight_multiplier(regime_id: StringName) -> float:
+	if TimeManager != null and TimeManager.has_method("get_weather_regime_weight_multiplier"):
+		return maxf(float(TimeManager.get_weather_regime_weight_multiplier(regime_id)), 0.0)
+	return 1.0
 
 
 static func _hash_unit(a: int, b: int, c: int, d: int) -> float:
