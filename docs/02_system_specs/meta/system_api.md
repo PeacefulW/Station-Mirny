@@ -4,7 +4,7 @@ doc_type: system_spec
 status: draft
 owner: engineering
 source_of_truth: true
-version: 0.17
+version: 0.19
 last_updated: 2026-08-03
 related_docs:
   - ../README.md
@@ -13,6 +13,7 @@ related_docs:
   - packet_schemas.md
   - save_and_persistence.md
   - multiplayer_authority_and_replication.md
+  - ../survival/player_wetness_and_cold_exposure.md
 ---
 
 # System API
@@ -38,6 +39,8 @@ It covers only the minimal core set confirmed in code during this pass:
 - `TimeManager`
 - `WeatherRuntime`
 - `WindRuntime`
+- `EnvironmentExposureResolver`
+- `PlayerExposureComponent`
 - `ItemRegistry`
 - `SaveManager`
 - `PlayerAuthority`
@@ -184,7 +187,7 @@ Confirmed readable state (live axes; smooth values are pull-model getters):
 | `get_target_wind_heading_deg()` | method | Wind heading target in degrees |
 | `get_humidity()` | method | Authoritative global live humidity `0..1`; deterministic from regime bands, transition, and weather clock |
 | `get_precipitation_kind()` / `get_precipitation_intensity()` | method | Authoritative live precipitation read; V1 publishes `NONE`/`RAIN` and intensity `0..1` derived from humidity + cloud cover + regime tuning |
-| `get_temperature_c()` | method | Authoritative global outside-air Celsius read: authored weather band plus smooth seasonal offset; not yet biome/altitude/shelter/player exposure and not yet a snow resolver |
+| `get_temperature_c()` | method | Authoritative global outside-air Celsius read: authored weather band plus smooth seasonal offset; consumed as the baseline for player cold load, but still not biome/altitude/body temperature or a snow resolver |
 
 Emits `weather_changed` on regime change (see `event_contracts.md`).
 
@@ -219,7 +222,8 @@ Role:
   `docs/02_system_specs/world/weather_runtime.md`,
   `docs/02_system_specs/world/wind_and_grass_scatter_presentation.md`
 
-Confirmed readable state (presentation/dev surface, not gameplay truth):
+Confirmed readable state (environment-runtime read surface; presentation and
+player exposure may consume it):
 
 | Surface | Kind | Notes |
 |---|---|---|
@@ -243,6 +247,68 @@ gameplay path):
 Not documented here as safe entrypoints:
 - direct writes to `wind_*` global shader uniforms by any other system
 - `_current_strength()`, `_current_direction()`, `_publish_globals()`
+
+### EnvironmentExposureResolver
+
+Owner file: `core/systems/world/environment_exposure_resolver.gd`
+
+Role:
+- shared derived open-sky context for rain presentation and player wetting;
+  owns no weather, terrain, room, or player survival truth
+
+Confirmed read entrypoints:
+
+| Surface | Return | Notes |
+|---|---|---|
+| `get_active_z_level()` | `int` | Resolver-local z context; defaults to surface because the current shipping scene has no z-level owner |
+| `is_open_sky_at(world_position)` | `bool` | True only at z0, outside a building indoor cell, with a ready non-interior mountain sample |
+| `is_open_sky_at_z(world_position, z_level)` | `bool` | Explicit-z form used by probes/integration; unknown mountain cover fails closed |
+| `is_building_indoor_at(world_position)` | `bool` | Derived read through the cached `BuildingSystem`; missing system means exterior, never false sanctuary |
+
+Confirmed context update:
+
+| Surface | Notes |
+|---|---|
+| `set_active_z_level(new_z)` | Explicit probe/future-integration bridge; the current shipping scene has no `ZLevelManager` and no `z_level_changed` emitter |
+
+The resolver performs one deferred boot lookup for stable services, refreshes a
+late-added `BuildingSystem` only when `rooms_recalculated` publishes, and never
+scans the scene tree per exposure tick. `world_runtime_v0.tscn` currently ships
+without `BuildingSystem`, `BaseLifeSupport`, or a z-level owner: mountain cover
+is the reachable shelter authority there, while built/powered shelter and
+subsurface branches remain integration-ready but are not reachable gameplay in
+that scene.
+
+### PlayerExposureComponent
+
+Owner file: `core/entities/components/player_exposure_component.gd`
+
+Role:
+- sole per-player writer of normalized `wetness` and `cold_load`; V0 is
+  warning-only and has no health, oxygen, movement, fatigue, or death mutation
+
+Confirmed signal:
+
+```text
+exposure_changed(wetness: float, cold_load: float)
+```
+
+Confirmed read/persistence entrypoints:
+
+| Surface | Return / notes |
+|---|---|
+| `from_player(player)` | Static typed lookup of the direct `ExposureComponent` child |
+| `get_wetness()` / `get_cold_load()` | Authoritative normalized player reads |
+| `get_*_visible_threshold()` | Data-authored HUD reveal thresholds |
+| `get_*_warning_threshold()` / `get_*_critical_threshold()` | Data-authored palette-tier thresholds |
+| `is_wetness_visible()` / `is_wetness_warning()` | Convenience wetness reads |
+| `is_cold_visible()` / `is_cold_warning()` | Convenience cold-load reads |
+| `save_state()` | Returns `{wetness, cold_load}` |
+| `load_state(data)` | SaveAppliers restore path; missing/malformed values reset to zero and finite numeric values clamp to `0..1` |
+| `calculate_next_state(...)` | Pure deterministic transition helper used by the component and contract probes; it does not write component state |
+
+No public gameplay setter exists. Normal mutations occur only inside the
+bounded component tick or through the documented save-restore entrypoint.
 
 ### ItemRegistry
 

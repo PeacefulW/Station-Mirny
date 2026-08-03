@@ -4,8 +4,8 @@ doc_type: system_spec
 status: approved
 owner: engineering+art
 source_of_truth: true
-version: 1.1
-last_updated: 2026-06-10
+version: 1.2
+last_updated: 2026-08-03
 related_docs:
   - ../../README.md
   - ../../00_governance/ENGINEERING_STANDARDS.md
@@ -14,6 +14,7 @@ related_docs:
   - ../../05_adrs/0005-light-is-gameplay-system.md
   - ../meta/system_api.md
   - ../meta/packet_schemas.md
+  - ../survival/player_wetness_and_cold_exposure.md
   - world_runtime.md
 ---
 
@@ -238,6 +239,17 @@ by chunk-local masks or overlay sprites:
   obeys the same aperiodic, no-per-chunk rules as every other term here, and it
   derives its sun from the same single cosmetic sun model — no second lighting
   curve.
+- Rain may add one transient **wet-ground response** inside this same shared
+  material. `GroundWetnessPresenter` integrates one global visual amount from
+  authoritative rain and writes only its own uniforms at a bounded cadence.
+  The shader reuses existing world-space soil/macro/form fields to darken and
+  slightly desaturate low patches, takes a stricter threshold for sparse
+  shallow puddles, and draws drop-impact rings from one analytic jittered cell.
+  It adds no texture sampler, screen copy, render pass, material instance,
+  per-tile field, chunk state, puddle/decal/drop node, or CPU impact list. The
+  amount is transient and absent from save data; floors/roofs keep their normal
+  draw-order ownership, and this global visual mask is never an open-sky or
+  water-simulation authority.
 - The composition holds no per-chunk state, so chunk-boundary seams cannot
   exist in the ground field by construction. Per-chunk decorative overlay
   sprites for grass/rock breakup are retired; they were the proven source of
@@ -861,6 +873,8 @@ The terrain hybrid architecture is considered correctly implemented when:
 - normals remain independent lighting data, not color proxies
 - the runtime hot path contains no GDScript geometry solve loop over chunk tiles
 - save/load contracts remain presentation-agnostic unless explicitly changed
+- wet-ground response remains world-space and shared across chunks, creates no
+  gameplay terrain/save state, and costs no extra pass or per-impact object
 
 ## Risks
 

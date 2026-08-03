@@ -4,7 +4,7 @@ doc_type: system_spec
 status: draft
 owner: engineering
 source_of_truth: true
-version: 1.12
+version: 1.13
 last_updated: 2026-08-03
 related_docs:
   - ../README.md
@@ -115,14 +115,18 @@ Current code note:
   "inventory"?: InventoryState,
   "equipment"?: EquipmentState,
   "oxygen"?: OxygenState,
+  "exposure"?: ExposureState,
 }
 ```
 
 Presence rules confirmed in code:
 - `position` is written when a player node is found
 - `z_level` is written only if a `ZLevelManager` with `get_current_z()` exists
-- `health`, `inventory`, `equipment`, and `oxygen` are written only if the
+- `health`, `inventory`, `equipment`, `oxygen`, and `exposure` are written only if the
   corresponding component exists and exposes `save_state()`
+- missing `exposure` is applied as an empty dictionary so an old save loaded
+  over a live session resets wetness/cold load to `0` rather than retaining
+  stale state
 
 ### `InventoryState`
 
@@ -162,6 +166,23 @@ Current code note:
   "is_base_powered": bool,
 }
 ```
+
+### `ExposureState`
+
+Saved by `PlayerExposureComponent.save_state()`:
+
+```text
+{
+  "wetness": float,   # clamped 0..1
+  "cold_load": float, # clamped 0..1
+}
+```
+
+The section is optional and additive. Missing, non-dictionary, non-numeric,
+NaN, or infinite input restores dry/comfortable `0`; finite numeric input is
+clamped. Open-sky context, effective temperature, warning UI, global ground
+wetness, puddle placement, and impact animation are derived and never enter
+`PlayerSaveData`.
 
 ### `WorldSaveData`
 

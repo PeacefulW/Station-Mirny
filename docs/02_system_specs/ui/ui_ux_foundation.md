@@ -4,10 +4,11 @@ doc_type: system_spec
 status: approved
 owner: design+engineering
 source_of_truth: true
-version: 1.4
+version: 1.5
 last_updated: 2026-08-03
 related_docs:
   - ../../01_product/GAME_VISION_GDD.md
+  - ../survival/player_wetness_and_cold_exposure.md
 ---
 
 # UI and UX Foundation
@@ -30,7 +31,7 @@ Always-on UI should stay minimal and high-signal:
 - suit battery
 - heading/base reference
 - quiet navigation readouts such as the current tile coordinates
-- only urgent state warnings
+- threshold-revealed high-signal context and urgent state warnings
 
 ## HUD presentation contract
 
@@ -59,6 +60,11 @@ Presentation rules for those clusters:
 - the weather row groups localized weather state, cloud cover, signed Celsius
   air temperature, and humidity on the same quiet instrument line; temperature
   and humidity do not create a new card or claim the critical alarm channel;
+- player wetness and cold load share one threshold-revealed icon/percent row
+  after health and before shelter status; each axis stays absent below its
+  authored visibility threshold, fades briefly on entry/exit, and uses only
+  the existing secondary/caution/critical palette without a meter, card,
+  pulse, blink, vignette, tooltip, or raw label string;
 - the action bar is contextual, not a permanent cheat sheet: it is shown at
   session start and while a mode is active, then fades out;
 - key caps and captions are localization keys, never literals in widget code.
@@ -102,5 +108,7 @@ for an in-place world reload.
 ## Acceptance criteria
 
 - players can read danger at a glance
+- wetness/cold warnings appear only when relevant and never compete with the
+  oxygen/shelter alarm channel
 - deeper systems do not pollute the main screen
 - build mode feels precise rather than noisy

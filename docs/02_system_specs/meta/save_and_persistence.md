@@ -4,10 +4,11 @@ doc_type: system_spec
 status: approved
 owner: engineering+design
 source_of_truth: true
-version: 1.13
+version: 1.15
 last_updated: 2026-08-03
 related_docs:
   - multiplayer_and_modding.md
+  - ../survival/player_wetness_and_cold_exposure.md
   - ../../05_adrs/0003-immutable-base-plus-runtime-diff.md
 ---
 
@@ -92,8 +93,25 @@ saved). See `WeatherSaveData` in `packet_schemas.md`.
 - The change affects environment runtime only and does not bump
   `world_version`.
 
+### Player wetness and cold-load persistence
+
+- `player.json` may contain the additive optional section
+  `exposure: {wetness, cold_load}`; both normalized values are owned by the
+  player's `PlayerExposureComponent`.
+- `SaveCollectors.collect_player()` writes the section only when the component
+  exists. `SaveAppliers.apply_player()` always calls the component with either
+  the valid dictionary or `{}`, so a legacy save loaded over a live session
+  resets to dry/comfortable rather than retaining stale values.
+- Missing, malformed, non-finite, or non-numeric fields default to `0`; finite
+  numeric values clamp to `0..1`.
+- Open-sky context, current effective-temperature target, HUD warnings, global
+  wet-ground amount, puddle mask, and impact phase are reconstructed/transient
+  and are not serialized.
+- This is player-state evolution only. It changes neither `save_format_version`
+  nor `world_version`, chunk diffs, time payload, or weather payload.
+
 Current world generation extension:
-- `world.json` now records `world_version: 64` for the current finite-world
+- `world.json` now records `world_version: 65` for the current finite-world
   foundation baseline with `64`-tile substrate cells, native high-resolution
   overview, Lake Generation L2 packet output (`TERRAIN_LAKE_BED_SHALLOW`,
   `TERRAIN_LAKE_BED_DEEP`, and `lake_flags`), and the 2026-05-03
@@ -241,7 +259,7 @@ Current world generation extension:
   `world_seed + chunk_coord + world_version` plus the
   frozen `worldgen_settings` profile data. Object records themselves are not
   stored in `world.json` or per-chunk diff files.
-- `WorldRuntimeConstants.WORLD_VERSION` is therefore `64` for current saves;
+- `WorldRuntimeConstants.WORLD_VERSION` is therefore `65` for current saves;
   `38` remains the historical L2 packet boundary and `42` remains the
   historical L7 shore-warp boundary.
 - `worldgen_settings.lakes` stores the embedded per-save lake input copy
@@ -352,7 +370,7 @@ Confirmed `world.json` shape in the current worldgen code path:
   "world_rebuild_frozen": false,
   "world_scene_present": true,
   "world_seed": 131071,
-  "world_version": 64,
+  "world_version": 65,
   "worldgen_settings": {
     "world_bounds": {
       "width_tiles": 4096,
@@ -496,6 +514,8 @@ Confirmed `world.json` shape in the current worldgen code path:
 - large worlds remain saveable without full-world dumps
 - modified chunks reload exactly as changed
 - current-version player/base/progression state survives save/load
+- player wetness/cold load round-trip, while old saves without `exposure`
+  restore `0/0`
 - non-current `world_version` saves are rejected before runtime diffs or other
   gameplay state are applied
 

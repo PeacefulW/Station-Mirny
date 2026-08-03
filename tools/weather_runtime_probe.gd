@@ -173,11 +173,22 @@ func _run() -> void:
 		"rain монотонно растёт от humidity (%s)" % str(rain_samples),
 	)
 	_check(is_zero_approx(rain_samples[0]), "сухой воздух не даёт дождь")
+	weather.call("set_debug_humidity", 0.80)
+	_check(
+		rain_samples[2] > 0.0 and int(weather.call("get_precipitation_kind")) == 1,
+		"80%% humidity под плотным overcast публикует RAIN (%.3f)" % rain_samples[2],
+	)
+	weather.call("set_debug_cloud_cover", 0.40)
+	_check(
+		is_zero_approx(float(weather.call("get_precipitation_intensity"))),
+		"80% humidity без достаточной облачности сама по себе не создаёт дождь",
+	)
+	weather.call("set_debug_humidity", 1.0)
+	weather.call("set_debug_cloud_cover", 1.0)
 	_check(
 		int(weather.call("get_precipitation_kind")) == 1 and rain_samples[-1] > 0.9,
 		"насыщенный overcast публикует RAIN высокой интенсивности",
 	)
-	weather.call("set_debug_humidity", 1.0)
 	var cloud_samples: Array[float] = [0.0, 0.65, 0.75, 0.90, 1.0]
 	var cloud_rain_samples: Array[float] = []
 	for cloud_sample: float in cloud_samples:

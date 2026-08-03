@@ -4,12 +4,13 @@ doc_type: system_spec
 status: draft
 owner: engineering
 source_of_truth: true
-version: 0.4
+version: 0.5
 last_updated: 2026-08-03
 related_docs:
   - ../README.md
   - system_api.md
   - commands.md
+  - ../survival/player_wetness_and_cold_exposure.md
   - ../../00_governance/ENGINEERING_STANDARDS.md
 ---
 
@@ -143,9 +144,12 @@ When it fires:
 
 Confirmed listeners:
 - `OxygenSystem._on_life_support_power_changed()`
+- `PlayerExposureComponent._on_life_support_power_changed()`
 
 Current listener use:
 - updates whether indoor oxygen should refill or drain
+- enables powered-indoor drying and controlled-temperature recovery for player
+  exposure
 
 ### `building_placed(position: Vector2i)`
 
@@ -175,9 +179,12 @@ When it fires:
 
 Confirmed listeners:
 - `OxygenSystem._on_rooms_recalculated()`
+- `EnvironmentExposureResolver._on_rooms_recalculated()`
 
 Current listener use:
 - refreshes whether the owner is currently indoors
+- refreshes a late-added `BuildingSystem` reference without a per-frame
+  scene-tree scan
 
 ### `item_crafted(item_id: String, amount: int)`
 

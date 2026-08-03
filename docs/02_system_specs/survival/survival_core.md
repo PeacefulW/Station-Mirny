@@ -4,12 +4,13 @@ doc_type: system_spec
 status: approved
 owner: design+engineering
 source_of_truth: true
-version: 1.0
-last_updated: 2026-03-25
+version: 1.2
+last_updated: 2026-08-03
 related_docs:
   - ../../01_product/GAME_VISION_GDD.md
   - ../base/engineering_networks.md
   - ../progression/character_progression.md
+  - player_wetness_and_cold_exposure.md
 ---
 
 # Survival Core
@@ -57,6 +58,25 @@ This spec does not own:
 | `thirst` | short-term hydration pressure | faster collapse than hunger |
 | `fatigue` | accumulated exhaustion | lower speed, accuracy and reliability |
 
+### Landed wetness and cold-load V0
+
+The first bounded thermal-survival slice is implemented by one
+`PlayerExposureComponent` per player:
+
+- `wetness` (`0..1`) increases only under authoritative open-sky `RAIN` and
+  dries outside rain; cover dries faster and a powered indoor sanctuary uses
+  the fastest authored recovery rate;
+- `cold_load` (`0..1`) approaches a target derived from global outside-air
+  temperature, current wind, wetness, cover, and the controlled powered-indoor
+  temperature;
+- both values are persisted in the optional additive
+  `PlayerSaveData.exposure` section and old saves default to dry/comfortable;
+- V0 is telemetry and warning only. It does not mutate health, oxygen,
+  movement, stamina, fatigue, body temperature, or death state.
+
+The complete authority, tuning, HUD, and visual-ground boundaries are owned by
+[`player_wetness_and_cold_exposure.md`](player_wetness_and_cold_exposure.md).
+
 ## Oxygen and hypoxia
 
 ### Design rule
@@ -73,6 +93,14 @@ Oxygen failure must be dramatic and readable, not instant.
 6. collapse and death only happen after visible warning stages
 
 The intended emotion is tension, not arbitrary punishment.
+
+### Temporary development override
+
+Exterior oxygen depletion is intentionally disabled in the current runtime so
+long world, weather, and presentation development sessions are not interrupted.
+The authored production rate remains in `SurvivalBalance` and powered-indoor
+refill, unpowered-indoor depletion, HUD warnings, and save/load behavior remain
+active. Exterior depletion must be restored before survival acceptance.
 
 ## Spores and toxicity
 
@@ -155,6 +183,8 @@ Rules:
 - changing one meter must be O(1)
 - no world-scale rebuilds may happen from survival ticks
 - visual effects must degrade gracefully rather than hitch the frame
+- wetness/cold exposure advances through one bounded scalar tick per player;
+  visual ground wetness stays a separate shared-material presentation read
 
 ## Acceptance criteria
 
@@ -163,6 +193,8 @@ Rules:
 - spore toxicity matters outside but does not make early play impossible
 - food/water matter, but do not drown the player in chores
 - death/save logic feels fair and readable on each difficulty
+- rain exposure raises wetness only under open sky, while shelter recovery and
+  cold warnings remain readable without applying hidden damage
 
 ## Failure signs
 

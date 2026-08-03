@@ -1,0 +1,26 @@
+[gd_resource type="Resource" script_class="PlayerExposureBalance" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://data/balance/player_exposure_balance.gd" id="1_balance"]
+
+[resource]
+script = ExtResource("1_balance")
+id = &"core:player_exposure"
+tick_interval_seconds = 0.25
+rain_wetness_rate_per_second = 0.026
+dry_open_rate_per_second = 0.002
+dry_covered_rate_per_second = 0.008
+dry_powered_indoor_rate_per_second = 0.024
+controlled_indoor_temperature_c = 20.0
+wind_chill_max_c = 8.0
+wet_chill_max_c = 12.0
+covered_wet_chill_multiplier = 0.35
+cold_safe_temperature_c = 8.0
+cold_severe_temperature_c = -14.0
+cold_accumulation_rate_per_second = 0.08
+warm_recovery_rate_per_second = 0.14
+wetness_visible_threshold = 0.10
+wetness_warning_threshold = 0.45
+wetness_critical_threshold = 0.80
+cold_visible_threshold = 0.12
+cold_warning_threshold = 0.45
+cold_critical_threshold = 0.80

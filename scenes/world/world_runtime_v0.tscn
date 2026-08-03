@@ -1,4 +1,4 @@
-[gd_scene load_steps=14 format=3]
+[gd_scene load_steps=17 format=3]
 
 [ext_resource type="Script" path="res://scenes/world/world_runtime_v0_scene.gd" id="1"]
 [ext_resource type="Script" path="res://core/systems/world/world_streamer.gd" id="2"]
@@ -13,12 +13,22 @@
 [ext_resource type="Script" path="res://core/systems/world/world_height_shadow_field.gd" id="12"]
 [ext_resource type="Resource" path="res://data/world_objects/presentation_profiles/world_height_shadow_profile.tres" id="13"]
 [ext_resource type="Script" path="res://core/systems/world/rain_overlay.gd" id="14"]
+[ext_resource type="Script" path="res://core/systems/world/environment_exposure_resolver.gd" id="15"]
+[ext_resource type="Script" path="res://core/systems/world/ground_wetness_presenter.gd" id="16"]
+[ext_resource type="Resource" path="res://data/balance/ground_wetness_profile.tres" id="17"]
 
 [node name="WorldRuntimeV0" type="Node2D"]
 script = ExtResource("1")
 
 [node name="WorldStreamer" type="Node2D" parent="."]
 script = ExtResource("2")
+
+[node name="EnvironmentExposureResolver" type="Node" parent="."]
+script = ExtResource("15")
+
+[node name="GroundWetnessPresenter" type="Node" parent="."]
+script = ExtResource("16")
+profile = ExtResource("17")
 
 [node name="Player" parent="." instance=ExtResource("3")]
 position = Vector2(512, 512)

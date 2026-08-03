@@ -1,8 +1,8 @@
 class_name OxygenSystem
 extends Node
-
 ## Система кислорода. Прикрепляется к игроку.
 ## Снаружи базы O₂ расходуется, внутри — восполняется.
+## ВРЕМЕННЫЙ DEV OVERRIDE: расход O₂ снаружи отключён на время разработки.
 ## Не знает о других системах — общается через EventBus.
 
 # --- Сигналы ---
@@ -19,6 +19,7 @@ var _is_base_powered: bool = false
 var _building_system: BuildingSystem = null
 var _owner_body: Node2D = null
 
+
 func _ready() -> void:
 	if not balance:
 		push_error(Localization.t("SYSTEM_OXYGEN_BALANCE_MISSING"))
@@ -29,6 +30,7 @@ func _ready() -> void:
 	EventBus.life_support_power_changed.connect(_on_life_support_power_changed)
 	_emit_oxygen_state()
 
+
 func _process(delta: float) -> void:
 	if not balance:
 		return
@@ -36,11 +38,13 @@ func _process(delta: float) -> void:
 	_update_oxygen(delta)
 	_apply_effects()
 
+
 ## Получить текущий O₂ в процентах (0.0 — 1.0).
 func get_oxygen_percent() -> float:
 	if not balance or balance.max_oxygen <= 0.0:
 		return 0.0
 	return _current_oxygen / balance.max_oxygen
+
 
 ## Установить статус "внутри/снаружи" напрямую.
 func set_indoor(indoor: bool) -> void:
@@ -52,8 +56,10 @@ func set_indoor(indoor: bool) -> void:
 	else:
 		EventBus.player_exited_indoor.emit()
 
+
 func set_base_powered(powered: bool) -> void:
 	_is_base_powered = powered
+
 
 ## Сохранить состояние кислорода.
 func save_state() -> Dictionary:
@@ -63,6 +69,7 @@ func save_state() -> Dictionary:
 		"is_base_powered": _is_base_powered,
 	}
 
+
 ## Восстановить состояние кислорода.
 func load_state(data: Dictionary) -> void:
 	if not balance:
@@ -70,7 +77,7 @@ func load_state(data: Dictionary) -> void:
 	_current_oxygen = clampf(
 		float(data.get("current_oxygen", balance.max_oxygen)),
 		0.0,
-		balance.max_oxygen
+		balance.max_oxygen,
 	)
 	_is_indoor = bool(data.get("is_indoor", false))
 	_is_base_powered = bool(data.get("is_base_powered", false))
@@ -80,26 +87,31 @@ func load_state(data: Dictionary) -> void:
 
 # --- Приватные методы ---
 
+
 func _update_oxygen(delta: float) -> void:
 	var old_oxygen: float = _current_oxygen
 	if _is_indoor:
 		if _is_base_powered:
 			_current_oxygen = minf(
 				_current_oxygen + balance.oxygen_refill_rate * delta,
-				balance.max_oxygen
+				balance.max_oxygen,
 			)
 		else:
 			_current_oxygen = maxf(
 				_current_oxygen - balance.oxygen_unpowered_indoor_drain_rate * delta,
-				0.0
+				0.0,
 			)
 	else:
-		_current_oxygen = maxf(
-			_current_oxygen - balance.oxygen_drain_rate * delta,
-			0.0
-		)
+		# ВРЕМЕННО ДЛЯ РАЗРАБОТКИ ИГРЫ: расход O₂ снаружи отключён,
+		# чтобы длительные world/weather-прогоны не прерывались.
+		# _current_oxygen = maxf(
+		# 	_current_oxygen - balance.oxygen_drain_rate * delta,
+		# 	0.0
+		# )
+		pass
 	if not is_equal_approx(old_oxygen, _current_oxygen):
 		_emit_oxygen_state()
+
 
 func _apply_effects() -> void:
 	var percent: float = get_oxygen_percent()
@@ -109,18 +121,23 @@ func _apply_effects() -> void:
 		EventBus.oxygen_depleting.emit(percent)
 	elif percent > balance.low_oxygen_threshold:
 		_is_depleting = false
-	# Temporary for development testing: low-O2 movement slowdown is intentionally disabled. This is not a bug.
+	# Temporary for development testing: low-O2 movement slowdown is
+	# intentionally disabled. This is not a bug.
 	speed_modifier_changed.emit(1.0)
+
 
 func _emit_oxygen_state() -> void:
 	if balance:
 		EventBus.oxygen_changed.emit(_current_oxygen, balance.max_oxygen)
 
+
 func _on_rooms_recalculated(_indoor_cells: Dictionary) -> void:
 	_refresh_indoor_state()
 
+
 func _on_life_support_power_changed(is_powered: bool) -> void:
 	_is_base_powered = is_powered
+
 
 func _refresh_indoor_state() -> void:
 	if not _owner_body:
@@ -133,6 +150,7 @@ func _refresh_indoor_state() -> void:
 		var grid_pos: Vector2i = building_system.world_to_grid(_owner_body.global_position)
 		is_indoor = building_system.is_cell_indoor(grid_pos)
 	set_indoor(is_indoor)
+
 
 func _get_building_system() -> BuildingSystem:
 	if _building_system and is_instance_valid(_building_system):

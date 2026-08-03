@@ -4,7 +4,7 @@ doc_type: system_spec
 status: approved
 owner: engineering+design
 source_of_truth: true
-version: 1.2
+version: 1.4
 last_updated: 2026-08-03
 related_docs:
   - weather_runtime.md
@@ -20,6 +20,7 @@ related_docs:
   - ../../05_adrs/0007-environment-runtime-is-layered-and-distinct-from-worldgen.md
   - ../../01_product/NON_NEGOTIABLE_EXPERIENCE.md
   - seasons_and_temperature_runtime.md
+  - ../survival/player_wetness_and_cold_exposure.md
 ---
 
 # Weather Runtime V1 - Humidity and Visual Rain
@@ -44,11 +45,11 @@ not resolve snow; temperature promotion does not retroactively expand V1 scope.
 
 ## Gameplay Goal
 
-Rain should make the exterior feel alive and exposed before wetness and cold
-gameplay land. The player can see weather building through cloud cover and then
-read actual rain, while the implementation already exposes authoritative values
-that future wetness, freezing, visibility, agriculture, and machine systems can
-consume without reading particles or inventing another weather clock.
+Rain makes the exterior feel alive and exposed. The player can see weather
+building through cloud cover and then read actual rain; the landed player
+exposure component consumes the same authoritative kind/intensity while the
+visual layer, wet-ground mask, and later agriculture/machine systems remain
+read-only consumers rather than parallel weather owners.
 
 ## Scope
 
@@ -75,8 +76,12 @@ consume without reading particles or inventing another weather clock.
 - Live temperature or freezing rules.
 - Snow, ash, spore precipitation, hail, and mixed precipitation.
 - Seasons or seasonal bias of humidity/regime selection.
-- Player wetness, hypothermia, status effects, visibility penalties, crop or
-  machine effects, puddles, terrain wetness, water accumulation, and flooding.
+- Player damage/hypothermia consequences, visibility penalties, crop or machine
+  effects, persistent water accumulation, and flooding.
+- Player wetness/cold telemetry and transient puddle presentation are owned by
+  the companion
+  [`player_wetness_and_cold_exposure.md`](../survival/player_wetness_and_cold_exposure.md),
+  not by the weather authority defined here.
 - Rain audio, lightning, and thunder.
 - Per-tile, per-chunk, biome-local, or regional weather.
 - Multiplayer transport/replication wiring; host-authoritative ownership is
@@ -99,7 +104,8 @@ consume without reading particles or inventing another weather clock.
 - `WeatherRegimeProfile` resources for authored humidity and precipitation
   tuning.
 - `WindRuntime` as an optional read-only presentation input for rain slant.
-- The active world runtime's existing surface/subsurface context.
+- The shared open-sky resolver's surface context. Its explicit z bridge is
+  covered by probes, but the current shipping scene has no z-level owner.
 
 ## Law 0 Classification
 
@@ -160,6 +166,12 @@ rain_capacity = lerp(intensity_min, intensity_max, humidity_pressure)
 rain_intensity = clamp(rain_capacity * humidity_pressure * cloud_pressure, 0, 1)
 ```
 
+Operational note: a HUD humidity value such as `80%` is not an unconditional
+rain trigger. The active regime must support `RAIN`, cloud cover must exceed
+that profile's cloud threshold, and the smooth pressures can still leave only
+a barely visible drizzle near either threshold. `clear` always remains dry;
+seasonal humidity offsets do not bypass these regime/cloud gates.
+
 Current and next profile results blend through the existing transition. The
 published kind is `RAIN` only while blended intensity is positive; otherwise
 it is `NONE`. A separate visual cutoff may hide imperceptible values but cannot
@@ -173,7 +185,7 @@ threshold, and presentation never feeds back into the result.
 
 - `WeatherRuntime` is the only writer of humidity, precipitation kind, and
   precipitation intensity.
-- Future gameplay consumers call typed getters. They never inspect shader
+- Gameplay consumers call typed getters. They never inspect shader
   opacity or scene visibility.
 - The host owns these axes when multiplayer transport lands. Clients may derive
   presentation but may not choose rain independently.
@@ -187,10 +199,13 @@ threshold, and presentation never feeds back into the result.
   size and streaming radius.
 - The visual layer may read wind direction/strength to angle drops, but cannot
   write weather or wind state.
-- Rain is open-sky gated with the same coarse current-context reads already
-  sanctioned for cloud presentation: surface level, not a building indoor
-  cell, and not a mountain interior. This is presentation gating only; future
-  wetness gameplay requires its own authoritative exposure read.
+- `EnvironmentExposureResolver` owns the shared open-sky derivation: surface
+  level, not a building indoor cell, and not a mountain interior. Both
+  `RainOverlay` and `PlayerExposureComponent` use this same read, so visual rain
+  cannot disagree with gameplay wetting.
+- `GroundWetnessPresenter` integrates one transient rain-derived scalar and
+  updates the existing shared plains material. Its mask, puddles, and analytic
+  impact rings are presentation only and never feed weather or player state.
 
 ## Event Contracts
 
@@ -215,7 +230,7 @@ reads; emitting them every frame would create unnecessary event traffic.
 - Runtime class: `interactive-frame`, O(1).
 - Authoritative compute: a fixed number of scalar samples and blends per frame.
 - Presentation apply: one fixed rain-layer uniform update per frame.
-- Forbidden: per-tile wetness, per-chunk rain owners, loaded-world scans,
+- Forbidden: per-tile wetness state, per-chunk rain owners, loaded-world scans,
   drop nodes, runtime `load()`, or runtime shader/material/texture rebuilds when
   intensity changes.
 - Escalation path: regional weather requires a separate spec with native
@@ -230,7 +245,7 @@ reads; emitting them every frame would create unnecessary event traffic.
   writer.
 - Future temperature resolves `RAIN` versus `SNOW` from authoritative
   temperature after precipitation potential is known.
-- Future gameplay systems consume getters or a later edge-triggered domain
+- Gameplay systems consume getters or a later edge-triggered domain
   event; they do not couple to the visual layer.
 
 ## Files Allowed for This Iteration
@@ -281,6 +296,9 @@ reads; emitting them every frame would create unnecessary event traffic.
   tile/chunk/entity loop.
 - Rain is absent below the surface, inside a building, and inside a mountain;
   it is visible in a forced wet overcast open-sky context.
+- Rain presentation and player wetting use one shared open-sky resolver.
+- Transient wet-ground presentation uses one shared material and creates no
+  tile, puddle, or impact nodes.
 - Existing cloud, wind, weather, and save probes remain green.
 - Public getter and persistence documentation no longer describes humidity or
   precipitation as reserved/neutral.
@@ -301,7 +319,8 @@ reads; emitting them every frame would create unnecessary event traffic.
 None for this iteration. User decisions on 2026-08-02:
 
 - first precipitation kind: rain;
-- current consequences: visual only;
+- at the 2026-08-02 V1 landing, consequences were visual only; player exposure
+  and transient wet-ground response were added on 2026-08-03;
 - spatial scale: use the existing global weather owner; regional weather is a
   later separately specified extension.
 
@@ -331,10 +350,13 @@ None for this iteration. User decisions on 2026-08-02:
 
 ## Implementation Closure
 
-Landed on 2026-08-02. `WeatherRuntime` remains the single global authority for
+Landed on 2026-08-02 and integrated with player exposure/ground response on
+2026-08-03. `WeatherRuntime` remains the single global authority for
 humidity and precipitation; rain derives from humidity, cloud cover, and the
 active regime without a second clock or random stream. Presentation is one
-surface-gated `Sprite2D` shader pass with no per-drop nodes. The seven-field
+surface-gated `Sprite2D` shader pass with no per-drop nodes. One shared
+open-sky resolver now gates both that pass and player wetting; one transient
+shared-material ground response derives from the same rain truth. The seven-field
 weather save payload is unchanged because all live values reconstruct from the
 restored slow state. Headless runtime, save, presentation, and cloud-occlusion
 regression probes pass.

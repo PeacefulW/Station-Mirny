@@ -121,6 +121,22 @@ uniform float shade_directional_gain = 3.2;
 uniform float shade_dir_strength = 0.16;
 uniform float ground_sun_angle_deg = -152.525483;
 uniform float ground_sun_day = 1.0;
+// Transient wet-ground presentation. Amount/rain default to zero, so dry
+// worlds preserve the previous material exactly. All fields are world-space
+// and reuse already-computed organic terrain signals below.
+uniform float wet_ground_amount : hint_range(0.0, 1.0) = 0.0;
+uniform float wet_ground_rain_intensity : hint_range(0.0, 1.0) = 0.0;
+uniform float wet_ground_basin_contrast = 1.50;
+uniform float wet_ground_grass_floor : hint_range(0.0, 1.0) = 0.32;
+uniform float wet_ground_puddle_threshold : hint_range(0.0, 1.0) = 0.56;
+uniform float wet_ground_darkening : hint_range(0.0, 1.0) = 0.32;
+uniform float wet_ground_desaturation : hint_range(0.0, 1.0) = 0.22;
+uniform vec4 wet_ground_puddle_tint : source_color = vec4(0.12, 0.19, 0.21, 1.0);
+uniform float wet_ground_puddle_opacity : hint_range(0.0, 1.0) = 0.48;
+uniform float wet_ground_impact_cell_px = 72.0;
+uniform float wet_ground_impact_ring_width_px = 1.45;
+uniform float wet_ground_impact_lifetime_seconds = 0.78;
+uniform float wet_ground_impact_density : hint_range(0.0, 1.0) = 0.52;
 // Developer-only exact zone view. The lab toggles this on the shared ground
 // material; mode 2 renders the same classification into a 1 px probe and
 // encodes its zone id in alpha. Zero is the production default.
@@ -543,6 +559,134 @@ void fragment() {
 			float sun_slope = clamp(0.5 + (shade_b - shade_a) * shade_directional_gain, 0.0, 1.0);
 			float directional = mix(1.0 - shade_dir_strength, 1.0 + shade_dir_strength * 0.6, sun_slope);
 			top_color *= ambient_ao * mix(1.0, directional, clamp(ground_sun_day, 0.0, 1.0));
+
+			// --- rain skin: broad wet soil, sparse puddles, analytic impacts ---
+			// No new noise field is sampled here. Soil, macro tone and the ambient
+			// form field already describe stable low areas at three useful scales.
+			if (wet_ground_amount > 0.001) {
+				float wet_amount = clamp(wet_ground_amount, 0.0, 1.0);
+				float basin_source = clamp(
+					(1.0 - soil_field) * 0.48
+						+ (1.0 - shade_a) * 0.34
+						+ (1.0 - top_macro) * 0.18
+						+ (1.0 - path_open) * 0.10,
+					0.0,
+					1.0
+				);
+				float basin = remap_contrast(
+					basin_source,
+					max(wet_ground_basin_contrast, 0.1)
+				);
+				float wet_patch = smoothstep(0.24, 0.72, basin);
+				float grass_response = mix(
+					1.0,
+					clamp(wet_ground_grass_floor, 0.0, 1.0),
+					smoothstep(0.18, 0.72, grass_density_visual)
+				);
+				float wet_mask = wet_amount
+					* mix(0.30, 1.0, wet_patch)
+					* grass_response
+					* (1.0 - rock_region_visual * 0.24);
+				float wet_luma = luma(top_color);
+				top_color = mix(
+					top_color,
+					vec3(wet_luma),
+					clamp(wet_ground_desaturation, 0.0, 1.0) * wet_mask
+				);
+				top_color *= 1.0 - clamp(wet_ground_darkening, 0.0, 1.0) * wet_mask;
+
+				float bare_surface = (1.0 - smoothstep(0.08, 0.38, grass_density_visual))
+					* (1.0 - rock_region_visual * 0.92);
+				float puddle_start = clamp(wet_ground_puddle_threshold, 0.0, 0.95);
+				float puddle_shape = smoothstep(
+					puddle_start,
+					min(puddle_start + 0.15, 1.0),
+					basin
+				);
+				float puddle = wet_amount * puddle_shape * bare_surface;
+				float puddle_mix = clamp(
+					puddle * wet_ground_puddle_opacity,
+					0.0,
+					1.0
+				);
+				top_color = mix(top_color, wet_ground_puddle_tint.rgb, puddle_mix);
+				float puddle_edge = smoothstep(
+					max(puddle_start - 0.035, 0.0),
+					puddle_start + 0.02,
+					basin
+				) * (1.0 - smoothstep(
+					puddle_start + 0.07,
+					min(puddle_start + 0.16, 1.0),
+					basin
+				)) * wet_amount * bare_surface;
+				vec3 cold_silver = mix(
+					wet_ground_puddle_tint.rgb,
+					vec3(0.78, 0.84, 0.85),
+					0.48
+				);
+				top_color = mix(
+					top_color,
+					cold_silver,
+					puddle_edge * wet_ground_puddle_opacity * 0.22
+				);
+
+				float rain_now = clamp(wet_ground_rain_intensity, 0.0, 1.0);
+				float impact_surface = max(puddle, wet_mask * 0.34) * bare_surface;
+				// Reuse the existing procedural-detail derivative and LOD. Rings
+				// lose their readable contour earlier than stones, so their fade
+				// begins before the gravel cutoff; far zoom skips every hash and
+				// distance operation for the whole draw.
+				float impact_lod_start = max(gravel_lod_fade_start_px * 0.45, 1.0);
+				float impact_lod = gravel_lod * (1.0 - smoothstep(
+					impact_lod_start,
+					max(gravel_lod_fade_start_px, impact_lod_start + 0.1),
+					gravel_world_px
+				));
+				if (rain_now > 0.002 && impact_surface > 0.002 && impact_lod > 0.004) {
+					float impact_cell = max(wet_ground_impact_cell_px, 24.0);
+					vec2 impact_id = floor(world_pos / impact_cell);
+					float impact_presence = step(
+						1.0 - clamp(wet_ground_impact_density * rain_now, 0.0, 1.0),
+						hash12(impact_id + vec2(23.7, -41.1))
+					);
+					vec2 impact_jitter = vec2(
+						hash12(impact_id + vec2(5.3, 17.9)),
+						hash12(impact_id + vec2(-31.7, 9.1))
+					);
+					vec2 impact_center = (
+						impact_id + vec2(0.25) + impact_jitter * 0.50
+					) * impact_cell;
+					float impact_phase = fract(
+						TIME / max(wet_ground_impact_lifetime_seconds, 0.05)
+							+ hash12(impact_id + vec2(71.3, 2.7))
+					);
+					float impact_radius = mix(
+						impact_cell * 0.025,
+						impact_cell * 0.18,
+						impact_phase
+					);
+					float impact_distance = length(world_pos - impact_center);
+					float impact_edge = max(
+						wet_ground_impact_ring_width_px,
+						gravel_world_px * 0.65
+					);
+					float impact_ring = 1.0 - smoothstep(
+						impact_edge,
+						impact_edge + max(gravel_world_px, 0.35),
+						abs(impact_distance - impact_radius)
+					);
+					float impact_fade = smoothstep(0.0, 0.08, impact_phase)
+						* (1.0 - smoothstep(0.55, 1.0, impact_phase));
+					float impact_alpha = impact_ring
+						* impact_presence
+						* impact_fade
+						* rain_now
+						* impact_surface
+						* impact_lod
+						* min(wet_ground_puddle_opacity * 1.65, 0.68);
+					top_color = mix(top_color, cold_silver, impact_alpha);
+				}
+			}
 
 			if (debug_zone_mode > 0) {
 				// This classification intentionally lives beside the real field

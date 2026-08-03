@@ -4,7 +4,7 @@ doc_type: docs_index
 status: approved
 owner: design+engineering
 source_of_truth: true
-version: 1.17
+version: 1.18
 last_updated: 2026-08-03
 related_docs:
   - 00_governance/WORKFLOW.md
@@ -95,6 +95,7 @@ Templates for future docs.
 - [Player Helmet Lamps V1](02_system_specs/progression/player_helmet_lamps_v1.md) (proposed)
 - [Crafting and Decryption](02_system_specs/progression/crafting_and_decryption.md)
 - [Survival Core](02_system_specs/survival/survival_core.md)
+- [Player Wetness, Cold Exposure, and Wet Ground V0](02_system_specs/survival/player_wetness_and_cold_exposure.md)
 - [UI and UX Foundation](02_system_specs/ui/ui_ux_foundation.md)
 - [Performance Flight Recorder V0](02_system_specs/ui/performance_flight_recorder.md)
 - [Agent Skill Pack](02_system_specs/meta/agent_skill_pack.md)

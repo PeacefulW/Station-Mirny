@@ -16,6 +16,8 @@ enum Id {
 	CLOUD,
 	TEMPERATURE,
 	HUMIDITY,
+	WETNESS,
+	COLD,
 	SHELTER,
 	MOVE,
 	INTERACT,
@@ -57,6 +59,10 @@ static func draw_glyph(
 			_draw_temperature(canvas, rect, color, width)
 		Id.HUMIDITY:
 			_draw_humidity(canvas, rect, color, width)
+		Id.WETNESS:
+			_draw_wetness(canvas, rect, color, width)
+		Id.COLD:
+			_draw_cold(canvas, rect, color, width)
 		Id.SHELTER:
 			_draw_shelter(canvas, rect, color, width)
 		Id.MOVE:
@@ -280,6 +286,59 @@ static func _draw_humidity(canvas: CanvasItem, rect: Rect2, color: Color, width:
 		color,
 		width,
 	)
+
+
+static func _draw_wetness(canvas: CanvasItem, rect: Rect2, color: Color, width: float) -> void:
+	# Suit wetness uses a filled lower waterline, keeping it distinct from the
+	# ambient-humidity outline shown in the weather cluster.
+	_draw_humidity(canvas, rect, color, width)
+	canvas.draw_line(_point(rect, 0.29, 0.66), _point(rect, 0.71, 0.66), color, width, true)
+	canvas.draw_line(
+		_point(rect, 0.35, 0.76),
+		_point(rect, 0.65, 0.76),
+		Color(color, color.a * 0.72),
+		width,
+		true,
+	)
+
+
+static func _draw_cold(canvas: CanvasItem, rect: Rect2, color: Color, width: float) -> void:
+	var center: Vector2 = rect.position + rect.size * 0.5
+	var unit: float = minf(rect.size.x, rect.size.y)
+	for index: int in range(3):
+		var axis: Vector2 = Vector2.RIGHT.rotated(float(index) * PI / 3.0)
+		var tip_a: Vector2 = center + axis * unit * 0.43
+		var tip_b: Vector2 = center - axis * unit * 0.43
+		canvas.draw_line(tip_a, tip_b, color, width, true)
+		var branch: Vector2 = axis.orthogonal() * unit * 0.10
+		canvas.draw_line(
+			tip_a - axis * unit * 0.13,
+			tip_a - axis * unit * 0.22 + branch,
+			color,
+			width,
+			true,
+		)
+		canvas.draw_line(
+			tip_a - axis * unit * 0.13,
+			tip_a - axis * unit * 0.22 - branch,
+			color,
+			width,
+			true,
+		)
+		canvas.draw_line(
+			tip_b + axis * unit * 0.13,
+			tip_b + axis * unit * 0.22 + branch,
+			color,
+			width,
+			true,
+		)
+		canvas.draw_line(
+			tip_b + axis * unit * 0.13,
+			tip_b + axis * unit * 0.22 - branch,
+			color,
+			width,
+			true,
+		)
 
 
 static func _draw_shelter(canvas: CanvasItem, rect: Rect2, color: Color, width: float) -> void:

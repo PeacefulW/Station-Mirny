@@ -4,7 +4,7 @@ doc_type: system_spec_index
 status: approved
 owner: engineering+design
 source_of_truth: true
-version: 1.15
+version: 1.16
 last_updated: 2026-08-03
 ---
 
@@ -55,6 +55,7 @@ Current transition strategy:
 
 ### Survival
 - [Survival Core](survival/survival_core.md)
+- [Player Wetness, Cold Exposure, and Wet Ground V0](survival/player_wetness_and_cold_exposure.md)
 
 ### UI
 - [UI and UX Foundation](ui/ui_ux_foundation.md)

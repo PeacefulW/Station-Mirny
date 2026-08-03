@@ -4,7 +4,7 @@ doc_type: governance
 status: approved
 owner: design+engineering
 source_of_truth: true
-version: 1.8
+version: 1.9
 last_updated: 2026-08-03
 related_docs:
   - ENGINEERING_STANDARDS.md
@@ -197,8 +197,9 @@ Runtime dimension. Drives: ambient light level, shadow angles, fauna activity pa
 Authoritative slow environment-runtime dimension owned by `TimeManager`.
 Phases cycle `warm -> spore -> cold -> storm`; data-driven profiles smoothly
 shift global air temperature, humidity, and future weather-regime weights.
-Seasonal terrain/flora presentation and survival consequences are not yet
-implemented.
+Seasonal terrain/flora presentation and direct damage consequences are not yet
+implemented; global temperature now feeds the warning-only player cold-load
+consumer.
 
 ### Weather
 Runtime dimension owned by `WeatherRuntime`. The current global implementation
@@ -207,7 +208,8 @@ cloud cover, wind targets, humidity, global air temperature, and
 humidity-driven rain. `TimeManager` provides read-only seasonal modifiers;
 `WeatherRuntime` remains the writer of final weather axes. Presentation is
 derived. Weather is not biome or the generated `moisture` channel; regional
-variation and gameplay consequences remain future work.
+variation and most gameplay consequences remain future work. The landed player
+wetness/cold-load component is the first bounded survival consumer.
 
 ### Humidity
 Global environment-runtime axis (`0..1`) representing the atmosphere's current
@@ -229,10 +231,32 @@ Authoritative global environment-runtime read in degrees Celsius, owned by
 `WeatherRuntime`. V0 combines the active weather profile's authored temperature
 band with the smooth seasonal offset from `TimeManager`. It is an outside-air
 baseline, not a per-position or player-body value; biome, altitude, shelter,
-time-of-day, and thermal gameplay terms remain future layers.
+time-of-day and body-temperature terms remain future layers. The current
+warning-only player cold target consumes this value together with wind,
+wetness, cover, and powered-indoor control.
 
 ### Temperature exposure
-Runtime-computed value combining: biome base temperature + time-of-day modifier + season modifier + weather modifier + altitude modifier + shelter state. Determines thermal stress on the player. Inside sanctuary: controlled. Outside in exposure: driven by all these factors. Not yet implemented as gameplay system.
+The landed V0 player-local form is `cold_load` (`0` comfortable .. `1` severe
+warning), owned by `PlayerExposureComponent`. It approaches a target derived
+from authoritative global air temperature, current wind, player wetness,
+open-sky cover, and a controlled temperature in a powered indoor sanctuary.
+It is persisted and shown through threshold-revealed HUD telemetry, but it does
+not yet apply body-temperature simulation, damage, movement, stamina, fatigue,
+or death consequences. Biome/altitude/time-of-day refinements remain future.
+
+### Player wetness
+Normalized persisted per-player liquid exposure (`0` dry .. `1` soaked), owned
+only by `PlayerExposureComponent`. It increases from authoritative `RAIN` only
+under the shared open-sky resolver and decreases otherwise; cover dries faster
+than exposed clear weather, and powered indoor sanctuary has the fastest
+authored recovery. It contributes to cold load but has no direct damage in V0.
+
+### Wet-ground mask
+Transient presentation derived from authoritative global rain. One presenter
+updates the existing shared plains material; world-space soil/form fields
+produce irregular dark wet patches and sparse puddles, while analytic shader
+cells produce drop-impact rings. It is not moisture, terrain/water truth,
+open-sky authority, a tile/chunk field, or save data.
 
 ---
 

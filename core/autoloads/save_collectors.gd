@@ -53,6 +53,9 @@ static func collect_player(tree: SceneTree) -> Dictionary:
 	var oxygen_system: Node = player.get_node_or_null("OxygenSystem")
 	if oxygen_system and oxygen_system.has_method("save_state"):
 		data["oxygen"] = oxygen_system.save_state()
+	var exposure_component: Node = player.get_node_or_null("ExposureComponent")
+	if exposure_component and exposure_component.has_method("save_state"):
+		data["exposure"] = exposure_component.save_state()
 	return data
 
 
@@ -94,7 +97,9 @@ static func collect_buildings(tree: SceneTree) -> Dictionary:
 	if building_system.has_method("save_state"):
 		return building_system.save_state()
 
-	var walls: Dictionary = building_system.get("walls") if building_system.has_method("get") else { }
+	var walls: Dictionary = (
+		building_system.get("walls") if building_system.has_method("get") else { }
+	)
 	var wall_data: Array[Dictionary] = []
 	for pos: Vector2i in walls:
 		var wall_node: Node2D = walls[pos]

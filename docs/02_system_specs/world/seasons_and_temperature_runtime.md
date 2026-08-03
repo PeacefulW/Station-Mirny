@@ -4,7 +4,7 @@ doc_type: system_spec
 status: approved
 owner: engineering+design
 source_of_truth: true
-version: 1.1
+version: 1.2
 last_updated: 2026-08-03
 related_docs:
   - weather_runtime.md
@@ -14,6 +14,7 @@ related_docs:
   - ../meta/event_contracts.md
   - ../meta/packet_schemas.md
   - ../meta/save_and_persistence.md
+  - ../survival/player_wetness_and_cold_exposure.md
   - ../../00_governance/ENGINEERING_STANDARDS.md
   - ../../05_adrs/0001-runtime-work-and-dirty-update-foundation.md
   - ../../05_adrs/0007-environment-runtime-is-layered-and-distinct-from-worldgen.md
@@ -38,9 +39,10 @@ is authored through resources and is read-only at runtime.
 
 The player should be able to read a slow planetary cycle before seasonal
 terrain, snow, or thermal damage exist. Temperature and humidity in the HUD
-make the exterior state legible now; later survival and snow systems can consume
-the same authoritative values instead of inspecting visuals or inventing a
-parallel clock.
+make the exterior state legible; `PlayerExposureComponent` is the first
+survival consumer of the same authoritative outside-air value, while future
+snow and damage systems still cannot inspect visuals or invent a parallel
+clock.
 
 ## Scope
 
@@ -71,8 +73,9 @@ parallel clock.
 ## Out of Scope
 
 - Snow or changing precipitation kind from temperature.
-- Player wetness, body temperature, hypothermia, heat, status effects, or
-  sanctuary climate control.
+- Body-temperature simulation, hypothermia/heat damage, status penalties, and
+  equipment insulation. Warning-only wetness/cold load and a single controlled
+  powered-indoor temperature are owned by the companion player-exposure spec.
 - Biome, latitude, altitude, shelter, room, or time-of-day temperature terms.
 - Seasonal terrain/flora swaps, snow cover, ice, tint, audio, fauna, spores,
   crops, resources, or lighting changes.
@@ -228,6 +231,16 @@ Interaction thesis:
 The widget uses code-drawn pictograms and numeric values. It introduces no raw
 player-facing label strings and therefore no new localization key.
 
+## First Survival Consumer
+
+`PlayerExposureComponent` reads `WeatherRuntime.get_temperature_c()` as the
+outside-air baseline. It then derives a player-local cold target from current
+wind, persisted wetness, cover, and powered-indoor control. This does not make
+the component a second temperature writer: the global Celsius value remains
+owned by `WeatherRuntime`, while the normalized `cold_load` is owned by the
+player component. V0 only drives threshold-revealed HUD telemetry and never
+applies health, movement, oxygen, fatigue, or death consequences.
+
 ## Performance Class
 
 - Runtime class: `interactive-frame`, O(1).
@@ -307,6 +320,8 @@ player-facing label strings and therefore no new localization key.
   humidity together without a new panel or raw localized label string.
 - Runtime work stays O(1), with no tile/chunk/entity loops or runtime loads.
 - Existing weather, rain, time, save, and HUD probes remain green.
+- The player exposure consumer reads the global temperature without mutating
+  it and remains warning-only.
 
 ## Failure Cases / Risks
 
@@ -316,7 +331,8 @@ player-facing label strings and therefore no new localization key.
 - Phase change rescans loaded chunks or rebuilds presentation.
 - Weather successor selection consumes a different random stream per client.
 - HUD adds another card, alarm animation, or hardcoded player-facing labels.
-- Snow, thermal damage, seasonal flora, or regional simulation enters this V0.
+- Snow, thermal damage, seasonal flora, or regional simulation enters this V0;
+  the companion warning-only cold load is not thermal damage.
 
 ## Implementation Iterations
 

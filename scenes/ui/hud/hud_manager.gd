@@ -137,6 +137,7 @@ func _create_widgets() -> void:
 	# === РЕАЛИЗОВАНО (механики есть) ===
 	_top_left.add_child(HudOxygenWidget.new())
 	_top_left.add_child(HudHpWidget.new())
+	_top_left.add_child(HudExposureWidget.new())
 	_top_left.add_child(_make_rule(HudRule.Fade.TO_RIGHT))
 	_top_left.add_child(HudStatusWidget.new())
 
@@ -308,7 +309,7 @@ func _create_performance_toast() -> void:
 func _on_performance_notification_requested(
 		message_key: StringName,
 		message_args: Dictionary,
-	) -> void:
+) -> void:
 	if _performance_toast == null or _performance_toast_label == null:
 		return
 	_performance_toast_revision += 1

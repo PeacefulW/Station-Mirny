@@ -55,9 +55,13 @@ static func apply_buildings(tree: SceneTree, data: Dictionary) -> void:
 	for wall_entry: Dictionary in data["walls"]:
 		var pos := Vector2i(int(wall_entry.get("x", 0)), int(wall_entry.get("y", 0)))
 		if building_system.has_method("_create_wall_at"):
-			building_system._create_wall_at(pos)
+			building_system.call("_create_wall_at", pos)
 		if wall_entry.has("health"):
-			var wall_node: Node2D = building_system.get_building_node_at(pos) if building_system.has_method("get_building_node_at") else null
+			var wall_node: Node2D = (
+				building_system.get_building_node_at(pos)
+				if building_system.has_method("get_building_node_at")
+				else null
+			)
 			if wall_node:
 				var health: HealthComponent = wall_node.get_node_or_null("HealthComponent")
 				if health:
@@ -108,6 +112,14 @@ static func apply_player(tree: SceneTree, data: Dictionary) -> void:
 	var oxygen_system: Node = player.get_node_or_null("OxygenSystem")
 	if oxygen_system and oxygen_system.has_method("load_state") and data.has("oxygen"):
 		oxygen_system.load_state(data["oxygen"])
+
+	var exposure_component: Node = player.get_node_or_null("ExposureComponent")
+	if exposure_component and exposure_component.has_method("load_state"):
+		var exposure_payload: Variant = data.get("exposure", { })
+		var exposure_data: Dictionary = (
+			exposure_payload as Dictionary if exposure_payload is Dictionary else { }
+		)
+		exposure_component.load_state(exposure_data)
 
 
 static func _find_nodes_by_class(tree: SceneTree, class_name_str: String) -> Array[Node]:

@@ -1,0 +1,21 @@
+[gd_resource type="Resource" script_class="GroundWetnessProfile" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://data/balance/ground_wetness_profile.gd" id="1_profile"]
+
+[resource]
+script = ExtResource("1_profile")
+id = &"core:ground_wetness"
+update_interval_seconds = 0.1
+accumulation_rate_per_second = 0.075
+drying_rate_per_second = 0.005
+basin_contrast = 1.5
+grass_wetness_floor = 0.32
+puddle_threshold = 0.56
+wet_darkening = 0.32
+wet_desaturation = 0.22
+puddle_tint = Color(0.12, 0.19, 0.21, 1)
+puddle_opacity = 0.48
+impact_cell_size_px = 72.0
+impact_ring_width = 1.45
+impact_lifetime_seconds = 0.78
+impact_density = 0.52

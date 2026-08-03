@@ -20,6 +20,8 @@
 [ext_resource type="Texture2D" path="res://assets/sprites/player/player_run_backward_shadow_16dir_16frames.png" id="16_shadow_backward"]
 [ext_resource type="Texture2D" path="res://assets/sprites/player/player_strafe_left_shadow_16dir_16frames.png" id="17_shadow_left"]
 [ext_resource type="Texture2D" path="res://assets/sprites/player/player_strafe_right_shadow_16dir_16frames.png" id="18_shadow_right"]
+[ext_resource type="Script" path="res://core/entities/components/player_exposure_component.gd" id="19_exposure"]
+[ext_resource type="Resource" path="res://data/balance/player_exposure_balance.tres" id="20_exposure_balance"]
 
 [sub_resource type="RectangleShape2D" id="player_shape"]
 size = Vector2(24, 16)
@@ -86,6 +88,10 @@ script = ExtResource("3_health")
 
 [node name="InventoryComponent" type="Node" parent="." unique_id=299619149]
 script = ExtResource("6_75vfm")
+
+[node name="ExposureComponent" type="Node" parent="."]
+script = ExtResource("19_exposure")
+balance = ExtResource("20_exposure_balance")
 
 [node name="AttackArea" type="Area2D" parent="." unique_id=1664152156]
 collision_layer = 0
