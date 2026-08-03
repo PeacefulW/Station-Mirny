@@ -41,7 +41,34 @@ func _init() -> void:
 		"Weather metrics must add no raw label, card or attention animation.",
 	)
 
+	_assert(
+		widget_source.contains("TimeManager.get_season_display_name_key()")
+		and widget_source.contains("Localization.t(season_key)")
+		and widget_source.contains("TimeManager.get_day_in_season()")
+		and widget_source.contains("TimeManager.get_season_length_days()"),
+		"Season line must read the localized name and phase day from TimeManager.",
+	)
+	_assert(
+		not widget_source.contains("\"Цветение\"")
+		and not widget_source.contains("\"Bloom\"")
+		and not widget_source.contains("SEASON_WARM"),
+		"Season names must stay authored keys, never literal strings in the widget.",
+	)
+	_assert(
+		widget_source.contains("OS.is_debug_build()")
+		and widget_source.contains("get_time_scale()"),
+		"Time-scale indicator must exist and be gated to debug builds.",
+	)
+
+	var weather_name_index: int = widget_source.find("\"WeatherName\"")
+	var season_name_index: int = widget_source.find("\"SeasonName\"")
 	var cloud_index: int = widget_source.find("\"CloudMetric\"")
+	_assert(
+		weather_name_index >= 0
+		and weather_name_index < season_name_index
+		and season_name_index < cloud_index,
+		"Season line must sit between the weather name and the compact metric row.",
+	)
 	var temperature_index: int = widget_source.find("\"TemperatureMetric\"")
 	var humidity_index: int = widget_source.find("\"HumidityMetric\"")
 	_assert(

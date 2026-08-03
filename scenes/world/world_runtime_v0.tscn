@@ -1,4 +1,4 @@
-[gd_scene load_steps=17 format=3]
+[gd_scene load_steps=18 format=3]
 
 [ext_resource type="Script" path="res://scenes/world/world_runtime_v0_scene.gd" id="1"]
 [ext_resource type="Script" path="res://core/systems/world/world_streamer.gd" id="2"]
@@ -16,6 +16,7 @@
 [ext_resource type="Script" path="res://core/systems/world/environment_exposure_resolver.gd" id="15"]
 [ext_resource type="Script" path="res://core/systems/world/ground_wetness_presenter.gd" id="16"]
 [ext_resource type="Resource" path="res://data/balance/ground_wetness_profile.tres" id="17"]
+[ext_resource type="Script" path="res://core/systems/world/snow_overlay.gd" id="18"]
 
 [node name="WorldRuntimeV0" type="Node2D"]
 script = ExtResource("1")
@@ -57,6 +58,10 @@ script = ExtResource("6")
 [node name="RainOverlay" type="Sprite2D" parent="."]
 visible = false
 script = ExtResource("14")
+
+[node name="SnowOverlay" type="Sprite2D" parent="."]
+visible = false
+script = ExtResource("18")
 
 [node name="PostProcessLayer" type="CanvasLayer" parent="."]
 layer = 5

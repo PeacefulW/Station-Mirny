@@ -111,11 +111,14 @@ func _run() -> void:
 		tm.call("set_debug_season", season_kind)
 		seasonal_temperatures.append(float(weather.call("get_temperature_c")))
 		seasonal_humidity.append(float(weather.call("get_humidity")))
+	# Плечевые фазы (spore/storm) намеренно равны по температуре: симметричные
+	# плечи дают равномерный годовой цикл без плоской половины и рывка. Их
+	# различают влажность и веса режимов, что проверяется ниже.
 	_check(
 		seasonal_temperatures[0] > seasonal_temperatures[1]
-		and seasonal_temperatures[1] > seasonal_temperatures[3]
+		and is_equal_approx(seasonal_temperatures[1], seasonal_temperatures[3])
 		and seasonal_temperatures[3] > seasonal_temperatures[2],
-		"temperature следует offsets warm > spore > storm > cold (%s)"
+		"temperature следует offsets warm > spore == storm > cold (%s)"
 		% str(seasonal_temperatures),
 	)
 	_check(

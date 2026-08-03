@@ -12,9 +12,13 @@ extends Node
 ## docs/02_system_specs/world/seasons_and_temperature_runtime.md
 
 const WeatherRegimeProfile = preload("res://core/systems/world/weather_regime_profile.gd")
+const WeatherBalance = preload("res://data/balance/weather_balance.gd")
 const WorldRuntimeConstants = preload("res://core/systems/world/world_runtime_constants.gd")
 
 const REGIME_DIRECTORY: String = "res://data/weather"
+## Глобальные пороги погодной физики (точка замерзания). Моды могут подменить
+## файл по этому пути.
+const BALANCE_PATH: String = "res://data/balance/weather_balance.tres"
 const START_REGIME_ID: StringName = &"core:clear"
 const TRANSITION_WINDOW_HOURS: float = 2.0
 ## Пинг-понг порядок плавной дев-смены погоды (соседние режимы).
@@ -34,6 +38,7 @@ enum PrecipitationKind {
 	SPORE = 4,
 }
 
+var _balance: WeatherBalance = null
 var _regimes_by_id: Dictionary = { }
 var _active_id: StringName = START_REGIME_ID
 var _next_id: StringName = START_REGIME_ID
@@ -58,6 +63,7 @@ var _debug_humidity_override: float = -1.0
 
 
 func _ready() -> void:
+	_load_balance()
 	_load_regimes()
 	_active_id = START_REGIME_ID
 	_next_id = START_REGIME_ID
@@ -186,10 +192,29 @@ func get_target_wind_heading_deg() -> float:
 # --- Живые влажность и осадки ---
 
 
+## Вид осадков разрешается температурой поверх уже посчитанного потенциала.
+## Чистая функция без гистерезиса: нет скрытого состояния, значит нечего
+## сохранять и нечему разъехаться с восстановленными погодными часами.
+## Осознанное следствие: у самого порога kind может медленно переключаться —
+## это гасится кросс-фейдом презентации, а не спрятанным состоянием.
 func get_precipitation_kind() -> int:
 	if get_precipitation_intensity() <= 0.0:
 		return PrecipitationKind.NONE
+	if get_temperature_c() <= _balance.freeze_temperature_c:
+		return PrecipitationKind.SNOW
 	return PrecipitationKind.RAIN
+
+
+## Презентационный вес снега в полосе вокруг точки замерзания: 1 = чистый снег,
+## 0 = чистый дождь. Только для слоёв презентации — на авторитетный kind не
+## влияет. Существует, чтобы пересечение порога не читалось как рывок.
+func get_snow_presentation_weight() -> float:
+	var freeze: float = _balance.freeze_temperature_c
+	var half_band: float = maxf(_balance.precipitation_crossfade_c, 0.0)
+	var temperature: float = get_temperature_c()
+	if is_zero_approx(half_band):
+		return 1.0 if temperature <= freeze else 0.0
+	return smoothstep(freeze + half_band, freeze - half_band, temperature)
 
 
 func get_precipitation_intensity() -> float:
@@ -447,6 +472,15 @@ func _heading_meander(t_hours: float) -> float:
 func _heading_hash(n: float) -> float:
 	var s: float = sin(n * 12.9898 + 7.13) * 43758.5453
 	return s - floor(s)
+
+
+func _load_balance() -> void:
+	_balance = ResourceLoader.load(BALANCE_PATH) as WeatherBalance
+	assert(_balance != null, "WeatherRuntime missing balance resource: %s" % BALANCE_PATH)
+	assert(
+		_balance != null and _balance.is_valid_balance(),
+		"WeatherRuntime balance resource failed validation: %s" % BALANCE_PATH,
+	)
 
 
 func _load_regimes() -> void:

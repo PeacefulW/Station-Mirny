@@ -7,6 +7,9 @@ extends Resource
 @export_group("Identity")
 @export var id: StringName = &""
 @export_range(0, 3, 1) var season_kind: int = 0
+## Ключ локализации имени фазы для HUD. Зеркалит WeatherRegimeProfile:
+## данные хранят ключ, а не готовую строку.
+@export var display_name_key: StringName = &""
 
 @export_group("Environment offsets")
 @export var temperature_offset_c: float = 0.0
@@ -23,6 +26,8 @@ func is_valid_profile(expected_season_count: int = 4) -> bool:
 	if id_text.is_empty() or not id_text.contains(":") or id_text.ends_with(":"):
 		return false
 	if season_kind < 0 or season_kind >= expected_season_count:
+		return false
+	if String(display_name_key).is_empty():
 		return false
 	if not is_finite(temperature_offset_c) or not is_finite(humidity_offset):
 		return false

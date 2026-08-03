@@ -5,6 +5,7 @@
 [resource]
 script = ExtResource("1")
 id = &"core:warm"
+display_name_key = &"SEASON_WARM"
 season_kind = 0
 temperature_offset_c = 6.0
 humidity_offset = -0.08

@@ -38,10 +38,17 @@ on freezing; rain alone can be resolved from humidity and cloud cover while the
 existing authored temperature read remains reserved and consumer-less for the
 following seasons iteration.
 
-Current extension: temperature and seasonal humidity bias are now live under
-[`seasons_and_temperature_runtime.md`](seasons_and_temperature_runtime.md).
-This V1 rain contract remains authoritative for rain potential and still does
-not resolve snow; temperature promotion does not retroactively expand V1 scope.
+Current extension: temperature and seasonal humidity bias are live under
+[`seasons_and_temperature_runtime.md`](seasons_and_temperature_runtime.md), and
+precipitation *kind* is now temperature-resolved under
+[`snow_precipitation_runtime.md`](snow_precipitation_runtime.md).
+
+This V1 contract remains authoritative for precipitation **potential and
+intensity**: snow did not add a second precipitation model, it only reinterprets
+the same derived intensity as `SNOW` below the authored freezing threshold. The
+V1 sections below therefore stay accurate wherever they describe derivation, and
+the historical statement that V1 "does not resolve snow" applies to this
+document's own scope rather than to the current runtime.
 
 ## Gameplay Goal
 

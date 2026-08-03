@@ -5,8 +5,9 @@
 [resource]
 script = ExtResource("1")
 id = &"core:cold"
+display_name_key = &"SEASON_COLD"
 season_kind = 2
-temperature_offset_c = -5.0
+temperature_offset_c = -46.0
 humidity_offset = -0.03
 weather_regime_weight_multipliers = {
 &"core:clear": 1.0,

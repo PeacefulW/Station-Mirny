@@ -60,6 +60,12 @@ Presentation rules for those clusters:
 - the weather row groups localized weather state, cloud cover, signed Celsius
   air temperature, and humidity on the same quiet instrument line; temperature
   and humidity do not create a new card or claim the critical alarm channel;
+- the localized season name and its phase-day readout sit on a second
+  orientation line between the weather name and that metric row, so the slow
+  planetary cycle is legible without a calendar screen; it inherits the same
+  quiet palette and powered-shelter dimming and adds no card or alarm motion.
+  A developer time-scale multiplier may append to this line in debug builds
+  only, so an accelerated session cannot be mistaken for a balance problem;
 - player wetness and cold load share one threshold-revealed icon/percent row
   after health and before shelter status; each axis stays absent below its
   authored visibility threshold, fades briefly on entry/exit, and uses only

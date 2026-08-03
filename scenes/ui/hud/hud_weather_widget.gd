@@ -8,6 +8,7 @@ const OVERCAST_RATIO: float = 0.35
 const METRIC_ICON_SIZE: float = 14.0
 
 var _weather_label: Label = null
+var _season_label: Label = null
 var _cloud_label: Label = null
 var _temperature_label: Label = null
 var _humidity_label: Label = null
@@ -18,6 +19,7 @@ var _last_cloud_percent: int = -1
 var _last_temperature_c: int = -1000
 var _last_humidity_percent: int = -1
 var _is_overcast: bool = false
+var _last_season_text: String = ""
 
 
 func _setup() -> void:
@@ -37,6 +39,16 @@ func _setup() -> void:
 	_weather_label.name = "WeatherName"
 	_weather_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	column.add_child(_weather_label)
+
+	_season_label = _make_hud_label(
+		LabelStyle.CAPS,
+		10,
+		HudPalette.TEXT_SECONDARY,
+		HORIZONTAL_ALIGNMENT_RIGHT,
+	)
+	_season_label.name = "SeasonName"
+	_season_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	column.add_child(_season_label)
 
 	var metrics: HBoxContainer = HBoxContainer.new()
 	metrics.name = "WeatherMetrics"
@@ -116,15 +128,47 @@ func _process(delta: float) -> void:
 	_update_readout()
 
 
+## Строка сезона: локализованное имя фазы и день внутри неё. Всё читается из
+## TimeManager, счётчиков здесь нет. Множитель ускорения дописывается только в
+## debug-сборке, чтобы разогнанная сессия не читалась как поломка баланса.
+func _update_season_line() -> void:
+	if TimeManager == null:
+		return
+	var season_key: StringName = TimeManager.get_season_display_name_key()
+	var season_name: String = (
+		Localization.t(season_key) if not str(season_key).is_empty() else "?"
+	)
+	var season_text: String = "%s · %d/%d" % [
+		season_name.to_upper(),
+		TimeManager.get_day_in_season(),
+		TimeManager.get_season_length_days(),
+	]
+	if OS.is_debug_build():
+		# Форсированная фаза не двигается вместе с днями — без явной пометки это
+		# читается как «сезон сломан и не меняется».
+		if TimeManager.is_debug_season_forced():
+			season_text = "%s ·FORCED" % season_text
+		var time_scale: float = TimeManager.get_time_scale()
+		if not is_equal_approx(time_scale, 1.0):
+			season_text = "%s ·%sx" % [season_text, str(int(round(time_scale)))]
+	if season_text == _last_season_text:
+		return
+	_last_season_text = season_text
+	_season_label.text = season_text
+	update_minimum_size()
+
+
 func _update_readout() -> void:
 	if (
 		_weather_label == null
+		or _season_label == null
 		or _cloud_label == null
 		or _temperature_label == null
 		or _humidity_label == null
 		or _cloud_icon == null
 	):
 		return
+	_update_season_line()
 	var name_key: StringName = WeatherRuntime.get_active_display_name_key()
 	var weather_name: String = Localization.t(name_key) if not str(name_key).is_empty() else "?"
 	var weather_text: String = weather_name.to_upper()

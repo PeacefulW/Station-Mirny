@@ -111,6 +111,12 @@ The seasons/global-temperature extension landed on 2026-08-03 under
 `TimeManager` remains the season owner; `WeatherRuntime` remains the writer of
 final temperature/humidity and applies seasonal regime-weight bias.
 
+The temperature-resolved snow extension landed on 2026-08-03 under
+[`snow_precipitation_runtime.md`](snow_precipitation_runtime.md). Precipitation
+kind is now `NONE`/`RAIN`/`SNOW`, resolved from authoritative temperature against
+an authored freezing threshold. `WeatherRuntime` remains the single writer; snow
+adds no second precipitation model, clock, RNG stream, or save field.
+
 ## Out of Scope
 
 V0 explicitly does not include:

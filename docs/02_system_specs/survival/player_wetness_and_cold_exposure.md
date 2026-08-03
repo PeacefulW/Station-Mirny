@@ -198,8 +198,15 @@ else:
   wetness -= dry_open_rate * dt
 ```
 
-Rain kind must be `RAIN`; future snow does not automatically reuse the liquid
-wetness rate.
+Rain kind must be `RAIN`; snow does not reuse the liquid wetness rate.
+
+This reservation is now satisfied rather than pending. Since
+[`snow_precipitation_runtime.md`](../world/snow_precipitation_runtime.md)
+landed, `WeatherRuntime` publishes `SNOW` below the authored freezing threshold,
+and the existing `kind == RAIN` condition above means falling snow adds no
+wetness without any change to this component. The same holds for
+`GroundWetnessPresenter`, which already gated accumulation and its shared-material
+publication on `kind == RAIN`, so snow dries the ground instead of puddling it.
 
 ### Cold load
 
@@ -223,6 +230,42 @@ cold_target = inverse_lerp(cold_safe_temperature_c,
 `cold_load` approaches `cold_target` through authored accumulation/recovery
 rates. V0 only exposes the value and warning thresholds. It never mutates HP,
 oxygen, movement, stamina, fatigue, or death state.
+
+#### Deep-winter saturation (recorded limitation)
+
+The seasonal amplitude pass in
+[`seasons_and_temperature_runtime.md`](../world/seasons_and_temperature_runtime.md)
+Iteration 5 moved the annual minimum outside-air temperature to `-40 C`. As part
+of that pass `cold_severe_temperature_c` was retuned from `-14 C` to `-30 C`.
+
+The linear `inverse_lerp` above cannot serve both the damp-discomfort band and a
+`-40..-60 C` lethality band. The retune restores a readable gradient across the
+phases where the warning is actionable, and deep winter deliberately saturates:
+
+Measured against the live seasonal tuning, where the two shoulder phases span
+`-8 .. +2 C` at their centre after the Iteration 7 rebalance:
+
+| Case (converged) | `cold_load` |
+|---|---:|
+| `core:warm` `+14 C`, dry, calm | `0.000` |
+| `core:warm` `+14 C`, soaked, full wind | `0.368` |
+| shoulder `+2 C`, dry, calm | `0.158` |
+| shoulder `+2 C`, soaked, full wind | `0.684` |
+| shoulder `-8 C`, dry, calm | `0.421` |
+| shoulder `-8 C`, soaked, full wind | `0.947` |
+| `core:cold` `-30 C`, dry, calm | `1.000` |
+| `core:cold` `-40 C`, soaked, full wind | `1.000` |
+
+The colder shoulders spread the readout across the whole year rather than
+compressing it: summer storms now register at all, and a shoulder phase climbs
+from `0.16` to `0.95` purely through exposure before winter pins it.
+
+Inside the cold phase, wind and wetness therefore stop being distinguishable.
+This is accepted as correct signalling for a warning-only V0 - at `-40 C` the
+message "do not be out here unprotected" is true - and is recorded rather than
+hidden. Making exposure terms matter again inside deep winter requires a
+non-linear response curve plus insulation/equipment terms, which belong to the
+cold-consequences iteration of this spec, not to a tuning pass.
 
 ## Save / Persistence Contract
 

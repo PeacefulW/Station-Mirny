@@ -81,6 +81,7 @@ Templates for future docs.
 - [Weather Runtime V0](02_system_specs/world/weather_runtime.md)
 - [Weather Runtime V1 - Humidity and Visual Rain](02_system_specs/world/humidity_and_rain_runtime.md)
 - [Seasons and Global Temperature Runtime V0](02_system_specs/world/seasons_and_temperature_runtime.md)
+- [Weather Runtime V2 - Temperature-Resolved Snow](02_system_specs/world/snow_precipitation_runtime.md)
 - [Cloud Occlusion & Overcast Darkness](02_system_specs/world/cloud_occlusion_lighting.md)
 - [Engineering Networks](02_system_specs/base/engineering_networks.md)
 - [Building and Rooms](02_system_specs/base/building_and_rooms.md)

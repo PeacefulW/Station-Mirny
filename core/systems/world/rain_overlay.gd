@@ -41,8 +41,14 @@ func _update_overlay(overlay_material: ShaderMaterial) -> void:
 	var intensity: float = 0.0
 	if _has_open_sky_context() and WeatherRuntime != null:
 		var precipitation_kind: int = int(WeatherRuntime.get_precipitation_kind())
-		if precipitation_kind == WeatherRuntimeScript.PrecipitationKind.RAIN:
-			intensity = clampf(WeatherRuntime.get_precipitation_intensity(), 0.0, 1.0)
+		# Гейт по "осадки есть", а не по kind == RAIN: у точки замерзания вес
+		# кросс-фейда плавно передаёт кадр снегу. Гейт по конкретному виду
+		# обнулял бы дождь рывком ровно на пересечении порога.
+		if precipitation_kind != WeatherRuntimeScript.PrecipitationKind.NONE:
+			intensity = (
+				clampf(WeatherRuntime.get_precipitation_intensity(), 0.0, 1.0)
+				* (1.0 - clampf(WeatherRuntime.get_snow_presentation_weight(), 0.0, 1.0))
+			)
 	visible = intensity > MIN_VISIBLE_INTENSITY
 	overlay_material.set_shader_parameter("rain_intensity", intensity)
 	overlay_material.set_shader_parameter("rain_time_seconds", _rain_time_seconds)

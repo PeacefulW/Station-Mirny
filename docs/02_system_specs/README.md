@@ -93,6 +93,7 @@ Current transition strategy:
 - [Weather Runtime V0](world/weather_runtime.md)
 - [Weather Runtime V1 - Humidity and Visual Rain](world/humidity_and_rain_runtime.md)
 - [Seasons and Global Temperature Runtime V0](world/seasons_and_temperature_runtime.md)
+- [Weather Runtime V2 - Temperature-Resolved Snow](world/snow_precipitation_runtime.md)
 - [Cloud Occlusion & Overcast Darkness](world/cloud_occlusion_lighting.md)
 
 The removed pre-rebuild world stack now rebuilds from this living world-grid contract

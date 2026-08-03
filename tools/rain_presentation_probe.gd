@@ -13,6 +13,7 @@ const EXPOSURE_RESOLVER_SCRIPT_PATH: String = (
 )
 const WORLD_SCENE_PATH: String = "res://scenes/world/world_runtime_v0.tscn"
 const MOUNTAIN_FLAG_INTERIOR: int = 1
+const WARM_SEASON: int = 0
 
 var _failures: Array[String] = []
 
@@ -126,6 +127,13 @@ func _run() -> void:
 		"dry clear weather publishes zero visual intensity",
 	)
 
+	# Вид осадков теперь разрешается температурой, поэтому сезон закрепляется
+	# явно: иначе видимость дождя зависела бы от того, в какой фазе года
+	# оказался boot, и проба падала бы по причине, не связанной с дождём.
+	var time_manager: Node = root.get_node_or_null("TimeManager")
+	_check(time_manager != null, "TimeManager autoload available for warm-season pinning")
+	if time_manager != null:
+		time_manager.call("set_debug_season", WARM_SEASON)
 	weather.call("set_debug_regime", &"core:overcast")
 	weather.call("set_debug_cloud_cover", 1.0)
 	weather.call("set_debug_humidity", 0.80)
@@ -184,6 +192,8 @@ func _run() -> void:
 	_check(rain.visible, "rain returns after the shared context becomes open")
 
 	_assert_static_contracts()
+	if time_manager != null:
+		time_manager.call("clear_debug_season")
 	weather.call("clear_debug_humidity")
 	weather.call("clear_debug_cloud_cover")
 	weather.call("clear_debug_regime")

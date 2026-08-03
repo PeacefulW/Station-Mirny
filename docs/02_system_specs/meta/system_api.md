@@ -130,7 +130,11 @@ Confirmed readable state:
 | `is_time_paused()` | method | Pause query |
 | `get_time_scale()` | method | Time scale query |
 | `get_effective_season()` | method | Current effective `WARM/SPORE/COLD/STORM` phase, including developer-only forcing |
-| `get_season_progress()` | method | Smooth normalized progress `0..1` through the effective phase; forced debug phases return the profile anchor |
+| `get_season_display_name_key()` | method | Localization key for the effective phase name, authored on `SeasonProfile`; UI resolves the text, never a literal |
+| `get_day_in_season()` / `get_season_length_days()` | method | Phase-day readout `1..length` derived from the authoritative day, and the authored phase length; no separate calendar counter exists |
+| `debug_cycle_time_scale()` | method | Developer-only time-scale ladder `x1 -> x10 -> x60 -> x300`, bound to `L` in debug builds. Never persisted; new-game and restore both reset to `x1` |
+| `debug_cycle_season()` / `is_debug_season_forced()` | method | Developer-only phase forcing bound to `J` in debug builds. The cycle closes through the natural state (`natural -> next -> ... -> last -> natural`) so forcing is always exitable; the query exists so UI can mark a forced phase instead of it reading as a stuck calendar |
+| `get_season_progress()` | method | Smooth normalized progress `0..1` through the effective phase; `0.0` and `1.0` are phase seams and `0.5` is the phase centre, where the authored profile is read exactly. Forced debug phases return the centre anchor `0.5` |
 | `get_season_temperature_offset_c()` | method | Smooth data-driven seasonal Celsius offset; read by `WeatherRuntime` |
 | `get_season_humidity_offset()` | method | Smooth additive seasonal humidity offset; read by `WeatherRuntime` |
 | `get_weather_regime_weight_multiplier(regime_id)` | method | Smooth non-negative seasonal multiplier for an authored weather successor id; missing ids return neutral `1.0` |
@@ -186,7 +190,8 @@ Confirmed readable state (live axes; smooth values are pull-model getters):
 | `get_target_wind_gustiness()` | method | `0..1` gust character target |
 | `get_target_wind_heading_deg()` | method | Wind heading target in degrees |
 | `get_humidity()` | method | Authoritative global live humidity `0..1`; deterministic from regime bands, transition, and weather clock |
-| `get_precipitation_kind()` / `get_precipitation_intensity()` | method | Authoritative live precipitation read; V1 publishes `NONE`/`RAIN` and intensity `0..1` derived from humidity + cloud cover + regime tuning |
+| `get_precipitation_kind()` / `get_precipitation_intensity()` | method | Authoritative live precipitation read. Intensity `0..1` derives from humidity + cloud cover + regime tuning; kind is then resolved by authoritative temperature against the authored freezing threshold, publishing `NONE`/`RAIN`/`SNOW`. Stateless: no hysteresis, no save field |
+| `get_snow_presentation_weight()` | method | Presentation-only cross-fade weight around the freezing threshold (`1` snow .. `0` rain). Read by the rain/snow layers so a kind change is not a visual pop; it never influences the published kind |
 | `get_temperature_c()` | method | Authoritative global outside-air Celsius read: authored weather band plus smooth seasonal offset; consumed as the baseline for player cold load, but still not biome/altitude/body temperature or a snow resolver |
 
 Emits `weather_changed` on regime change (see `event_contracts.md`).

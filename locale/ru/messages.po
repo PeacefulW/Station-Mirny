@@ -1643,3 +1643,15 @@ msgstr "{number} · {width}×{depth}px · Δx={offset}px"
 
 msgid "UI_TREE_COLLISION_LAB_ERROR"
 msgstr "Ошибка лаборатории: {reason}"
+
+msgid "SEASON_WARM"
+msgstr "Цветение"
+
+msgid "SEASON_SPORE"
+msgstr "Споропад"
+
+msgid "SEASON_COLD"
+msgstr "Стужа"
+
+msgid "SEASON_STORM"
+msgstr "Распутица"
