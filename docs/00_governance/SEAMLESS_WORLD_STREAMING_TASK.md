@@ -5,10 +5,10 @@ status: approved
 owner: design+engineering
 source_of_truth: false
 version: 1.4
-last_updated: 2026-07-23
+last_updated: 2026-09-05
 code_baseline_revision: 121331d
 active_subgoal: S4
-active_subgoal_status: candidate_ready
+active_subgoal_status: accepted
 git_workflow: main_dirty_user_commits
 related_docs:
   - ../README.md
@@ -122,12 +122,12 @@ approved документ с `source_of_truth: true`. Статус здесь о
 
 | Поле | Значение |
 |---|---|
-| Общий статус | S4_candidate_ready |
+| Общий статус | S4_accepted |
 | Code baseline | `121331d runtie debugger` |
-| Текущая подцель | S4 — бесшовный terrain при движении |
-| Принятый baseline | S1, S2 и S3 |
-| Следующий разрешающий шаг | ручная F4-приемка S4; S5-S8 остаются locked |
-| Последняя ручная приемка | S3 принято пользователем, 2026-07-23 |
+| Текущая подцель | S4 — бесшовный terrain при движении; принято |
+| Принятый baseline | S1, S2, S3 и S4 |
+| Следующий разрешающий шаг | отдельное решение пользователя о запуске S5; S5 доступен, не начат; S6-S8 остаются locked |
+| Последняя ручная приемка | S4 принято пользователем, 2026-09-05 |
 | Последний closure report | `S04_CLOSURE_REPORT_2026-07-23.md` |
 
 ## Карта подцелей
@@ -137,8 +137,8 @@ approved документ с `source_of_truth: true`. Статус здесь о
 | S1 | Baseline и воспроизводимая приемка | accepted | эталонные captures, маршрут и бюджеты без оптимизации runtime |
 | S2 | Наблюдаемый readiness contract | accepted | точная причина неготовности каждого чанка без нового presentation framework |
 | S3 | Honest loading screen и initial bubble | accepted | первый игровой кадр и резерв полностью готовы по измеримому gate |
-| S4 | Бесшовный terrain при движении | candidate_ready | ни одного видимого отсутствующего terrain/mountain чанка на маршруте |
-| S5 | Zoom-independent residency и hysteresis | locked | zoom не создает generation/load/unload demand |
+| S4 | Бесшовный terrain при движении | accepted | ни одного видимого отсутствующего terrain/mountain чанка на маршруте |
+| S5 | Zoom-independent residency и hysteresis | pending_user_start | zoom не создает generation/load/unload demand |
 | S6 | Бесшовные деревья, камни и декор | locked | объекты готовы до входа в viewport без visual pop |
 | S7 | Трава, тени, пещеры и lighting parity | locked | полный visual/gameplay parity, включая факел |
 | S8 | 60 FPS, bounded memory и scale proof | locked | принятый performance envelope и 10x content stress evidence |
@@ -452,6 +452,7 @@ streaming deficit. Непрерывный trace и промежуточные sc
 | 2026-07-22 | Loading screen принят как hypothesis для honest initial readiness, но не как доказательство steady-state throughput. |
 | 2026-07-22 | S2 readiness instrumentation достиг candidate_ready: автоматические проверки пройдены, S3 остается locked до ручного F4/F2-прогона и явной приемки пользователя. |
 | 2026-07-23 | Пользователь принял S2 по capture `20260723_132327_539`: readiness contract прошел, причины неготовности доказаны; недобор формальных S1 route thresholds явно принят как несущественный для instrumentation-only результата. S3 разблокирован, но не начат. |
+| 2026-09-05 | Пользователь явно принял ручную приемку S4 в чате. S4 отмечен accepted; S5 доступен к отдельному запуску (pending_user_start), но не начат. Следующая цель разработки обсуждается и пока не согласована. Новые runtime/performance-измерения агентом не выполнялись. |
 
 ## Как возобновить работу в новом чате
 
