@@ -14,8 +14,6 @@ global uniform float wind_strength;
 global uniform vec2 wind_gust_scroll_px;
 global uniform float wind_gustiness;
 
-#include "res://assets/shaders/includes/world_height_shadow_receiver.gdshaderinc"
-
 uniform float atlas_columns = 4.0;
 uniform float atlas_rows = 4.0;
 uniform float atlas_frame_count = 16.0;
@@ -184,7 +182,6 @@ void fragment() {
 	col.b *= 1.0 - warm * macro_warm_strength * 1.4;
 	float luma = dot(col, vec3(0.299, 0.587, 0.114));
 	col = mix(col, vec3(luma) * vec3(1.07, 1.0, 0.84), smoothstep(0.55, 0.92, dry) * macro_dry_strength);
-	col = apply_world_height_shadow(col, SCREEN_UV);
 	COLOR = vec4(col, atlas_color.a * instance_data.a);
 	}
 	}

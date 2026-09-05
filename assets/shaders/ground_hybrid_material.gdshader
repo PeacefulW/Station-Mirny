@@ -33,6 +33,15 @@ uniform sampler2D grass_normal_tex : repeat_enable, filter_linear_mipmap;
 uniform sampler2D rock_top_albedo_tex : repeat_enable, filter_linear_mipmap;
 uniform sampler2D rock_top_normal_tex : repeat_enable, filter_linear_mipmap;
 uniform sampler2D rock_foothill_albedo_tex : repeat_enable, filter_linear_mipmap;
+// Shared, non-repeating world-field window prepared by source-ring workers.
+// It caches the original aperiodic formula; these are not periodic LUTs.
+uniform sampler2D ground_field_0 : repeat_disable, filter_linear;
+uniform sampler2D ground_field_1 : repeat_disable, filter_linear;
+uniform sampler2D ground_field_2 : repeat_disable, filter_linear;
+uniform vec2 ground_field_origin_world = vec2(0.0);
+uniform vec2 ground_field_grid_size = vec2(1.0);
+uniform float ground_field_step_px = 32.0;
+uniform bool ground_field_ready = false;
 
 uniform bool temporary_disable_terrain_normals = true;
 uniform float top_world_scale_px = 384.0;
@@ -235,12 +244,22 @@ float sample_path(vec2 wp, float scale, float width, float warp_px, float streng
 	return clamp(1.0 - path * strength, 0.0, 1.0);
 }
 
+vec2 ground_field_uv(vec2 wp) {
+	vec2 grid_coord = (wp - ground_field_origin_world) / max(ground_field_step_px, 0.001);
+	return (grid_coord + vec2(0.5)) / max(ground_field_grid_size, vec2(1.0));
+}
+
 void fragment() {
 	vec4 mask = texture(TEXTURE, UV);
 	if (mask.a < 0.01) {
 		COLOR = vec4(0.0, 0.0, 0.0, 0.0);
 		NORMAL_MAP = vec3(0.5, 0.5, 1.0);
 	} else {
+		// There is intentionally no analytic runtime fallback. A chunk is not
+		// eligible for reveal until the immutable source-ring cache is published.
+		if (!ground_field_ready) {
+			discard;
+		}
 		float top_mask = smoothstep(0.02, 0.2, mask.r);
 		float face_mask = smoothstep(0.02, 0.2, mask.g);
 		float back_mask = smoothstep(0.02, 0.2, mask.b);
@@ -250,9 +269,12 @@ void fragment() {
 		vec2 top_uv_secondary = vec2(-world_pos.y, world_pos.x) / (top_world_scale_px * 1.73) + vec2(0.37, 0.19);
 		vec2 face_uv = vec2(world_pos.x / face_world_scale_px, world_pos.y / (face_world_scale_px * 0.72));
 
-		// Aperiodic macro breakup (a repeat texture lookup here would tile).
-		float top_macro = fbm2(world_pos / macro_world_scale_px + vec2(0.11, 0.53));
-		float face_macro = fbm2(world_pos / macro_world_scale_px * vec2(0.84, 1.16) + vec2(0.23, 0.61));
+		vec2 cached_field_uv = ground_field_uv(world_pos);
+		vec4 cached_field_0 = texture(ground_field_0, cached_field_uv);
+		vec4 cached_field_1 = texture(ground_field_1, cached_field_uv);
+		vec4 cached_field_2 = texture(ground_field_2, cached_field_uv);
+		float top_macro = cached_field_0.r;
+		float face_macro = cached_field_0.g;
 
 		vec3 top_albedo = mix(
 			texture(top_albedo_tex, top_uv).rgb,
@@ -269,35 +291,11 @@ void fragment() {
 		float debug_zone_id = 0.0;
 		float organic_strength = clamp(organic_overlay_strength, 0.0, 1.0);
 		if (organic_strength > 0.001) {
-			// --- aperiodic world fields ---
-			// Two-scale warp: broad swing bends region shapes, fine jitter
-			// breaks any residual straight stretch of an isoline.
-			vec2 warp = vec2(
-				fbm2(world_pos / 1800.0 + vec2(11.7, -4.3)),
-				fbm2(world_pos / 1650.0 + vec2(-7.9, 23.1))
-			) - vec2(0.5);
-			vec2 jitter = vec2(
-				fbm2(world_pos / 420.0 + vec2(53.0, 19.0)),
-				fbm2(world_pos / 390.0 + vec2(-22.0, 67.0))
-			) - vec2(0.5);
-			vec2 organic_pos = world_pos + warp * 660.0 + jitter * 170.0;
-
-			float soil_field = fbm2(organic_pos / max(soil_field_scale_px, 1.0) + vec2(31.0, 5.0));
-			float grass_field = remap_contrast(
-				fbm3(organic_pos / max(grass_field_scale_px, 1.0) + vec2(4.7, 13.9)),
-				2.10
-			);
-			// Macro-mass: one very long wavelength fbm biases coverage up/down
-			// across large regions -> bare clearings vs dense pockets. Biofield
-			// follows automatically because orange_region is gated by density.
-			float macro_mass = fbm2(world_pos / max(macro_mass_scale_px, 1.0) + vec2(91.7, -53.3));
-			float macro_bias = (macro_mass - 0.5) * 2.0 * macro_mass_strength;
-			grass_field = clamp(grass_field + (grass_coverage - 0.5) * 0.9 + macro_bias, 0.0, 1.0);
-			float orange_field = remap_contrast(
-				fbm3(organic_pos / max(orange_field_scale_px, 1.0) + vec2(-27.3, 8.1)),
-				1.30
-			);
-			float rock_field = fbm3(organic_pos / max(rock_field_scale_px, 1.0) + vec2(15.5, -31.7));
+			// Worker-prepared values from the original aperiodic formula.
+			float soil_field = cached_field_0.b;
+			float grass_field = cached_field_0.a;
+			float orange_field = cached_field_1.r;
+			float rock_field = cached_field_1.g;
 
 			// --- base soil: soft dirt <-> gritty dry ground ---
 			// Gravel is warmed and biased toward the dirt side: raw
@@ -310,11 +308,25 @@ void fragment() {
 			top_color = mix(dirty_color * top_brightness, gravel_color, soil_mix);
 
 			// --- sparse rocky patches, strongest where grass is thin ---
-			vec3 rock_color = mix(
-				texture(rock_top_albedo_tex, detail_uv * 1.12 + vec2(0.07, 0.61)).rgb,
-				texture(rock_foothill_albedo_tex, detail_uv * 0.86 + vec2(0.43, 0.13)).rgb,
-				smoothstep(0.4, 0.6, fbm2(organic_pos / 820.0 + vec2(9.0, 47.0)))
-			);
+			float rock_texture_mix = smoothstep(0.4, 0.6, cached_field_1.b);
+			vec3 rock_color;
+			if (rock_texture_mix <= 0.0) {
+				rock_color = texture(
+					rock_top_albedo_tex,
+					detail_uv * 1.12 + vec2(0.07, 0.61)
+				).rgb;
+			} else if (rock_texture_mix >= 1.0) {
+				rock_color = texture(
+					rock_foothill_albedo_tex,
+					detail_uv * 0.86 + vec2(0.43, 0.13)
+				).rgb;
+			} else {
+				rock_color = mix(
+					texture(rock_top_albedo_tex, detail_uv * 1.12 + vec2(0.07, 0.61)).rgb,
+					texture(rock_foothill_albedo_tex, detail_uv * 0.86 + vec2(0.43, 0.13)).rgb,
+					rock_texture_mix
+				);
+			}
 			float rock_threshold = mix(0.86, 0.52, clamp(rock_coverage, 0.0, 1.0));
 			// Wide band + per-pixel crumble by the rock grain itself: the patch
 			// edge falls apart into pebbles instead of a razor isoline.
@@ -333,10 +345,7 @@ void fragment() {
 			rock_normal_mask = max(rock_normal_mask, rock_region_visual * 0.85);
 
 			// --- grass ladder with strand-level dissolve ---
-			vec3 transition_color = texture(grass_transition_albedo_tex, detail_uv + vec2(0.31, -0.17)).rgb;
 			vec3 sparse_color = texture(grass_sparse_albedo_tex, detail_uv).rgb;
-			vec3 medium_color = texture(grass_medium_albedo_tex, detail_uv * 1.17 + vec2(0.21, -0.09)).rgb;
-			vec3 dense_color = texture(grass_dense_albedo_tex, detail_uv * 0.91 + vec2(-0.13, 0.18)).rgb;
 			// Contrast-boosted fiber mask: raw luma swings only a few percent,
 			// which made the dissolve cosmetic and left band edges as hard
 			// texture butt-joints. This term must rival the band width so
@@ -352,7 +361,7 @@ void fragment() {
 			grass_density *= 1.0 - rock_region * 0.85;
 
 			// Paths: thin grass along sinuous trails so soil/gravel shows through.
-			float path_open = sample_path(world_pos, path_scale_px, path_width, path_warp_px, path_strength);
+			float path_open = cached_field_1.a;
 			grass_density *= path_open;
 
 			// Ragged ecotone: a fine field breaks the grass/bare edge ONLY in the
@@ -361,25 +370,62 @@ void fragment() {
 			// the texture ladder/scree read grass_density_visual; tuft/tree placement
 			// still reads grass_density (no field-mirror change, no version bump).
 			float edge_w = 1.0 - clamp(abs(grass_density - 0.28) / 0.26, 0.0, 1.0);
-			float edge_fbm = fbm2(world_pos / max(edge_mottle_scale_px, 1.0) + vec2(37.0, 71.0));
+			float edge_fbm = cached_field_2.r;
 			float grass_density_visual = clamp(grass_density + (edge_fbm - 0.5) * edge_mottle_strength * edge_w, 0.0, 1.0);
 
 			// Пороги травяной лестницы сдвинуты вниз так, чтобы зона, где
 			// native ставит пучки (grass_density ~0.30+), уже была плотным
 			// травяным ковром: пучки врастают в землю, а не торчат из голого
 			// грунта. Пучки сэмплят то же grass_density, поля синхронны.
-			vec3 grass_color = top_color;
-			grass_color = mix(grass_color, transition_color, smoothstep(0.12, 0.30, grass_density_visual));
-			grass_color = mix(grass_color, sparse_color, smoothstep(0.26, 0.44, grass_density_visual));
-			grass_color = mix(grass_color, medium_color, smoothstep(0.40, 0.58, grass_density_visual));
-			grass_color = mix(grass_color, dense_color, smoothstep(0.56, 0.78, grass_density_visual));
+			// This is algebraically the same four sequential mixes as before,
+			// expressed as final source coefficients. Smoothstep is exactly 0/1
+			// outside each narrow transition, so most fragments now sample only
+			// one grass texture instead of all four.
+			float transition_weight = smoothstep(0.12, 0.30, grass_density_visual);
+			float sparse_weight = smoothstep(0.26, 0.44, grass_density_visual);
+			float medium_weight = smoothstep(0.40, 0.58, grass_density_visual);
+			float dense_weight = smoothstep(0.56, 0.78, grass_density_visual);
+			float after_dense = 1.0 - dense_weight;
+			float after_medium = (1.0 - medium_weight) * after_dense;
+			float after_sparse = (1.0 - sparse_weight) * after_medium;
+			float base_coefficient = (1.0 - transition_weight) * after_sparse;
+			float transition_coefficient = transition_weight * after_sparse;
+			float sparse_coefficient = sparse_weight * after_medium;
+			float medium_coefficient = medium_weight * after_dense;
+			vec3 grass_color = top_color * base_coefficient;
+			if (transition_coefficient > 0.0) {
+				grass_color += texture(
+					grass_transition_albedo_tex,
+					detail_uv + vec2(0.31, -0.17)
+				).rgb * transition_coefficient;
+			}
+			if (sparse_coefficient > 0.0) {
+				grass_color += sparse_color * sparse_coefficient;
+			}
+			if (medium_coefficient > 0.0) {
+				grass_color += texture(
+					grass_medium_albedo_tex,
+					detail_uv * 1.17 + vec2(0.21, -0.09)
+				).rgb * medium_coefficient;
+			}
+			if (dense_weight > 0.0) {
+				grass_color += texture(
+					grass_dense_albedo_tex,
+					detail_uv * 0.91 + vec2(-0.13, 0.18)
+				).rgb * dense_weight;
+			}
 
 			// --- orange biofield cores inside healthy grass ---
-			vec3 orange_color = texture(orange_biofield_albedo_tex, detail_uv * 0.84 + vec2(0.33, 0.12)).rgb;
 			float orange_threshold = mix(0.88, 0.50, clamp(orange_coverage, 0.0, 1.0));
 			float orange_region = smoothstep(orange_threshold - 0.22, orange_threshold + 0.22, orange_field + strand_detail * 0.16);
 			orange_region *= smoothstep(0.44, 0.80, grass_density);
-			grass_color = mix(grass_color, orange_color, orange_region * 0.92);
+			if (orange_region > 0.0) {
+				vec3 orange_color = texture(
+					orange_biofield_albedo_tex,
+					detail_uv * 0.84 + vec2(0.33, 0.12)
+				).rgb;
+				grass_color = mix(grass_color, orange_color, orange_region * 0.92);
+			}
 
 			grass_total = smoothstep(0.20, 0.55, grass_density);
 			top_color = mix(top_color, grass_color, organic_strength);
@@ -392,7 +438,7 @@ void fragment() {
 			float scree_seam = smoothstep(0.06, 0.22, grass_density_visual) * (1.0 - smoothstep(0.32, 0.54, grass_density_visual));
 			float scree_open = (1.0 - smoothstep(0.04, 0.14, grass_density_visual)) * scree_open_amount;
 			float scree_band = max(scree_seam, scree_open);
-			float scree_field = fbm2(world_pos / max(scree_field_scale_px, 1.0) + vec2(61.7, 28.3));
+			float scree_field = cached_field_2.g;
 			float scree_threshold = mix(0.74, 0.40, clamp(scree_density, 0.0, 1.0));
 			float scree_grain = smoothstep(0.40, 0.78, luma(rock_color));
 			float scree = scree_band
@@ -523,7 +569,7 @@ void fragment() {
 				// Expand the naturally narrow fbm range into broad readable
 				// soil/dust masses. Weight the tint toward open ground so the
 				// macro pattern does not repaint dense grass as one flat wash.
-				float drift = fbm2(world_pos / macro_drift_scale_px + vec2(3.1, -8.7));
+				float drift = cached_field_2.b;
 				float drift_shape = smoothstep(0.32, 0.68, drift);
 				float drift_brightness = mix(
 					1.0 - macro_drift_strength,
@@ -552,10 +598,13 @@ void fragment() {
 			// Ambient AO form (always on) sculpts large masses; a day-only
 			// sun-directional component brightens sun-facing slopes and darkens
 			// away-facing ones, faded by daylight via ground_sun_day.
-			float shade_a = fbm2(world_pos / max(shade_scale_px, 1.0) + vec2(5.9, 21.7));
+			float shade_a = cached_field_2.a;
 			float ambient_ao = mix(1.0 - shade_ambient_strength, 1.0 + shade_ambient_strength * 0.35, shade_a);
 			vec2 sun_dir = vec2(cos(radians(ground_sun_angle_deg)), sin(radians(ground_sun_angle_deg)));
-			float shade_b = fbm2((world_pos + sun_dir * shade_relief_px) / max(shade_scale_px, 1.0) + vec2(5.9, 21.7));
+			float shade_b = texture(
+				ground_field_2,
+				ground_field_uv(world_pos + sun_dir * shade_relief_px)
+			).a;
 			float sun_slope = clamp(0.5 + (shade_b - shade_a) * shade_directional_gain, 0.0, 1.0);
 			float directional = mix(1.0 - shade_dir_strength, 1.0 + shade_dir_strength * 0.6, sun_slope);
 			top_color *= ambient_ao * mix(1.0, directional, clamp(ground_sun_day, 0.0, 1.0));

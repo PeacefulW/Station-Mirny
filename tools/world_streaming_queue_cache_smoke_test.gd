@@ -1,11 +1,22 @@
 extends SceneTree
+## Queue/cache regression for the current global RenderWorld contract.
+##
+## Chunk object results remain immutable CPU/cache truth and retain collision
+## records. Visual records are consumed by one background snapshot request and
+## published with explicit epoch/generation tokens. No per-chunk visual pool or
+## freed SceneTree object participates in this test.
 
-const WorldChunkPacketBackend = preload("res://core/systems/world/world_chunk_packet_backend.gd")
-const WorldRuntimeConstants = preload("res://core/systems/world/world_runtime_constants.gd")
-const ChunkView = preload("res://core/systems/world/chunk_view.gd")
-const WorldObjectPacketLayer = preload("res://core/systems/world/world_object_packet_layer.gd")
-const FrameBudgetDispatcherNode = preload("res://core/autoloads/frame_budget_dispatcher.gd")
-const RuntimeWorkTypes = preload("res://core/runtime/runtime_work_types.gd")
+const WorldChunkPacketBackend = preload(
+	"res://core/systems/world/world_chunk_packet_backend.gd"
+)
+const WorldRuntimeConstants = preload(
+	"res://core/systems/world/world_runtime_constants.gd"
+)
+const WorldRenderClassRegistry = preload(
+	"res://core/systems/world/world_render_class_registry.gd"
+)
+
+const TEST_EPOCH: int = 41
 
 var _failures: Array[String] = []
 
@@ -20,23 +31,19 @@ func _run() -> void:
 	_test_grass_queue_revision_replacement()
 	_test_object_queue_revision_replacement()
 	_test_shared_compute_priority_contract()
-	await _test_backend_start_stop_restart()
-	_test_object_visual_queue_completion_priority()
-	_test_object_visual_lane_budgeted_continuation()
-	_test_object_visual_queue_cap_and_live_tick_preemption()
-	_test_object_result_drain_is_cpu_only()
-	_test_terminal_failure_is_dispatcher_only()
-	_test_stale_hidden_hot_work_is_pruned()
-	_test_live_hot_budget_pressure_does_not_restage_recursively()
-	_test_incremental_cold_envelope_revision_and_accounting()
-	_test_retire_dispatcher_and_hidden_admission_backpressure()
-	_test_multi_victim_retirement_drains_autonomously()
-	_test_clean_retire_pool_decision_tracks_violated_dimension()
+	_test_render_request_coalescing_keeps_latest_token()
+	_test_result_drain_never_loses_publication_token()
+	_test_collision_payload_is_owned_outside_render_snapshot()
 	_test_object_failure_retries_current_revision()
 	_test_warm_base_packet_cache_reapplies_current_diff()
+	_test_stalled_reveal_guard_recovers_warm_object_presentation()
+	await _test_terminal_failure_does_not_poison_render_queue()
+	await _test_backend_start_stop_restart()
+	await process_frame
+	await process_frame
 	if not _failures.is_empty():
 		for failure: String in _failures:
-			push_error(failure)
+			push_error("world_streaming_queue_cache_smoke_test: %s" % failure)
 		quit(1)
 		return
 	print("world_streaming_queue_cache_smoke_test: PASS")
@@ -45,25 +52,245 @@ func _run() -> void:
 
 func _test_packet_queue_coalescing_and_pruning() -> void:
 	var backend := WorldChunkPacketBackend.new()
-	var settings := PackedFloat32Array([1.0, 2.0])
-	var near_coord := Vector2i(2, 3)
+	var kept_coord := Vector2i(2, 3)
 	var stale_coord := Vector2i(9, 9)
-	backend.queue_packet_request(near_coord, 7, 1, settings, 4, 12)
-	backend.queue_packet_request(near_coord, 7, 1, settings, 4, 1)
-	backend.queue_packet_request(stale_coord, 7, 1, settings, 4, 30)
-	_expect(backend._pending_requests.size() == 2, "duplicate packet requests must coalesce")
-	var removed: Array[Vector2i] = backend.sync_packet_requests(4, {near_coord: 0})
-	_expect(removed == [stale_coord], "stale packet request must be removed")
-	_expect(backend._pending_requests.size() == 1, "only current packet request may remain")
-	_expect(int(backend._pending_requests[0].get("priority", -1)) == 0, "priority must refresh")
+	backend.queue_packet_request(
+		kept_coord, 7, WorldRuntimeConstants.WORLD_VERSION,
+		PackedFloat32Array(), TEST_EPOCH, 12,
+	)
+	backend.queue_packet_request(
+		kept_coord, 7, WorldRuntimeConstants.WORLD_VERSION,
+		PackedFloat32Array(), TEST_EPOCH, 1,
+	)
+	backend.queue_packet_request(
+		stale_coord, 7, WorldRuntimeConstants.WORLD_VERSION,
+		PackedFloat32Array(), TEST_EPOCH, 30,
+	)
+	_expect(backend._pending_requests.size() == 2, "duplicate packet demand coalesces")
+	var removed: Array[Vector2i] = backend.sync_packet_requests(
+		TEST_EPOCH,
+		{kept_coord: 0},
+	)
+	_expect(removed == [stale_coord], "stale packet demand is pruned")
+	_expect(backend._pending_requests.size() == 1, "one current packet token remains")
+	_expect(
+		int(backend._pending_requests[0].get("priority", -1)) == 0,
+		"retained packet priority refreshes",
+	)
 	_expect(
 		backend._request_semaphore.try_wait(),
-		"retained packet work must keep exactly one worker permit",
+		"coalesced packet owns exactly one worker permit",
 	)
 	_expect(
 		not backend._request_semaphore.try_wait(),
-		"pruned packet work must not leave an obsolete worker permit",
+		"pruned packet leaves no phantom worker permit",
 	)
+	backend.clear_queued_work()
+
+
+func _test_render_request_coalescing_keeps_latest_token() -> void:
+	var backend := WorldChunkPacketBackend.new()
+	_queue_empty_render_request(backend, TEST_EPOCH, 70, true)
+	_queue_empty_render_request(backend, TEST_EPOCH, 71, true)
+	_expect(
+		backend._pending_requests.size() == 1,
+		"one epoch has one coalesced immutable render request",
+	)
+	var retained: Dictionary = backend._pending_requests[0] as Dictionary
+	_expect(
+		int(retained.get("request_generation", -1)) == 71,
+		"coalescing retains the newest publication generation",
+	)
+	_expect(
+		int(retained.get("epoch", -1)) == TEST_EPOCH,
+		"coalescing retains the explicit world epoch",
+	)
+	_expect(
+		backend._request_semaphore.try_wait() \
+				and not backend._request_semaphore.try_wait(),
+		"replacement neither duplicates nor loses its worker permit",
+	)
+	backend.clear_queued_work()
+
+
+func _test_result_drain_never_loses_publication_token() -> void:
+	var backend := WorldChunkPacketBackend.new()
+	backend._completed_world_render_snapshots.append({
+		"success": true,
+		"epoch": TEST_EPOCH,
+		"request_generation": 80,
+	})
+	backend._completed_world_render_snapshots.append({
+		"success": true,
+		"epoch": TEST_EPOCH,
+		"request_generation": 81,
+	})
+	var first: Array[Dictionary] = backend.drain_completed_world_render_snapshots(1)
+	_expect(
+		first.size() == 1 and int(first[0].get("request_generation", -1)) == 80,
+		"bounded drain returns the oldest complete publication token",
+	)
+	_expect(
+		backend.has_completed_world_render_snapshots(),
+		"logical queue head preserves the unread publication token",
+	)
+	var second: Array[Dictionary] = backend.drain_completed_world_render_snapshots(1)
+	_expect(
+		second.size() == 1 and int(second[0].get("request_generation", -1)) == 81,
+		"second bounded drain returns the retained publication token",
+	)
+	_expect(
+		not backend.has_completed_world_render_snapshots(),
+		"completed queue reports empty after both tokens are consumed",
+	)
+	backend.clear_queued_work()
+
+
+func _test_collision_payload_is_owned_outside_render_snapshot() -> void:
+	var world_core: Object = ClassDB.instantiate(&"WorldCore")
+	_expect(world_core != null, "WorldCore is available for collision/render contract")
+	if world_core == null:
+		return
+	var object_result_variant: Variant = world_core.call(
+		"build_object_presentation_buffers",
+		PackedByteArray([4]),
+		PackedByteArray([40]),
+		PackedByteArray([80]),
+		PackedByteArray([180]),
+		PackedByteArray([0]),
+		PackedByteArray([0]),
+		PackedByteArray([0]),
+		PackedByteArray([255]),
+		PackedByteArray([0]),
+		_tree_metrics(),
+		PackedFloat32Array(),
+		PackedFloat32Array(),
+		_presentation_params(),
+	)
+	_expect(object_result_variant is Dictionary, "object packet decode returns a Dictionary")
+	if not object_result_variant is Dictionary:
+		world_core = null
+		return
+	var object_result: Dictionary = object_result_variant as Dictionary
+	var collision_records: PackedFloat32Array = object_result.get(
+		"tree_collision_records",
+		PackedFloat32Array(),
+	) as PackedFloat32Array
+	_expect(collision_records.size() == 4, "one tree emits one four-float collision record")
+	var snapshot_variant: Variant = world_core.call(
+		"build_world_render_snapshot",
+		PackedVector2Array([Vector2.ZERO]),
+		[object_result],
+		[{}],
+		_source_bindings(),
+		1.0,
+	)
+	_expect(snapshot_variant is Dictionary, "render snapshot returns a Dictionary")
+	if snapshot_variant is Dictionary:
+		var snapshot: Dictionary = snapshot_variant as Dictionary
+		_expect(bool(snapshot.get("success", false)), "tree visual record builds successfully")
+		_expect(int(snapshot.get("instance_count", 0)) == 1, "renderer receives one tree body")
+		_expect(
+			not snapshot.has("tree_collision_records"),
+			"RenderWorld snapshot does not duplicate collision ownership",
+		)
+		_expect(
+			(object_result.get("tree_collision_records") as PackedFloat32Array) \
+					== collision_records,
+			"immutable chunk collision payload survives visual derivation",
+		)
+	world_core = null
+
+
+func _test_terminal_failure_does_not_poison_render_queue() -> void:
+	var backend := WorldChunkPacketBackend.new()
+	backend.start(1)
+	_queue_empty_render_request(backend, TEST_EPOCH, 90, false)
+	var failed: Dictionary = await _await_render_result(backend, 3000)
+	_expect(not failed.is_empty(), "terminal render failure returns a completion")
+	_expect(not bool(failed.get("success", true)), "invalid render request fails explicitly")
+	_expect(
+		int(failed.get("epoch", -1)) == TEST_EPOCH \
+				and int(failed.get("request_generation", -1)) == 90,
+		"terminal failure preserves its publication token",
+	)
+
+	_queue_empty_render_request(backend, TEST_EPOCH, 91, true)
+	var recovered: Dictionary = await _await_render_result(backend, 3000)
+	_expect(not recovered.is_empty(), "new generation runs after a terminal failure")
+	_expect(bool(recovered.get("success", false)), "new valid generation self-recovers")
+	_expect(
+		int(recovered.get("epoch", -1)) == TEST_EPOCH \
+				and int(recovered.get("request_generation", -1)) == 91,
+		"recovered result publishes only the new token",
+	)
+	backend.stop()
+	backend.clear_queued_work()
+
+
+func _test_backend_start_stop_restart() -> void:
+	var backend := WorldChunkPacketBackend.new()
+	backend.start(2)
+	await process_frame
+	backend.stop()
+	_expect(backend._worker_threads.is_empty(), "stop joins every worker")
+	backend.start(2)
+	await process_frame
+	backend.stop()
+	_expect(backend._worker_threads.is_empty(), "backend restarts after synchronized stop")
+	backend.clear_queued_work()
+
+
+func _queue_empty_render_request(
+		backend: WorldChunkPacketBackend,
+		epoch: int,
+		generation: int,
+		valid: bool,
+) -> void:
+	backend.queue_world_render_snapshot_request(
+		PackedVector2Array([Vector2.ZERO]) if valid else PackedVector2Array(),
+		[{}] if valid else [],
+		[{}] if valid else [],
+		_source_bindings() if valid else [],
+		1.0,
+		epoch,
+		generation,
+	)
+
+
+func _await_render_result(
+		backend: WorldChunkPacketBackend,
+		timeout_msec: int,
+) -> Dictionary:
+	var deadline: int = Time.get_ticks_msec() + timeout_msec
+	while Time.get_ticks_msec() < deadline:
+		var drained: Array[Dictionary] = backend.drain_completed_world_render_snapshots(1)
+		if not drained.is_empty():
+			return drained[0]
+		await process_frame
+	return { }
+
+
+func _source_bindings() -> Array:
+	var registry := WorldRenderClassRegistry.new()
+	_expect(registry.configure(WorldRenderClassRegistry.DEFAULT_REGISTRY_PATH, false),
+		"render-class source bindings configure")
+	return registry.get_native_source_bindings()
+
+
+func _tree_metrics() -> PackedFloat32Array:
+	return PackedFloat32Array([
+		768.0, 768.0, 384.0, 539.0, 0.64, 0.0, 36.0, 36.0,
+	])
+
+
+func _presentation_params() -> PackedFloat32Array:
+	return PackedFloat32Array([
+		4.0, 16.0, 64.0, 1.0, 1.0, 34.0,
+		0.5, 1.0, 1.0, 1.0,
+		0.8, 0.4, 0.1, 1.0, 1.0, 0.5, 4.0, 0.1,
+		1.0, 1.0,
+	])
 
 
 func _test_grass_queue_revision_replacement() -> void:
@@ -328,994 +555,6 @@ func _test_shared_compute_priority_contract() -> void:
 	streamer.free()
 
 
-func _test_backend_start_stop_restart() -> void:
-	var backend := WorldChunkPacketBackend.new()
-	backend.start(2)
-	await process_frame
-	backend.stop()
-	_expect(backend._worker_threads.is_empty(), "backend stop must join every worker")
-	backend.start(2)
-	await process_frame
-	backend.stop()
-	_expect(
-		backend._worker_threads.is_empty(),
-		"backend must restart cleanly after a synchronized stop",
-	)
-
-
-func _test_object_visual_queue_completion_priority() -> void:
-	var streamer_script: Script = load("res://core/systems/world/world_streamer.gd") as Script
-	var streamer: Node = streamer_script.new() as Node
-	var live_far_coord := Vector2i(4, 0)
-	var hidden_near_coord := Vector2i(1, 0)
-	streamer._player_chunk_coord = Vector2i.ZERO
-	var live_far_view: ChunkView = ChunkView.new()
-	live_far_view.visible = false
-	streamer.add_child(live_far_view)
-	streamer._chunk_views[live_far_coord] = live_far_view
-	streamer._queue_object_packet_visual_upload(hidden_near_coord)
-	streamer._queue_object_packet_visual_upload(live_far_coord)
-	_expect(
-		streamer._take_next_object_packet_visual_upload() == live_far_coord,
-		"a reveal-frontier view must beat a closer hidden prestage",
-	)
-	_expect(
-		streamer._take_next_object_packet_visual_upload() == live_far_coord,
-		"the selected atomic transaction must retain the lane until completion",
-	)
-	var urgent_coord := Vector2i(2, 0)
-	var urgent_view: ChunkView = ChunkView.new()
-	urgent_view.visible = false
-	streamer.add_child(urgent_view)
-	streamer._chunk_views[urgent_coord] = urgent_view
-	streamer._queue_object_packet_visual_upload(urgent_coord)
-	_expect(
-		streamer._take_next_object_packet_visual_upload() == urgent_coord,
-		"a closer reveal deadline may preempt the focused transaction",
-	)
-	streamer._drop_object_packet_visual_upload(urgent_coord)
-	streamer._drop_object_packet_visual_upload(live_far_coord)
-	_expect(
-		streamer._take_next_object_packet_visual_upload() == hidden_near_coord,
-		"hidden prestage runs after the live frontier drains",
-	)
-	streamer.free()
-
-
-func _test_object_visual_lane_budgeted_continuation() -> void:
-	var streamer_script: Script = load("res://core/systems/world/world_streamer.gd") as Script
-	var streamer: Node = streamer_script.new() as Node
-	streamer._player_chunk_coord = Vector2i.ZERO
-	# More than one bounded scan slice proves the real dispatcher callback can
-	# stay active without crossing into the selected envelope phase.
-	for index: int in range(
-		streamer.OBJECT_PRESENTATION_PRIORITY_SCAN_MAX_ITEMS_PER_PHASE * 3,
-	):
-		streamer._queue_object_packet_visual_upload(Vector2i(index + 20, 80))
-	var dispatcher: FrameBudgetDispatcherNode = FrameBudgetDispatcherNode.new()
-	root.add_child(dispatcher)
-	dispatcher.register_job(
-		RuntimeWorkTypes.CATEGORY_STREAMING,
-		streamer.OBJECT_PRESENTATION_VISUAL_UPLOAD_BUDGET_MS,
-		Callable(streamer, "_object_presentation_visual_apply_tick"),
-		&"test.object_visual_budgeted_continuation",
-	)
-	dispatcher._process(0.0)
-	var callback_count: int = streamer._object_presentation_visual_lane_callback_count
-	_expect(
-		callback_count > 1,
-		"FrameBudgetDispatcher consumes more than one safe object callback per frame",
-	)
-	_expect(
-		callback_count <= streamer.OBJECT_PRESENTATION_MAX_DISPATCH_CALLBACKS_PER_FRAME,
-		"object visual lane callback count stays hard-bounded",
-	)
-	_expect(
-		streamer._object_packet_visual_selection_phase_prepared \
-				and streamer._hot_object_presentation_layers.is_empty(),
-		"priority completion yields before envelope or GPU work",
-	)
-	dispatcher.free()
-	streamer.free()
-
-	var guarded_streamer: Node = streamer_script.new() as Node
-	guarded_streamer._player_chunk_coord = Vector2i.ZERO
-	for index: int in range(
-		guarded_streamer.OBJECT_PRESENTATION_PRIORITY_SCAN_MAX_ITEMS_PER_PHASE * 2,
-	):
-		guarded_streamer._queue_object_packet_visual_upload(Vector2i(index + 20, 90))
-	guarded_streamer._object_presentation_visual_lane_frame = int(Engine.get_process_frames())
-	guarded_streamer._object_presentation_visual_lane_started_usec = \
-			Time.get_ticks_usec() \
-			- guarded_streamer.OBJECT_PRESENTATION_VISUAL_UPLOAD_BUDGET_USEC \
-			+ 1
-	guarded_streamer._object_presentation_visual_lane_callback_count = 0
-	_expect(
-		not guarded_streamer._object_presentation_visual_apply_tick() \
-				and guarded_streamer._object_packet_visual_priority_scan_active,
-		"lane lookahead refuses another callback when the per-frame budget is exhausted",
-	)
-	guarded_streamer.free()
-
-	var allocation_streamer: Node = streamer_script.new() as Node
-	var family: StringName = \
-			WorldObjectPacketLayer.PRESENTATION_PHASE_TREE_SLOT_ALLOCATION
-	allocation_streamer._record_object_presentation_allocation_measurement(family, 80)
-	_expect(
-		allocation_streamer._object_presentation_allocation_lookahead_fits_lane(400, family),
-		"measured family high-water plus safety margin may use the 0.65 ms allocation lane",
-	)
-	allocation_streamer._record_object_presentation_allocation_measurement(family, 520)
-	_expect(
-		not allocation_streamer._object_presentation_allocation_lookahead_fits_lane(0, family),
-		"one allocation outlier raises the monotonic high-water and stops continuation",
-	)
-	var allocation_coord := Vector2i.ZERO
-	allocation_streamer._player_chunk_coord = allocation_coord
-	allocation_streamer._queue_object_packet_visual_upload(allocation_coord)
-	allocation_streamer._focused_object_packet_visual_upload_chunk = allocation_coord
-	allocation_streamer._object_packet_visual_priority_dirty = false
-	allocation_streamer._object_presentation_visual_lane_started_usec = Time.get_ticks_usec()
-	allocation_streamer._object_presentation_allocation_high_water_usec_by_family[family] = 40
-	allocation_streamer._object_presentation_allocation_callback_count = 1
-	_expect(
-		allocation_streamer._can_continue_object_presentation_allocation_lane(
-			Time.get_ticks_usec(),
-			family,
-			allocation_coord,
-		),
-		"one measured allocation may request the second allocation-only callback",
-	)
-	allocation_streamer._object_presentation_allocation_callback_count = \
-			allocation_streamer.OBJECT_PRESENTATION_MAX_ALLOCATION_CALLBACKS_PER_FRAME
-	_expect(
-		not allocation_streamer._can_continue_object_presentation_allocation_lane(
-			Time.get_ticks_usec(),
-			family,
-			allocation_coord,
-		),
-		"allocation-only continuation stops at two callbacks per process frame",
-	)
-	allocation_streamer.free()
-
-
-func _test_object_visual_queue_cap_and_live_tick_preemption() -> void:
-	var streamer_script: Script = load("res://core/systems/world/world_streamer.gd") as Script
-	var capped_streamer: Node = streamer_script.new() as Node
-	var queue_cap: int = int(capped_streamer.OBJECT_PRESENTATION_VISUAL_QUEUE_MAX_TOKENS)
-	for index: int in range(queue_cap + 12):
-		capped_streamer._queue_object_packet_visual_upload(Vector2i(index + 10, 40))
-	_expect(
-		capped_streamer._pending_object_packet_visual_upload_set.size() == queue_cap \
-				and capped_streamer._pending_object_packet_visual_upload_chunks.size() == queue_cap \
-				and capped_streamer._pending_object_packet_visual_upload_index_by_chunk.size() \
-						== queue_cap,
-		"priority snapshot source is hard-capped and index-consistent",
-	)
-	var urgent_coord := Vector2i.ZERO
-	var urgent_view: ChunkView = ChunkView.new()
-	urgent_view.visible = false
-	capped_streamer.add_child(urgent_view)
-	capped_streamer._chunk_views[urgent_coord] = urgent_view
-	capped_streamer._queue_object_packet_visual_upload(urgent_coord)
-	_expect(
-		capped_streamer._pending_object_packet_visual_upload_set.size() == queue_cap \
-				and capped_streamer._pending_object_packet_visual_upload_set.has(urgent_coord),
-		"live admission replaces one lower-class token without exceeding the hard cap",
-	)
-	capped_streamer.free()
-
-	var repair_streamer: Node = streamer_script.new() as Node
-	repair_streamer._player_chunk_coord = Vector2i.ZERO
-	for index: int in range(queue_cap):
-		repair_streamer._queue_hot_object_prestage(Vector2i(index + 20, 60))
-	var queued_before_live: Dictionary = \
-			repair_streamer._pending_object_packet_visual_upload_set.duplicate()
-	var repair_live_coord := Vector2i.ZERO
-	var repair_live_view: ChunkView = ChunkView.new()
-	repair_live_view.visible = false
-	repair_streamer.add_child(repair_live_view)
-	repair_streamer._chunk_views[repair_live_coord] = repair_live_view
-	repair_streamer._queue_hot_object_prestage(repair_live_coord)
-	var evicted_hidden_coord: Vector2i = repair_streamer.INVALID_CHUNK_COORD
-	for queued_variant: Variant in queued_before_live.keys():
-		var queued_coord: Vector2i = queued_variant as Vector2i
-		if not repair_streamer._pending_object_packet_visual_upload_set.has(queued_coord):
-			evicted_hidden_coord = queued_coord
-			break
-	_expect(
-		evicted_hidden_coord != repair_streamer.INVALID_CHUNK_COORD \
-				and repair_streamer._pending_hot_object_prestage_set.has(evicted_hidden_coord) \
-				and repair_streamer._object_packet_visual_queue_repair_needed,
-		"live cap admission retains its evicted hidden token for autonomous repair",
-	)
-	# Mutate an index before a partially advanced repair cursor, then open one
-	# queue slot. Repair must restart rather than skipping the retained victim.
-	var removed_before_cursor: Vector2i = repair_streamer \
-			._pending_hot_object_prestage_chunks[0]
-	repair_streamer._object_packet_visual_queue_repair_cursor = 5
-	repair_streamer._drop_hot_object_prestage(removed_before_cursor)
-	_expect(
-		repair_streamer._object_packet_visual_queue_repair_cursor == 0,
-		"prestage filtering resets the live repair cursor",
-	)
-	repair_streamer._drop_object_packet_visual_upload(removed_before_cursor)
-	var repair_guard: int = queue_cap
-	while not repair_streamer._pending_object_packet_visual_upload_set.has(
-			evicted_hidden_coord,
-		) and repair_guard > 0:
-		repair_streamer._repair_one_object_packet_visual_queue_token()
-		repair_guard -= 1
-	_expect(
-		repair_guard > 0 \
-				and repair_streamer._pending_object_packet_visual_upload_set.has(
-					evicted_hidden_coord,
-				),
-		"live-evicted hidden token is eventually reinserted after capacity opens",
-	)
-	repair_streamer.free()
-
-	var streamer: Node = streamer_script.new() as Node
-	streamer._generation_epoch = 91
-	streamer._player_chunk_coord = Vector2i.ZERO
-	var hidden_coord := Vector2i(1, 0)
-	var hidden_revision: int = 601
-	streamer._object_presentation_revision_by_chunk[hidden_coord] = hidden_revision
-	streamer._object_presentation_results_by_chunk[hidden_coord] = \
-			_make_live_object_completion(streamer, hidden_coord, hidden_revision)
-	streamer._queue_hot_object_prestage(hidden_coord)
-	streamer._object_presentation_visual_apply_tick()
-	_expect(
-		streamer._object_packet_visual_selection_phase_prepared \
-				and streamer._focused_object_packet_visual_upload_chunk == hidden_coord,
-		"hidden selection is prepared without running its envelope phase",
-	)
-
-	var live_coord := Vector2i.ZERO
-	var live_revision: int = 602
-	var live_view: ChunkView = ChunkView.new()
-	live_view.visible = false
-	streamer.add_child(live_view)
-	streamer._chunk_views[live_coord] = live_view
-	streamer._object_presentation_revision_by_chunk[live_coord] = live_revision
-	streamer._object_presentation_results_by_chunk[live_coord] = \
-			_make_live_object_completion(streamer, live_coord, live_revision)
-	streamer._queue_hot_object_prestage(live_coord)
-	_expect(
-		streamer._object_packet_visual_urgent_priority_dirty,
-		"O(1) enqueue class comparison marks genuine live preemption",
-	)
-	streamer._object_presentation_visual_apply_tick()
-	_expect(
-		streamer._object_packet_visual_selection_phase_prepared \
-				and streamer._focused_object_packet_visual_upload_chunk == live_coord \
-				and not streamer._hot_object_presentation_layers.has(hidden_coord),
-		"live token invalidates prepared hidden work in the dispatcher tick",
-	)
-	streamer._object_presentation_visual_apply_tick()
-	_expect(
-		streamer._hot_object_presentation_layers.has(live_coord) \
-				and not streamer._hot_object_presentation_layers.has(hidden_coord),
-		"class-0 reveal runs before any hidden heavy phase",
-	)
-	streamer.free()
-
-	var deadline_streamer: Node = streamer_script.new() as Node
-	deadline_streamer._player_chunk_coord = Vector2i.ZERO
-	var far_live_coord := Vector2i(4, 0)
-	var near_live_coord := Vector2i(1, 0)
-	var far_live_view: ChunkView = ChunkView.new()
-	far_live_view.visible = false
-	deadline_streamer.add_child(far_live_view)
-	deadline_streamer._chunk_views[far_live_coord] = far_live_view
-	deadline_streamer._queue_object_packet_visual_upload(far_live_coord)
-	deadline_streamer._object_presentation_visual_apply_tick()
-	_expect(
-		deadline_streamer._object_packet_visual_selection_phase_prepared \
-				and deadline_streamer._focused_object_packet_visual_upload_chunk \
-						== far_live_coord,
-		"far class-0 deadline is prepared without heavy work",
-	)
-	var near_live_view: ChunkView = ChunkView.new()
-	near_live_view.visible = false
-	deadline_streamer.add_child(near_live_view)
-	deadline_streamer._chunk_views[near_live_coord] = near_live_view
-	deadline_streamer._queue_object_packet_visual_upload(near_live_coord)
-	_expect(
-		deadline_streamer._object_packet_visual_urgent_priority_dirty,
-		"O(1) enqueue comparison recognizes a closer same-class deadline",
-	)
-	deadline_streamer._object_presentation_visual_apply_tick()
-	_expect(
-		deadline_streamer._object_packet_visual_selection_phase_prepared \
-				and deadline_streamer._focused_object_packet_visual_upload_chunk \
-						== near_live_coord,
-		"closer class-0 token gets a priority slice before far heavy work",
-	)
-	deadline_streamer.free()
-
-
-func _test_object_result_drain_is_cpu_only() -> void:
-	var streamer_script: Script = load("res://core/systems/world/world_streamer.gd") as Script
-	var streamer: Node = streamer_script.new() as Node
-	var coord := Vector2i(6, 0)
-	var hidden_coord := Vector2i(1, 0)
-	var revision: int = 41
-	streamer._generation_epoch = 19
-	streamer._player_chunk_coord = Vector2i.ZERO
-	streamer._base_chunk_packets[coord] = {"chunk_coord": coord}
-	streamer._chunk_packets[coord] = {"chunk_coord": coord}
-	streamer._object_presentation_revision_by_chunk[coord] = revision
-	streamer._object_presentation_inflight_chunks[coord] = revision
-	var live_view: ChunkView = ChunkView.new()
-	live_view.visible = false
-	streamer.add_child(live_view)
-	streamer._chunk_views[coord] = live_view
-
-	# Prove that a newly completed live envelope can preempt already-focused
-	# hidden work without constructing its graph in result drain.
-	streamer._queue_object_packet_visual_upload(hidden_coord)
-	_expect(
-		streamer._take_next_object_packet_visual_upload() == hidden_coord,
-		"hidden work is focused before the live completion arrives",
-	)
-	var streamer_child_count: int = streamer.get_child_count()
-	var view_child_count: int = live_view.get_child_count()
-	var pool_count: int = streamer._object_presentation_layer_pool.size()
-	var hot_count: int = streamer._hot_object_presentation_layers.size()
-	var result: Dictionary = _make_live_object_completion(
-		streamer,
-		coord,
-		revision,
-	)
-	streamer._object_presentation_backend._completed_object_presentation_buffers.append(result)
-	streamer._drain_completed_object_presentation_buffers(1)
-
-	_expect(
-		streamer._object_presentation_results_by_chunk.has(coord),
-		"object drain stores immutable CPU truth",
-	)
-	_expect(
-		not streamer._object_presentation_inflight_chunks.has(coord),
-		"object drain releases inflight ownership",
-	)
-	_expect(
-		streamer._pending_hot_object_prestage_set.has(coord) \
-				and streamer._pending_object_packet_visual_upload_set.has(coord),
-		"object drain enqueues one lightweight priority envelope",
-	)
-	_expect(
-		streamer.get_child_count() == streamer_child_count \
-				and live_view.get_child_count() == view_child_count \
-				and streamer._object_presentation_layer_pool.size() == pool_count \
-				and streamer._hot_object_presentation_layers.size() == hot_count \
-				and streamer._hot_object_presentation_root == null \
-				and live_view._object_packet_layer == null,
-		"drain performs no Node, pool, hot-layer or RenderingServer envelope mutation",
-	)
-	_expect(
-		streamer._take_next_object_packet_visual_upload() == coord,
-		"a live completion token preempts the focused hidden envelope",
-	)
-	streamer._object_presentation_visual_apply_tick()
-	_expect(
-		streamer._hot_object_presentation_root != null \
-				and streamer._hot_object_presentation_layers.has(coord) \
-				and not streamer._pending_hot_object_prestage_set.has(coord),
-		"the first dispatcher envelope phase owns acquire and begin",
-	)
-	streamer.free()
-
-
-func _test_terminal_failure_is_dispatcher_only() -> void:
-	var streamer_script: Script = load("res://core/systems/world/world_streamer.gd") as Script
-	var streamer: Node = streamer_script.new() as Node
-	var coord := Vector2i(7, 0)
-	var revision: int = 52
-	streamer._generation_epoch = 23
-	streamer._player_chunk_coord = coord
-	streamer._base_chunk_packets[coord] = {"chunk_coord": coord}
-	streamer._chunk_packets[coord] = {"chunk_coord": coord}
-	streamer._object_presentation_revision_by_chunk[coord] = revision
-	streamer._object_presentation_inflight_chunks[coord] = revision
-	streamer._object_presentation_retry_by_chunk[coord] = {
-		"revision": revision,
-		"attempts": streamer.OBJECT_PRESENTATION_MAX_RETRY_ATTEMPTS,
-	}
-	var live_view: ChunkView = ChunkView.new()
-	live_view.visible = false
-	streamer.add_child(live_view)
-	streamer._chunk_views[coord] = live_view
-	var streamer_child_count: int = streamer.get_child_count()
-	var failed_result := {
-		"success": false,
-		"message": "synthetic terminal dispatcher proof",
-		"target_chunk": coord,
-		"epoch": streamer._generation_epoch,
-		"revision": revision,
-		"catalog_generation": streamer._layered_object_asset_catalog.get_catalog_generation(),
-	}
-	streamer._object_presentation_backend._completed_object_presentation_buffers.append(failed_result)
-	streamer._drain_completed_object_presentation_buffers(1)
-	_expect(
-		streamer._object_presentation_terminal_fallback_by_chunk.has(coord) \
-				and streamer._pending_object_packet_visual_upload_set.has(coord),
-		"terminal worker failure records and queues fallback",
-	)
-	_expect(
-		streamer.get_child_count() == streamer_child_count \
-				and streamer._hot_object_presentation_root == null \
-				and live_view._object_packet_layer == null,
-		"terminal failure drain does not allocate the compatibility graph",
-	)
-
-	# If the view disappears before its dispatcher turn, retain the terminal
-	# marker and let the next publish-side queue-only handoff restore its token.
-	streamer._chunk_views.erase(coord)
-	streamer.remove_child(live_view)
-	live_view.free()
-	_advance_object_presentation_work_phase(streamer)
-	_expect(
-		streamer._object_presentation_terminal_fallback_by_chunk.has(coord) \
-				and not streamer._pending_object_packet_visual_upload_set.has(coord),
-		"terminal fallback survives view eviction without an idle upload spin",
-	)
-	var replacement_view: ChunkView = ChunkView.new()
-	replacement_view.visible = false
-	streamer.add_child(replacement_view)
-	streamer._chunk_views[coord] = replacement_view
-	_expect(
-		streamer._queue_object_presentation_for_live_view(coord) \
-				and streamer._pending_object_packet_visual_upload_set.has(coord),
-		"republish requeues a retained terminal fallback without applying it",
-	)
-	_expect(
-		replacement_view._object_packet_layer == null,
-		"republish handoff remains queue-only",
-	)
-	_advance_object_presentation_work_phase(streamer)
-	_expect(
-		not streamer._object_presentation_terminal_fallback_by_chunk.has(coord) \
-				and replacement_view._object_packet_layer != null \
-				and replacement_view.is_object_blocking_presentation_ready(),
-		"terminal compatibility graph is built only in its dispatcher phase",
-	)
-	streamer.free()
-
-
-func _make_live_object_completion(
-		streamer: Node,
-		coord: Vector2i,
-		revision: int,
-) -> Dictionary:
-	var tree_buffers: Array = []
-	var rock_buffers: Array = []
-	tree_buffers.resize(WorldRuntimeConstants.DEPTH_STRIPES_PER_CHUNK)
-	rock_buffers.resize(WorldRuntimeConstants.DEPTH_STRIPES_PER_CHUNK)
-	for stripe_index: int in range(WorldRuntimeConstants.DEPTH_STRIPES_PER_CHUNK):
-		tree_buffers[stripe_index] = PackedFloat32Array()
-		rock_buffers[stripe_index] = PackedFloat32Array()
-	tree_buffers[0] = PackedFloat32Array([
-		1.0, 0.0, 0.0, 1.0, 32.0, 32.0,
-		1.0, 1.0, 1.0, 1.0, 0.0, 0.0,
-	])
-	return {
-		"success": true,
-		"target_chunk": coord,
-		"epoch": streamer._generation_epoch,
-		"revision": revision,
-		"catalog_generation": streamer._layered_object_asset_catalog.get_catalog_generation(),
-		"object_count": 1,
-		"tree_instance_count": 1,
-		"rock_instance_count": 0,
-		"living_flora_count": 0,
-		"spiky_flora_count": 0,
-		"living_flora_record_count": 0,
-		"spiky_flora_record_count": 0,
-		"suppressed_instance_count": 0,
-		"ignored_instance_count": 0,
-		"tree_atlas_bucket_buffers": tree_buffers,
-		"rock_atlas_bucket_buffers": rock_buffers,
-		"tree_collision_records": PackedFloat32Array([32.0, 17.0, 20.0, 34.0]),
-		"living_flora_bucket_buffers": [],
-		"living_flora_shadow_buffer": PackedFloat32Array(),
-		"spiky_flora_atlas_bucket_buffers": [],
-		"spiky_flora_atlas_bank_count": 0,
-		"buffer_float_count": 16,
-		"payload_bytes": 64,
-	}
-
-
-func _test_stale_hidden_hot_work_is_pruned() -> void:
-	var streamer_script: Script = load("res://core/systems/world/world_streamer.gd") as Script
-	var streamer: Node = streamer_script.new() as Node
-	streamer._player_chunk_coord = Vector2i.ZERO
-	var stale_coord := Vector2i(40, 0)
-	var stale_layer: WorldObjectPacketLayer = WorldObjectPacketLayer.new()
-	streamer.add_child(stale_layer)
-	streamer._add_hot_object_entry(
-		stale_coord,
-		{
-			"layer": stale_layer,
-			"ready": false,
-			"gpu_buffer_bytes": 48,
-			"canvas_item_count": 1,
-			"collider_count": 0,
-		},
-	)
-	streamer._queue_object_packet_visual_upload(stale_coord)
-	streamer._queue_hot_object_prestage(stale_coord)
-	streamer._prune_stale_hot_object_presentation_work()
-	_expect(
-		not streamer._hot_object_presentation_layers.has(stale_coord),
-		"an incomplete hidden transaction outside source demand must be evicted",
-	)
-	_expect(
-		not streamer._pending_object_packet_visual_upload_set.has(stale_coord) \
-				and not streamer._pending_hot_object_prestage_set.has(stale_coord),
-		"stale hidden upload and prestage envelopes must be removed together",
-	)
-	streamer.free()
-
-
-func _test_live_hot_budget_pressure_does_not_restage_recursively() -> void:
-	var streamer_script: Script = load("res://core/systems/world/world_streamer.gd") as Script
-	var streamer: Node = streamer_script.new() as Node
-	var coord := Vector2i(2, 1)
-	streamer._player_chunk_coord = coord
-	var live_view: ChunkView = ChunkView.new()
-	live_view.visible = false
-	streamer.add_child(live_view)
-	streamer._chunk_views[coord] = live_view
-	var staging_layer: WorldObjectPacketLayer = WorldObjectPacketLayer.new()
-	streamer.add_child(staging_layer)
-	streamer._add_hot_object_entry(
-		coord,
-		{
-			"layer": staging_layer,
-			"ready": false,
-			"gpu_buffer_bytes": int(streamer.HOT_OBJECT_PRESENTATION_CACHE_MAX_BYTES) + 1,
-			"canvas_item_count": 1,
-			"collider_count": 0,
-		},
-	)
-	streamer._trim_hot_object_presentation_cache_to_budget()
-	_expect(
-		streamer._hot_object_presentation_layers.has(coord),
-		"cache pressure must exempt the only incomplete transaction of a live view",
-	)
-	streamer._chunk_views.erase(coord)
-	streamer._trim_hot_object_presentation_cache_to_budget()
-	_expect(
-		not streamer._hot_object_presentation_layers.has(coord),
-		"the same reservation must become evictable after its live view is gone",
-	)
-	streamer.free()
-
-
-func _test_retire_dispatcher_and_hidden_admission_backpressure() -> void:
-	var streamer_script: Script = load("res://core/systems/world/world_streamer.gd") as Script
-	var streamer: Node = streamer_script.new() as Node
-	streamer._generation_epoch = 71
-	streamer._player_chunk_coord = Vector2i.ZERO
-	var retiring_layer: WorldObjectPacketLayer = WorldObjectPacketLayer.new()
-	streamer.add_child(retiring_layer)
-	_expect(
-		retiring_layer.prepare_presentation_envelope(
-			streamer._layered_object_asset_catalog,
-			0,
-		),
-		"retire dispatcher probe prepares a production envelope",
-	)
-	var retiring_result: Dictionary = _make_live_object_completion(
-		streamer,
-		Vector2i(9, 9),
-		1,
-	)
-	_expect(
-		retiring_layer.begin_presentation_result(
-			retiring_result,
-			streamer._layered_object_asset_catalog,
-		),
-		"retire dispatcher probe begins",
-	)
-	var prepare_guard: int = 32
-	while retiring_layer.has_pending_presentation_apply() and prepare_guard > 0:
-		retiring_layer.apply_next_presentation_slice(1, 4, 1)
-		prepare_guard -= 1
-	_expect(prepare_guard > 0 and retiring_layer.is_presentation_complete(), "retire probe commits")
-	streamer._release_object_presentation_layer(retiring_layer)
-	_expect(streamer._object_presentation_retire_queue.size() == 1, "release enters retire queue")
-
-	var dispatcher: FrameBudgetDispatcherNode = FrameBudgetDispatcherNode.new()
-	root.add_child(dispatcher)
-	dispatcher.register_job(
-		RuntimeWorkTypes.CATEGORY_STREAMING,
-		10.0,
-		Callable(streamer, "_object_presentation_retire_tick"),
-		&"test.object_retire_one_phase",
-	)
-	var phase_count_before: int = streamer._object_presentation_retire_phase_count_total
-	dispatcher._process(0.0)
-	_expect(
-		streamer._object_presentation_retire_phase_count_total - phase_count_before == 1,
-		"FrameBudgetDispatcher runs exactly one retire phase per frame",
-	)
-	_expect(
-		streamer._object_presentation_retire_queue.size() == 1 \
-				and streamer._object_presentation_retire_colliders == 1,
-		"final visual reset is not chained with collider or pool transition",
-	)
-	_expect(
-		streamer._object_presentation_retire_phase_usec_max_total < 50_000,
-		"retire phase stays below the hard smoke watchdog",
-	)
-
-	var hidden_coords: Array[Vector2i] = [
-		Vector2i(1, 0),
-		Vector2i(0, 1),
-		Vector2i(-1, 0),
-		Vector2i(0, -1),
-		Vector2i(1, 1),
-	]
-	for index: int in range(hidden_coords.size()):
-		var coord: Vector2i = hidden_coords[index]
-		var revision: int = 100 + index
-		streamer._object_presentation_revision_by_chunk[coord] = revision
-		streamer._object_presentation_results_by_chunk[coord] = \
-				_make_live_object_completion(streamer, coord, revision)
-		streamer._queue_hot_object_prestage(coord)
-	var hot_count_before: int = streamer._hot_object_presentation_layers.size()
-	var total_gpu_before: int = streamer._object_presentation_total_gpu_bytes()
-	var total_canvas_before: int = streamer._object_presentation_total_canvas_items()
-	for attempt: int in range(hidden_coords.size() * 2):
-		_advance_object_presentation_work_phase(streamer)
-	_expect(
-		streamer._hot_object_presentation_layers.size() == hot_count_before \
-				and streamer._pending_hot_object_prestage_set.size() == hidden_coords.size(),
-		"busy retirement backpressures every source-only GPU envelope without losing it",
-	)
-	_expect(
-		streamer._object_presentation_total_gpu_bytes() == total_gpu_before \
-				and streamer._object_presentation_total_canvas_items() == total_canvas_before,
-		"blocked hidden envelopes cannot grow exact residency",
-	)
-
-	var live_coord := Vector2i.ZERO
-	var live_revision: int = 200
-	var live_view: ChunkView = ChunkView.new()
-	live_view.visible = false
-	streamer.add_child(live_view)
-	streamer._chunk_views[live_coord] = live_view
-	streamer._object_presentation_revision_by_chunk[live_coord] = live_revision
-	streamer._object_presentation_results_by_chunk[live_coord] = \
-			_make_live_object_completion(streamer, live_coord, live_revision)
-	streamer._queue_hot_object_prestage(live_coord)
-	_advance_object_presentation_work_phase(streamer)
-	_expect(
-		streamer._hot_object_presentation_layers.has(live_coord) \
-				and not streamer._pending_hot_object_prestage_set.has(live_coord),
-		"live/reveal envelope bypasses hidden admission backpressure",
-	)
-	var live_entry: Dictionary = streamer._take_hot_object_entry(live_coord)
-	var live_layer: WorldObjectPacketLayer = live_entry.get("layer", null) as WorldObjectPacketLayer
-	streamer._drop_object_packet_visual_upload(live_coord)
-	if live_layer != null:
-		streamer._release_object_presentation_layer(live_layer)
-	streamer._chunk_views.erase(live_coord)
-	streamer.remove_child(live_view)
-	live_view.free()
-
-	var drain_guard: int = 64
-	while not streamer._object_presentation_retire_queue.is_empty() and drain_guard > 0:
-		phase_count_before = streamer._object_presentation_retire_phase_count_total
-		dispatcher._process(0.0)
-		_expect(
-			streamer._object_presentation_retire_phase_count_total - phase_count_before == 1,
-			"each autonomous retire frame performs one phase",
-		)
-		drain_guard -= 1
-	_expect(drain_guard > 0, "retire queue drains without a new streaming event")
-	var pending_hidden_before: int = streamer._pending_hot_object_prestage_set.size()
-	_advance_object_presentation_work_phase(streamer)
-	_expect(
-		streamer._hot_object_presentation_layers.size() == 1 \
-				and streamer._pending_hot_object_prestage_set.size() == pending_hidden_before - 1,
-		"retained hidden token starts automatically after retirement clears",
-	)
-	dispatcher.free()
-	streamer.free()
-
-
-func _test_incremental_cold_envelope_revision_and_accounting() -> void:
-	var streamer_script: Script = load("res://core/systems/world/world_streamer.gd") as Script
-	var streamer: Node = streamer_script.new() as Node
-	streamer._generation_epoch = 81
-	streamer._player_chunk_coord = Vector2i.ZERO
-	var stale_coord := Vector2i(1, 0)
-	var stale_revision: int = 301
-	streamer._object_presentation_revision_by_chunk[stale_coord] = stale_revision
-	streamer._object_presentation_results_by_chunk[stale_coord] = \
-			_make_live_object_completion(streamer, stale_coord, stale_revision)
-	streamer._queue_hot_object_prestage(stale_coord)
-	streamer._object_presentation_visual_apply_tick()
-	_expect(
-		streamer._object_packet_visual_selection_phase_prepared \
-				and not streamer._hot_object_presentation_layers.has(stale_coord),
-		"dirty O(queue) priority selection is a standalone dispatcher phase",
-	)
-	streamer._object_presentation_visual_apply_tick()
-	var stale_entry: Dictionary = streamer._hot_object_presentation_layers.get(
-		stale_coord,
-		{ },
-	) as Dictionary
-	var stale_layer: WorldObjectPacketLayer = stale_entry.get("layer", null) as WorldObjectPacketLayer
-	_expect(
-		stale_layer != null \
-				and bool(stale_entry.get("envelope_pending", false)) \
-				and str(stale_layer.get_debug_state().get("native_apply_state", "")) == "IDLE",
-		"cold acquire stores an owned IDLE shell before fixed graph construction",
-	)
-	var planned_canvas_items: int = int(stale_entry.get("canvas_item_count", 0))
-	_advance_object_presentation_work_phase(streamer)
-	_expect(
-		stale_layer.get_node_or_null("LayeredTreeBatchLayer/TreeDepthLadder") != null \
-				and stale_layer.get_node_or_null("LayeredSmallRockBatchLayer") == null,
-		"one cold envelope callback prepares only the tree fixed graph",
-	)
-	var actual_partial_canvas: int = int(
-		stale_layer.get_retained_residency_weight().get("canvas_item_count", 0),
-	)
-	_expect(
-		streamer._hot_object_presentation_cache_canvas_items == planned_canvas_items \
-				and planned_canvas_items >= actual_partial_canvas,
-		"partial shell remains conservatively accounted while its real graph grows",
-	)
-	streamer._object_presentation_revision_by_chunk[stale_coord] = stale_revision + 1
-	_advance_object_presentation_work_phase(streamer)
-	_expect(
-		not streamer._hot_object_presentation_layers.has(stale_coord) \
-				and streamer._object_presentation_retire_queue.size() == 1 \
-				and str(stale_layer.get_debug_state().get("native_apply_state", "")) == "IDLE",
-		"stale mid-envelope revision is evicted into bounded retirement before begin",
-	)
-	var retire_guard: int = 16
-	while not streamer._object_presentation_retire_queue.is_empty() and retire_guard > 0:
-		streamer._object_presentation_retire_tick()
-		retire_guard -= 1
-	_expect(retire_guard > 0, "partial stale shell retirement drains")
-
-	var coord := Vector2i(0, 1)
-	var revision: int = 302
-	streamer._object_presentation_revision_by_chunk[coord] = revision
-	streamer._object_presentation_results_by_chunk[coord] = \
-			_make_live_object_completion(streamer, coord, revision)
-	streamer._queue_hot_object_prestage(coord)
-	_advance_object_presentation_work_phase(streamer)
-	var entry: Dictionary = streamer._hot_object_presentation_layers.get(coord, { }) as Dictionary
-	var layer: WorldObjectPacketLayer = entry.get("layer", null) as WorldObjectPacketLayer
-	var previous_actual_canvas: int = int(
-		layer.get_retained_residency_weight().get("canvas_item_count", 0),
-	)
-	var envelope_guard: int = 16
-	while bool(entry.get("envelope_pending", false)) and envelope_guard > 0:
-		_expect(
-			str(layer.get_debug_state().get("native_apply_state", "")) == "IDLE",
-			"fixed envelope phases cannot enter ordinary apply",
-		)
-		_advance_object_presentation_work_phase(streamer)
-		entry = streamer._hot_object_presentation_layers.get(coord, { }) as Dictionary
-		var actual_canvas: int = int(
-			layer.get_retained_residency_weight().get("canvas_item_count", 0),
-		)
-		_expect(actual_canvas >= previous_actual_canvas, "fixed graph CanvasItem growth is monotonic")
-		_expect(
-			int(entry.get("canvas_item_count", 0)) >= actual_canvas,
-			"every partial fixed graph stays inside its cache reservation",
-		)
-		previous_actual_canvas = actual_canvas
-		envelope_guard -= 1
-	_expect(
-		envelope_guard > 0 \
-				and not bool(entry.get("envelope_pending", true)) \
-				and str(layer.get_debug_state().get("native_apply_state", "")) == "TREE_BUCKETS" \
-				and layer.get_raw_multimesh_upload_count_total() == 0,
-		"begin runs only after fixed graph readiness and performs no raw upload",
-	)
-	var allocation_has_safe_continuation: bool = \
-			streamer._object_presentation_visual_apply_tick()
-	entry = streamer._hot_object_presentation_layers.get(coord, { }) as Dictionary
-	var allocation_started_families: Dictionary = entry.get(
-		"allocation_started_families",
-		{ },
-	) as Dictionary
-	_expect(
-		bool(
-			(layer.get_debug_state().get("tree_batch", { }) as Dictionary).get(
-				"last_slice_created_slot",
-				false,
-			),
-		),
-		"missing first slot is a standalone visual allocation phase",
-	)
-	_expect(
-		allocation_started_families.has(
-			WorldObjectPacketLayer.PRESENTATION_PHASE_TREE_SLOT_ALLOCATION,
-		) \
-				and layer.get_next_presentation_apply_phase_hint() \
-						== WorldObjectPacketLayer.PRESENTATION_PHASE_TREE_APPLY,
-		"first tree allocation is recorded per family and leaves raw apply as the next phase",
-	)
-	_expect(
-		not allocation_has_safe_continuation,
-		"first family allocation yields before the dispatcher can upload in the same frame",
-	)
-	_expect(
-		layer.get_raw_multimesh_upload_count_total() == 0,
-		"standalone slot allocation does not upload its pending raw buffer",
-	)
-	var upload_has_safe_continuation: bool = \
-			streamer._object_presentation_visual_apply_tick()
-	_expect(
-		layer.get_raw_multimesh_upload_count_total() == 2,
-		"the following warmed phase uploads tree visual and shadow buffers",
-	)
-	_expect(
-		not upload_has_safe_continuation \
-				and layer.get_next_presentation_apply_phase_hint() \
-						== WorldObjectPacketLayer.PRESENTATION_PHASE_TREE_COLLISIONS,
-		"tree upload to collider transition yields at the heterogeneous frame boundary",
-	)
-	streamer.free()
-
-
-func _test_multi_victim_retirement_drains_autonomously() -> void:
-	var streamer_script: Script = load("res://core/systems/world/world_streamer.gd") as Script
-	var streamer: Node = streamer_script.new() as Node
-	streamer._player_chunk_coord = Vector2i.ZERO
-	var initial_count: int = int(streamer.HOT_OBJECT_PRESENTATION_CACHE_MAX_CHUNKS) + 3
-	for index: int in range(initial_count):
-		var layer: WorldObjectPacketLayer = WorldObjectPacketLayer.new()
-		streamer.add_child(layer)
-		streamer._add_hot_object_entry(
-			Vector2i(index % 64, 1000 + index),
-			{
-				"layer": layer,
-				"ready": true,
-				"gpu_buffer_bytes": 0,
-				"canvas_item_count": 1,
-				"collider_count": 0,
-			},
-		)
-	streamer._trim_hot_object_presentation_cache_to_budget()
-	_expect(
-		streamer._hot_object_presentation_layers.size() == initial_count - 1 \
-				and streamer._object_presentation_retire_queue.size() == 1,
-		"one trim call selects exactly one victim",
-	)
-	streamer._trim_hot_object_presentation_cache_to_budget()
-	_expect(
-		streamer._hot_object_presentation_layers.size() == initial_count - 1,
-		"pending retirement blocks selection of a second victim",
-	)
-	var previous_hot_count: int = streamer._hot_object_presentation_layers.size()
-	var previous_gpu_bytes: int = streamer._object_presentation_total_gpu_bytes()
-	var previous_canvas_items: int = streamer._object_presentation_total_canvas_items()
-	var guard: int = 64
-	while (streamer._hot_object_presentation_cache_is_over_budget() \
-			or not streamer._object_presentation_retire_queue.is_empty()) and guard > 0:
-		var phase_before: int = streamer._object_presentation_retire_phase_count_total
-		streamer._object_presentation_retire_tick()
-		var hot_count: int = streamer._hot_object_presentation_layers.size()
-		var gpu_bytes: int = streamer._object_presentation_total_gpu_bytes()
-		var canvas_items: int = streamer._object_presentation_total_canvas_items()
-		_expect(
-			streamer._object_presentation_retire_phase_count_total - phase_before <= 1,
-			"autonomous cache drain performs at most one phase per frame",
-		)
-		_expect(hot_count <= previous_hot_count, "autonomous cache size is monotonic")
-		_expect(
-			gpu_bytes <= previous_gpu_bytes and canvas_items <= previous_canvas_items,
-			"autonomous exact residency is monotonic",
-		)
-		previous_hot_count = hot_count
-		previous_gpu_bytes = gpu_bytes
-		previous_canvas_items = canvas_items
-		guard -= 1
-	_expect(
-		guard > 0 \
-				and streamer._hot_object_presentation_layers.size() \
-						<= streamer.HOT_OBJECT_PRESENTATION_CACHE_MAX_CHUNKS \
-				and streamer._object_presentation_retire_queue.is_empty(),
-		"multi-victim pressure returns under cap without a new insert",
-	)
-	streamer.free()
-
-
-func _test_clean_retire_pool_decision_tracks_violated_dimension() -> void:
-	var streamer_script: Script = load("res://core/systems/world/world_streamer.gd") as Script
-	var gpu_streamer: Node = streamer_script.new() as Node
-	var clean_candidate: WorldObjectPacketLayer = WorldObjectPacketLayer.new()
-	gpu_streamer.add_child(clean_candidate)
-	gpu_streamer._release_object_presentation_layer(clean_candidate)
-	var gpu_hot_layer: WorldObjectPacketLayer = WorldObjectPacketLayer.new()
-	gpu_streamer.add_child(gpu_hot_layer)
-	gpu_streamer._add_hot_object_entry(
-		Vector2i(50, 0),
-		{
-			"layer": gpu_hot_layer,
-			"ready": true,
-			"gpu_buffer_bytes": int(gpu_streamer.HOT_OBJECT_PRESENTATION_CACHE_MAX_BYTES) + 1,
-			"canvas_item_count": 1,
-			"collider_count": 0,
-		},
-	)
-	gpu_streamer._object_presentation_retire_tick()
-	_expect(
-		gpu_streamer._object_presentation_retire_queue.is_empty() \
-				and gpu_streamer._object_presentation_layer_pool.size() == 1,
-		"GPU-only overage pools a clean zero-GPU candidate in one transition",
-	)
-	gpu_streamer._object_presentation_retire_tick()
-	_expect(
-		not gpu_streamer._hot_object_presentation_layers.has(Vector2i(50, 0)) \
-				and gpu_streamer._object_presentation_retire_queue.size() == 1,
-		"the next autonomous phase evicts the real GPU-heavy hot victim",
-	)
-	gpu_streamer.free()
-
-	var canvas_streamer: Node = streamer_script.new() as Node
-	var canvas_candidate: WorldObjectPacketLayer = WorldObjectPacketLayer.new()
-	canvas_streamer.add_child(canvas_candidate)
-	_expect(
-		canvas_candidate.prepare_presentation_envelope(
-			canvas_streamer._layered_object_asset_catalog,
-			1,
-		),
-		"canvas-pressure candidate owns reusable slot groups",
-	)
-	var candidate_weight: Dictionary = canvas_candidate.get_retained_residency_weight()
-	var candidate_canvas_items: int = int(candidate_weight.get("canvas_item_count", 0))
-	var slots_before: int = _pooled_family_slot_count(canvas_candidate)
-	canvas_streamer._release_object_presentation_layer(canvas_candidate)
-	var canvas_hot_layer: WorldObjectPacketLayer = WorldObjectPacketLayer.new()
-	canvas_streamer.add_child(canvas_hot_layer)
-	canvas_streamer._add_hot_object_entry(
-		Vector2i(60, 0),
-		{
-			"layer": canvas_hot_layer,
-			"ready": true,
-			"gpu_buffer_bytes": 0,
-			"canvas_item_count": int(canvas_streamer.HOT_OBJECT_PRESENTATION_CACHE_MAX_CANVAS_ITEMS) \
-					- candidate_canvas_items + 1,
-			"collider_count": 0,
-		},
-	)
-	canvas_streamer._object_presentation_retire_tick()
-	var slots_after_one_shrink: int = _pooled_family_slot_count(canvas_candidate)
-	_expect(
-		slots_after_one_shrink == slots_before - 1 \
-				and canvas_streamer._object_presentation_retire_queue.size() == 1,
-		"canvas overage removes exactly one useful slot group",
-	)
-	canvas_streamer._object_presentation_retire_tick()
-	_expect(
-		canvas_streamer._object_presentation_retire_queue.is_empty() \
-				and canvas_streamer._object_presentation_layer_pool.has(canvas_candidate) \
-				and _pooled_family_slot_count(canvas_candidate) == slots_after_one_shrink,
-		"shrink re-evaluates pressure and preserves the now-admissible remainder",
-	)
-	canvas_streamer.free()
-
-
-func _pooled_family_slot_count(layer: WorldObjectPacketLayer) -> int:
-	var state: Dictionary = layer.get_debug_state()
-	return int((state.get("tree_batch", { }) as Dictionary).get("pooled_slot_count", 0)) \
-			+ int((state.get("rock_batch", { }) as Dictionary).get("pooled_slot_count", 0)) \
-			+ int((state.get("living_flora_batch", { }) as Dictionary).get("pooled_slot_count", 0)) \
-			+ int((state.get("spiky_flora_batch", { }) as Dictionary).get("pooled_slot_count", 0))
-
-
 func _test_object_failure_retries_current_revision() -> void:
 	var streamer_script: Script = load("res://core/systems/world/world_streamer.gd") as Script
 	var streamer: Node = streamer_script.new() as Node
@@ -1437,20 +676,99 @@ func _test_warm_base_packet_cache_reapplies_current_diff() -> void:
 	streamer.free()
 
 
+## Regression for the recorded stall: a desired-visible chunk held its reveal
+## guard while its CPU object result sat in the warm cache and every queue read
+## zero, so no repair cursor could see it and the chunk stayed black until player
+## movement happened to re-request the coordinate.
+func _test_stalled_reveal_guard_recovers_warm_object_presentation() -> void:
+	var streamer_script: Script = load("res://core/systems/world/world_streamer.gd") as Script
+	_expect(streamer_script != null, "WorldStreamer script must load")
+	var streamer: Node = streamer_script.new() as Node
+	var coord := Vector2i(6, 3)
+	var prepared_result := {
+		"payload_bytes": 64,
+		"tree_atlas_bucket_buffers": [],
+		"rock_atlas_bucket_buffers": [],
+		"tree_collision_records": PackedFloat32Array(),
+	}
+	streamer._player_chunk_coord = coord
+	streamer._rebuild_desired_chunk_cache()
+	streamer._base_chunk_packets[coord] = {"chunk_coord": coord}
+	streamer._chunk_packets[coord] = {"chunk_coord": coord}
+	streamer._object_presentation_revision_by_chunk[coord] = 5
+	streamer._object_presentation_results_by_chunk[coord] = prepared_result
+
+	# Demote exactly the way the warm-cache path does.
+	streamer._store_warm_chunk_packet(coord, {"chunk_coord": coord})
+	_expect(
+		not streamer._object_presentation_results_by_chunk.has(coord),
+		"warm demotion removes the live object presentation result",
+	)
+	_expect(
+		streamer._warm_object_presentation_cache.has(coord),
+		"demoted object presentation result stays in the warm cache",
+	)
+
+	# The recorded stall state: reveal guard active, every queue empty.
+	streamer._pending_hot_object_prestage_set.clear()
+	streamer._pending_hot_object_prestage_chunks.clear()
+	streamer._pending_object_packet_visual_upload_set.clear()
+	streamer._object_presentation_inflight_chunks.clear()
+	streamer._pending_chunk_visibility_after_mountain_visual[coord] = true
+
+	# Negative control: the pre-fix repair could not observe this state at all,
+	# because it requires a live CPU result before it does anything.
+	_expect(
+		not streamer._queue_object_presentation_for_live_view(coord),
+		"the live-view repair alone cannot recover a warm-parked result",
+	)
+	_expect(
+		not streamer._object_presentation_results_by_chunk.has(coord),
+		"the live-view repair alone leaves the chunk without live truth",
+	)
+	_expect(
+		streamer._pending_hot_object_prestage_chunks.is_empty(),
+		"the stalled state really does report every queue at zero",
+	)
+
+	streamer._repair_stalled_object_presentation_guard(coord)
+	_expect(
+		streamer._object_presentation_results_by_chunk.has(coord),
+		"a stalled reveal guard promotes the warm object result back to live truth",
+	)
+	_expect(
+		not streamer._warm_object_presentation_cache.has(coord),
+		"promoting the warm result clears its warm copy",
+	)
+
+	# A second guard tick must not manufacture a duplicate transaction.
+	var live_after_first: Variant = streamer._object_presentation_results_by_chunk.get(coord)
+	var prestage_after_first: int = streamer._pending_hot_object_prestage_chunks.size()
+	streamer._repair_stalled_object_presentation_guard(coord)
+	_expect(
+		streamer._pending_hot_object_prestage_chunks.size() == prestage_after_first,
+		"repeated guard ticks do not duplicate the presentation token",
+	)
+	_expect(
+		streamer._object_presentation_results_by_chunk.get(coord) == live_after_first,
+		"repeated guard ticks do not replace the restored live result",
+	)
+
+	# An inflight revision already owns the coordinate: the guard must not touch it.
+	streamer._object_presentation_results_by_chunk.erase(coord)
+	streamer._store_warm_object_presentation(coord, prepared_result)
+	streamer._warm_base_chunk_packet_cache[coord] = {"chunk_coord": coord}
+	streamer._store_warm_object_presentation(coord, prepared_result)
+	streamer._object_presentation_inflight_chunks[coord] = 5
+	streamer._repair_stalled_object_presentation_guard(coord)
+	_expect(
+		not streamer._object_presentation_results_by_chunk.has(coord),
+		"an inflight revision keeps the guard from promoting a second result",
+	)
+	streamer._object_presentation_inflight_chunks.clear()
+	streamer.free()
+
+
 func _expect(condition: bool, message: String) -> void:
 	if not condition:
 		_failures.append(message)
-
-
-## Test helper for one logical work phase. Production intentionally spends a
-## separate callback on a dirty O(queue) priority refresh; tests that validate
-## envelope/upload state advance past that scheduling phase explicitly.
-func _advance_object_presentation_work_phase(streamer: Node) -> void:
-	streamer._object_presentation_visual_apply_tick()
-	var priority_guard: int = 128
-	while streamer._object_packet_visual_priority_scan_active and priority_guard > 0:
-		streamer._object_presentation_visual_apply_tick()
-		priority_guard -= 1
-	_expect(priority_guard > 0, "bounded object priority scan completes")
-	if streamer._object_packet_visual_selection_phase_prepared:
-		streamer._object_presentation_visual_apply_tick()

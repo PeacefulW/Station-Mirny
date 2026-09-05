@@ -4,8 +4,8 @@ doc_type: system_spec
 status: approved
 owner: design+engineering
 source_of_truth: true
-version: 1.3
-last_updated: 2026-08-01
+version: 1.5
+last_updated: 2026-08-11
 related_docs:
   - player_visual_animation_v0.md
   - player_sun_shadow_v0.md
@@ -13,6 +13,8 @@ related_docs:
   - ../../00_governance/ENGINEERING_STANDARDS.md
   - ../../05_adrs/0001-runtime-work-and-dirty-update-foundation.md
   - ../world/world_dynamic_lighting_2d.md
+  - ../world/world_runtime.md
+  - ../meta/packet_schemas.md
 ---
 
 # Player Visual Presentation V1
@@ -192,11 +194,11 @@ Loop-клипы семплируются равномерными дробным
 |---|---|
 | Runtime class | interactive-frame presentation |
 | Authoritative data | нет; visual-only derived state |
-| Single write owner | `Player` владеет выбором кадра; `PlayerSunShadow` — только своим спрайтом |
+| Single write owner | `Player` владеет выбором клипа/кадра; `WorldRenderWorld` — единственный GPU-владелец body и shadow после публикации; `PlayerSunShadow` вычисляет состояние тени и остаётся fallback |
 | Save/load impact | нет |
 | Determinism impact | нет для геймплея; время анимации — presentation-only |
-| Dirty unit | один `region_rect` фигуры + один `region_rect` тени |
-| Target scale | один локальный игрок; co-op повторяет O(1) на видимого игрока |
+| Dirty unit | одна actor record, одна затронутая 1024-pixel render page и запись в общем actor-shadow buffer |
+| Target scale | O(visible actors), без обхода дерева сцены и без GPU-буфера/CanvasItem на каждого актёра |
 | Escalation path | метаданные клипов вынести в Resource, выбор кадра оставить локальным |
 
 ## Runtime Rules
@@ -220,6 +222,36 @@ Loop-клипы семплируются равномерными дробным
 - Выбор клипа не сканирует группы сцены, чанки, инвентарь, сейв и мировые пакеты.
 - Метаданные клипа (albedo world-origin UV и якорь тени) читаются из JSON рядом
   с атласом на загрузке и кэшируются; рантайм их не пересчитывает.
+- `Player` явно регистрируется как visual proxy через `WorldStreamer` и отдаёт
+  только текущую actor record. Пять body/shadow clips упакованы offline в два
+  общих actor atlas и принадлежат boot-time `WorldRenderClassRegistry`.
+  `WorldRenderWorld` читает только зарегистрированные weak references; поиск
+  игрока или будущих актёров по группам в кадровом пути запрещён.
+- Body игрока участвует в общем painter order
+  `(feet_y, semantic_layer, stable_id)` со статическими объектами. Его
+  `direction_index`, `frame_index`, `sprite_id`, tint и authored transform
+  передаются без пересборки или повторного чтения пикселей.
+- Отдельные `Visual` и `SunShadow` Sprite2D остаются только безопасным fallback
+  и хранилищем текущего состояния. Они скрываются после успешной публикации
+  общего renderer snapshot и возвращаются при unregister/teardown; двойной
+  рендер игрока не допускается.
+- Actor shadow использует общий bulk buffer и отдельный pass ниже body pages.
+  Направление/кадр остаются синхронны с body atlas; softness, anchor, opacity и
+  length scale передаются как instance data.
+
+### RenderWorld Integration Amendment (2026-08-11)
+
+Интеграция общего world painter завершена как отдельная итерация архитектуры
+рендера и не открывает I3 этой спеки. Контракт actor record и результирующего
+snapshot зафиксирован в `packet_schemas.md`, публичные точки регистрации и
+native composition — в `system_api.md`, а владение страницами и проходами — в
+`world_runtime.md`.
+
+Pixel-contract сравнивает старый Sprite2D с production body shader на zoom
+`1.0` и `0.2`: authored alpha/color pixels и bounds обязаны совпадать. Отдельный
+framebuffer contract проверяет одного и того же tree atlas instance севернее и
+южнее игрока на обоих zoom; корректность должна следовать painter tuple, а не
+порядку создания CanvasItem.
 
 ## Iterations
 
@@ -238,6 +270,10 @@ Loop-клипы семплируются равномерными дробным
   привязка к существующим состояниям.
 
 ## Files That May Be Touched
+
+Списки в этом и следующем разделе относятся к исходным asset-bake I1/I2.
+RenderWorld integration регулируется датированной поправкой выше и
+`world_runtime.md`, а не расширяет scope незапущенной I3.
 
 - `docs/README.md`, эта спека, `player_visual_animation_v0.md`, `player_sun_shadow_v0.md`
 - `docs/03_content_bible/aesthetics/art_direction.md`
@@ -260,9 +296,10 @@ Loop-клипы семплируются равномерными дробным
 
 ## Required Updates
 
-- V1 остаётся visual-only и не добавляет публичного boundary — `system_api.md`,
-  `event_contracts.md`, `packet_schemas.md`, `commands.md` обновлять не требуется;
-  это утверждение проверяется grep-ом в closure report.
+- Исходные asset-bake I1/I2 не добавляли публичного boundary. Датированная
+  RenderWorld integration добавляет visual-only actor/snapshot boundary, поэтому
+  `system_api.md` и `packet_schemas.md` обновляются вместе с ней; commands,
+  EventBus и save contracts остаются без изменений.
 - `player_visual_animation_v0.md` и `player_sun_shadow_v0.md` помечаются
   superseded в той же задаче, в которой приземляется I2.
 
@@ -280,6 +317,11 @@ Loop-клипы семплируются равномерными дробным
 - [x] `Player` остаётся `CharacterBody2D` и не инстанцирует 3D-модель в рантайме.
 - [x] Обновление кадра остаётся O(1) локальной работой и не трогает мир,
       save/load, commands и EventBus.
+- [x] После валидной RenderWorld publication отдельные body/shadow Sprite2D не
+      рисуются; gameplay Node и collision продолжают работать самостоятельно.
+- [x] Production body shader сохраняет authored pixels на zoom `1.0` и `0.2`.
+- [x] Один и тот же tree atlas корректно перекрывает игрока с северной и южной
+      стороны на zoom `1.0` и `0.2`.
 - [ ] **I3:** `harvest`, `attack`, `death` проигрывают свои клипы, а не беговые
       кадры.
 - [x] Суммарный размер атласов игрока не превышает 581 МБ RGBA8 — потолок,

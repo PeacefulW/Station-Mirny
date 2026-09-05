@@ -9,6 +9,7 @@ extends Sprite2D
 ## it or rebuild a silhouette at runtime.
 
 const WorldRuntimeConstants = preload("res://core/systems/world/world_runtime_constants.gd")
+const WorldRenderRecord = preload("res://core/systems/world/world_render_record.gd")
 const WorldVisualLightingProfile = preload("res://core/systems/world/world_visual_lighting_profile.gd")
 const PLAYER_SUN_SHADOW_SHADER = preload("res://assets/shaders/player_silhouette_shadow.gdshader")
 
@@ -35,8 +36,14 @@ const SHADOW_SOFTNESS_MIN_TEXELS: float = 0.75
 const SHADOW_SOFTNESS_MAX_TEXELS: float = 7.0
 const SHADOW_OPACITY_SCALE: float = 0.60
 const SHADOW_VISIBILITY_EPSILON: float = 0.006
-const SHADOW_ABSOLUTE_Z_OFFSET: int = 1
 const PARAM_EPSILON: float = 0.001
+const SHADOW_METADATA_PATHS: Dictionary = {
+	&"idle": "res://assets/sprites/player/player_idle_shadow_16dir_16frames.json",
+	&"run_forward": "res://assets/sprites/player/player_run_forward_shadow_16dir_16frames.json",
+	&"run_backward": "res://assets/sprites/player/player_run_backward_shadow_16dir_16frames.json",
+	&"strafe_left": "res://assets/sprites/player/player_strafe_left_shadow_16dir_16frames.json",
+	&"strafe_right": "res://assets/sprites/player/player_strafe_right_shadow_16dir_16frames.json",
+}
 
 @export var visual_node_path: NodePath = ^"../Visual"
 
@@ -72,6 +79,7 @@ var _last_length_scale: float = -1.0
 var _last_softness_texels: float = -1.0
 var _last_opacity: float = -1.0
 var _has_valid_frame: bool = false
+var _external_rendering_enabled: bool = false
 
 
 func _ready() -> void:
@@ -85,7 +93,7 @@ func _ready() -> void:
 	flip_h = false
 	flip_v = false
 	z_as_relative = false
-	z_index = WorldRuntimeConstants.Z_GRASS_SHADOW + SHADOW_ABSOLUTE_Z_OFFSET
+	z_index = WorldRuntimeConstants.Z_ACTOR_SHADOW
 	texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR
 	_shadow_material = ShaderMaterial.new()
 	_shadow_material.shader = PLAYER_SUN_SHADOW_SHADER
@@ -103,6 +111,32 @@ func _ready() -> void:
 func _physics_process(_delta: float) -> void:
 	_sync_visual_frame()
 	_update_shadow_from_environment()
+	if _external_rendering_enabled:
+		visible = false
+
+
+func set_external_rendering_enabled(enabled: bool) -> void:
+	_external_rendering_enabled = enabled
+	if enabled:
+		visible = false
+
+
+func get_world_render_shadow_state() -> Dictionary:
+	var safe_anchor: Vector2 = _last_anchor_px
+	if not safe_anchor.is_finite():
+		safe_anchor = SHADOW_WORLD_ORIGIN_PX
+	return {
+		"shadow_visible": _has_valid_frame \
+				and _last_opacity > SHADOW_VISIBILITY_EPSILON,
+		"shadow_transform": WorldRenderRecord.unit_quad_transform_for_sprite(
+			self,
+			SHADOW_FRAME_SIZE_PX,
+		),
+		"shadow_anchor": safe_anchor / SHADOW_FRAME_SIZE_PX,
+		"shadow_softness": maxf(_last_softness_texels, 0.0),
+		"shadow_opacity": maxf(_last_opacity, 0.0),
+		"shadow_length_scale": maxf(_last_length_scale, 1.0),
+	}
 
 
 func _build_clip_bindings() -> void:
@@ -119,7 +153,7 @@ func _register_clip(clip_id: StringName, albedo_texture: Texture2D, shadow_textu
 	if albedo_texture == null or shadow_texture == null:
 		push_error("PlayerSunShadow: clip %s is missing an explicit albedo/shadow atlas reference" % clip_id)
 		return
-	var metadata: Dictionary = _metadata_for_shadow(shadow_texture)
+	var metadata: Dictionary = _metadata_for_shadow(clip_id, shadow_texture)
 	var anchor_px: Vector2 = _validated_shadow_anchor(clip_id, metadata)
 	var albedo_anchor_uv: Vector2 = _validated_albedo_anchor(clip_id, metadata)
 	_clip_bindings[albedo_texture.get_instance_id()] = {
@@ -130,12 +164,14 @@ func _register_clip(clip_id: StringName, albedo_texture: Texture2D, shadow_textu
 	}
 
 
-func _metadata_for_shadow(shadow_texture: Texture2D) -> Dictionary:
-	var texture_path: String = shadow_texture.resource_path
-	if texture_path.is_empty():
-		push_error("PlayerSunShadow: baked shadow texture has no resource_path")
-		return {}
-	var metadata_path: String = texture_path.get_basename() + ".json"
+func _metadata_for_shadow(clip_id: StringName, shadow_texture: Texture2D) -> Dictionary:
+	var metadata_path: String = str(SHADOW_METADATA_PATHS.get(clip_id, ""))
+	if metadata_path.is_empty():
+		var texture_path: String = shadow_texture.resource_path
+		if texture_path.is_empty():
+			push_error("PlayerSunShadow: baked shadow clip has no metadata binding")
+			return {}
+		metadata_path = texture_path.get_basename() + ".json"
 	if _metadata_cache.has(metadata_path):
 		return _metadata_cache[metadata_path] as Dictionary
 	var result: Dictionary = {}

@@ -88,6 +88,7 @@ func _init() -> void:
 	)
 	_assert(_mask_has_tile(merged_mask, Vector2i(5, 1)), "merged cavity should reveal right-side floor")
 	_assert(_mask_has_tile(merged_mask, Vector2i(11, 0)), "merged cavity should still keep other mountain mouth visible")
+	_assert_component_survives_presentation_unload(cache)
 	_assert_roof_tileset_mapping()
 
 	if _failed:
@@ -95,6 +96,66 @@ func _init() -> void:
 		return
 	print("mountain_cover_cache_smoke_test: OK")
 	quit(0)
+
+
+func _assert_component_survives_presentation_unload(cache: MountainCavityCache) -> void:
+	# A real cave can cross a ChunkView boundary. Streaming presentation out on
+	# one side must not delete persistent mining state, split the component or
+	# assign a new id when the same view returns.
+	var west_tile := Vector2i(WorldRuntimeConstants.CHUNK_SIZE - 1, 4)
+	var east_tile := Vector2i(WorldRuntimeConstants.CHUNK_SIZE, 4)
+	_set_floor(
+		west_tile,
+		3,
+		WorldRuntimeConstants.MOUNTAIN_FLAG_INTERIOR | WorldRuntimeConstants.MOUNTAIN_FLAG_WALL,
+	)
+	_set_floor(
+		east_tile,
+		3,
+		WorldRuntimeConstants.MOUNTAIN_FLAG_INTERIOR | WorldRuntimeConstants.MOUNTAIN_FLAG_WALL,
+	)
+	cache.on_chunk_loaded(Vector2i.ZERO, [west_tile], Callable(self, "_sample_tile"))
+	cache.on_chunk_loaded(Vector2i.RIGHT, [east_tile], Callable(self, "_sample_tile"))
+	var before_west: Dictionary = cache.get_sample(west_tile, Callable(self, "_sample_tile"))
+	var before_east: Dictionary = cache.get_sample(east_tile, Callable(self, "_sample_tile"))
+	var stable_component_id: int = int(before_west.get("component_id", 0))
+	_assert(stable_component_id > 0, "cross-chunk cavity must have a component")
+	_assert(
+		int(before_east.get("component_id", 0)) == stable_component_id,
+		"orthogonally adjacent floors across a chunk boundary must share one component",
+	)
+	var unload_result: Dictionary = cache.on_chunk_unloaded(
+		Vector2i.ZERO,
+		[west_tile],
+		Callable(self, "_sample_tile"),
+	)
+	_assert(
+		not bool(unload_result.get("graph_changed", true))
+				and (unload_result.get("affected_chunks", []) as Array).size() == 1,
+		"Presentation eviction must be an O(1) graph no-op for persistent mining state",
+	)
+	var unloaded_west: Dictionary = cache.get_sample(west_tile, Callable(self, "_sample_tile"))
+	var retained_east: Dictionary = cache.get_sample(east_tile, Callable(self, "_sample_tile"))
+	_assert(
+		int(unloaded_west.get("component_id", 0)) == stable_component_id \
+				and int(retained_east.get("component_id", 0)) == stable_component_id,
+		"ChunkView eviction must not split or renumber persistent cavity topology",
+	)
+	var reload_result: Dictionary = cache.on_chunk_loaded(
+		Vector2i.ZERO,
+		[west_tile],
+		Callable(self, "_sample_tile"),
+	)
+	_assert(
+		not bool(reload_result.get("graph_changed", true))
+				and (reload_result.get("affected_chunks", []) as Array).size() == 1,
+		"Returning ChunkView must refresh only its local presentation, not the cave graph",
+	)
+	var reloaded_west: Dictionary = cache.get_sample(west_tile, Callable(self, "_sample_tile"))
+	_assert(
+		int(reloaded_west.get("component_id", 0)) == stable_component_id,
+		"Reloading presentation must reuse the existing cavity component",
+	)
 
 func _seed_base_ground(rect: Rect2i) -> void:
 	for y: int in range(rect.position.y, rect.position.y + rect.size.y):

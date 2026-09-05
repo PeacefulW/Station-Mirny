@@ -17,10 +17,13 @@ const DefaultLakeGenSettings = preload("res://data/balance/lake_gen_settings.tre
 const SEED: int = WorldRuntimeConstants.DEFAULT_WORLD_SEED
 const DENSITY: float = 0.60
 const LAKE_DENSITY: float = 0.0
-const HALO_RADIUS: int = 2
+# Must match the real WorldStreamer source halo. A smaller synthetic halo tests
+# clamped mask edges that production never displays and can report a fake seam.
+const HALO_RADIUS: int = 8
 const PIXELS_PER_TILE: int = 8
 const SCAN_RADIUS: int = 14
 const SOLID_THRESHOLD: int = 107
+const DISPLAY_OVERLAP_PX: float = 3.0
 const INVALID_TILE: Vector2i = Vector2i(2147483647, 2147483647)
 const OUTPUT_DIR: String = "res://artifacts/mountain_seam_probe"
 
@@ -95,6 +98,26 @@ func _run() -> bool:
 		print("mountain_seam_probe: TRANSIENT-DIG-SEAM %s (silhouette disagree static=%d -> staggered=%d)" % [
 			"CONFIRMED" if transient_seam else "not significant", int(static_stats["sil"]), int(dig_stats["sil"])])
 
+		# The production interaction patches every overlapping live ChunkView in
+		# one main-thread transaction. Model that state explicitly: once B receives
+		# the same dug halo there must be no transient disagreement left.
+		var mask_b_dug: Dictionary = _build_mask(chunk_b, packet_map, dug)
+		var committed_stats: Dictionary = _compare(
+			mask_a_dug,
+			mask_b_dug,
+			chunk_a,
+			boundary_x,
+			"%s/dig_committed_diff.png" % OUTPUT_DIR,
+		)
+		print("mountain_seam_probe: [DIG-COMMIT] A(dug) vs B(dug) silhouette_disagree=%d/%d" % [
+			int(committed_stats["sil"]), int(committed_stats["count"])])
+		if int(committed_stats["sil"]) > int(static_stats["sil"]) + 5:
+			push_error(
+				"Atomic cross-chunk dig must restore the baseline seam bound: static=%d committed=%d" \
+						% [int(static_stats["sil"]), int(committed_stats["sil"])],
+			)
+			return true
+
 	print("mountain_seam_probe: images -> %s" % ProjectSettings.globalize_path(OUTPUT_DIR))
 	print("mountain_seam_probe: OK")
 	return false
@@ -104,10 +127,17 @@ func _compare(mask_l: Dictionary, mask_r: Dictionary, chunk_a: Vector2i, boundar
 		return {"mean": 0.0, "max": 0, "sil": 0, "count": 0, "changed": 0}
 	var tile_px: int = WorldRuntimeConstants.TILE_SIZE_PX
 	var step: float = float(mask_l["step_px"])
-	var x0: float = boundary_x - float(HALO_RADIUS * tile_px)
-	var x1: float = boundary_x + float(HALO_RADIUS * tile_px)
-	var y0: float = float(chunk_a.y * WorldRuntimeConstants.CHUNK_SIZE * tile_px) - float(HALO_RADIUS * tile_px)
-	var y1: float = y0 + float((WorldRuntimeConstants.CHUNK_SIZE + 2 * HALO_RADIUS) * tile_px)
+	# Compare only pixels that the two central chunk clips can both present. The
+	# rest of the halo is compute support and deliberately lies outside at least
+	# one ChunkView; sampling its clamped outer edge produced false positives.
+	var seam_half_width: float = maxf(DISPLAY_OVERLAP_PX, step)
+	var x0: float = boundary_x - seam_half_width
+	var x1: float = boundary_x + seam_half_width
+	var chunk_y0: float = float(chunk_a.y * WorldRuntimeConstants.CHUNK_SIZE * tile_px)
+	var y0: float = chunk_y0 - DISPLAY_OVERLAP_PX
+	var y1: float = chunk_y0 \
+			+ float(WorldRuntimeConstants.CHUNK_SIZE * tile_px) \
+			+ DISPLAY_OVERLAP_PX
 	var cols: int = maxi(1, int((x1 - x0) / step))
 	var rows: int = maxi(1, int((y1 - y0) / step))
 	var img: Image = Image.create(cols, rows, false, Image.FORMAT_RGB8)

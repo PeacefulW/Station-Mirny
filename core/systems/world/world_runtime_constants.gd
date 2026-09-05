@@ -166,23 +166,26 @@ const DEPTH_CHANNEL_GROUND_SHADOW_OFFSET: int = DEPTH_CHANNEL_GROUND_SURFACE_OFF
 const DEPTH_CHANNEL_OBJECT_BASE_OFFSET: int = 1
 const DEPTH_CHANNEL_OBJECT_OVERLAY_OFFSET: int = 2
 const DEPTH_CHANNEL_OBJECT_TOP_OVERLAY_OFFSET: int = 3
-## Контактные тени травы — на земле, под всей лесенкой травы/декора.
-const Z_GRASS_SHADOW: int = 18
-const Z_MID_LADDER_BASE: int = 21
-## Споры биополя — в воздухе над травой.
-const Z_GRASS_SPORE: int = 290
-## Гора — НИЖЕ всей объектной лесенки: деревья/камни/игрок рисуются ПОВЕРХ горы.
-## Это геометрически корректно: объекты не размещаются на горных тайлах, а их
-## спрайты тянутся вверх от якоря, поэтому перекрытие пикселей горы объектом
-## всегда означает «объект спереди» (mountain_object_occlusion.md, 2026-07-04
-## заменило отвергнутый пользователем canopy-carve). Выше подошвы (4) и
-## контактных теней травы (18), ниже construction roof (20) и лесенки (21+).
-## Отдельный construction-roof z гарантирует BASE < ROOF между любыми чанками,
-## независимо от порядка их публикации. Крыша интерьера
-## (RoofLayer, Z_DEBUG_OVERLAY) остаётся высоко и по-прежнему прячет полости.
-const Z_MOUNTAIN_TOP: int = 19
+## Global render-pass order. Every pass has its own z_index; correctness never
+## depends on sibling insertion order for equal-z CanvasItems.
+const Z_WORLD_SHADOW: int = 18
 const Z_MOUNTAIN_PAGE: int = 19
-const Z_MOUNTAIN_ROOF: int = 20
+const Z_MOUNTAIN_TORCH_SHADOW: int = 20
+const Z_MOUNTAIN_TOP: int = 21
+const Z_MOUNTAIN_ROOF: int = 22
+const Z_ACTOR_SHADOW: int = 23
+const Z_RENDER_BODY_PAGE_BASE: int = 24
+const Z_RENDER_EMISSIVE_PAGE_BASE: int = 260
+const Z_RENDER_OVERHEAD_PAGE_BASE: int = 300
+## Compatibility aliases for dormant chunk-local presentation. Production
+## WorldRenderWorld uses the explicit pass constants above.
+const Z_GRASS_SHADOW: int = Z_WORLD_SHADOW
+const Z_MID_LADDER_BASE: int = Z_RENDER_BODY_PAGE_BASE
+## Emissive/airborne presentation is above every bounded body-page slot but
+## remains below interaction feedback and debug/roof overlays.
+const Z_GRASS_SPORE: int = 290
+## Mining/interaction feedback is an overhead pass; the debug and closed-roof
+## overlays are the final world-space presentation pass below native UI.
 const Z_MINING_FEEDBACK: int = 320
 const Z_DEBUG_OVERLAY: int = 350
 

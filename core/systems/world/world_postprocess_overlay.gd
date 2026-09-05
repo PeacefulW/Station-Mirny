@@ -14,10 +14,10 @@ const POSTPROCESS_SHADER: Shader = preload("res://assets/shaders/world_postproce
 @export_range(0.0, 1.0, 0.005) var warm_bloom_strength: float = 0.055
 
 var _shader_material: ShaderMaterial = null
+var _last_render_target_size: Vector2i = Vector2i.ZERO
 
 
 func _ready() -> void:
-	set_anchors_preset(Control.PRESET_FULL_RECT)
 	mouse_filter = Control.MOUSE_FILTER_IGNORE
 	color = Color.WHITE
 	_shader_material = ShaderMaterial.new()
@@ -25,6 +25,39 @@ func _ready() -> void:
 	material = _shader_material
 	_apply_shader_parameters()
 	set_postprocess_enabled(effect_enabled)
+	sync_render_target_rect()
+
+
+func _process(_delta: float) -> void:
+	sync_render_target_rect()
+
+
+## The post-process remains on the native viewport after the bounded world
+## texture is composited and before the HUD layer. Synchronize the authored
+## 1280x720 full rect with the current logical output on resize.
+func sync_render_target_rect() -> void:
+	var target_viewport: Viewport = get_viewport()
+	if target_viewport == null:
+		return
+	# Controls live in the viewport's logical canvas. With stretch enabled the
+	# backing texture can be larger than this rectangle; using the physical RID
+	# size here would shift the vignette centre and recreate a visible boundary.
+	var target_rect: Rect2 = target_viewport.get_visible_rect()
+	var target_size := Vector2i(
+		roundi(target_rect.size.x),
+		roundi(target_rect.size.y),
+	)
+	if target_size.x <= 0 or target_size.y <= 0 or target_size == _last_render_target_size:
+		return
+	_last_render_target_size = target_size
+	anchor_left = 0.0
+	anchor_top = 0.0
+	anchor_right = 0.0
+	anchor_bottom = 0.0
+	offset_left = 0.0
+	offset_top = 0.0
+	offset_right = float(target_size.x)
+	offset_bottom = float(target_size.y)
 
 
 func set_postprocess_enabled(enabled: bool) -> void:

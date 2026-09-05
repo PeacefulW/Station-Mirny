@@ -57,7 +57,20 @@ enum ParamIndex {
 	PARAM_PATH_WIDTH = 37,           // trail half-width (field-value units)
 	PARAM_PATH_WARP_PX = 38,         // domain warp amount for sinuosity
 	PARAM_PATH_STRENGTH = 39,        // how hard a trail drives coverage down
-	PARAM_COUNT = 40,
+	// Static visual field cache. These values do not affect placement; workers
+	// prepare them once per source chunk instead of once per ground fragment.
+	PARAM_SOIL_FIELD_SCALE_PX = 40,
+	PARAM_MACRO_WORLD_SCALE_PX = 41,
+	PARAM_EDGE_MOTTLE_SCALE_PX = 42,
+	PARAM_SCREE_FIELD_SCALE_PX = 43,
+	PARAM_MACRO_DRIFT_SCALE_PX = 44,
+	PARAM_SHADE_SCALE_PX = 45,
+	// Global grass-render fields. These preserve the authored aperiodic formula,
+	// but are evaluated once on the source-ring grid instead of per GPU vertex
+	// or fragment every frame.
+	PARAM_GRASS_MACRO_FIELD_SCALE_PX = 46,
+	PARAM_GRASS_LOCAL_DIR_FIELD_SCALE_PX = 47,
+	PARAM_COUNT = 48,
 };
 
 // Depth ladder contract: tufts are split by the ABSOLUTE chunk-local depth

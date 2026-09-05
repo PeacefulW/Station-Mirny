@@ -77,6 +77,7 @@ Current transition strategy:
 - [World Runtime V0](world/world_runtime.md)
 - [World Foundation V1](world/world_foundation_v1.md)
 - [World Object Placement V0](world/world_object_placement_v0.md) (draft)
+- [Object Render World](world/object_render_world.md) (proposed)
 - [Mountain Generation V1](world/mountain_generation.md)
 - [Mountain Cavity Skylight Occlusion V0](world/mountain_cavity_skylight_occlusion.md)
 - [Lake Generation V1](world/lake_generation.md)

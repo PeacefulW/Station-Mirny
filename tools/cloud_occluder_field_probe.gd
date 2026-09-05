@@ -11,6 +11,8 @@ const FIELD_SHADER_PATH: String = "res://assets/shaders/cloud_occluder_field.gds
 const DAYLIGHT_PATH: String = "res://core/systems/daylight/daylight_system.gd"
 const WORLD_SCENE_PATH: String = "res://scenes/world/world_runtime_v0.tscn"
 const SPEC_PATH: String = "res://docs/02_system_specs/world/cloud_occlusion_lighting.md"
+const RESIZED_VIEWPORT: Vector2i = Vector2i(1792, 1008)
+const VIEW_MARGIN: float = 1.06
 
 var _failures: Array[String] = []
 
@@ -34,8 +36,10 @@ func _run() -> void:
 	var camera := Camera2D.new()
 	world.add_child(camera)
 	camera.position = Vector2(512.0, 512.0)
-	camera.zoom = Vector2.ONE
+	camera.zoom = Vector2(0.2, 0.2)
 	camera.make_current()
+	root.size = RESIZED_VIEWPORT
+	await process_frame
 
 	var field: Node2D = field_script.new() as Node2D
 	world.add_child(field)
@@ -59,6 +63,17 @@ func _run() -> void:
 	_check(field.get_child_count() == 0, "field has no Light2D blob children")
 	_check(_no_light_children(field), "field does not use PointLight2D or LightOccluder2D")
 	_check(field.material is ShaderMaterial, "field owns ShaderMaterial")
+	var viewport: Viewport = field.get_viewport()
+	var world_from_canvas: Transform2D = viewport.canvas_transform.affine_inverse()
+	var expected_world_size: Vector2 = (
+		world_from_canvas * Vector2(RESIZED_VIEWPORT)
+		- world_from_canvas * Vector2.ZERO
+	).abs()
+	var expected_overlay_scale: Vector2 = expected_world_size * VIEW_MARGIN
+	_check(
+		field.scale.is_equal_approx(expected_overlay_scale),
+		"weather overlay covers the resized viewport instead of authored 1280x720",
+	)
 
 	if field.has_method("set_active_z_level"):
 		field.call("set_active_z_level", -1)

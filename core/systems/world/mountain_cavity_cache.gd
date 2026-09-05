@@ -95,6 +95,7 @@ func on_chunk_loaded(
 ) -> Dictionary:
 	published_chunk_coord = _canonicalize_chunk(published_chunk_coord)
 	candidate_world_tiles = _canonicalize_unique_tiles(candidate_world_tiles)
+	var inserted_tiles: Array[Vector2i] = []
 	var affected_components: Dictionary = { }
 	for world_tile: Vector2i in candidate_world_tiles:
 		if WorldRuntimeConstants.tile_to_chunk(world_tile) != published_chunk_coord:
@@ -102,67 +103,52 @@ func on_chunk_loaded(
 		var geometry: Dictionary = sample_tile.call(world_tile) as Dictionary
 		if not _is_floor_tile(geometry):
 			continue
+		# Excavation is persistent world state. A ChunkView leaving and later
+		# re-entering the render ring must not rebuild the already-known cavity
+		# graph (or change its component id) merely because presentation moved.
+		if _component_id_by_tile.has(world_tile):
+			continue
 		var component_id: int = _ensure_floor_tile_present(world_tile, geometry, sample_tile)
 		if component_id > 0:
-			affected_components[component_id] = true
-	for world_tile: Vector2i in candidate_world_tiles:
+			inserted_tiles.append(world_tile)
+	# Several inserted bridge tiles can merge component ids while the first loop
+	# is running. Resolve the final owners only after the complete chunk is known.
+	for world_tile: Vector2i in inserted_tiles:
 		var component_id: int = int(_component_id_by_tile.get(world_tile, 0))
 		if component_id > 0:
 			affected_components[component_id] = true
 	for component_id_variant: Variant in affected_components.keys():
 		_rebuild_component_metadata(int(component_id_variant), sample_tile)
-	var affected_chunks: Array[Vector2i] = _collect_affected_chunks_from_components(_dictionary_int_keys(affected_components))
+	var affected_chunks: Array[Vector2i] = _collect_affected_chunks_from_components(
+		_dictionary_int_keys(affected_components),
+	)
+	# The presentation-only outside mask is intentionally discarded on unload.
+	# Recreate just this chunk even when the persistent graph was already known.
+	if not affected_chunks.has(published_chunk_coord):
+		affected_chunks.append(published_chunk_coord)
 	_rebuild_outside_visibility_for_chunks(affected_chunks)
 	return {
 		"affected_chunks": affected_chunks,
+		"graph_changed": not inserted_tiles.is_empty(),
 	}
 
 
 func on_chunk_unloaded(
 		unloaded_chunk_coord: Vector2i,
-		dirty_world_tiles: Array[Vector2i],
-		sample_tile: Callable,
+		_dirty_world_tiles: Array[Vector2i],
+		_sample_tile: Callable,
 ) -> Dictionary:
 	unloaded_chunk_coord = _canonicalize_chunk(unloaded_chunk_coord)
-	dirty_world_tiles = _canonicalize_unique_tiles(dirty_world_tiles)
-	var affected_old_components: Dictionary = { }
-	for world_tile: Vector2i in dirty_world_tiles:
-		var component_id: int = int(_component_id_by_tile.get(world_tile, 0))
-		if component_id > 0:
-			affected_old_components[component_id] = true
-	if affected_old_components.is_empty():
-		_outside_visible_by_chunk.erase(unloaded_chunk_coord)
-		return {
-			"affected_chunks": [unloaded_chunk_coord],
-		}
-
-	var affected_chunks: Dictionary = { unloaded_chunk_coord: true }
-	for component_id_variant: Variant in affected_old_components.keys():
-		var old_component_id: int = int(component_id_variant)
-		var old_component: Dictionary = _component_data_by_id.get(old_component_id, { }) as Dictionary
-		if old_component.is_empty():
-			continue
-		var remaining_tiles: Dictionary = { }
-		var old_tiles: Dictionary = old_component.get("tiles", { }) as Dictionary
-		for tile_variant: Variant in old_tiles.keys():
-			var world_tile: Vector2i = tile_variant as Vector2i
-			_component_id_by_tile.erase(world_tile)
-			if WorldRuntimeConstants.tile_to_chunk(world_tile) == unloaded_chunk_coord:
-				continue
-			remaining_tiles[world_tile] = true
-		var old_openings: Dictionary = old_component.get("openings", { }) as Dictionary
-		for opening_variant: Variant in old_openings.keys():
-			_opening_flag_by_tile.erase(opening_variant as Vector2i)
-		_component_data_by_id.erase(old_component_id)
-		if remaining_tiles.is_empty():
-			continue
-		var rebuilt_component_ids: Array[int] = _rebuild_split_components(remaining_tiles, sample_tile)
-		for rebuilt_component_id: int in rebuilt_component_ids:
-			for chunk_coord: Vector2i in _collect_component_chunks(rebuilt_component_id):
-				affected_chunks[chunk_coord] = true
-	_rebuild_outside_visibility_for_chunks(_dictionary_vector2i_keys(affected_chunks))
+	# Unloading a render chunk does not undo mining. The old implementation
+	# deleted its persistent floor tiles, split the complete connected component
+	# with a main-thread flood fill, then rebuilt roof selectors for the whole
+	# cave. Crossing one chunk boundary evicts several views, so this produced a
+	# train of 15-20 ms stalls and temporarily changed the player's component.
+	# Keep the monotonic excavation graph; only its per-view outside mask expires.
+	_outside_visible_by_chunk.erase(unloaded_chunk_coord)
 	return {
-		"affected_chunks": _dictionary_vector2i_keys(affected_chunks),
+		"affected_chunks": [unloaded_chunk_coord],
+		"graph_changed": false,
 	}
 
 

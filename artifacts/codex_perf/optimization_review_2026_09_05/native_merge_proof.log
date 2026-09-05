@@ -1,0 +1,6 @@
+Extracted production comparator and merge loop into C:\Users\peaceful\AppData\Local\Temp\mirny_native_render_review_20260905\native_merge_test.cpp
+Production source SHA256: 70bf3374c8a010ce9128278e01e461cd6399eaeb879d9085ed6413ee627f4260
+Comparator region SHA256: 3acf2cd38604e9f5f3fee7b09ef1ac0ca134b8718d197d205d44cb8ef0f5f3b8
+Merge region SHA256: f2d9764f77d9664834197cad62a70f45ea1c9dcfefa820a56967635ccbb13b04
+Regions copied verbatim between unique source markers; only packed-array containers and bounds are stubbed.
+native merge source extraction: PASS 105 cases; exact GPU/painter parity, ties, empty streams, 100000 static + 4096 actors

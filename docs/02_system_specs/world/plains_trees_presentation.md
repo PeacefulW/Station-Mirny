@@ -4,8 +4,8 @@ doc_type: system_spec
 status: draft
 owner: engineering+design
 source_of_truth: true
-version: 0.4
-last_updated: 2026-07-31
+version: 0.5
+last_updated: 2026-08-17
 related_docs:
   - ../../00_governance/ENGINEERING_STANDARDS.md
   - ../../00_governance/WORKFLOW.md
@@ -30,9 +30,14 @@ related_docs:
 Define the first contract for generated surface **trees** on the `plains`
 biome as a world-object family, with one non-negotiable architectural rule:
 
-> **Tree ↔ grass ↔ player depth is owned by the existing shared mid-layer
-> depth ladder. It is never a per-object hardcoded `z_index`, never a baked
-> grass overlay, and never a tree-specific layer placed above or below grass.**
+> **Tree ↔ grass ↔ player depth is owned by one shared ordering system. It is
+> never a per-object hardcoded `z_index`, never a baked grass overlay, and never
+> a tree-specific layer placed above or below grass.**
+
+Since Iteration 1 of the render-world work that shared system is the native
+painter tuple `(feet_y, semantic_layer, stable_id)` inside one global sorted
+snapshot, not the former per-stripe mid-layer ladder. The rule above is
+unchanged; only its owner moved.
 
 This spec rides `world_object_placement_v0.md` (placement, batching, depth
 ladder) and `wind_and_grass_scatter_presentation.md` (wind, the per-stripe
@@ -82,21 +87,21 @@ in the world:
   (`object_kind` tree value), placed deterministically (LAW 3).
 - A **procedural tree atlas** exported by a generator tool (Variant D path,
   like the grass tuft atlas), committed as a PNG, runtime-preloaded only.
-- **Batched per-stripe `MultiMeshInstance2D`** presentation on the shared
-  player-relative mid-layer depth ladder; one tree is one instance bucketed by
-  its **base (feet) stripe**, interleaved with the grass scatter stripes.
-- **z ownership stays with `WorldStreamer`** (the existing `_ladder_anchor_stripe`
-  + `update_mid_ladder_z` re-assignment). Trees carry no independent z.
+- **Records in the global sorted snapshot** owned by `WorldRenderWorld`; one
+  tree is one packed instance ordered by its **base (feet) Y**, interleaved with
+  grass, other object families and actors in the same fixed passes.
+- **Order ownership stays outside the object**: the native painter tuple
+  `(feet_y, semantic_layer, stable_id)` decides it. Trees carry no independent
+  z. *(Before Iteration 1 this was `WorldStreamer`'s `_ladder_anchor_stripe` +
+  `update_mid_ladder_z` re-assignment; the rule is unchanged, the owner moved.)*
 - **Wind** response: the shared wind global uniforms drive a tree wind material
   (canopy sways, base planted), no new wind owner.
 - **Fixed-azimuth silhouette cast shadow**: fixed south-east direction from
   `WorldVisualLightingProfile` / the layered bake contract, with length and
   visibility derived from time of day. Each shadow bucket rides its caster's
-  feet stripe at the shared ground-shadow offset for bare-ground composition.
-  The same batched silhouette is also isolated by `WorldHeightShadowField` into
-  a camera-aligned mask. Low material classes (grass and small rocks) receive
-  that mask according to `WorldHeightShadowProfile`; tree bodies do not. There
-  is no absolute cast-shadow z outside the player-relative depth ladder.
+  feet row for bare-ground composition. The shadow is an ordinary record of the
+  fixed `shadow` pass and is ordered by the same global painter tuple as every
+  body, so there is no absolute cast-shadow z and no receiver mask.
 - **Deterministic per-instance variation** (atlas variant, scale tier, tint,
   wind phase) from a hash of seed / chunk / tile (no `randf` — LAW: deterministic
   hashing).
@@ -131,9 +136,9 @@ in the world:
 | Save/load required? | No in V0 (placement is derived from seed+version; presentation is derived). Harvest iteration adds a runtime diff. |
 | Deterministic? | Placement: yes — pure function of seed, version, chunk, settings, content set. Wind/shadow animation: intentionally non-deterministic visual drift, never read by gameplay. |
 | Must it work on unloaded chunks? | Placement is derivable on demand. CPU results may live in bounded source/warm caches and GPU layers in bounded hot/pool/retire residency without a `ChunkView`; no whole-world presentation state is retained. |
-| C++ compute or main-thread apply? | Placement solve and packet build in C++ (`WorldCore`). Main thread only applies finished per-stripe buffers, rebases their shared three-band depth roots, and synchronizes one viewport transform/size for the visual receiver field. |
-| Dirty unit | One chunk's tree presentation buffer (rebuild on diff, like grass). Depth dirty unit: one ladder-owner root plus a clamp-boundary stripe on anchor change (no buffer rebuild). Receiver field follows the current viewport and never scans object instances. |
-| Single owner | Placement: `WorldCore`. Scheduling/cache/envelope/pool/retirement: `WorldStreamer` + `WorldObjectPacketLayer`. `ChunkView` owns only the adopted reveal/collision reference. Ladder anchor + z assignment: `WorldStreamer`. Height-shadow field: `WorldHeightShadowField`, with tiers/tuning in `WorldHeightShadowProfile`. Wind state: `WindRuntime` (read-only consumer). |
+| C++ compute or main-thread apply? | Placement solve, packet build and the sorted render snapshot are C++ (`WorldCore`). Main thread only bulk-uploads finished page buffers, one bounded page bundle per streaming tick. |
+| Dirty unit | One chunk's tree presentation buffer (rebuild on diff, like grass). Publication unit: one render page bundle per bounded upload phase. Incremental per-page residency is Iteration 3 scope and is **not** implemented; a changed chunk currently rebuilds the global snapshot. |
+| Single owner | Placement: `WorldCore`. Scheduling/cache/envelope: `WorldStreamer`. GPU buffers and lifecycle: `WorldRenderWorld` (sole GPU owner). Collision rectangles: `WorldObjectCollisionOwner`; `ChunkView` adopts that reference only. Painter order: native `(feet_y, semantic_layer, stable_id)` — no per-family z owner. Wind state: `WindRuntime` (read-only consumer). |
 | 10x / 100x scale path | More trees stay in per-stripe batch buffers (no per-instance calls). More object types share the **one** ladder and opt into authored caster/receiver height tiers; the receiver pass stays viewport-bounded. |
 | Main-thread blocking risk | Bounded per-chunk buffer apply through the existing decorative visual upload path; a 16 px anchor move is one linear-root z write plus clamp-boundary migrations, not a 64-stripe walk. |
 | Hidden fallback? | Forbidden (LAW 9). No GDScript placement fallback when native is unavailable; fail explicitly. |
@@ -216,28 +221,23 @@ Consequently a northern tree's shadow is below every southern object's body
 without a global fixed `z_index`, while the existing three-band ladder keeps
 anchor rebases bounded.
 
-Feet depth and physical height are deliberately separate axes. Scalar
-`z_index` cannot simultaneously express all three requirements: a tree shadow
-must cover low grass/stone pixels, a tree body must cover that shadow, and
-ordinary bodies must still sort by their feet. `WorldHeightShadowField` solves
-that cycle without changing body depth:
+Feet depth and physical height were originally treated as two separate axes,
+because a scalar `z_index` cannot simultaneously express all three requirements:
+a tree shadow must cover low grass/stone pixels, a tree body must cover that
+shadow, and ordinary bodies must still sort by their feet.
 
-- tree shadow batches opt into one reserved Canvas visibility layer in addition
-  to their ordinary layer;
-- a half-resolution `SubViewport` shares the current `World2D`, copies the main
-  canvas transform, and renders only that caster layer into transparent alpha;
-- grass and small-rock shared materials sample the mask through `SCREEN_UV`;
-- the authored
-  `data/world_objects/presentation_profiles/world_height_shadow_profile.tres`
-  resource compares the tree caster tier with the material's receiver tier and
-  applies authored strength only when the caster is taller;
-- tree, bush, player, and other non-receiver materials keep their normal
-  feet-based ordering and are never darkened by this pass.
+Under the Shared RenderWorld Painter that cycle is resolved by the sort key, not
+by a second pass. Every record — grass, tree, bush, rock, actor body and every
+shadow — enters one global snapshot sorted by
+`(feet_y, semantic_layer, stable_id)`. `semantic_layer` separates shadow from
+body inside the same feet row, so a northern tree's shadow lands below every
+southern body without a reserved z, a receiver mask or a CPU overlap test.
 
-This adds one viewport-bounded GPU pass and O(1) transform/resize
-synchronization, not one node, draw update, or CPU test per tree. The normal
-shadow remains in the caster stripe so bare ground and ground overlays keep the
-existing composition.
+> **Retired (2026-08-11).** The former height-tier receiver pass —
+> `WorldHeightShadowField`, its half-resolution `SubViewport`, its reserved
+> Canvas visibility layer, `WorldHeightShadowProfile` and
+> `world_height_shadow_profile.tres` — was removed together with its shader
+> include and debug counter. Caster/receiver height tiers no longer exist.
 
 ### Procedural atlas, generator-first; palette is data
 
@@ -316,13 +316,14 @@ generator tool. Runtime preloads the PNG only; runtime atlas painting forbidden.
 |---|---|
 | Tree placement compute | `WorldCore` (C++) |
 | Tree object packet | `WorldCore`, alongside terrain + existing objects |
-| Per-stripe batch apply + lifecycle | `WorldStreamer` + world-parented `WorldObjectPacketLayer`; `ChunkView` adopts the completed reveal/collision reference |
-| Mid-layer **depth ladder anchor + z assignment** | `WorldStreamer` (`_ladder_anchor_stripe`, `update_mid_ladder_z`) |
+| Global snapshot apply + GPU lifecycle | `WorldRenderWorld` (fixed passes; no per-family `MultiMesh`) |
+| Tree collision rectangles | `WorldObjectCollisionOwner`; `ChunkView` adopts the completed reveal/collision reference |
+| **Painter order** | native `(feet_y, semantic_layer, stable_id)` inside the global sorted snapshot |
 | Tree look + wind response | tree batch shader/material + authored profile |
 | Wind state + globals write | `WindRuntime` (read-only consumer here) |
 | Fixed sun azimuth | `WorldVisualLightingProfile` + layered asset bake contract |
 | Time-varying shadow length/visibility | `TimeManager` progress read through `WorldVisualLightingProfile` |
-| Tall-caster receiver mask | `WorldHeightShadowField`; height/tint/strength policy in `WorldHeightShadowProfile` |
+| Directional shadow records | fixed `shadow` pass in `WorldRenderWorld`; the retired tall-caster receiver mask has no replacement |
 
 ### Placement flow (LAW 6)
 
@@ -334,19 +335,25 @@ runtime-diff state. For current worlds, the tree portion of `settings` is the
 saved `worldgen_settings.plains_trees` copy packed into native
 `settings_packed[22..43]`; load must not re-read the repository `.tres`.
 
-### Presentation: per-stripe batch on the shared ladder
+### Presentation: records in the global sorted snapshot
 
-The world-parented `WorldObjectPacketLayer` consumes native tree records and
-builds bounded **per-stripe** `MultiMeshInstance2D` batches; `ChunkView` adopts
-the completed layer only for reveal. The tree base is bucketed into its
-chunk-local stripe (`DEPTH_STRIPES_PER_CHUNK`), interleaved with grass scatter
-stripe nodes. The instance transform carries rendered size and per-instance
-color packs atlas frame / tint / wind phase / alpha (existing decor convention).
-`WorldStreamer` assigns these stripes through the same
-`update_mid_ladder_z(anchor)` path it uses for grass. The tree batch registers
-its channel nodes with the shared three-band root, so trees hold **no**
-independent z and anchor movement does not walk all pooled stripe slots. The
-tree is one batched instance per object (LAW 13: no node-per-object).
+`WorldRenderWorld` is the single GPU owner. Native tree records carry a
+descriptor id and a variant/frame; they enter the global snapshot through the
+fixed `body`, `shadow` and — where authored — `emissive`/`overhead` passes, and
+are sorted by `(feet_y, semantic_layer, stable_id)` into absolute 1024 px render
+pages. The instance transform carries rendered size and the compact per-instance
+payload selects atlas frame / tint / wind phase / alpha through the render-class
+LUTs. Trees hold **no** independent z, and adding a tree species changes data
+only — no renderer source, shader sampler or `MultiMesh` is added per family.
+`ChunkView` adopts only the completed collision reference. The tree is one
+packed instance per object (LAW 13: no node-per-object).
+
+> **Superseded (2026-08-11).** The per-stripe `MultiMeshInstance2D` batches
+> built by the world-parented `WorldObjectPacketLayer`, the chunk-local stripe
+> bucketing (`DEPTH_STRIPES_PER_CHUNK`) and the `update_mid_ladder_z(anchor)`
+> three-band root are gone. `world_object_packet_layer.gd` survives only as a
+> deprecated script-name bridge to `WorldObjectCollisionOwner` for isolated old
+> tools; it owns no atlas, material, mesh, `MultiMesh` or GPU payload.
 
 ### Wind
 
@@ -357,14 +364,12 @@ per-frame `set_shader_parameter` broadcast (the globals are written once by
 
 ### Shadow
 
-Each per-stripe silhouette shadow batch shares its caster's depth-band root at
-the ground-shadow channel offset. Direction is the fixed south-east authored
-projection; shared catalog uniforms update only length/opacity as time changes.
-There is no per-object CPU geometry rebuild, no absolute z above the object
-ladder, and no chunk-wide depth walk. The same CanvasItem is visible to the
-dedicated tall-caster `SubViewport`; grass and small-rock materials receive its
-alpha by authored height tier, without moving either family out of the shared
-feet ladder.
+Silhouette shadows are ordinary records of the fixed `shadow` pass, ordered by
+the same painter tuple as the bodies; non-ground object shadows share one
+`object_shadow_buffer`. Direction is the fixed south-east authored projection;
+shared catalog uniforms update only length/opacity as time changes. There is no
+per-object CPU geometry rebuild, no absolute cast-shadow z, no chunk-wide depth
+walk, and no separate caster viewport or receiver mask.
 
 ### Diff refresh
 
@@ -425,8 +430,9 @@ stable / deterministic instance identity, never display names or asset paths.
 - New tree / bush / flora type = a new `WorldObjectData` + atlas + placement set
   entry. It inherits depth, wind, and shadow from the shared systems with **no
   new depth code** — the explicit scalability goal of this spec.
-- A new material receiver class adds one enum identity and authored height /
-  strength values to `world_height_shadow_profile.tres`; it does not add a
+- A new object family adds one descriptor to
+  `data/world_render/render_class_registry.json` plus its packed atlas channels;
+  it does not add a renderer branch, a shader sampler, a `MultiMesh`, a
   project-wide z rule or an object-overlap loop.
 - Look / density / palette tuning is authored data, not code constants. Plains
   tree density and spacing are tuned in
@@ -528,6 +534,10 @@ This design is wrong if:
 - No placement yet; a tool-scene render proof of the atlas.
 
 ### Iteration 2 — Native placement + per-stripe batch on the ladder
+
+> **Delivered, then superseded (2026-08-11).** Native placement stands; the
+> per-stripe batch/ladder presentation was replaced by the Shared RenderWorld
+> Painter. Kept as implementation history.
 
 - Add the tree `object_kind` to native object placement (LAW 3/6); bump
   `world_version` (canonical placement output changes — LAW 4).

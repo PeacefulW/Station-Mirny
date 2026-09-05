@@ -26,6 +26,7 @@ var _completed_mountain_rasters: Array[Dictionary] = []
 var _completed_mountain_halo_masks: Array[Dictionary] = []
 var _completed_grass_scatter_buffers: Array[Dictionary] = []
 var _completed_object_presentation_buffers: Array[Dictionary] = []
+var _completed_world_render_snapshots: Array[Dictionary] = []
 var _completed_result_head_by_queue: Dictionary = {}
 var _worker_should_exit: bool = false
 var _max_batch_size: int = DEFAULT_MAX_BATCH_SIZE
@@ -237,6 +238,51 @@ func sync_grass_scatter_requests(epoch: int, revision_and_priority_by_coord: Dic
 	return removed_coords
 
 
+func queue_world_render_snapshot_request(
+		chunk_origins: PackedVector2Array,
+		object_results: Array,
+		grass_results: Array,
+		source_bindings: Array,
+		grass_lod_fraction: float,
+		epoch: int,
+		request_generation: int,
+) -> void:
+	var request := {
+		"kind": "world_render_snapshot",
+		"chunk_origins": chunk_origins.duplicate(),
+		# Dictionaries and packed arrays are immutable worker results. Duplicate
+		# only the Array shells; copying every 30+ MiB payload would defeat the
+		# point of the background render-preparation stage.
+		"object_results": object_results.duplicate(),
+		"grass_results": grass_results.duplicate(),
+		"source_bindings": source_bindings.duplicate(true),
+		"grass_lod_fraction": grass_lod_fraction,
+		"epoch": epoch,
+		"request_generation": request_generation,
+		"priority": -1000000,
+		"priority_class": PRIORITY_CLASS_BACKGROUND,
+		"queued_msec": Time.get_ticks_msec(),
+	}
+	_request_mutex.lock()
+	for request_index: int in range(_pending_requests.size()):
+		var queued: Dictionary = _pending_requests[request_index] as Dictionary
+		if str(queued.get("kind", "")) != "world_render_snapshot" \
+				or int(queued.get("epoch", -1)) != epoch:
+			continue
+		request["enqueued_turn"] = int(queued.get("enqueued_turn", _request_dispatch_turn))
+		request["enqueue_sequence"] = int(
+			queued.get("enqueue_sequence", _next_request_enqueue_sequence),
+		)
+		_pending_requests[request_index] = request
+		_request_mutex.unlock()
+		return
+	request["enqueued_turn"] = _request_dispatch_turn
+	request["enqueue_sequence"] = _claim_request_enqueue_sequence_locked()
+	_pending_requests.append(request)
+	_request_semaphore.post()
+	_request_mutex.unlock()
+
+
 ## Queues pure object-packet decoding/bucketing for a worker-local WorldCore.
 ## Packet object channels and catalog parameter arrays have an immutable-owner
 ## contract: the request keeps their ref-counted PackedArray handles in O(1),
@@ -441,6 +487,8 @@ func queue_mountain_halo_mask_request(
 		dug_halo: PackedByteArray = PackedByteArray(),
 		priority: int = 0,
 		priority_class: int = PRIORITY_CLASS_REVEAL,
+		band_field_params: Dictionary = { },
+		noise_field_params: Dictionary = { },
 ) -> void:
 	_request_mutex.lock()
 	_pending_requests.append(
@@ -462,6 +510,8 @@ func queue_mountain_halo_mask_request(
 			"mask_purpose": mask_purpose,
 			"priority": priority,
 			"priority_class": priority_class,
+			"band_field_params": band_field_params.duplicate(true),
+			"noise_field_params": noise_field_params.duplicate(true),
 			"queued_msec": Time.get_ticks_msec(),
 		},
 	)
@@ -546,6 +596,17 @@ func drain_completed_object_presentation_buffers(max_count: int) -> Array[Dictio
 	return drained
 
 
+func drain_completed_world_render_snapshots(max_count: int) -> Array[Dictionary]:
+	_result_mutex.lock()
+	var drained: Array[Dictionary] = _drain_result_queue_locked(
+		_completed_world_render_snapshots,
+		&"world_render_snapshot",
+		max_count,
+	)
+	_result_mutex.unlock()
+	return drained
+
+
 func clear_queued_work() -> void:
 	_request_mutex.lock()
 	var cancelled_request_count: int = _pending_requests.size()
@@ -564,6 +625,7 @@ func clear_queued_work() -> void:
 	_completed_mountain_halo_masks.clear()
 	_completed_grass_scatter_buffers.clear()
 	_completed_object_presentation_buffers.clear()
+	_completed_world_render_snapshots.clear()
 	_completed_result_head_by_queue.clear()
 	_result_mutex.unlock()
 
@@ -628,6 +690,16 @@ func has_completed_object_presentation_buffers() -> bool:
 	var has_completed: bool = _result_queue_has_unread_locked(
 		_completed_object_presentation_buffers,
 		&"object_presentation",
+	)
+	_result_mutex.unlock()
+	return has_completed
+
+
+func has_completed_world_render_snapshots() -> bool:
+	_result_mutex.lock()
+	var has_completed: bool = _result_queue_has_unread_locked(
+		_completed_world_render_snapshots,
+		&"world_render_snapshot",
 	)
 	_result_mutex.unlock()
 	return has_completed
@@ -918,6 +990,8 @@ func _process_mountain_halo_mask_request(worker_world_core: Object, request: Dic
 	var solid_halo: PackedByteArray = request.get("solid_halo", PackedByteArray()) as PackedByteArray
 	var closed_halo: PackedByteArray = request.get("closed_halo", PackedByteArray()) as PackedByteArray
 	var dug_halo: PackedByteArray = request.get("dug_halo", PackedByteArray()) as PackedByteArray
+	var band_field_params: Dictionary = request.get("band_field_params", { }) as Dictionary
+	var noise_field_params: Dictionary = request.get("noise_field_params", { }) as Dictionary
 	# The construction roof C is requested only for excavated mountain chunks.
 	# It reuses the exact same native contour recipe over the ownership halo, so
 	# the roof stays byte-identical to the pre-dig silhouette without any C++
@@ -940,6 +1014,18 @@ func _process_mountain_halo_mask_request(worker_world_core: Object, request: Dic
 			"success": false,
 			"message": "WorldCore.build_mountain_skylight_exposure is unavailable in this build.",
 		}
+	elif not band_field_params.is_empty() \
+			and not worker_world_core.has_method("build_mountain_band_field"):
+		result = {
+			"success": false,
+			"message": "WorldCore.build_mountain_band_field is unavailable in this build.",
+		}
+	elif not noise_field_params.is_empty() \
+			and not worker_world_core.has_method("build_mountain_noise_field"):
+		result = {
+			"success": false,
+			"message": "WorldCore.build_mountain_noise_field is unavailable in this build.",
+		}
 	else:
 		var mask_origin_world: Vector2 = request.get("mask_origin_world", Vector2.ZERO) as Vector2
 		var result_variant: Variant = worker_world_core.call(
@@ -959,6 +1045,31 @@ func _process_mountain_halo_mask_request(worker_world_core: Object, request: Dic
 			var output_valid: bool = mask_width > 0 \
 					and mask_height > 0 \
 					and mask.size() == mask_width * mask_height
+			if output_valid and not band_field_params.is_empty():
+				output_valid = _append_mountain_band_fields(
+					worker_world_core,
+					result,
+					mask,
+					mask_width,
+					mask_height,
+					float(result.get("step_px", 0.0)),
+					mask_origin_world,
+					band_field_params,
+				)
+				if not output_valid:
+					result["message"] = "Native mountain band-field output is malformed."
+			if output_valid and not noise_field_params.is_empty():
+				output_valid = _append_mountain_noise_fields(
+					worker_world_core,
+					result,
+					mask_width,
+					mask_height,
+					float(result.get("step_px", 0.0)),
+					mask_origin_world,
+					noise_field_params,
+				)
+				if not output_valid:
+					result["message"] = "Native mountain noise-field output is malformed."
 			if output_valid and construction_roof_requested:
 				var closed_variant: Variant = worker_world_core.call(
 					"build_mountain_halo_mask",
@@ -988,6 +1099,21 @@ func _process_mountain_halo_mask_request(worker_world_core: Object, request: Dic
 						) \
 						and int(closed_result.get("halo_side", 0)) \
 								== int(result.get("halo_side", 0))
+				if closed_output_valid:
+					if not band_field_params.is_empty():
+						closed_output_valid = _append_mountain_band_fields(
+							worker_world_core,
+							result,
+							closed_mask,
+							closed_width,
+							closed_height,
+							float(closed_result.get("step_px", 0.0)),
+							mask_origin_world,
+							band_field_params,
+						)
+					if not closed_output_valid:
+						output_valid = false
+						result["message"] = "Native closed-mountain band-field output is malformed."
 				if closed_output_valid:
 					var reach_samples: int = MOUNTAIN_SKYLIGHT_REACH_TILES * int(
 						request.get("pixels_per_tile", 1),
@@ -1056,6 +1182,78 @@ func _process_mountain_halo_mask_request(worker_world_core: Object, request: Dic
 	_result_mutex.lock()
 	_completed_mountain_halo_masks.append(result)
 	_result_mutex.unlock()
+
+
+func _append_mountain_band_fields(
+		worker_world_core: Object,
+		result: Dictionary,
+		mask: PackedByteArray,
+		width: int,
+		height: int,
+		step_px: float,
+		origin_world: Vector2,
+		field_params: Dictionary,
+) -> bool:
+	for field_name_variant: Variant in field_params.keys():
+		var field_name: StringName = field_name_variant as StringName
+		var params: PackedFloat32Array = field_params.get(
+			field_name,
+			PackedFloat32Array(),
+		) as PackedFloat32Array
+		if params.size() < 4:
+			return false
+		var field_variant: Variant = worker_world_core.call(
+			"build_mountain_band_field",
+			mask,
+			width,
+			height,
+			step_px,
+			origin_world.x,
+			origin_world.y,
+			params,
+		)
+		if not field_variant is PackedByteArray:
+			return false
+		var field: PackedByteArray = field_variant as PackedByteArray
+		if field.size() != width * height * 4:
+			return false
+		result[field_name] = field
+	return true
+
+
+func _append_mountain_noise_fields(
+		worker_world_core: Object,
+		result: Dictionary,
+		width: int,
+		height: int,
+		step_px: float,
+		origin_world: Vector2,
+		field_params: Dictionary,
+) -> bool:
+	for field_name_variant: Variant in field_params.keys():
+		var field_name: StringName = field_name_variant as StringName
+		var params: PackedFloat32Array = field_params.get(
+			field_name,
+			PackedFloat32Array(),
+		) as PackedFloat32Array
+		if params.size() < 12:
+			return false
+		var field_variant: Variant = worker_world_core.call(
+			"build_mountain_noise_field",
+			width,
+			height,
+			step_px,
+			origin_world.x,
+			origin_world.y,
+			params,
+		)
+		if not field_variant is PackedByteArray:
+			return false
+		var field: PackedByteArray = field_variant as PackedByteArray
+		if field.size() != width * height * 4:
+			return false
+		result[field_name] = field
+	return true
 
 
 func _process_grass_scatter_request(worker_world_core: Object, request: Dictionary) -> void:
@@ -1148,6 +1346,44 @@ func _process_object_presentation_request(worker_world_core: Object, request: Di
 	result["request_to_complete_ms"] = completed_msec - int(request.get("queued_msec", started_msec))
 	_result_mutex.lock()
 	_completed_object_presentation_buffers.append(result)
+	_result_mutex.unlock()
+
+
+func _process_world_render_snapshot_request(worker_world_core: Object, request: Dictionary) -> void:
+	var started_msec: int = Time.get_ticks_msec()
+	var result: Dictionary = { }
+	if not worker_world_core.has_method("build_world_render_snapshot"):
+		result = {
+			"success": false,
+			"error": "WorldCore.build_world_render_snapshot is unavailable in this build.",
+		}
+	else:
+		var result_variant: Variant = worker_world_core.call(
+			"build_world_render_snapshot",
+			request.get("chunk_origins", PackedVector2Array()) as PackedVector2Array,
+			request.get("object_results", []) as Array,
+			request.get("grass_results", []) as Array,
+			request.get("source_bindings", []) as Array,
+			float(request.get("grass_lod_fraction", 1.0)),
+		)
+		if result_variant is Dictionary:
+			result = result_variant as Dictionary
+		else:
+			result = {
+				"success": false,
+				"error": "Native world render snapshot builder returned non-Dictionary.",
+			}
+	var completed_msec: int = Time.get_ticks_msec()
+	result["epoch"] = int(request.get("epoch", -1))
+	result["request_generation"] = int(request.get("request_generation", -1))
+	result["chunk_count"] = (request.get("chunk_origins", PackedVector2Array()) as PackedVector2Array).size()
+	result["grass_lod_fraction"] = float(request.get("grass_lod_fraction", 1.0))
+	result["worker_elapsed_ms"] = completed_msec - started_msec
+	result["request_to_complete_ms"] = completed_msec - int(
+		request.get("queued_msec", started_msec),
+	)
+	_result_mutex.lock()
+	_completed_world_render_snapshots.append(result)
 	_result_mutex.unlock()
 
 
@@ -1361,6 +1597,9 @@ func _worker_loop() -> void:
 			continue
 		if str(base_request.get("kind", "packet")) == "object_presentation":
 			_process_object_presentation_request(worker_world_core, base_request)
+			continue
+		if str(base_request.get("kind", "packet")) == "world_render_snapshot":
+			_process_world_render_snapshot_request(worker_world_core, base_request)
 			continue
 		_request_mutex.lock()
 		var batch_requests: Array[Dictionary] = _take_packet_batch_locked(

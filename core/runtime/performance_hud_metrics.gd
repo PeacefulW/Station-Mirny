@@ -35,6 +35,7 @@ const TIMING_KEYS: Array[String] = [
 	"publish_finalize_ms",
 	"object_upload_ms",
 	"grass_upload_ms",
+	"torch_shadow_ms",
 ]
 
 const HITCH_CAUSE_KEYS: Array[Dictionary] = [
@@ -73,6 +74,14 @@ const HITCH_CAUSE_KEYS: Array[Dictionary] = [
 	{
 		"key": "FrameBudgetDispatcher.streaming.world.grass_scatter_visual_upload",
 		"name": "grass_upload",
+	},
+	{
+		"key": "WorldStreamer.torch_shadow_field.mask",
+		"name": "torch_shadow_mask",
+	},
+	{
+		"key": "MountainTorchShadowField.texture_upload",
+		"name": "torch_shadow_upload",
 	},
 	{
 		"key": "FrameBudgetDispatcher.visual.world.mountain_native_mask_visual_upload",
@@ -296,6 +305,11 @@ func _update_timings(frame_ops: Dictionary) -> void:
 			"FrameBudgetDispatcher.streaming.world.grass_scatter_visual_upload",
 			0.0,
 		),
+	)
+	_latest_timings["torch_shadow_ms"] = float(
+		frame_ops.get("WorldStreamer.torch_shadow_field.mask", 0.0),
+	) + float(
+		frame_ops.get("MountainTorchShadowField.texture_upload", 0.0),
 	)
 
 

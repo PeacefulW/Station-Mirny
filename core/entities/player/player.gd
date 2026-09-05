@@ -8,6 +8,7 @@ const MountainResolver = preload("res://core/systems/world/mountain_resolver.gd"
 const HarvestQuery = preload("res://core/systems/world/harvest_query.gd")
 const ObjectCollisionDebugLayer = preload("res://core/systems/world/object_collision_debug_layer.gd")
 const WorldRuntimeConstants = preload("res://core/systems/world/world_runtime_constants.gd")
+const WorldRenderRecord = preload("res://core/systems/world/world_render_record.gd")
 const WorldStreamer = preload("res://core/systems/world/world_streamer.gd")
 const SCRAP_ITEM_ID: String = "base:scrap"
 const WOOD_ITEM_ID: String = "base:wood"
@@ -60,8 +61,10 @@ var _mountain_debug_label: Label = null
 var _collision_debug_layer: ObjectCollisionDebugLayer = null
 var _debug_collision_visible: bool = false
 var _visual: Sprite2D = null
+var _sun_shadow: PlayerSunShadow = null
 var _visual_time: float = 0.0
 var _visual_direction: int = PLAYER_RUN_ATLAS_DEFAULT_DIRECTION
+var _visual_frame_index: int = 0
 ## Куда смотрит фигура. Держим отдельно от индекса направления, потому что
 ## PlayerHelmetLamps направляет конус света непрерывно, а не по 16 ступеням.
 var _visual_facing: Vector2 = Vector2.UP
@@ -80,6 +83,7 @@ func _ready() -> void:
 	_attack_area = get_node_or_null("AttackArea")
 	_inventory = get_node_or_null("InventoryComponent")
 	_visual = get_node_or_null("Visual") as Sprite2D
+	_sun_shadow = get_node_or_null("SunShadow") as PlayerSunShadow
 	if _oxygen_system:
 		_oxygen_system.speed_modifier_changed.connect(_on_speed_modifier_changed)
 	if _health_component:
@@ -100,6 +104,20 @@ func _ready() -> void:
 	z_index = WorldRuntimeConstants.z_for_stripe_vs_anchor(0, 0, true)
 	call_deferred("_find_chunk_manager")
 	call_deferred("_emit_scrap_state")
+
+
+func _exit_tree() -> void:
+	if _world_streamer != null and is_instance_valid(_world_streamer) \
+			and _world_streamer.has_method("unregister_visual_proxy"):
+		_world_streamer.unregister_visual_proxy(self)
+	if EventBus:
+		if EventBus.inventory_updated.is_connected(_on_inventory_updated):
+			EventBus.inventory_updated.disconnect(_on_inventory_updated)
+		if EventBus.world_initialized.is_connected(_on_world_initialized):
+			EventBus.world_initialized.disconnect(_on_world_initialized)
+	if PlayerAuthority:
+		PlayerAuthority.clear_cache()
+	_state_machine.teardown()
 
 
 func _physics_process(delta: float) -> void:
@@ -269,8 +287,16 @@ func spend_item(item_id: String, amount: int) -> bool:
 
 
 func _find_chunk_manager() -> void:
-	_chunk_manager = get_tree().get_first_node_in_group("chunk_manager")
-	_world_streamer = _chunk_manager as WorldStreamer
+	var next_chunk_manager: Node = get_tree().get_first_node_in_group("chunk_manager")
+	var next_streamer: WorldStreamer = next_chunk_manager as WorldStreamer
+	if _world_streamer != null and is_instance_valid(_world_streamer) \
+			and _world_streamer != next_streamer \
+			and _world_streamer.has_method("unregister_visual_proxy"):
+		_world_streamer.unregister_visual_proxy(self)
+	_chunk_manager = next_chunk_manager
+	_world_streamer = next_streamer
+	if _world_streamer != null and _world_streamer.has_method("register_visual_proxy"):
+		_world_streamer.register_visual_proxy(self)
 
 
 func _get_chunk_manager() -> Node:
@@ -293,6 +319,9 @@ func _get_world_streamer() -> WorldStreamer:
 
 func _on_world_initialized(_seed_value: int) -> void:
 	_mountain_resolver = MountainResolver.new()
+	if _world_streamer != null and is_instance_valid(_world_streamer) \
+			and _world_streamer.has_method("unregister_visual_proxy"):
+		_world_streamer.unregister_visual_proxy(self)
 	_chunk_manager = null
 	_world_streamer = null
 	call_deferred("_find_chunk_manager")
@@ -557,6 +586,8 @@ func _apply_player_visual_frame(clip: PlayerVisualClip, frame_index: int, direct
 		return
 	var safe_frame: int = clampi(frame_index, 0, PLAYER_RUN_ATLAS_COLUMNS - 1)
 	var safe_direction: int = clampi(direction_index, 0, PLAYER_RUN_ATLAS_ROWS - 1)
+	_visual_frame_index = safe_frame
+	_visual_direction = safe_direction
 	_visual.texture = _texture_for_visual_clip(clip)
 	_visual.rotation = 0.0
 	_visual.region_rect = Rect2(
@@ -565,6 +596,36 @@ func _apply_player_visual_frame(clip: PlayerVisualClip, frame_index: int, direct
 		PLAYER_ATLAS_FRAME_WIDTH_PX,
 		PLAYER_ATLAS_FRAME_HEIGHT_PX,
 	)
+
+
+func get_world_render_record() -> Dictionary:
+	if _visual == null:
+		return { }
+	var record: Dictionary = {
+		"stable_id": 1,
+		"semantic_layer": WorldRenderRecord.SEMANTIC_ACTOR_BODY,
+		"root_transform": global_transform,
+		"feet_y": global_position.y + PLAYER_FEET_OFFSET_PX,
+		"body_transform": WorldRenderRecord.unit_quad_transform_for_sprite(
+			_visual,
+			Vector2(PLAYER_ATLAS_FRAME_WIDTH_PX, PLAYER_ATLAS_FRAME_HEIGHT_PX),
+		),
+		"tint": _visual.modulate,
+		"direction_index": _visual_direction,
+		"frame_index": _visual_frame_index,
+		"sprite_id": int(_visual_clip),
+		"shadow_visible": false,
+	}
+	if _sun_shadow != null:
+		record.merge(_sun_shadow.get_world_render_shadow_state(), true)
+	return record
+
+
+func set_world_render_proxy_active(active: bool) -> void:
+	if _visual != null:
+		_visual.visible = not active
+	if _sun_shadow != null:
+		_sun_shadow.set_external_rendering_enabled(active)
 
 
 func _texture_for_visual_clip(clip: PlayerVisualClip) -> Texture2D:

@@ -4,11 +4,13 @@ doc_type: system_spec
 status: approved
 source_of_truth: true
 owner: engineering+art
-version: 2.3
-last_updated: 2026-07-29
+version: 2.4
+last_updated: 2026-08-17
 related_docs:
   - wind_and_grass_scatter_presentation.md
   - plains_trees_presentation.md
+  - world_runtime.md
+  - object_render_world.md
 ---
 
 # Mountain vs Object Occlusion — Z Order Decision
@@ -32,11 +34,28 @@ code was fully reverted (shader uniforms + final block, `ChunkView` propagation,
 
 ## Final decision: mountain BELOW the object ladder
 
-`Z_MOUNTAIN_TOP` and `Z_MOUNTAIN_PAGE` moved `300/301 → 19` — between the grass
-contact shadows (`Z_GRASS_SHADOW = 18`) and the construction roof
-(`Z_MOUNTAIN_ROOF = 20`). The ladder now starts at `Z_MID_LADDER_BASE = 21`;
-trees, rocks, and the player (ladder `21..214`, player fixed `118`) therefore
-always draw OVER both mountain passes.
+The mountain passes moved from `300/301` down below the object ladder — between
+the grass contact shadows (`Z_GRASS_SHADOW = Z_WORLD_SHADOW = 18`) and the object
+body pages. `world_runtime_constants.gd` is the authoritative source; the current
+band is:
+
+| Constant | Value |
+|---|---:|
+| `Z_WORLD_SHADOW` / `Z_GRASS_SHADOW` | `18` |
+| `Z_MOUNTAIN_PAGE` | `19` |
+| `Z_MOUNTAIN_TORCH_SHADOW` | `20` |
+| `Z_MOUNTAIN_TOP` | `21` |
+| `Z_MOUNTAIN_ROOF` | `22` |
+| `Z_ACTOR_SHADOW` | `23` |
+| `Z_RENDER_BODY_PAGE_BASE` (= `Z_MID_LADDER_BASE`) | `24` |
+
+Trees, rocks and the player are published by `WorldRenderWorld` into the dense
+body pages starting at `24`, so they always draw OVER every mountain pass. The
+former per-object depth ladder (`21..214` with the player fixed at `118`) was
+replaced in Iteration 1 by the global painter tuple `(feet_y, semantic_layer,
+stable_id)`; the player no longer holds a fixed z. See `world_runtime.md` for the
+full Canvas pass order, including the emissive (`260`) and overhead (`300`)
+page windows.
 
 This is geometrically correct, not a compromise:
 - objects are never placed on mountain wall/foot tiles (native clearance,
@@ -46,9 +65,11 @@ This is geometrically correct, not a compromise:
   stands SOUTH of (in front of) that part of the silhouette — exactly the case
   where the object must win.
 
-Raising only the trees above `300` instead was considered and rejected: the player
-is the fixed ladder anchor (`z = 118`), so trees above `300` would always cover the
-player and break the confirmed player↔tree Y-sort.
+Raising only the trees above `300` instead was considered and rejected: at the
+time the player was the fixed ladder anchor (`z = 118`), so trees above `300`
+would always cover the player and break the confirmed player↔tree Y-sort. Under
+the global painter that objection is now structural rather than numeric — trees
+and the player share one sorted pass and must not be split across z bands.
 
 ## Consequences (accepted)
 

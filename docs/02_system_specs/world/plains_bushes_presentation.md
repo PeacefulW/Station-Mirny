@@ -4,8 +4,8 @@ doc_type: system_spec
 status: draft
 owner: engineering+design
 source_of_truth: true
-version: 0.2
-last_updated: 2026-07-29
+version: 0.3
+last_updated: 2026-08-17
 related_docs:
   - ../../00_governance/ENGINEERING_STANDARDS.md
   - ../../00_governance/WORKFLOW.md
@@ -80,7 +80,7 @@ low, dark, wine-purple plant with amber blade tips and turquoise capsules that
 | Must it work on unloaded chunks? | Placement derivable on demand; no whole-world state. |
 | C++ compute or main-thread apply? | Native placement and buffer packing; bounded main-thread apply on the existing visual upload path. |
 | Dirty unit | One chunk's object presentation buffer. No new dirty unit. |
-| Single owner | Placement: `WorldCore`. Buffers/lifecycle: `WorldStreamer` + `WorldObjectPacketLayer`. Depth: `WorldStreamer`. Wind: `WindRuntime`. Fixed sun azimuth: `WorldVisualLightingProfile`; time-varying shadow length: `TimeManager` progress. |
+| Single owner | Placement: `WorldCore`. GPU buffers/lifecycle: `WorldRenderWorld` (sole GPU owner). Collision: `WorldObjectCollisionOwner`. Painter order: native `(feet_y, semantic_layer, stable_id)`. Wind: `WindRuntime`. Fixed sun azimuth: `WorldVisualLightingProfile`; time-varying shadow length: `TimeManager` progress. |
 | 10x / 100x scale path | More bushes stay inside per-stripe batch buffers; cost is bounded by the authored per-chunk cap. |
 | Main-thread blocking risk | None new; one more family in the existing bounded apply. |
 | Hidden fallback? | Forbidden. A missing asset directory or an atlas that was not rebuilt fails loudly. |
@@ -158,8 +158,9 @@ either a larger authored size or shorter grass; the proof sheet
 | Bush placement compute | `WorldCore` (`append_native_bush_placements`) |
 | Object packet record (`object_kind == 8`) | `WorldCore` |
 | Channel atlas | `tools/build_layered_object_channel_atlases.gd` (build step) |
-| Per-stripe batch apply + lifecycle | `WorldObjectPacketLayer` + `WorldStreamer` |
-| Depth ladder anchor + z | `WorldStreamer` |
+| Global snapshot apply + GPU lifecycle | `WorldRenderWorld` (fixed passes; no per-family `MultiMesh`) |
+| Tree/bush collision rectangles | `WorldObjectCollisionOwner` |
+| Painter order | native `(feet_y, semantic_layer, stable_id)`; no per-family z |
 | Wind | `WindRuntime` (read-only consumer) |
 | Fixed sun azimuth | `WorldVisualLightingProfile` + layered bake contract |
 | Time-varying shadow length | `TimeManager` progress read through `WorldVisualLightingProfile` |
@@ -221,7 +222,7 @@ per-chunk cap is unbounded.
 
 Native `object_kind == 8` + grass-gated placement (native constants), channel
 atlas `assets/sprites/flora/atlases/layered_bushes`, `LayeredBushBatchLayer`,
-the bush family in `WorldObjectPacketLayer`, streamer metric plumbing,
+the bush family in the then-current `WorldObjectPacketLayer`, streamer metric plumbing,
 `WORLD_VERSION` 64 -> 65, contract-test extension, placement and render probes.
 
 ### Iteration 2 — Tuning and variety

@@ -42,3 +42,14 @@ func physics_update(delta: float) -> void:
 func handle_input(event: InputEvent) -> void:
 	if _current_state:
 		_current_state.handle_input(event)
+
+
+func teardown() -> void:
+	for state_variant: Variant in _states.values():
+		var state: EntityState = state_variant as EntityState
+		if state != null:
+			state.teardown()
+	_states.clear()
+	_current_state = null
+	_current_state_name = &""
+	_owner = null

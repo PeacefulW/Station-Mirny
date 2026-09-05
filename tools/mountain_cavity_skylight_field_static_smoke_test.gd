@@ -144,11 +144,14 @@ func _init() -> void:
 		"facade broad phase must reuse the same uploaded dug texture",
 	)
 
+	var skylight_sync_call_count: int = world_streamer.count(
+		"_sync_mountain_cavity_skylight_field_chunk(",
+	) - world_streamer.count(
+		"func _sync_mountain_cavity_skylight_field_chunk(",
+	)
 	_expect(
-		world_streamer.count(
-			"_sync_mountain_cavity_skylight_field_chunk(chunk_coord, chunk_view)"
-		) == 2,
-		"budgeted visual/selector sync missing",
+		skylight_sync_call_count == 4,
+		"visual, selector, conservative-darkness and exact-skylight sync paths are incomplete",
 	)
 	_expect(
 		world_streamer.contains("_remove_mountain_cavity_skylight_field_chunk(chunk_coord)"),

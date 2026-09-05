@@ -2,9 +2,6 @@ class_name LayeredTreeBatchLayer
 extends Node2D
 
 const WorldRuntimeConstants = preload("res://core/systems/world/world_runtime_constants.gd")
-const WorldHeightShadowProfile = preload(
-	"res://core/systems/world/world_height_shadow_profile.gd"
-)
 const AssetCatalog = preload("res://core/systems/world/world_layered_object_asset_catalog.gd")
 const DepthLadderBandRoot = preload("res://core/systems/world/depth_ladder_band_root.gd")
 
@@ -403,17 +400,11 @@ func _sync_slot(slot: Dictionary, stripe_index: int, buffer: PackedFloat32Array)
 	slot["instance_count"] = count
 	_resident_slot_count = maxi(_resident_slot_count, _active_slot_count + 1)
 	var depth_ladder: DepthLadderBandRoot = _ensure_depth_ladder()
-	depth_ladder.include_visibility_layer(
-		WorldHeightShadowProfile.CASTER_VISIBILITY_LAYER,
-	)
 	var ladder_started_usec: int = WorldPerfProbe.begin()
 	depth_ladder.register_item(
 		slot.get("shadow") as MultiMeshInstance2D,
 		stripe_index,
 		WorldRuntimeConstants.DEPTH_CHANNEL_GROUND_SHADOW_OFFSET,
-	)
-	WorldHeightShadowProfile.mark_tall_caster_path(
-		slot.get("shadow") as MultiMeshInstance2D,
 	)
 	depth_ladder.register_item(
 		slot.get("trunk") as MultiMeshInstance2D,

@@ -16,8 +16,13 @@ func setup(balance: PlayerBalance) -> void:
 		_target_zoom = _clamp_zoom_value(_balance.zoom_default)
 		zoom = Vector2(_target_zoom, _target_zoom)
 	enabled = true
-	position_smoothing_enabled = true
-	position_smoothing_speed = 10.0
+	# Survival interactions, viewport residency and the player's visual focus all
+	# use the authoritative player position. A lagging camera made the actor drift
+	# visibly off-centre and let the camera envelope disagree with streaming.
+	# Zoom remains smoothed below; positional tracking is exact.
+	position_smoothing_enabled = false
+	position = Vector2.ZERO
+	reset_smoothing()
 
 func _process(delta: float) -> void:
 	if not _balance:

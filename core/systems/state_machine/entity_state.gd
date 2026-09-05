@@ -11,6 +11,12 @@ func setup(state_machine: StateMachine, state_owner: Node, name: StringName) -> 
 	state_name = name
 	return self
 
+
+func teardown() -> void:
+	machine = null
+	owner = null
+	state_name = &""
+
 func enter(_data: Dictionary = {}) -> void:
 	pass
 

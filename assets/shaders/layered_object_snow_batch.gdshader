@@ -1,8 +1,6 @@
 shader_type canvas_item;
 render_mode blend_mix;
 
-#include "res://assets/shaders/includes/world_height_shadow_receiver.gdshaderinc"
-
 uniform sampler2D snow_mask_texture : filter_linear, repeat_disable;
 uniform float atlas_columns = 1.0;
 uniform float atlas_rows = 1.0;
@@ -37,7 +35,6 @@ void fragment() {
 	float threshold = mix(0.96, 0.08, winter);
 	float coverage = smoothstep(threshold - 0.10, threshold + 0.08, mask);
 	float arrival = smoothstep(0.06, 0.28, winter);
-	snow.rgb = apply_world_height_shadow(snow.rgb, SCREEN_UV);
 	snow.a *= coverage * arrival * clamp(instance_data.a, 0.0, 1.0);
 	COLOR = snow;
 }

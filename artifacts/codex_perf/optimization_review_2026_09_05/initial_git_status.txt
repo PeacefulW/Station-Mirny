@@ -1,0 +1,195 @@
+ M .gitignore
+ M artifacts/ground_light_probe/01_day_torch_off.png
+ M artifacts/ground_light_probe/02_night_torch_off.png
+ M artifacts/ground_light_probe/03_night_torch_on.png
+ M artifacts/mountain_seam_probe/dig_self_diff.png
+ M artifacts/mountain_seam_probe/dig_transient_diff.png
+ M artifacts/mountain_seam_probe/static_diff.png
+ M artifacts/mountain_torch_shadow_field_probe/01_no_field.png
+ M artifacts/mountain_torch_shadow_field_probe/02_field_on.png
+ M assets/shaders/grass_scatter_batch.gdshader
+ M assets/shaders/ground_hybrid_material.gdshader
+ D assets/shaders/includes/world_height_shadow_receiver.gdshaderinc
+ D assets/shaders/includes/world_height_shadow_receiver.gdshaderinc.uid
+ M assets/shaders/layered_object_albedo_batch.gdshader
+ M assets/shaders/layered_object_snow_batch.gdshader
+ M assets/shaders/mountain_foothill_overlay.gdshader
+ M assets/shaders/mountain_top_mask_underlay.gdshader
+ M core/autoloads/settings_manager.gd
+ M core/entities/player/player.gd
+ M core/entities/player/player_camera.gd
+ M core/entities/player/player_sun_shadow.gd
+ M core/runtime/performance_flight_recorder.gd
+ M core/runtime/performance_hud_metrics.gd
+ M core/systems/state_machine/entity_state.gd
+ M core/systems/state_machine/state_machine.gd
+ M core/systems/world/chunk_view.gd
+ M core/systems/world/layered_tree_batch_layer.gd
+ M core/systems/world/layered_tree_object_layer.gd
+ M core/systems/world/mountain_cavity_cache.gd
+ M core/systems/world/mountain_torch_shadow_field.gd
+ M core/systems/world/world_chunk_packet_backend.gd
+ D core/systems/world/world_height_shadow_field.gd
+ D core/systems/world/world_height_shadow_field.gd.uid
+ D core/systems/world/world_height_shadow_profile.gd
+ D core/systems/world/world_height_shadow_profile.gd.uid
+ M core/systems/world/world_layered_object_asset_catalog.gd
+ M core/systems/world/world_object_packet_layer.gd
+ M core/systems/world/world_postprocess_overlay.gd
+ M core/systems/world/world_runtime_constants.gd
+ M core/systems/world/world_streamer.gd
+ M core/systems/world/world_tile_set_factory.gd
+ M core/systems/world/world_view_overlay.gd
+ M data/terrain/material_sets/grass_scatter_material_set.tres
+ M data/terrain/material_sets/plains_ground_material_set.tres
+ D data/world_objects/presentation_profiles/world_height_shadow_profile.tres
+ M docs/02_system_specs/README.md
+ M docs/02_system_specs/meta/packet_schemas.md
+ M docs/02_system_specs/meta/system_api.md
+ M docs/02_system_specs/progression/player_visual_presentation_v1.md
+ M docs/02_system_specs/world/mountain_object_occlusion.md
+ M docs/02_system_specs/world/plains_bushes_presentation.md
+ M docs/02_system_specs/world/plains_trees_presentation.md
+ M docs/02_system_specs/world/wind_and_grass_scatter_presentation.md
+ M docs/02_system_specs/world/world_dynamic_lighting_2d.md
+ M docs/02_system_specs/world/world_object_placement_v0.md
+ M docs/02_system_specs/world/world_runtime.md
+D  gdextension/.sconsign.dblite
+ M gdextension/bin/station_mirny.windows.template_debug.x86_64.dll
+D  gdextension/bin/station_mirny.windows.template_debug.x86_64.exp
+D  gdextension/bin/station_mirny.windows.template_debug.x86_64.lib
+ M gdextension/bin/station_mirny.windows.template_release.x86_64.dll
+D  gdextension/bin/station_mirny.windows.template_release.x86_64.exp
+D  gdextension/bin/station_mirny.windows.template_release.x86_64.lib
+D  gdextension/bin/~station_mirny.windows.template_debug.x86_64.dll
+D  gdextension/bin/~station_mirny.windows.template_debug.x86_64.dll~RF108b291c.TMP
+D  gdextension/bin/~station_mirny.windows.template_debug.x86_64.dll~RF16b267d.TMP
+D  gdextension/bin/~station_mirny.windows.template_debug.x86_64.dll~RF1feb5ae1.TMP
+D  gdextension/bin/~station_mirny.windows.template_debug.x86_64.dll~RF2fb4c7fc.TMP
+D  gdextension/bin/~station_mirny.windows.template_debug.x86_64.dll~RF52ad29.TMP
+D  gdextension/bin/~station_mirny.windows.template_debug.x86_64.dll~RF6351f00.TMP
+D  gdextension/bin/~station_mirny.windows.template_debug.x86_64.dll~RFd18803.TMP
+D  gdextension/src/autotile_47.windows.template_debug.x86_64.obj
+D  gdextension/src/autotile_47.windows.template_release.x86_64.obj
+ M gdextension/src/grass_scatter.cpp
+ M gdextension/src/grass_scatter.h
+D  gdextension/src/grass_scatter.windows.template_debug.x86_64.obj
+D  gdextension/src/grass_scatter.windows.template_release.x86_64.obj
+D  gdextension/src/lake_field.windows.template_debug.x86_64.obj
+D  gdextension/src/lake_field.windows.template_release.x86_64.obj
+ M gdextension/src/mountain_contour.cpp
+ M gdextension/src/mountain_contour.h
+D  gdextension/src/mountain_contour.windows.template_debug.x86_64.obj
+D  gdextension/src/mountain_contour.windows.template_release.x86_64.obj
+D  gdextension/src/mountain_field.windows.template_debug.x86_64.obj
+D  gdextension/src/mountain_field.windows.template_release.x86_64.obj
+D  gdextension/src/mountain_plateau_raster.windows.template_debug.x86_64.obj
+D  gdextension/src/mountain_plateau_raster.windows.template_release.x86_64.obj
+D  gdextension/src/object_presentation_buffer.windows.template_debug.x86_64.obj
+D  gdextension/src/object_presentation_buffer.windows.template_release.x86_64.obj
+D  gdextension/src/register_types.windows.template_debug.x86_64.obj
+D  gdextension/src/register_types.windows.template_release.x86_64.obj
+ M gdextension/src/world_core.cpp
+ M gdextension/src/world_core.h
+D  gdextension/src/world_core.windows.template_debug.x86_64.obj
+D  gdextension/src/world_core.windows.template_release.x86_64.obj
+D  gdextension/src/world_prepass.windows.template_debug.x86_64.obj
+D  gdextension/src/world_prepass.windows.template_release.x86_64.obj
+ M project.godot
+ M scenes/player/player.tscn
+ M scenes/world/world_runtime_v0.tscn
+ M scenes/world/world_runtime_v0_scene.gd
+ M tools/cloud_occluder_field_probe.gd
+ M tools/gpu_route_benchmark_probe.gd
+ M tools/ground_light_probe.gd
+ D tools/height_shadow_live_probe.gd
+ D tools/height_shadow_live_probe.gd.uid
+ D tools/height_shadow_receiver_contract_test.gd
+ D tools/height_shadow_receiver_contract_test.gd.uid
+ D tools/height_shadow_receiver_render_smoke_test.gd
+ D tools/height_shadow_receiver_render_smoke_test.gd.uid
+ M tools/layered_object_batch_contract_test.gd
+ M tools/mountain_cavity_skylight_field_static_smoke_test.gd
+ M tools/mountain_cover_cache_smoke_test.gd
+ M tools/mountain_runtime_dig_dev_scene_smoke_test.gd
+ M tools/mountain_seam_probe.gd
+ M tools/mountain_torch_shadow_field_live_perf_probe.gd
+ M tools/shadow_direction_and_depth_contract_test.gd
+ M tools/world_postprocess_overlay_smoke_test.gd
+ M tools/world_seamless_presentation_probe.gd
+ M tools/world_streaming_queue_cache_smoke_test.gd
+?? artifacts/ground_light_probe/00_postprocess_off.png
+?? artifacts/ground_light_probe/00_postprocess_on.png
+?? artifacts/mountain_seam_probe/dig_committed_diff.png
+?? assets/shaders/world_render_body.gdshader
+?? assets/shaders/world_render_body.gdshader.uid
+?? assets/shaders/world_render_emissive.gdshader
+?? assets/shaders/world_render_emissive.gdshader.uid
+?? assets/shaders/world_render_ground.gdshader
+?? assets/shaders/world_render_ground.gdshader.uid
+?? assets/shaders/world_render_overhead.gdshader
+?? assets/shaders/world_render_overhead.gdshader.uid
+?? assets/shaders/world_render_shadow.gdshader
+?? assets/shaders/world_render_shadow.gdshader.uid
+?? assets/sprites/decor/atlases/layered_small_rocks/albedo.png.import
+?? assets/sprites/decor/atlases/layered_small_rocks/shadow.png.import
+?? assets/sprites/decor/atlases/layered_small_rocks/snow_mask.png.import
+?? assets/sprites/decor/atlases/layered_small_rocks/snow_overlay.png.import
+?? assets/sprites/flora/atlases/layered_bushes/foliage.png.import
+?? assets/sprites/flora/atlases/layered_bushes/glow_bloom.png.import
+?? assets/sprites/flora/atlases/layered_bushes/glow_mask.png.import
+?? assets/sprites/flora/atlases/layered_bushes/season_mask.png.import
+?? assets/sprites/flora/atlases/layered_bushes/shadow.png.import
+?? assets/sprites/flora/atlases/layered_bushes/snow_mask.png.import
+?? assets/sprites/flora/atlases/layered_bushes/snow_overlay.png.import
+?? assets/sprites/flora/atlases/layered_bushes/trunk.png.import
+?? assets/sprites/flora/atlases/layered_bushes/wind_mask.png.import
+?? assets/sprites/flora/atlases/layered_trees/foliage.png.import
+?? assets/sprites/flora/atlases/layered_trees/season_mask.png.import
+?? assets/sprites/flora/atlases/layered_trees/shadow.png.import
+?? assets/sprites/flora/atlases/layered_trees/snow_mask.png.import
+?? assets/sprites/flora/atlases/layered_trees/snow_overlay.png.import
+?? assets/sprites/flora/atlases/layered_trees/trunk.png.import
+?? assets/sprites/flora/atlases/layered_trees/wind_mask.png.import
+?? assets/sprites/world_render/
+?? assets/textures/world/biomes/plains/flora/grass_tuft_atlas.png.import
+?? assets/textures/world/biomes/plains/flora/grass_tuft_shadow_atlas.png.import
+?? core/systems/world/world_object_collision_owner.gd
+?? core/systems/world/world_object_collision_owner.gd.uid
+?? core/systems/world/world_render_class_registry.gd
+?? core/systems/world/world_render_class_registry.gd.uid
+?? core/systems/world/world_render_record.gd
+?? core/systems/world/world_render_record.gd.uid
+?? core/systems/world/world_render_visibility.gd
+?? core/systems/world/world_render_visibility.gd.uid
+?? core/systems/world/world_render_world.gd
+?? core/systems/world/world_render_world.gd.uid
+?? core/systems/world/world_resolution_compositor.gd
+?? core/systems/world/world_resolution_compositor.gd.uid
+?? data/world_objects/global_static_render_class_bounds.json
+?? data/world_render/
+?? docs/02_system_specs/world/object_render_world.md
+?? docs/superpowers/plans/2026-08-11-world-render-optimization-completion.md
+?? gdextension/src/world_render_buffer.cpp
+?? gdextension/src/world_render_buffer.h
+?? grep.exe.stackdump
+?? tools/build_world_render_class_pack.py
+?? tools/main_menu_startup_diagnostic.gd
+?? tools/main_menu_startup_diagnostic.gd.uid
+?? tools/multimesh_instance_order_contract.tscn
+?? tools/multimesh_instance_order_contract_test.gd
+?? tools/multimesh_instance_order_contract_test.gd.uid
+?? tools/player_world_render_pixel_contract.tscn
+?? tools/player_world_render_pixel_contract_test.gd
+?? tools/player_world_render_pixel_contract_test.gd.uid
+?? tools/world_render_actor_runtime_smoke_test.gd
+?? tools/world_render_actor_runtime_smoke_test.gd.uid
+?? tools/world_render_iteration2_contract_test.gd
+?? tools/world_render_iteration2_contract_test.gd.uid
+?? tools/world_render_startup_diagnostic.gd
+?? tools/world_render_startup_diagnostic.gd.uid
+?? tools/world_render_tree_actor_overlap.tscn
+?? tools/world_render_tree_actor_overlap_test.gd
+?? tools/world_render_tree_actor_overlap_test.gd.uid
+?? tools/world_runtime_teardown_smoke_test.gd
+?? tools/world_runtime_teardown_smoke_test.gd.uid

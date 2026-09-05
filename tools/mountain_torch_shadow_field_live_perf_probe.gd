@@ -17,9 +17,16 @@ const WorldRuntimeConstants = preload("res://core/systems/world/world_runtime_co
 const DefaultLakeGenSettings = preload("res://data/balance/lake_gen_settings.tres")
 
 const WORLD_SCENE: String = "res://scenes/world/world_runtime_v0.tscn"
+const TARGET_VIEWPORT_SIZE: Vector2i = Vector2i(1920, 1080)
 const MAX_SETTLE_FRAMES: int = 900
 const MEASURE_FRAMES: int = 420
 const PROBE_NIGHT: Color = Color(0.025, 0.028, 0.038)
+const TARGET_CAMERA_ZOOM: float = 0.2
+const MAX_FRAME_P95_MS: float = 1000.0 / 60.0
+const MAX_SINGLE_FRAME_MS: float = 20.0
+const MAX_SHADOW_CPU_P95_MS: float = 2.0
+const MAX_SHADOW_CPU_MS: float = 3.0
+const MIN_COMPOSE_COUNT: int = 4
 
 var _streamer: Node = null
 var _failed: bool = false
@@ -34,9 +41,11 @@ func _run() -> void:
 		push_error("mountain_torch_shadow_field_live_perf_probe: must run windowed")
 		quit(1)
 		return
-	DisplayServer.window_set_size(Vector2i(1280, 720))
+	DisplayServer.window_set_size(TARGET_VIEWPORT_SIZE)
 	DisplayServer.window_set_vsync_mode(DisplayServer.VSYNC_DISABLED)
 	Engine.max_fps = 0
+	root.size = TARGET_VIEWPORT_SIZE
+	root.content_scale_size = TARGET_VIEWPORT_SIZE
 
 	var scene: Node = (load(WORLD_SCENE) as PackedScene).instantiate()
 	root.add_child(scene)
@@ -84,8 +93,8 @@ func _run() -> void:
 	camera.enabled = true
 	camera.position_smoothing_enabled = false
 	camera.set_process(false)
-	camera.zoom = Vector2(1.25, 1.25)
-	camera.set("_target_zoom", 1.25)
+	camera.zoom = Vector2(TARGET_CAMERA_ZOOM, TARGET_CAMERA_ZOOM)
+	camera.set("_target_zoom", TARGET_CAMERA_ZOOM)
 	torch.enabled = true
 
 	await _stream_until_stable()
@@ -148,6 +157,34 @@ func _run() -> void:
 
 	var frame_stats: Dictionary = _stats(frame_samples)
 	var shadow_stats: Dictionary = _stats(shadow_cpu_samples)
+	var final_debug: Dictionary = \
+			_streamer.call("get_mountain_torch_shadow_field_debug_state") as Dictionary
+	_assert(torch.enabled, "real player torch must remain enabled for the whole measurement")
+	_assert(field.visible, "real mountain torch shadow overlay must be visible")
+	_assert(
+		int(final_debug.get("solid_sample_count", 0)) > 0,
+		"stitched real-world mask must contain mountain pixels",
+	)
+	_assert(
+		compose_count >= MIN_COMPOSE_COUNT,
+		"movement must cross enough snapped mask windows; got %d" % compose_count,
+	)
+	_assert(
+		float(frame_stats.get("p95_ms", INF)) <= MAX_FRAME_P95_MS,
+		"torch-on real-world frame P95 exceeded 60 FPS budget: %s" % str(frame_stats),
+	)
+	_assert(
+		float(frame_stats.get("max_ms", INF)) <= MAX_SINGLE_FRAME_MS,
+		"torch-on movement produced a hitch: %s" % str(frame_stats),
+	)
+	_assert(
+		float(shadow_stats.get("p95_ms", INF)) <= MAX_SHADOW_CPU_P95_MS,
+		"torch mask P95 regressed: %s" % str(shadow_stats),
+	)
+	_assert(
+		float(shadow_stats.get("max_ms", INF)) <= MAX_SHADOW_CPU_MS,
+		"torch mask produced a main-thread spike: %s" % str(shadow_stats),
+	)
 	print("mountain_torch_shadow_field_live_perf_probe results:")
 	print("frames avg_ms=%.3f p95_ms=%.3f max_ms=%.3f fps_avg=%.1f" % [
 		float(frame_stats.get("avg_ms", 0.0)),

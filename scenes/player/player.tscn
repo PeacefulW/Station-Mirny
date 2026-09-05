@@ -1,8 +1,7 @@
 [gd_scene format=3 uid="uid://du5ikqcjmp801"]
 
 [ext_resource type="Script" uid="uid://b8uotp6a5w0dw" path="res://core/entities/player/player.gd" id="1_player"]
-[ext_resource type="Texture2D" path="res://assets/sprites/player/player_run_forward_16dir_16frames.png" id="2_75vfm"]
-[ext_resource type="Texture2D" path="res://assets/sprites/player/player_idle_16dir_16frames.png" id="3_idle"]
+[ext_resource type="Texture2D" path="res://assets/sprites/world_render/actors/player_body.png" id="2_body_pack"]
 [ext_resource type="Script" uid="uid://ofyy3tbmieis" path="res://core/systems/survival/oxygen_system.gd" id="2_oxygen"]
 [ext_resource type="Script" uid="uid://cfm8rii3bfdq3" path="res://core/entities/components/health_component.gd" id="3_health"]
 [ext_resource type="Resource" path="res://data/balance/survival_balance.tres" id="4_survbal"]
@@ -11,17 +10,60 @@
 [ext_resource type="Script" path="res://core/entities/player/player_torch.gd" id="12_torch"]
 [ext_resource type="Script" path="res://core/entities/player/player_helmet_lamps.gd" id="13_lamps"]
 [ext_resource type="Script" path="res://core/entities/player/player_camera.gd" id="7_camera"]
-[ext_resource type="Texture2D" path="res://assets/sprites/player/player_run_backward_16dir_16frames.png" id="8_back"]
-[ext_resource type="Texture2D" path="res://assets/sprites/player/player_strafe_left_16dir_16frames.png" id="9_left"]
-[ext_resource type="Texture2D" path="res://assets/sprites/player/player_strafe_right_16dir_16frames.png" id="10_right"]
 [ext_resource type="Script" path="res://core/entities/player/player_sun_shadow.gd" id="11_shadow"]
-[ext_resource type="Texture2D" path="res://assets/sprites/player/player_idle_shadow_16dir_16frames.png" id="14_shadow_idle"]
-[ext_resource type="Texture2D" path="res://assets/sprites/player/player_run_forward_shadow_16dir_16frames.png" id="15_shadow_forward"]
-[ext_resource type="Texture2D" path="res://assets/sprites/player/player_run_backward_shadow_16dir_16frames.png" id="16_shadow_backward"]
-[ext_resource type="Texture2D" path="res://assets/sprites/player/player_strafe_left_shadow_16dir_16frames.png" id="17_shadow_left"]
-[ext_resource type="Texture2D" path="res://assets/sprites/player/player_strafe_right_shadow_16dir_16frames.png" id="18_shadow_right"]
+[ext_resource type="Texture2D" path="res://assets/sprites/world_render/actors/player_shadow.png" id="14_shadow_pack"]
 [ext_resource type="Script" path="res://core/entities/components/player_exposure_component.gd" id="19_exposure"]
 [ext_resource type="Resource" path="res://data/balance/player_exposure_balance.tres" id="20_exposure_balance"]
+
+[sub_resource type="AtlasTexture" id="body_idle"]
+atlas = ExtResource("2_body_pack")
+region = Rect2(0, 0, 3328, 4608)
+filter_clip = true
+
+[sub_resource type="AtlasTexture" id="body_forward"]
+atlas = ExtResource("2_body_pack")
+region = Rect2(3328, 0, 3328, 4608)
+filter_clip = true
+
+[sub_resource type="AtlasTexture" id="body_backward"]
+atlas = ExtResource("2_body_pack")
+region = Rect2(6656, 0, 3328, 4608)
+filter_clip = true
+
+[sub_resource type="AtlasTexture" id="body_left"]
+atlas = ExtResource("2_body_pack")
+region = Rect2(0, 4608, 3328, 4608)
+filter_clip = true
+
+[sub_resource type="AtlasTexture" id="body_right"]
+atlas = ExtResource("2_body_pack")
+region = Rect2(3328, 4608, 3328, 4608)
+filter_clip = true
+
+[sub_resource type="AtlasTexture" id="shadow_idle"]
+atlas = ExtResource("14_shadow_pack")
+region = Rect2(0, 0, 1216, 768)
+filter_clip = true
+
+[sub_resource type="AtlasTexture" id="shadow_forward"]
+atlas = ExtResource("14_shadow_pack")
+region = Rect2(1216, 0, 1216, 768)
+filter_clip = true
+
+[sub_resource type="AtlasTexture" id="shadow_backward"]
+atlas = ExtResource("14_shadow_pack")
+region = Rect2(2432, 0, 1216, 768)
+filter_clip = true
+
+[sub_resource type="AtlasTexture" id="shadow_left"]
+atlas = ExtResource("14_shadow_pack")
+region = Rect2(0, 768, 1216, 768)
+filter_clip = true
+
+[sub_resource type="AtlasTexture" id="shadow_right"]
+atlas = ExtResource("14_shadow_pack")
+region = Rect2(1216, 768, 1216, 768)
+filter_clip = true
 
 [sub_resource type="RectangleShape2D" id="player_shape"]
 size = Vector2(24, 16)
@@ -34,37 +76,37 @@ z_index = 6
 collision_mask = 6
 script = ExtResource("1_player")
 balance = ExtResource("6_player_balance")
-idle_visual_texture = ExtResource("3_idle")
-run_forward_visual_texture = ExtResource("2_75vfm")
-run_backward_visual_texture = ExtResource("8_back")
-strafe_left_visual_texture = ExtResource("9_left")
-strafe_right_visual_texture = ExtResource("10_right")
+idle_visual_texture = SubResource("body_idle")
+run_forward_visual_texture = SubResource("body_forward")
+run_backward_visual_texture = SubResource("body_backward")
+strafe_left_visual_texture = SubResource("body_left")
+strafe_right_visual_texture = SubResource("body_right")
 
 [node name="SunShadow" type="Sprite2D" parent="."]
 z_index = 19
 z_as_relative = false
 position = Vector2(0, 21.6384)
 scale = Vector2(1.2, 1.2)
-texture = ExtResource("15_shadow_forward")
+texture = SubResource("shadow_forward")
 region_enabled = true
 region_rect = Rect2(0, 0, 76, 48)
 region_filter_clip_enabled = true
 offset = Vector2(12, 10)
 script = ExtResource("11_shadow")
-idle_albedo_texture = ExtResource("3_idle")
-run_forward_albedo_texture = ExtResource("2_75vfm")
-run_backward_albedo_texture = ExtResource("8_back")
-strafe_left_albedo_texture = ExtResource("9_left")
-strafe_right_albedo_texture = ExtResource("10_right")
-idle_shadow_texture = ExtResource("14_shadow_idle")
-run_forward_shadow_texture = ExtResource("15_shadow_forward")
-run_backward_shadow_texture = ExtResource("16_shadow_backward")
-strafe_left_shadow_texture = ExtResource("17_shadow_left")
-strafe_right_shadow_texture = ExtResource("18_shadow_right")
+idle_albedo_texture = SubResource("body_idle")
+run_forward_albedo_texture = SubResource("body_forward")
+run_backward_albedo_texture = SubResource("body_backward")
+strafe_left_albedo_texture = SubResource("body_left")
+strafe_right_albedo_texture = SubResource("body_right")
+idle_shadow_texture = SubResource("shadow_idle")
+run_forward_shadow_texture = SubResource("shadow_forward")
+run_backward_shadow_texture = SubResource("shadow_backward")
+strafe_left_shadow_texture = SubResource("shadow_left")
+strafe_right_shadow_texture = SubResource("shadow_right")
 
 [node name="Visual" type="Sprite2D" parent="." unique_id=997961818]
 scale = Vector2(0.3, 0.3)
-texture = ExtResource("2_75vfm")
+texture = SubResource("body_forward")
 region_enabled = true
 region_rect = Rect2(0, 0, 208, 288)
 offset = Vector2(0, -16)
@@ -76,8 +118,6 @@ shape = SubResource("player_shape")
 [node name="Camera2D" type="Camera2D" parent="." unique_id=1547136717]
 script = ExtResource("7_camera")
 zoom = Vector2(1.0, 1.0)
-position_smoothing_enabled = true
-position_smoothing_speed = 10.0
 
 [node name="OxygenSystem" type="Node" parent="." unique_id=1241461731]
 script = ExtResource("2_oxygen")

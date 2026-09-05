@@ -74,7 +74,14 @@ func apply_graphics() -> void:
 	DisplayServer.window_set_vsync_mode(
 		DisplayServer.VSYNC_ENABLED if vsync else DisplayServer.VSYNC_DISABLED
 	)
-	get_tree().root.content_scale_factor = ui_scale
+	# UI scale must not change the world's logical viewport. Applying it to the
+	# root Window scaled Camera2D, the postprocess CanvasLayer and streaming FOV
+	# together; embedded play at ui_scale=0.9 then rendered only a 90% rectangle
+	# and exposed terrain holes outside the residency envelope. ThemeDB is the
+	# Control-only global scale intended for interface themes and leaves every
+	# world-space CanvasItem at the physical viewport size.
+	get_tree().root.content_scale_factor = 1.0
+	ThemeDB.fallback_base_scale = clampf(ui_scale, 0.5, 2.0)
 
 func apply_audio() -> void:
 	_set_bus_volume("Master", volume_master)

@@ -4,8 +4,8 @@ doc_type: system_spec
 status: approved
 source_of_truth: true
 owner: engineering+art
-version: 1.9
-last_updated: 2026-07-29
+version: 2.1
+last_updated: 2026-09-05
 related_docs:
   - ../../05_adrs/0005-light-is-gameplay-system.md
   - ../../05_adrs/0001-runtime-work-and-dirty-update-foundation.md
@@ -270,18 +270,32 @@ Two owners, deliberately split:
 
 ### Object projected-shadow reception
 
-Tree silhouette shadows use two coordinated presentation paths. Their ordinary
-CanvasItem remains in the caster's feet stripe at the shared ground-shadow
-channel, which keeps every tree/bush/player body above a northern caster's
-shadow. In parallel, `WorldHeightShadowField` renders those already-batched
-tree shadow items into a half-resolution, camera-aligned alpha mask using a
-reserved Canvas visibility layer. Low receiver materials (grass and small
-rocks) sample that mask and apply it only when the tree caster height tier
-exceeds their receiver tier. Height, strength, tint, and mask resolution are
-authored in
-`data/world_objects/presentation_profiles/world_height_shadow_profile.tres`.
-This resolves shadow-on-grass/stone without a global cast-shadow z, per-object
-nodes, CPU overlap checks, or changes to gameplay lighting authority.
+Tree silhouette shadows are ordinary records of the fixed `shadow` pass. They
+are sorted by the global painter tuple `(feet_y, semantic_layer, stable_id)` and
+published by `WorldRenderWorld` into the shared `object_shadow_buffer`, which
+keeps every tree/bush/player body above a northern caster's shadow. There is no
+separate receiver mask: shadow ordering is resolved by the same painter as the
+bodies, so shadow-on-grass/stone needs no global cast-shadow z, no per-object
+node, no CPU overlap check, and no change to gameplay lighting authority.
+
+The fixed shadow material preserves the authored actor-shadow RGB (the current
+Player atlas uses `15, 11, 7`) and the static silhouettes' transverse three-tap
+alpha filter with weights `0.50 / 0.25 / 0.25`. Object softness follows the
+shared visual lighting profile, from `0.75` to `7.0` source texels as the sun
+lowers. The registry derives conservative source-crop padding from each
+descriptor's shadow frame dimensions and that maximum filter radius plus one
+bilinear-support texel before native directional stretching. The material still
+uses four texture samplers; restoring the static filter adds two texture reads
+on that branch, so its final GPU timing and visual result require fresh capture.
+The shared pass remains light-aware; preservation of authored RGB alone is not
+a claim of pixel identity with the former unshaded Player fallback.
+
+> **Retired (2026-08-11).** The former tall-caster receiver path —
+> `WorldHeightShadowField`, `WorldHeightShadowProfile`,
+> `world_height_shadow_profile.tres`, `world_height_shadow_receiver.gdshaderinc`
+> and its reserved Canvas visibility layer — was removed together with its
+> debug counter. Height-tier receiver comparison no longer exists in any form.
+> See `object_render_world.md` and `world_runtime.md`.
 
 ## Out of Scope
 - Gameplay visibility authority (fauna/stress/sanctuary) — separate ADR-0005 contract.

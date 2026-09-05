@@ -26,7 +26,7 @@ const MAX_EVENT_RECORDS: int = 64
 const CAPTURE_TAINT_FRAMES: int = 3
 const RENDER_MEASUREMENT_WARMUP_FRAMES: int = 3
 const INVALID_TASK_ID: int = -1
-const TRACE_STRIDE: int = 57
+const TRACE_STRIDE: int = 60
 
 const TRACE_COLUMNS: Array[String] = [
 	"frame",
@@ -75,6 +75,9 @@ const TRACE_COLUMNS: Array[String] = [
 	"object_upload_ms",
 	"grass_upload_ms",
 	"mountain_visual_ms",
+	"torch_enabled",
+	"torch_shadow_cpu_ms",
+	"torch_shadow_upload_ms",
 	"capture_tainted",
 	"postprocess_enabled",
 	"warm_packet_cache",
@@ -98,6 +101,8 @@ const LIVE_OP_KEYS: Dictionary = {
 	"object_upload_ms": "FrameBudgetDispatcher.streaming.world.object_presentation_visual_upload",
 	"grass_upload_ms": "FrameBudgetDispatcher.streaming.world.grass_scatter_visual_upload",
 	"mountain_visual_ms": "FrameBudgetDispatcher.visual.world.mountain_native_mask_visual_upload",
+	"torch_shadow_cpu_ms": "WorldStreamer.torch_shadow_field.mask",
+	"torch_shadow_upload_ms": "MountainTorchShadowField.texture_upload",
 }
 
 var _streamer: Node = null
@@ -343,12 +348,15 @@ func _record_frame(delta: float) -> void:
 	var player_position: Vector2 = Vector2.ZERO
 	var player_velocity: Vector2 = Vector2.ZERO
 	var camera_zoom: float = 0.0
+	var torch_enabled: bool = false
 	if player != null:
 		player_position = player.global_position
 		player_velocity = player.velocity
 		var camera: Camera2D = player.get_node_or_null("Camera2D") as Camera2D
 		if camera != null:
 			camera_zoom = camera.zoom.x
+		var torch: PointLight2D = player.get_node_or_null("Torch") as PointLight2D
+		torch_enabled = torch != null and torch.enabled
 
 	var player_chunk: Vector2i = _context_snapshot.get(
 		"player_chunk",
@@ -409,6 +417,9 @@ func _record_frame(delta: float) -> void:
 		_get_live_op(frame_ops, "object_upload_ms"),
 		_get_live_op(frame_ops, "grass_upload_ms"),
 		_get_live_op(frame_ops, "mountain_visual_ms"),
+		1.0 if torch_enabled else 0.0,
+		_get_live_op(frame_ops, "torch_shadow_cpu_ms"),
+		_get_live_op(frame_ops, "torch_shadow_upload_ms"),
 		1.0 if tainted else 0.0,
 		1.0 if _is_postprocess_enabled() else 0.0,
 		float(_context_snapshot.get("warm_packet_cache", 0)),

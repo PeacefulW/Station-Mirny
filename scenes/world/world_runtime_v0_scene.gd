@@ -17,16 +17,12 @@ var _player_process_mode_before_loading: int = Node.PROCESS_MODE_INHERIT
 
 @onready var _world_streamer: WorldStreamer = $WorldStreamer as WorldStreamer
 @onready var _player: Player = $Player as Player
-@onready var _height_shadow_field: WorldHeightShadowField = (
-	$WorldHeightShadowField as WorldHeightShadowField
-)
 @onready var _postprocess_overlay: Node = $PostProcessLayer/PostProcessOverlay
 @onready var _hud_manager: HudManager = $HudLayer/HudManager as HudManager
 
 
 func _ready() -> void:
 	_show_initial_loading_screen()
-	_world_streamer.bind_height_shadow_field(_height_shadow_field)
 	_performance_recorder = PerformanceFlightRecorderScript.new() as PerformanceFlightRecorder
 	add_child(_performance_recorder)
 	_performance_recorder.setup(_world_streamer, _postprocess_overlay)

@@ -3,6 +3,7 @@
 #include "world_utils.h"
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <vector>
 
@@ -135,6 +136,124 @@ struct FieldSample {
 	float grass_density = 0.0f;
 	float orange_region = 0.0f;
 };
+
+constexpr int32_t VISUAL_FIELD_CELLS_PER_CHUNK = 32;
+constexpr int32_t VISUAL_FIELD_GRID_NODES = VISUAL_FIELD_CELLS_PER_CHUNK + 1;
+constexpr int32_t VISUAL_FIELD_CHANNELS = 4;
+constexpr int32_t VISUAL_FIELD_TEXTURE_COUNT = 4;
+
+struct VisualFieldSample {
+	std::array<float, VISUAL_FIELD_TEXTURE_COUNT * VISUAL_FIELD_CHANNELS> value{};
+};
+
+VisualFieldSample sample_visual_fields(float p_world_x, float p_world_y, const float *p_params) {
+	const Vec2 wp = { p_world_x, p_world_y };
+	const float warp_x = fbm2({ wp.x / 1800.0f + 11.7f, wp.y / 1800.0f - 4.3f }) - 0.5f;
+	const float warp_y = fbm2({ wp.x / 1650.0f - 7.9f, wp.y / 1650.0f + 23.1f }) - 0.5f;
+	const float jitter_x = fbm2({ wp.x / 420.0f + 53.0f, wp.y / 420.0f + 19.0f }) - 0.5f;
+	const float jitter_y = fbm2({ wp.x / 390.0f - 22.0f, wp.y / 390.0f + 67.0f }) - 0.5f;
+	const Vec2 organic = {
+		wp.x + warp_x * 660.0f + jitter_x * 170.0f,
+		wp.y + warp_y * 660.0f + jitter_y * 170.0f,
+	};
+
+	const float macro_world_scale = std::max(p_params[PARAM_MACRO_WORLD_SCALE_PX], 1.0f);
+	const float top_macro = fbm2({ wp.x / macro_world_scale + 0.11f, wp.y / macro_world_scale + 0.53f });
+	const float face_macro = fbm2({
+		wp.x / macro_world_scale * 0.84f + 0.23f,
+		wp.y / macro_world_scale * 1.16f + 0.61f,
+	});
+	const float soil_scale = std::max(p_params[PARAM_SOIL_FIELD_SCALE_PX], 1.0f);
+	const float soil_field = fbm2({ organic.x / soil_scale + 31.0f, organic.y / soil_scale + 5.0f });
+	const float grass_scale = std::max(p_params[PARAM_GRASS_FIELD_SCALE_PX], 1.0f);
+	float grass_field = remap_contrast(
+			fbm3({ organic.x / grass_scale + 4.7f, organic.y / grass_scale + 13.9f }), 2.10f);
+	const float macro_mass_scale = std::max(p_params[PARAM_MACRO_MASS_SCALE_PX], 1.0f);
+	const float macro_mass = fbm2({ wp.x / macro_mass_scale + 91.7f, wp.y / macro_mass_scale - 53.3f });
+	const float macro_bias = (macro_mass - 0.5f) * 2.0f * p_params[PARAM_MACRO_MASS_STRENGTH];
+	grass_field = clamp01(grass_field + (p_params[PARAM_GRASS_COVERAGE] - 0.5f) * 0.9f + macro_bias);
+	const float orange_scale = std::max(p_params[PARAM_ORANGE_FIELD_SCALE_PX], 1.0f);
+	const float orange_field = remap_contrast(
+			fbm3({ organic.x / orange_scale - 27.3f, organic.y / orange_scale + 8.1f }), 1.30f);
+	const float rock_scale = std::max(p_params[PARAM_ROCK_FIELD_SCALE_PX], 1.0f);
+	const float rock_field = fbm3({ organic.x / rock_scale + 15.5f, organic.y / rock_scale - 31.7f });
+	const float rock_mix = fbm2({ organic.x / 820.0f + 9.0f, organic.y / 820.0f + 47.0f });
+	const float path_open = sample_path(
+		p_world_x,
+		p_world_y,
+		p_params[PARAM_PATH_SCALE_PX],
+		p_params[PARAM_PATH_WIDTH],
+		p_params[PARAM_PATH_WARP_PX],
+		p_params[PARAM_PATH_STRENGTH]);
+	const float edge_scale = std::max(p_params[PARAM_EDGE_MOTTLE_SCALE_PX], 1.0f);
+	const float edge_field = fbm2({ wp.x / edge_scale + 37.0f, wp.y / edge_scale + 71.0f });
+	const float scree_scale = std::max(p_params[PARAM_SCREE_FIELD_SCALE_PX], 1.0f);
+	const float scree_field = fbm2({ wp.x / scree_scale + 61.7f, wp.y / scree_scale + 28.3f });
+	const float drift_scale = std::max(p_params[PARAM_MACRO_DRIFT_SCALE_PX], 1.0f);
+	const float drift = fbm2({ wp.x / drift_scale + 3.1f, wp.y / drift_scale - 8.7f });
+	const float shade_scale = std::max(p_params[PARAM_SHADE_SCALE_PX], 1.0f);
+	const float shade = fbm2({ wp.x / shade_scale + 5.9f, wp.y / shade_scale + 21.7f });
+	const float grass_macro_scale = std::max(
+			p_params[PARAM_GRASS_MACRO_FIELD_SCALE_PX], 1.0f);
+	const float grass_warm = gradient_noise({
+			wp.x / grass_macro_scale + 13.1f,
+			wp.y / grass_macro_scale + 7.7f,
+	});
+	const float grass_dry = gradient_noise({
+			wp.x / grass_macro_scale * 1.37f - 21.0f,
+			wp.y / grass_macro_scale * 1.37f + 4.3f,
+	});
+	const float grass_local_dir_scale = std::max(
+			p_params[PARAM_GRASS_LOCAL_DIR_FIELD_SCALE_PX], 1.0f);
+	const float grass_local_dir = gradient_noise({
+			wp.x / grass_local_dir_scale + 53.2f,
+			wp.y / grass_local_dir_scale + 11.7f,
+	});
+
+	VisualFieldSample sample;
+	sample.value = {
+		top_macro, face_macro, soil_field, grass_field,
+		orange_field, rock_field, rock_mix, path_open,
+		edge_field, scree_field, drift, shade,
+		grass_warm, grass_dry, grass_local_dir, 0.0f,
+	};
+	return sample;
+}
+
+uint8_t quantize_unorm8(float p_value) {
+	return static_cast<uint8_t>(std::lround(clamp01(p_value) * 255.0f));
+}
+
+void build_visual_field_tiles(
+		double p_chunk_origin_x,
+		double p_chunk_origin_y,
+		float p_chunk_size_px,
+		const float *p_params,
+		std::array<PackedByteArray, VISUAL_FIELD_TEXTURE_COUNT> &r_tiles) {
+	const int64_t pixel_count = static_cast<int64_t>(VISUAL_FIELD_GRID_NODES) * VISUAL_FIELD_GRID_NODES;
+	for (PackedByteArray &tile : r_tiles) {
+		tile.resize(pixel_count * VISUAL_FIELD_CHANNELS);
+	}
+	std::array<uint8_t *, VISUAL_FIELD_TEXTURE_COUNT> outputs{};
+	for (int32_t texture_index = 0; texture_index < VISUAL_FIELD_TEXTURE_COUNT; ++texture_index) {
+		outputs[texture_index] = r_tiles[texture_index].ptrw();
+	}
+	const float step_px = p_chunk_size_px / static_cast<float>(VISUAL_FIELD_CELLS_PER_CHUNK);
+	for (int32_t node_y = 0; node_y < VISUAL_FIELD_GRID_NODES; ++node_y) {
+		for (int32_t node_x = 0; node_x < VISUAL_FIELD_GRID_NODES; ++node_x) {
+			const float world_x = static_cast<float>(p_chunk_origin_x) + static_cast<float>(node_x) * step_px;
+			const float world_y = static_cast<float>(p_chunk_origin_y) + static_cast<float>(node_y) * step_px;
+			const VisualFieldSample sample = sample_visual_fields(world_x, world_y, p_params);
+			const int64_t pixel_offset = (static_cast<int64_t>(node_y) * VISUAL_FIELD_GRID_NODES + node_x) * VISUAL_FIELD_CHANNELS;
+			for (int32_t texture_index = 0; texture_index < VISUAL_FIELD_TEXTURE_COUNT; ++texture_index) {
+				for (int32_t channel = 0; channel < VISUAL_FIELD_CHANNELS; ++channel) {
+					outputs[texture_index][pixel_offset + channel] = quantize_unorm8(
+							sample.value[texture_index * VISUAL_FIELD_CHANNELS + channel]);
+				}
+			}
+		}
+	}
+}
 
 FieldSample sample_fields(float p_world_x, float p_world_y, const float *p_params) {
 	const Vec2 wp = { p_world_x, p_world_y };
@@ -365,6 +484,13 @@ Dictionary build_buffer(
 
 	FieldGrid field_grid;
 	build_field_grid(chunk_origin_x, chunk_origin_y, chunk_size_px, params, field_grid);
+	std::array<PackedByteArray, VISUAL_FIELD_TEXTURE_COUNT> visual_field_tiles;
+	build_visual_field_tiles(
+			chunk_origin_x,
+			chunk_origin_y,
+			chunk_size_px,
+			params,
+			visual_field_tiles);
 
 	const float dry_frame_count = std::max(params[PARAM_DRY_FRAME_COUNT], 1.0f);
 	const float orange_frame_base = std::max(params[PARAM_ORANGE_FRAME_BASE], 0.0f);
@@ -576,6 +702,12 @@ Dictionary build_buffer(
 	result["buffer_float_count"] = buffer_float_count;
 	result["payload_bytes"] = buffer_float_count * static_cast<int64_t>(sizeof(float));
 	result["non_empty_bucket_count"] = non_empty_bucket_count;
+	result["visual_field_grid_nodes"] = VISUAL_FIELD_GRID_NODES;
+	result["visual_field_step_px"] = chunk_size_px / static_cast<float>(VISUAL_FIELD_CELLS_PER_CHUNK);
+	for (int32_t texture_index = 0; texture_index < VISUAL_FIELD_TEXTURE_COUNT; ++texture_index) {
+		result[String("visual_field_") + String::num_int64(texture_index)] = visual_field_tiles[texture_index];
+		result["payload_bytes"] = static_cast<int64_t>(result["payload_bytes"]) + visual_field_tiles[texture_index].size();
+	}
 
 	if (truncated > 0) {
 		result["truncated_count"] = truncated;

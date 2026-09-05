@@ -6,6 +6,7 @@
 #include "mountain_field.h"
 #include "mountain_plateau_raster.h"
 #include "object_presentation_buffer.h"
+#include "world_render_buffer.h"
 #include "world_utils.h"
 
 #include <algorithm>
@@ -2296,6 +2297,125 @@ struct ChunkMacroGroup {
 	std::vector<int32_t> chunk_indices;
 };
 
+struct ShaderVec2 {
+	float x = 0.0f;
+	float y = 0.0f;
+};
+
+float shader_fract(float p_value) {
+	return p_value - std::floor(p_value);
+}
+
+float shader_hash12(ShaderVec2 p) {
+	float x = shader_fract(p.x * 0.1031f);
+	float y = shader_fract(p.y * 0.1031f);
+	float z = shader_fract(p.x * 0.1031f);
+	const float d = x * (y + 33.33f) + y * (z + 33.33f) + z * (x + 33.33f);
+	x += d;
+	y += d;
+	z += d;
+	return shader_fract((x + y) * z);
+}
+
+ShaderVec2 shader_random_gradient(ShaderVec2 p) {
+	float x = shader_hash12(p) * 2.0f - 1.0f;
+	float y = shader_hash12({ p.x + 17.31f, p.y - 41.77f }) * 2.0f - 1.0f;
+	x += 0.001f;
+	y -= 0.001f;
+	const float length = std::sqrt(x * x + y * y);
+	if (length <= 0.000001f) {
+		return { 1.0f, 0.0f };
+	}
+	return { x / length, y / length };
+}
+
+float shader_gradient_noise(ShaderVec2 p) {
+	const float ix = std::floor(p.x);
+	const float iy = std::floor(p.y);
+	const float fx = p.x - ix;
+	const float fy = p.y - iy;
+	auto smoother = [](float v) {
+		return v * v * v * (v * (v * 6.0f - 15.0f) + 10.0f);
+	};
+	const float ux = smoother(fx);
+	const float uy = smoother(fy);
+	const ShaderVec2 a_grad = shader_random_gradient({ ix, iy });
+	const ShaderVec2 b_grad = shader_random_gradient({ ix + 1.0f, iy });
+	const ShaderVec2 c_grad = shader_random_gradient({ ix, iy + 1.0f });
+	const ShaderVec2 d_grad = shader_random_gradient({ ix + 1.0f, iy + 1.0f });
+	const float a = a_grad.x * fx + a_grad.y * fy;
+	const float b = b_grad.x * (fx - 1.0f) + b_grad.y * fy;
+	const float c = c_grad.x * fx + c_grad.y * (fy - 1.0f);
+	const float d = d_grad.x * (fx - 1.0f) + d_grad.y * (fy - 1.0f);
+	const float ab = a + (b - a) * ux;
+	const float cd = c + (d - c) * ux;
+	return std::clamp((ab + (cd - ab) * uy) * 1.42f * 0.5f + 0.5f, 0.0f, 1.0f);
+}
+
+float shader_fbm4(ShaderVec2 p) {
+	float value = 0.0f;
+	float amplitude = 0.56f;
+	float total = 0.0f;
+	for (int32_t octave = 0; octave < 4; ++octave) {
+		value += shader_gradient_noise(p) * amplitude;
+		total += amplitude;
+		p = { p.x * 2.04f + 17.9f, p.y * 2.04f - 23.1f };
+		amplitude *= 0.48f;
+	}
+	return total > 0.0f ? value / total : 0.5f;
+}
+
+float shader_fbm3(ShaderVec2 p) {
+	float value = 0.0f;
+	float amplitude = 0.56f;
+	float total = 0.0f;
+	for (int32_t octave = 0; octave < 3; ++octave) {
+		value += shader_gradient_noise(p) * amplitude;
+		total += amplitude;
+		p = { p.x * 2.07f + 17.1f, p.y * 2.07f - 9.4f };
+		amplitude *= 0.48f;
+	}
+	return total > 0.0f ? value / total : 0.5f;
+}
+
+float smoothstep_float(float p_edge0, float p_edge1, float p_value) {
+	if (p_edge1 <= p_edge0) {
+		return p_value >= p_edge1 ? 1.0f : 0.0f;
+	}
+	const float t = std::clamp((p_value - p_edge0) / (p_edge1 - p_edge0), 0.0f, 1.0f);
+	return t * t * (3.0f - 2.0f * t);
+}
+
+float sample_mask_linear(
+	const godot::PackedByteArray &p_mask,
+	int32_t p_width,
+	int32_t p_height,
+	float p_x,
+	float p_y
+) {
+	if (p_x < -0.5f || p_y < -0.5f || p_x > static_cast<float>(p_width) - 0.5f || p_y > static_cast<float>(p_height) - 0.5f) {
+		return 0.0f;
+	}
+	const float x = std::clamp(p_x, 0.0f, static_cast<float>(p_width - 1));
+	const float y = std::clamp(p_y, 0.0f, static_cast<float>(p_height - 1));
+	const int32_t x0 = static_cast<int32_t>(std::floor(x));
+	const int32_t y0 = static_cast<int32_t>(std::floor(y));
+	const int32_t x1 = std::min(p_width - 1, x0 + 1);
+	const int32_t y1 = std::min(p_height - 1, y0 + 1);
+	const float tx = x - static_cast<float>(x0);
+	const float ty = y - static_cast<float>(y0);
+	auto sample = [&](int32_t sx, int32_t sy) {
+		return static_cast<float>(p_mask[sy * p_width + sx]) / 255.0f;
+	};
+	const float a = sample(x0, y0);
+	const float b = sample(x1, y0);
+	const float c = sample(x0, y1);
+	const float d = sample(x1, y1);
+	const float top = a + (b - a) * tx;
+	const float bottom = c + (d - c) * tx;
+	return smoothstep_float(0.40f, 0.58f, top + (bottom - top) * ty);
+}
+
 } // namespace
 
 struct WorldCore::HierarchicalMacroCache {
@@ -2314,10 +2434,17 @@ void WorldCore::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("make_world_preview_patch_image", "packet", "render_mode"), &WorldCore::make_world_preview_patch_image);
 	ClassDB::bind_method(D_METHOD("build_mountain_contour_debug", "solid_halo", "chunk_size", "tile_size_px"), &WorldCore::build_mountain_contour_debug);
 	ClassDB::bind_method(D_METHOD("build_mountain_halo_mask", "solid_halo", "chunk_size", "tile_size_px", "pixels_per_tile", "origin_world_x", "origin_world_y"), &WorldCore::build_mountain_halo_mask);
+	ClassDB::bind_method(D_METHOD("patch_mountain_halo_mask", "previous_mask", "solid_halo", "chunk_size", "tile_size_px", "pixels_per_tile", "changed_halo_x", "changed_halo_y", "origin_world_x", "origin_world_y"), &WorldCore::patch_mountain_halo_mask);
+	ClassDB::bind_method(D_METHOD("build_mountain_band_field", "mask", "width", "height", "step_px", "origin_world_x", "origin_world_y", "params"), &WorldCore::build_mountain_band_field);
+	ClassDB::bind_method(D_METHOD("build_mountain_noise_field", "width", "height", "step_px", "origin_world_x", "origin_world_y", "channel_params"), &WorldCore::build_mountain_noise_field);
 	ClassDB::bind_method(D_METHOD("build_mountain_skylight_exposure", "closed_roof_mask", "live_mask", "width", "height", "step_px", "reach_samples"), &WorldCore::build_mountain_skylight_exposure);
 	ClassDB::bind_method(D_METHOD("build_chunk_halo_fields", "packets_3x3", "halo_radius_tiles"), &WorldCore::build_chunk_halo_fields);
 	ClassDB::bind_method(D_METHOD("build_grass_scatter_buffer", "seed", "chunk_coord", "terrain_ids", "lake_flags", "mountain_halo", "mountain_halo_radius_tiles", "params"), &WorldCore::build_grass_scatter_buffer);
 	ClassDB::bind_method(D_METHOD("build_object_presentation_buffers", "object_kind", "object_local_x_px_q4", "object_local_y_px_q4", "object_size_px", "object_atlas_index", "object_variant", "object_flags", "object_tint", "object_phase", "tree_metrics", "rock_metrics", "bush_metrics", "params"), &WorldCore::build_object_presentation_buffers);
+	ClassDB::bind_method(D_METHOD("build_world_render_snapshot", "chunk_origins", "object_results", "grass_results", "source_bindings", "grass_lod_fraction"), &WorldCore::build_world_render_snapshot);
+	ClassDB::bind_method(D_METHOD("compose_world_render_actors", "static_snapshot", "actor_records"), &WorldCore::compose_world_render_actors);
+	ClassDB::bind_method(D_METHOD("build_ground_field_snapshot", "chunk_origins", "grass_results"), &WorldCore::build_ground_field_snapshot);
+	ClassDB::bind_method(D_METHOD("build_periodic_gradient_noise_texture", "size", "texels_per_cell"), &WorldCore::build_periodic_gradient_noise_texture);
 	ClassDB::bind_method(D_METHOD("build_mountain_plateau_raster_image", "packets", "target_chunk", "preset", "top_image", "face_image"), &WorldCore::build_mountain_plateau_raster_image);
 	ClassDB::bind_method(D_METHOD("resolve_world_foundation_spawn_tile", "seed", "world_version", "settings_packed"), &WorldCore::resolve_world_foundation_spawn_tile);
 #ifdef DEBUG_ENABLED
@@ -2503,6 +2630,29 @@ Dictionary WorldCore::build_object_presentation_buffers(PackedByteArray p_object
 			p_params);
 }
 
+Dictionary WorldCore::build_world_render_snapshot(PackedVector2Array p_chunk_origins, Array p_object_results, Array p_grass_results, Array p_source_bindings, double p_grass_lod_fraction) {
+	return world_render_buffer::build_snapshot(
+			p_chunk_origins,
+			p_object_results,
+			p_grass_results,
+			p_source_bindings,
+			static_cast<float>(p_grass_lod_fraction));
+}
+
+Dictionary WorldCore::compose_world_render_actors(Dictionary p_static_snapshot, Array p_actor_records) {
+	return world_render_buffer::compose_actor_snapshot(p_static_snapshot, p_actor_records);
+}
+
+Dictionary WorldCore::build_ground_field_snapshot(PackedVector2Array p_chunk_origins, Array p_grass_results) {
+	return world_render_buffer::build_ground_field_snapshot(p_chunk_origins, p_grass_results);
+}
+
+PackedByteArray WorldCore::build_periodic_gradient_noise_texture(int64_t p_size, int64_t p_texels_per_cell) {
+	return world_render_buffer::build_periodic_gradient_noise_texture(
+			static_cast<int32_t>(p_size),
+			static_cast<int32_t>(p_texels_per_cell));
+}
+
 WorldCore::WorldCore() :
 		hierarchical_macro_cache_(std::make_unique<HierarchicalMacroCache>()),
 		world_prepass_snapshot_(std::make_unique<world_prepass::Snapshot>()) {}
@@ -2685,6 +2835,177 @@ Dictionary WorldCore::build_mountain_halo_mask(
 		p_origin_world_x,
 		p_origin_world_y
 	);
+}
+
+Dictionary WorldCore::patch_mountain_halo_mask(
+	PackedByteArray p_previous_mask,
+	PackedByteArray p_solid_halo,
+	int64_t p_chunk_size,
+	int64_t p_tile_size_px,
+	int64_t p_pixels_per_tile,
+	int64_t p_changed_halo_x,
+	int64_t p_changed_halo_y,
+	double p_origin_world_x,
+	double p_origin_world_y
+) {
+	return mountain_contour::patch_halo_mask(
+		p_previous_mask,
+		p_solid_halo,
+		static_cast<int32_t>(p_chunk_size),
+		static_cast<int32_t>(p_tile_size_px),
+		static_cast<int32_t>(p_pixels_per_tile),
+		static_cast<int32_t>(p_changed_halo_x),
+		static_cast<int32_t>(p_changed_halo_y),
+		p_origin_world_x,
+		p_origin_world_y
+	);
+}
+
+PackedByteArray WorldCore::build_mountain_band_field(
+	PackedByteArray p_mask,
+	int64_t p_width,
+	int64_t p_height,
+	double p_step_px,
+	double p_origin_world_x,
+	double p_origin_world_y,
+	PackedFloat32Array p_params
+) {
+	PackedByteArray output;
+	if (p_width <= 0 || p_height <= 0 || p_step_px <= 0.0 || p_params.size() < 4) {
+		return output;
+	}
+	if (p_width > std::numeric_limits<int32_t>::max() / p_height) {
+		return output;
+	}
+	const int64_t pixel_count_i64 = p_width * p_height;
+	if (pixel_count_i64 > std::numeric_limits<int32_t>::max() / 4 || p_mask.size() != pixel_count_i64) {
+		return output;
+	}
+	const int32_t width = static_cast<int32_t>(p_width);
+	const int32_t height = static_cast<int32_t>(p_height);
+	const float step_px = static_cast<float>(p_step_px);
+	const float outer_width_px = std::max(0.0f, p_params[0]);
+	const float outer_variation_px = std::max(0.0f, p_params[1]);
+	const float inner_width_px = std::max(0.0f, p_params[2]);
+	const float footprint_strength = std::clamp(p_params[3], 0.0f, 1.0f);
+	output.resize(static_cast<int32_t>(pixel_count_i64 * 4));
+	uint8_t *write = output.ptrw();
+	constexpr ShaderVec2 directions[8] = {
+		{ 1.0f, 0.0f }, { -1.0f, 0.0f }, { 0.0f, 1.0f }, { 0.0f, -1.0f },
+		{ 0.7071f, 0.7071f }, { -0.7071f, 0.7071f },
+		{ 0.7071f, -0.7071f }, { -0.7071f, -0.7071f },
+	};
+	auto pack = [](float value) {
+		return static_cast<uint8_t>(std::clamp<int32_t>(
+			static_cast<int32_t>(std::lround(std::clamp(value, 0.0f, 1.0f) * 255.0f)),
+			0,
+			255
+		));
+	};
+	for (int32_t y = 0; y < height; ++y) {
+		const float world_y = static_cast<float>(p_origin_world_y) + (static_cast<float>(y) + 0.5f) * step_px;
+		for (int32_t x = 0; x < width; ++x) {
+			const float world_x = static_cast<float>(p_origin_world_x) + (static_cast<float>(x) + 0.5f) * step_px;
+			const ShaderVec2 world = { world_x, world_y };
+			const float solid = sample_mask_linear(p_mask, width, height, static_cast<float>(x), static_cast<float>(y));
+			const float width_field = shader_fbm4({ world.x / 840.0f - 51.0f, world.y / 840.0f + 74.0f });
+			const float width_lobes = smoothstep_float(0.46f, 0.86f, width_field);
+			const float width_breakup = shader_fbm4({ world.x / 310.0f + 103.0f, world.y / 310.0f - 9.0f });
+			const float organic_outer_width_px = outer_width_px + outer_variation_px * width_lobes * (0.68f + (1.0f - 0.68f) * width_breakup);
+			const float outer_texels = std::max(organic_outer_width_px / std::max(step_px, 0.001f), 1.0f);
+			const float inner_texels = std::max(inner_width_px / std::max(step_px, 0.001f), 1.0f);
+			float outer_score = 0.0f;
+			float inner_score = 0.0f;
+			for (int32_t ring = 1; ring <= 5; ++ring) {
+				const float t = static_cast<float>(ring) / 5.0f;
+				const float weight = std::pow(1.0f - t * 0.82f, 1.16f);
+				for (const ShaderVec2 direction : directions) {
+					const float outer_sample = sample_mask_linear(
+						p_mask,
+						width,
+						height,
+						static_cast<float>(x) + direction.x * outer_texels * t,
+						static_cast<float>(y) + direction.y * outer_texels * t
+					);
+					const float inner_sample = sample_mask_linear(
+						p_mask,
+						width,
+						height,
+						static_cast<float>(x) + direction.x * inner_texels * t,
+						static_cast<float>(y) + direction.y * inner_texels * t
+					);
+					outer_score = std::max(outer_score, outer_sample * weight);
+					inner_score = std::max(inner_score, (1.0f - inner_sample) * weight);
+				}
+			}
+			const float outside_band = (1.0f - solid) * outer_score;
+			const float inside_band = solid * inner_score * 0.42f;
+			const float edge_band = std::max(outside_band, inside_band);
+			const float footprint_noise = shader_fbm4({ world.x / 1180.0f + 67.0f, world.y / 1180.0f - 42.0f });
+			const float footprint_fill = solid * footprint_strength * (0.46f + (0.62f - 0.46f) * footprint_noise);
+			const float broad = shader_fbm4({ world.x / 520.0f + 23.0f, world.y / 520.0f - 11.0f });
+			const int32_t out_index = (y * width + x) * 4;
+			write[out_index + 0] = pack(edge_band);
+			write[out_index + 1] = pack(outside_band);
+			write[out_index + 2] = pack(footprint_fill);
+			write[out_index + 3] = pack(broad);
+		}
+	}
+	return output;
+}
+
+PackedByteArray WorldCore::build_mountain_noise_field(
+	int64_t p_width,
+	int64_t p_height,
+	double p_step_px,
+	double p_origin_world_x,
+	double p_origin_world_y,
+	PackedFloat32Array p_channel_params
+) {
+	PackedByteArray output;
+	if (p_width <= 0 || p_height <= 0 || p_step_px <= 0.0 || p_channel_params.size() < 12) {
+		return output;
+	}
+	if (p_width > std::numeric_limits<int32_t>::max() / p_height) {
+		return output;
+	}
+	const int64_t pixel_count_i64 = p_width * p_height;
+	if (pixel_count_i64 > std::numeric_limits<int32_t>::max() / 4) {
+		return output;
+	}
+	const int32_t width = static_cast<int32_t>(p_width);
+	const int32_t height = static_cast<int32_t>(p_height);
+	const float step_px = static_cast<float>(p_step_px);
+	for (int32_t channel = 0; channel < 4; ++channel) {
+		if (p_channel_params[channel * 3] <= 0.0f) {
+			return output;
+		}
+	}
+	output.resize(static_cast<int32_t>(pixel_count_i64 * 4));
+	uint8_t *write = output.ptrw();
+	for (int32_t y = 0; y < height; ++y) {
+		const float world_y = static_cast<float>(p_origin_world_y)
+				+ (static_cast<float>(y) + 0.5f) * step_px;
+		for (int32_t x = 0; x < width; ++x) {
+			const float world_x = static_cast<float>(p_origin_world_x)
+					+ (static_cast<float>(x) + 0.5f) * step_px;
+			const int32_t output_index = (y * width + x) * 4;
+			for (int32_t channel = 0; channel < 4; ++channel) {
+				const int32_t param_index = channel * 3;
+				const float scale_px = p_channel_params[param_index];
+				const float value = shader_fbm3({
+					world_x / scale_px + p_channel_params[param_index + 1],
+					world_y / scale_px + p_channel_params[param_index + 2],
+				});
+				write[output_index + channel] = static_cast<uint8_t>(std::clamp<int32_t>(
+					static_cast<int32_t>(std::lround(value * 255.0f)),
+					0,
+					255
+				));
+			}
+		}
+	}
+	return output;
 }
 
 Dictionary WorldCore::build_mountain_skylight_exposure(

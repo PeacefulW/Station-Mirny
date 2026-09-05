@@ -4,8 +4,8 @@ doc_type: system_spec
 status: draft
 owner: engineering
 source_of_truth: true
-version: 1.13
-last_updated: 2026-08-03
+version: 1.16
+last_updated: 2026-09-05
 related_docs:
   - ../README.md
   - system_api.md
@@ -746,8 +746,10 @@ and `mountain_atlas_indices = 0`.
 Current code notes:
 - `ChunkPacketV1` keeps one hot-path packet per chunk; batch generation returns one packet per requested coord
 - all `object_*` arrays must have identical length; they are native-generated
-  immutable visual object records, consumed by `WorldObjectPacketLayer`, and
-  are not persisted as gameplay object state
+  immutable visual object records. Worker output is consumed by the global
+  `WorldRenderWorld`; only compact tree collision rectangles are consumed by
+  chunk-local `WorldObjectCollisionOwner`. Neither form is persisted gameplay
+  object state
 - the current native boundary requires the full `settings_packed` payload:
   indices `0-8` are mountain settings, and for `world_version >= 9` indices
   `9-14` are `world_width_tiles`, `world_height_tiles`, `ocean_band_tiles`,
@@ -789,8 +791,8 @@ Current code notes:
   selects one of 16 frames (`4x4` grid), `object_atlas_index` is `0`, and
   `object_size_px` is the rendered frame box clamped to `<= 254` (byte quantum;
   larger landmark trees stay clamped rather than extending the packet). It is an
-  immutable generated presentation record consumed by `WorldObjectPacketLayer`
-  on the shared mid-layer depth ladder, not saved gameplay object state. From
+  immutable generated presentation record consumed through the RenderClassRegistry
+  source binding and global painter stream, not saved gameplay object state. From
   Iteration 3 tree trunks expose chunk-scoped static collision on the obstacle
   layer (shape owners on one body per chunk, not one body per tree).
 - For `world_version >= 53`, the native object packet adds `object_kind == 4`
@@ -1316,10 +1318,9 @@ Current contract notes:
   family counters:
   `12 * (tree + rock + bush + spiky + 2 * living) + 4 * tree`, with
   `payload_bytes == buffer_float_count * 4`. Warm-cache admission may use that
-  trusted producer metadata in O(1). Before upload or commit,
-  `WorldObjectPacketLayer` accumulates actual packed-array sizes in the existing
-  phased structural validation and requires exact equality with both fields;
-  ABI drift is rejected, not cached as a committed presentation;
+  trusted producer metadata in O(1). Before publication, the streamer/backend
+  validates actual packed-array sizes and exact equality with both fields;
+  ABI drift is rejected, not cached as a committed render/collision input;
 - `tree_metrics` is a boot-prepared flat record with stride `8`:
   `(frame_width, frame_height, anchor_x, anchor_y, fixed_tree_scale,
   collision_center_x_offset_px, collision_width_px, collision_depth_px)`.
@@ -1363,14 +1364,13 @@ Current contract notes:
   unknown family ids and is rejected by the consumer;
 - the native call runs on a worker-local `WorldCore`. Only after main-thread
   `epoch + revision + catalog_generation` and exact structural validation may
-  `WorldObjectPacketLayer` stage reusable `MultiMesh` buffers and chunk-scoped
-  tree collision shapes. The tree metric/collider ABI revision uses catalog
+  raw family buffers enter the global RenderWorld snapshot and compact collision
+  records enter `WorldObjectCollisionOwner`. No chunk-local visual MultiMesh is
+  created. The tree metric/collider ABI revision uses catalog
   generation `8`; this is derived presentation invalidation, not a canonical
   `world_version` or save-schema change;
-- main-thread flora apply consumes at most the configured number of non-empty
-  raw buffers per scheduler slice, uses pooled stripe slots, and remains hidden
-  in the same atomic object transaction until trees, collisions, both flora
-  families, and small rocks are all staged;
+- main-thread object apply is collision-only and sliced by compact tree records.
+  Static pixels become visible only after an accepted global RenderWorld snapshot;
 - every tree collision record describes one chunk-owned `RectangleShape2D`.
   Its centre X includes the variant-authored offset, while its centre Y is
   derived so `center_y + height * 0.5 == root_y`; the tree depth bucket is
@@ -1387,6 +1387,186 @@ Current contract notes:
   runtime retries the same current revision at most twice with a delay; malformed
   completed payloads follow the same bounded failure path instead of spinning
   the visual queue.
+
+### `WorldRenderActorRecord`
+
+Returned by an explicitly registered visual proxy through
+`get_world_render_record()` and consumed by
+`WorldCore.compose_world_render_actors(static_snapshot, actor_records)`.
+Governing specs: `world_runtime.md` and `player_visual_presentation_v1.md`.
+
+```text
+{
+  "stable_id": int,                       # required, >= 0 and unique among
+                                             # records in the composed snapshot
+  "semantic_layer": int,                  # signed 32-bit; default 20 (actor)
+  "feet_y": float,                        # finite world-space painter Y
+  "body_transform": Transform2D,          # required world-space unit-quad transform
+  "tint": Color,                          # default opaque white
+  "direction_index": int,                 # 0..15, default 0
+  "frame_index": int,                     # 0..15, default 0
+  "sprite_id": int,                       # proxy-local atlas clip id; registry
+                                             # maps it to a descriptor before native
+  "root_transform"?: Transform2D,          # optional producer/debug metadata;
+                                             # native painter uses body_transform
+
+  "shadow_visible": bool,                 # default true
+  "shadow_transform"?: Transform2D,        # required when visible and opacity > 0
+  "shadow_anchor"?: Vector2,               # default (0.5, 0.5)
+  "shadow_opacity"?: float,                # finite, clamped to 0..1; default 1
+  "shadow_softness"?: float,               # finite, clamped to >= 0; default 0.5
+  "shadow_length_scale"?: float,           # finite, clamped to >= 0; default 1
+}
+```
+
+Current contract notes:
+
+- the record is visual-only derived state; it owns no gameplay position,
+  collision, navigation, command, event, save, or replication truth;
+- page ownership is `floor(feet_y / 1024.0)`. The painter key is exactly
+  `(feet_y, semantic_layer, stable_id)` in ascending order. Producers must keep
+  `stable_id` stable and unique so equal-Y results never depend on registration
+  or worker completion order;
+- `body_transform` already includes the authored frame dimensions, Sprite2D
+  global transform, offset, and presentation scale. Native does not inspect a
+  `Node`, atlas image, or scene transform;
+- a non-visible shadow or `shadow_opacity <= 0` omits the actor from the shared
+  shadow buffer and does not require shadow transform/anchor fields;
+- Player `sprite_id` maps the five boot-packed clip regions. Before native
+  composition, `WorldRenderWorld` resolves that local id through
+  `WorldRenderClassRegistry` to descriptor ids `4..8`. The shader frame is
+  `direction_index * 16 + frame_index`; no runtime atlas generation or pixel
+  read occurs.
+
+### `WorldRenderSnapshot`
+
+The static form is returned by
+`WorldCore.build_world_render_snapshot(chunk_origins, object_results, grass_results, source_bindings, grass_lod_fraction)`.
+`source_bindings` comes from the validated `WorldRenderClassRegistry` manifest;
+each entry maps one worker result set/key to a descriptor id, fixed pass mask,
+geometry/painter semantics, baked metrics/crops and independent LOD rules.
+The composed form is returned by
+`WorldCore.compose_world_render_actors(static_snapshot, actor_records)` and is
+the only form published to the active `WorldRenderWorld` GPU bank.
+
+```text
+{
+  "success": bool,
+  "error"?: String,                       # failure result; no usable buffers
+  "pages": Array[Dictionary],             # dense absolute page window
+  "page_window_min_y": int,
+  "page_window_max_y": int,               # -1 when the complete window is empty
+
+  # Every pages[i], with page_y == page_window_min_y + i:
+  {
+    "page_y": int,
+    "ground_buffer": PackedFloat32Array,  # fixed ground pass, 16 floats each
+    "ground_bounds": Rect2,
+    "ground_count": int,
+    "body_buffer": PackedFloat32Array,    # fixed body pass, 16 floats each
+    "body_feet_y": PackedFloat32Array,    # one painter key component per body
+    "body_semantic_layers": PackedInt32Array,
+    "body_stable_ids": PackedInt64Array,
+    "body_bounds": Rect2,
+    "body_instance_count": int,
+    "instance_count": int,                # ground + body
+    "static_instance_count": int,
+    "actor_instance_count"?: int,          # present after actor composition
+    "shadow_buffer": PackedFloat32Array,  # page-local ground shadow pass
+    "shadow_bounds": Rect2,
+    "shadow_count": int,
+    "emissive_buffer": PackedFloat32Array,
+    "emissive_bounds": Rect2,
+    "emissive_count": int,
+    "overhead_buffer": PackedFloat32Array,
+    "overhead_bounds": Rect2,
+    "overhead_count": int,
+  },
+
+  "object_shadow_buffer": PackedFloat32Array, # shared non-ground shadows
+  "object_shadow_bounds": Rect2,
+  "object_shadow_count": int,
+  "world_shadow_count": int,              # page ground + object shadows
+  "spore_buffer": PackedFloat32Array,     # existing 12-float spore instances
+  "spore_bounds": Rect2,
+  "spore_count": int,
+  "instance_count": int,                 # static + composed actors
+  "descriptor_counts": PackedInt32Array, # indexed by descriptor id
+  "source_binding_count": int,
+  "buffer_float_count": int,
+  "render_page_count": int,              # occupied fixed-pass pages
+  "render_page_slot_count": int,         # dense slots, including empty gaps
+  "render_atom_stride_bytes": int,
+  "cpu_render_atom_capacity_bytes": int,
+  "cpu_sort_index_capacity_bytes": int,
+  "cpu_snapshot_working_set_bound_bytes": int,
+
+  # Added/replaced by actor composition:
+  "actor_page_slots": PackedInt32Array,   # touched slot offsets from window min
+  "actor_shadow_buffer": PackedFloat32Array, # one shared 16-float stream
+  "actor_shadow_bounds": Rect2,
+  "actor_shadow_count": int,
+  "actor_count": int,
+
+  # Optional worker/backend envelope:
+  "epoch"?: int,
+  "request_generation"?: int,
+  "chunk_count"?: int,
+  "grass_lod_fraction"?: float,
+  "worker_elapsed_ms"?: int,
+  "request_to_complete_ms"?: int,
+}
+```
+
+The 16-float fixed-pass GPU layout is:
+
+```text
+0..3   = transform row 0 (x.x, y.x, 0, origin.x)
+4..7   = transform row 1 (x.y, y.y, 0, origin.y)
+8..11  = color
+12..15 = custom data
+```
+
+Static body/shadow custom data is `(descriptor_id, atlas_frame, 0,
+shadow_output_height_or_zero)`. Compact ground shadows instead carry their
+already resolved atlas UV rectangle in the four custom floats. Actor body custom
+data is `(descriptor_id, direction * 16 + frame, 0, 0)` and its color is tint.
+Actor-shadow
+color is `(softness, anchor.x, anchor.y, opacity)` and custom data is
+`(descriptor_id, direction * 16 + frame, 0, length_scale)`.
+
+Current snapshot invariants:
+
+- static construction is pure worker/native work over immutable accepted inputs;
+  the result contains no `Node`, `Texture`, `Material`, `Mesh`, `RID`, or other
+  scene/GPU object and is never persisted;
+- the absolute page window is bounded to 17 slots of 1024 world pixels. Empty
+  intermediate pages remain present; a span larger than 17 fails instead of
+  silently re-basing or collapsing painter order;
+- body metadata lengths must equal `body_buffer.size() / 16`. Composition rejects
+  non-finite transforms/painter values, negative ids, invalid frame fields,
+  duplicate absolute static pages, malformed static metadata, and unsorted
+  painter tuples on actor-touched static pages;
+- native composition shallow-copies snapshot/page dictionaries. Untouched static
+  packed arrays retain copy-on-write storage; only actor-touched pages are linearly
+  merged with the sorted actor records, repacked, and listed in `actor_page_slots`.
+  Static records are never re-sorted during actor composition. Each static pass
+  reserves only its actual page record count;
+- all visible actor shadows are packed into one shared bulk buffer. A buffer,
+  `MultiMesh`, or CanvasItem per actor is not part of this schema;
+- non-ground static shadows are packed into one shared object stream; ground
+  shadows remain page-local. The retired tall-caster stream is absent;
+- the native hard caps are 1,048,576 static instances, 4,096 actors and
+  1,048,576 spores. The registry additionally bounds the GPU payload to 320 MiB,
+  RenderAtom storage to 160 MiB, sort indices to 8 MiB, and the native snapshot
+  working-set envelope to 1 GiB;
+- main-thread publication validates every count/stride, uploads at most the
+  caller-selected bounded number of pages per streaming tick, and swaps the
+  complete staging bank atomically. Invalid or stale worker envelopes are
+  rejected and may not poison the current publication token. Actor records are
+  refreshed at commit rather than replayed from the beginning of multi-frame
+  staging. Superseded completions are retired even when demand has returned to
+  the already-active envelope; they do not trigger another upload.
 
 ### `GrassScatterBufferResult`
 
@@ -1408,13 +1588,11 @@ Governing spec:
   "directional_shadow_buffer": PackedFloat32Array,
                                            # exact tuft transforms flattened
                                            # from bucket_buffers by native;
-                                           # 12 floats per instance, used as
-                                           # one fixed-z shadow batch when the
-                                           # authored profile is full LOD
-  "shadow_buffer": PackedFloat32Array,     # contact-shadow blobs under larger
-                                           # tufts (12-float MultiMesh layout),
-                                           # one flat layer below the grass
-                                           # ladder; color.a = blob opacity
+                                           # retained worker compatibility data,
+                                           # not a production RenderWorld input
+  "shadow_buffer": PackedFloat32Array,     # retained contact-shadow compatibility
+                                           # payload; not a production RenderWorld
+                                           # input
   "spore_buffer": PackedFloat32Array,      # sparse glowing motes above strong
                                            # orange_region (12-float layout),
                                            # color = (phase, drift_seed, 0, 1)
@@ -1454,8 +1632,12 @@ Current code notes:
   (`grass_scatter::sample_path`), not through the field grid. New params are
   appended so existing indices stay stable. Governing spec:
   `docs/02_system_specs/world/plains_ground_field_composition.md`
-- the buffer is presentation-only derived data assigned directly to a chunk
-  grass `MultiMesh`; it is never persisted and never enters `ChunkPacketV1`
+- the result is presentation-only derived data; production RenderWorld consumes
+  `bucket_buffers` through the registry's grass source binding and `spore_buffer`
+  through its sparse fixed stream. It is never persisted and never enters
+  `ChunkPacketV1`
+- grass body and directional-shadow alpha crops are generated offline into the
+  render-class registry. Production boot performs no atlas-wide pixel scan
 - the native call executes on a worker-local `WorldCore`; scene objects and GPU
   resources are touched only after the main thread validates `epoch + revision`
 - placement is deterministic for the same seed, chunk, inputs, and params;

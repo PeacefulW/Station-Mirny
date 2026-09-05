@@ -4,8 +4,8 @@ doc_type: system_spec
 status: approved
 owner: engineering
 source_of_truth: true
-version: 2.4
-last_updated: 2026-07-29
+version: 2.8
+last_updated: 2026-09-05
 related_docs:
   - ../../README.md
   - ../../00_governance/WORKFLOW.md
@@ -76,11 +76,16 @@ V0 explicitly does not include:
 - connector requests
 - forward lobe / velocity-biased streaming
 - hidden preload experiments
-- general-purpose or unbounded node reuse pools; the narrow bounded
-  object-presentation envelope pool is authorized by the amendment below
+- general-purpose or unbounded node reuse pools; only the narrow bounded
+  collision-owner lifecycle is retained for loaded tree collision
 - a broad native framework or multi-class native API
 
-### Narrow Visual Object Presentation Amendment
+### Historical Per-Chunk Visual Object Amendment (superseded)
+
+> This section records the retired pre-RenderWorld implementation and is not a
+> production contract. Iteration 2 removed its visual nodes, family MultiMeshes,
+> materials and GPU payload. Production preloads `WorldObjectCollisionOwner`,
+> which retains only chunk-scoped tree collision; `WorldRenderWorld` owns pixels.
 
 `World Object Placement V0` authorizes one narrow exception to the original
 decor/placement exclusion: a `plains`-only generated object presentation layer
@@ -190,24 +195,17 @@ Pooled/cold batch layers read the current catalog season and sun values when
 configured; their compatibility setters update only local visibility/state and
 must never write shared catalog uniforms.
 
-Every layered object cast shadow is registered in the caster's own feet stripe
-at `DEPTH_CHANNEL_GROUND_SHADOW_OFFSET`. The object's base, overlay, and top
-overlay occupy the following shared depth channels. No layered family may use
-an absolute cast-shadow z-index: a northern caster's shadow must remain below
-the body of an object in the same or any more southern stripe.
+In the dormant chunk-local compatibility path, every layered object cast shadow
+is registered in the caster's own feet stripe at
+`DEPTH_CHANNEL_GROUND_SHADOW_OFFSET`. The object's base, overlay, and top overlay
+occupy the following shared depth channels. The production `WorldRenderWorld`
+path is governed by the shared painter amendment below and supersedes this
+legacy per-stripe CanvasItem rule for renderer-active families.
 
-Tall-caster shadow reception is an orthogonal material-height contract, not
-another z ladder. Tree shadow CanvasItems also opt into the reserved
-`WorldHeightShadowProfile.CASTER_VISIBILITY_LAYER`; `WorldHeightShadowField`
-renders only that layer through a half-resolution `SubViewport` sharing the
-current `World2D` and camera canvas transform. Grass and small-rock shared
-materials sample its alpha through `SCREEN_UV` and receive it only when
-`caster_height > receiver_height`. Tree/bush/player materials are not
-receivers. Heights, receiver strengths, tint, and render scale are authored in
-`data/world_objects/presentation_profiles/world_height_shadow_profile.tres`.
-The pass is viewport-bounded, reuses existing MultiMeshes/materials, does no
-per-instance CPU work, and leaves canonical packets, worldgen, gameplay,
-collision, and saves unchanged.
+The historical tall-caster/height-shadow receiver experiment is retired. No
+production node, viewport, material, resource, native buffer, Variant payload,
+visibility layer or debug accounting remains. Directional shadows are ordinary
+fixed-pass RenderWorld records selected by descriptor/pass semantics and LOD.
 
 Only approved tree trunks expose collision in the current proof. Their collision
 must be chunk-scoped through one `StaticBody2D` with shape owners per loaded
@@ -241,6 +239,110 @@ asset directories selected by `object_variant`, expose no collision, use no
 wind mask, and stretch their baked sun shadow at low sun using the same fixed
 direction rule as layered trees.
 
+### Shared RenderWorld Painter Amendment (2026-08-11)
+
+The production visual path has one presentation owner: `WorldRenderWorld`.
+Canonical chunk packets, runtime diffs, tree collision ownership, walkability,
+and save data are unchanged. `WorldStreamer` still schedules and validates those
+domains; it publishes their immutable, already accepted presentation inputs to
+the renderer instead of letting each chunk or actor own an independent draw
+ladder.
+
+Static objects and registered interactive visual proxies share the canonical
+painter tuple `(feet_y, semantic_layer, stable_id)`. Native composition sorts
+that tuple in ascending order and produces 1024-pixel-high absolute render
+pages. The active window is dense from `page_window_min_y` through
+`page_window_max_y`, including empty Y gaps, and is bounded to 17 slots. A slot
+therefore maps to `Z_RENDER_BODY_PAGE_BASE + (page_y - page_window_min_y)`;
+missing pages and a crossing at a 1024-pixel boundary cannot collapse or invert
+world order. Equal feet Y is resolved by semantic layer and then stable id, not
+by scene sibling order or incidental worker completion order.
+
+`WorldRenderClassRegistry` is the boot-time data owner for fixed pass semantics,
+descriptor/variant LUTs, atlas channels, generic native source bindings and hard
+bounds. Production uses five fixed passes (`ground`, `body`, `shadow`,
+`emissive`, `overhead`) and six fixed materials including sparse spores. A new
+family changes registry data/assets; it does not add a family shader, sampler
+bank, source-code branch or CanvasItem graph.
+
+`Player` implements the same visual-proxy protocol intended for future actors:
+it explicitly registers through `WorldStreamer`, provides prepared body/shadow
+atlas sources and one current render record, and accepts renderer activation.
+`WorldRenderWorld` keeps weak references only and performs O(visible actors)
+record reads; it never scans the scene tree. The gameplay `CharacterBody2D` and
+collision remain independent. The legacy body and sun-shadow Sprite2D nodes are
+fallback/state holders and become hidden only after a valid composed snapshot
+has been published, preserving startup and failure fallback without double
+drawing.
+
+Static render-record construction is background/native work over the registry's
+generic `source_bindings`. Interactive actor
+composition shallow-copies snapshot/page dictionaries, reuses immutable packed
+static buffers by copy-on-write, and repacks only actor-touched pages. Static
+body metadata is already sorted by the painter tuple; actor composition validates
+that order and linearly merges the two sorted streams directly into their final
+packed arrays. It does not copy static bodies into sortable intermediate records
+or sort those bodies again on each actor update. Background snapshot packing
+reserves each pass from its actual page count rather than reserving every pass
+for every page atom. Main-thread
+publication is bounded and uses one bulk body buffer per touched page plus one
+shared actor-shadow buffer. Static non-ground shadows use one shared
+`object_shadow_buffer`; ground shadows stay page-local for fixed ground ordering.
+A per-family or per-actor `MultiMesh`, CanvasItem, or buffer split is forbidden.
+
+Static bank staging may span several frames. Immediately before its atomic
+commit, `WorldRenderWorld` composes the current registered actor records again
+and refreshes the old/new actor-touched body pages and shared actor-shadow buffer.
+An actor pose captured at staging start may not reappear at commit; a proxy
+unregistered during staging may not be resurrected by that bank. If actors expand
+the absolute page window, static pass z slots follow the resulting page origin.
+Validation precedes hiding the old complete bank.
+
+An unchanged active input envelope does not bypass completed worker-token
+retirement in `WorldStreamer`: short backtracking can make an inflight snapshot
+obsolete while restoring the active bank. Its completion is consumed and its
+inflight state released without a replacement upload or terrain-lane reservation.
+Epoch/generation checks still prevent another request's completion from releasing
+the current token.
+
+Completed chunk collision owners remain hot-cache eligible while they contain
+tree shapes. Shape presence represents retained collision resources, not an
+unfinished retirement transaction; beginning retirement clears completion before
+bounded shape removal. Hot-cache visibility and collision activation remain
+controlled by the existing reveal guard.
+
+The global Canvas pass order is explicit and strictly increasing:
+
+- world directional shadows: `Z_WORLD_SHADOW = 18`;
+- mountain page, torch shadow, top, and roof: `19..22`;
+- actor shadow: `Z_ACTOR_SHADOW = 23`;
+- dense body-page slots: `Z_RENDER_BODY_PAGE_BASE = 24` through `40`;
+- emissive pass pages: `Z_RENDER_EMISSIVE_PAGE_BASE = 260` plus the page index;
+- airborne spore presentation: `Z_GRASS_SPORE = 290`;
+- overhead pass pages: `Z_RENDER_OVERHEAD_PAGE_BASE = 300` plus the page index;
+- interaction feedback and final debug overlays: `Z_MINING_FEEDBACK = 320` and
+  `Z_DEBUG_OVERLAY = 350`.
+
+`Z_MID_LADDER_BASE` is an alias of `Z_RENDER_BODY_PAGE_BASE`: the mid-ladder and
+the dense body pages are the same slot range, not two independent ladders. The
+emissive and overhead page windows are reserved by their bases plus the render
+page-slot count, so no new world pass may claim a z inside `260..316`.
+
+No two adjacent semantic passes may depend on equal-z insertion order. At render
+scale `1.0`, the world-resolution compositor bypasses the auxiliary viewport and
+fullscreen blit: world pixels route directly through the main viewport, the
+`SubViewport` is disabled and the composite layer is hidden. Sub-native scales
+enable the bounded-resolution viewport. Render-time collection defaults off and
+is instrumentation-only. During teardown, viewport textures are detached and
+temporary resources are released; the compositor may not retain canvas-parent
+connections or rendering resources after the world exits.
+
+World-space fullscreen overlays derive their quad from the logical viewport
+`get_visible_rect()` transformed through the inverse canvas transform. Physical
+window pixels may not be combined with a logical stretch transform. This keeps
+cloud/rain/torch overlays covering resized windows at native and sub-native render
+scales without changing camera zoom or streaming demand.
+
 ## Law 0 Classification
 
 | Question | V0 answer |
@@ -249,9 +351,9 @@ direction rule as layered trees.
 | Save/load required? | Yes, for per-chunk tile overrides only |
 | Deterministic? | Yes, base packet is pure `f(seed, coord, world_version)` |
 | Must work on unloaded chunks? | Yes, diff store remains authoritative when a chunk is not loaded |
-| C++ compute or main-thread apply? | Canonical generation and transient object/grass buffer packing in C++ workers; bounded scene/GPU/physics apply on the main thread only |
-| Dirty unit | `16 x 16` chunk for generation, one tile for authoritative mutation, one chunk object packet for visual object placement, bounded local visual patch for adjacency-dependent terrain presentation, bounded cell batches for publish |
-| Single owner | `WorldCore` owns canonical base output; `WorldDiffStore` owns persisted overrides; `WorldStreamer` owns streaming/presentation scheduling, caches, pool, and retirement; `ChunkView` owns chunk terrain and the adopted reveal/collision reference |
+| C++ compute or main-thread apply? | Canonical generation, static render-record construction, and transient object/grass buffer packing in C++ workers; actor composition is bounded native interactive work; scene/GPU/physics apply remains on the main thread only |
+| Dirty unit | `16 x 16` chunk for generation, one tile for authoritative mutation, one chunk object packet for visual object placement, one actor record plus its touched 1024-pixel render page for interactive presentation, bounded local visual patches and publish batches |
+| Single owner | `WorldCore` owns canonical base output and native render composition; `WorldDiffStore` owns persisted overrides; `WorldStreamer` owns streaming scheduling, caches, collision adoption, and retirement; `WorldRenderWorld` solely owns renderer-active world/actor GPU presentation; `ChunkView` owns chunk terrain and adopted collision reference |
 | 10x / 100x scale path | More chunks increase queued packet generation and sliced publish work; they do not expand the interactive mutation path |
 | Main-thread blocking risk | Allowed only for bounded apply slices; heavy generation stays off-thread |
 | Hidden GDScript fallback? | Forbidden; native world core is required |
@@ -742,6 +844,17 @@ committed. `reserve_ready` means a visible-envelope chunk has passed its normal
 reveal guard, or an outer-reserve chunk owns the same complete materialized
 presentation while intentionally hidden. Intentionally absent authored layers
 are ready, not missing.
+
+The reveal guard is the last owner able to observe a live chunk that has lost
+every object-presentation token, so it also repairs that state. If the guarded
+chunk has no live CPU result, no queued prestage/upload token and no inflight
+revision, the guard promotes the chunk's warm-cached result back to live truth,
+or requests a rebuild when no copy exists anywhere. This repair is idempotent:
+an existing token or inflight revision suppresses it. Without it a
+desired-visible chunk could hold its guard indefinitely with every queue
+reporting zero — the recorded `object_presentation_cpu_ready_not_staged` stall,
+observable as a chunk that stays hidden until unrelated player movement
+re-requests the coordinate.
 
 Gate evaluation is incremental and bounded to a fixed number of target chunks
 per streaming tick. The compact state returned to UI is O(1); the detailed S2

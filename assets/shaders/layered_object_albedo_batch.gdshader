@@ -1,8 +1,6 @@
 shader_type canvas_item;
 render_mode blend_mix;
 
-#include "res://assets/shaders/includes/world_height_shadow_receiver.gdshaderinc"
-
 uniform float atlas_columns = 1.0;
 uniform float atlas_rows = 1.0;
 uniform float atlas_frame_count = 1.0;
@@ -31,7 +29,6 @@ void fragment() {
 	vec4 albedo = texture(TEXTURE, frame_uv(sprite_uv(UV), frame_index));
 	float tint = clamp(instance_data.g, 0.0, 1.0);
 	albedo.rgb *= tint;
-	albedo.rgb = apply_world_height_shadow(albedo.rgb, SCREEN_UV);
 	albedo.a *= clamp(instance_data.a, 0.0, 1.0);
 	COLOR = albedo;
 }

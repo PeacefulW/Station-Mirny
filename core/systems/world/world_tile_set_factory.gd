@@ -12,6 +12,14 @@ static var _roof_tile_sets_by_terrain_id: Dictionary = {}
 static var _roof_source_ids_by_terrain_id: Dictionary = {}
 static var _water_tile_set: TileSet = null
 static var _water_source_ids_by_terrain_id: Dictionary = {}
+static var _ground_field_textures: Array[ImageTexture] = []
+static var _ground_field_materials: Array[ShaderMaterial] = []
+static var _ground_field_texture_counts: Dictionary = {}
+static var _ground_field_origin_world: Vector2 = Vector2.ZERO
+static var _ground_field_step_px: float = 0.0
+static var _ground_field_size: Vector2i = Vector2i.ZERO
+static var _ground_field_generation: int = 0
+static var _ground_field_ready: bool = false
 
 const WATER_SURFACE_PROFILE_ID: StringName = &"lake:water_surface_profile"
 const WATER_SURFACE_LIGHT_MATERIAL_ID: StringName = &"lake:water_surface_light_material"
@@ -32,6 +40,127 @@ static func reset_debug_authoring_cache() -> void:
 	_roof_source_ids_by_terrain_id.clear()
 	_water_tile_set = null
 	_water_source_ids_by_terrain_id.clear()
+	clear_ground_visual_field()
+	_ground_field_materials.clear()
+	_ground_field_texture_counts.clear()
+
+
+static func publish_ground_visual_field(snapshot: Dictionary) -> bool:
+	if not bool(snapshot.get("success", false)):
+		return false
+	var width: int = int(snapshot.get("width", 0))
+	var height: int = int(snapshot.get("height", 0))
+	var step_px: float = float(snapshot.get("step_px", 0.0))
+	if width < 2 or height < 2 or step_px <= 0.0:
+		push_error("Ground visual field has invalid geometry")
+		return false
+	var next_textures: Array[ImageTexture] = []
+	for texture_index: int in range(4):
+		var bytes: PackedByteArray = snapshot.get(
+			"field_%d" % texture_index,
+			PackedByteArray(),
+		) as PackedByteArray
+		if bytes.size() != width * height * 4:
+			push_error(
+				"Ground visual field_%d has %d bytes, expected %d" % [
+					texture_index,
+					bytes.size(),
+					width * height * 4,
+				],
+			)
+			return false
+		var image: Image = Image.create_from_data(
+			width,
+			height,
+			false,
+			Image.FORMAT_RGBA8,
+			bytes,
+		)
+		if image == null or image.is_empty():
+			push_error("Ground visual field_%d image construction failed" % texture_index)
+			return false
+		var texture: ImageTexture = null
+		if texture_index < _ground_field_textures.size():
+			texture = _ground_field_textures[texture_index]
+		if texture != null and texture.get_width() == width and texture.get_height() == height:
+			texture.update(image)
+		else:
+			texture = ImageTexture.create_from_image(image)
+		next_textures.append(texture)
+	_ground_field_textures = next_textures
+	_ground_field_origin_world = snapshot.get("origin_world", Vector2.ZERO) as Vector2
+	_ground_field_step_px = step_px
+	_ground_field_size = Vector2i(width, height)
+	_ground_field_generation += 1
+	_ground_field_ready = true
+	_apply_ground_visual_field_to_built_materials()
+	return true
+
+
+static func clear_ground_visual_field() -> void:
+	_ground_field_ready = false
+	_ground_field_origin_world = Vector2.ZERO
+	_ground_field_step_px = 0.0
+	_ground_field_size = Vector2i.ZERO
+	for material: ShaderMaterial in _ground_field_materials:
+		if material != null:
+			material.set_shader_parameter("ground_field_ready", false)
+
+
+static func register_ground_visual_field_material(
+		material: ShaderMaterial,
+		texture_count: int,
+) -> void:
+	if material == null:
+		return
+	if not _ground_field_materials.has(material):
+		_ground_field_materials.append(material)
+	_ground_field_texture_counts[material.get_instance_id()] = clampi(texture_count, 1, 4)
+	if _ground_field_ready:
+		_apply_ground_visual_field_to_material(material)
+
+
+static func unregister_ground_visual_field_material(material: ShaderMaterial) -> void:
+	if material == null:
+		return
+	_ground_field_materials.erase(material)
+	_ground_field_texture_counts.erase(material.get_instance_id())
+
+
+static func get_ground_visual_field_state() -> Dictionary:
+	return {
+		"ready": _ground_field_ready,
+		"generation": _ground_field_generation,
+		"origin_world": _ground_field_origin_world,
+		"step_px": _ground_field_step_px,
+		"size": _ground_field_size,
+		"texture_bytes": _ground_field_size.x * _ground_field_size.y * 4 * 4,
+	}
+
+
+static func _apply_ground_visual_field_to_built_materials() -> void:
+	if not _ground_field_ready or _ground_field_textures.size() != 4:
+		return
+	for material: ShaderMaterial in _ground_field_materials:
+		_apply_ground_visual_field_to_material(material)
+
+
+static func _apply_ground_visual_field_to_material(material: ShaderMaterial) -> void:
+	if material == null:
+		return
+	var texture_count: int = int(_ground_field_texture_counts.get(
+		material.get_instance_id(),
+		3,
+	))
+	for texture_index: int in range(texture_count):
+		material.set_shader_parameter(
+			"ground_field_%d" % texture_index,
+			_ground_field_textures[texture_index],
+		)
+	material.set_shader_parameter("ground_field_origin_world", _ground_field_origin_world)
+	material.set_shader_parameter("ground_field_step_px", _ground_field_step_px)
+	material.set_shader_parameter("ground_field_grid_size", Vector2(_ground_field_size))
+	material.set_shader_parameter("ground_field_ready", true)
 
 
 static func get_tile_set() -> TileSet:
@@ -250,6 +379,12 @@ static func _build_material(
 	for parameter_name_variant: Variant in material_set.sampling_params.keys():
 		var parameter_name: Variant = parameter_name_variant
 		material.set_shader_parameter(parameter_name, material_set.sampling_params[parameter_name_variant])
+	if profile.shader_family_id == &"terrain.ground_hybrid":
+		register_ground_visual_field_material(material, 3)
+	if profile.shader_family_id == &"terrain.ground_hybrid" and _ground_field_ready:
+		# The material is inserted in the cache immediately after this function;
+		# apply the pending snapshot directly for first construction.
+		_apply_ground_visual_field_to_material(material)
 	return material
 
 static func _apply_shape_texture_params(

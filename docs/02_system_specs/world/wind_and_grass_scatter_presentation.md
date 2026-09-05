@@ -4,8 +4,8 @@ doc_type: system_spec
 status: approved
 owner: engineering+design
 source_of_truth: true
-version: 1.4
-last_updated: 2026-07-15
+version: 1.5
+last_updated: 2026-08-17
 related_docs:
   - ../../00_governance/ENGINEERING_STANDARDS.md
   - ../../00_governance/WORKFLOW.md
@@ -279,14 +279,19 @@ authored data:
   azimuth 315°, elevation 42° — same screen north-east direction as the
   layered tree shadows). The shadow pass is fixed below the complete depth
   ladder (`Z_GRASS_SHADOW + 1`), so full-detail grass does not need one shadow
-  CanvasItem per depth stripe. Native worker output includes one flat
-  `directional_shadow_buffer`; `ChunkView` uploads it into one bounded
-  `MultiMeshInstance2D` per chunk (`overlay_exact` material with wind zeroed).
-  Grass albedo remains per-stripe and its exact player/object ordering is
-  unchanged. If an authored profile enables fractional zoom LOD, runtime uses
-  the retained legacy per-stripe shadow path for that profile from publication
-  onward; the mode is selected once from the authored LOD envelope and never
-  rebuilds or switches buffers in response to zoom.
+  CanvasItem per depth stripe.
+
+  > **Ownership moved (Iteration 2, 2026-08-11).** `ChunkView` no longer uploads
+  > grass buffers. `WorldRenderWorld` is the single GPU owner: grass body and
+  > shadow records enter the global sorted snapshot through the fixed `ground`
+  > and `shadow` passes, and `ChunkView.stage_grass_scatter_result()` only
+  > acknowledges that its immutable worker result is available. The native
+  > `directional_shadow_buffer` field is retained worker-compatibility data, not
+  > a production RenderWorld input — see `packet_schemas.md`. Grass
+  > directional-shadow count is data-driven by zoom LOD; at the accepted zoom
+  > `0.2` it is zero, so the active world runs two shadow MultiMeshes (object
+  > and actor). A per-chunk or per-stripe grass `MultiMeshInstance2D` is
+  > forbidden (`world_runtime.md`).
 - **Contact-shadow blobs (fallback).** Native still emits flat shadow blobs
   under larger tufts (`shadow_buffer`); the blob layer at `Z_GRASS_SHADOW`
   renders them only when the material set has no shadow atlas wired
@@ -780,6 +785,12 @@ feature thinner than the sampled radius — worse at *larger* radii, not better.
   clearance against the halo, not the chunk's own empty `terrain_ids`).
 
 ### Iteration 6 — Full-LOD directional-shadow consolidation — DONE
+
+> **Superseded by the Shared RenderWorld Painter (2026-08-11).** The record
+> below describes the per-chunk `ChunkView` upload that existed before the
+> global renderer. `WorldRenderWorld` now owns every grass body and shadow
+> record; `directional_shadow_buffer` survives only as worker-compatibility
+> data. Kept as implementation history.
 
 The performance flight-recorder capture at zoom `0.2` exposed thousands of
 Canvas draw calls. Grass had a structural multiplier: every non-empty 16 px

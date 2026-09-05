@@ -1,0 +1,25 @@
+{
+	"version": 1,
+	"profiles": [
+		{
+			"profile_index": 0,
+			"id": "grass_tuft",
+			"shadow_source_crop": [0.175, 0.0, 0.825, 1.0]
+		},
+		{
+			"profile_index": 1,
+			"id": "layered_tree",
+			"shadow_source_crop": [0.278646, 0.566406, 0.714844, 0.388021]
+		},
+		{
+			"profile_index": 2,
+			"id": "small_rock",
+			"shadow_source_crop": [0.15625, 0.354167, 0.822917, 0.541667]
+		},
+		{
+			"profile_index": 3,
+			"id": "layered_bush",
+			"shadow_source_crop": [0.351563, 0.5625, 0.609375, 0.335938]
+		}
+	]
+}

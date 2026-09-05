@@ -4,8 +4,8 @@ doc_type: system_spec
 status: draft
 owner: engineering
 source_of_truth: true
-version: 0.19
-last_updated: 2026-08-03
+version: 0.22
+last_updated: 2026-09-05
 related_docs:
   - ../README.md
   - commands.md
@@ -48,6 +48,7 @@ It covers only the minimal core set confirmed in code during this pass:
 - `BuildingSystem`
 - `WorldCore`
 - `WorldStreamer`
+- `WorldRenderWorld`
 - `WorldTileSetFactory`
 - `WorldBoundsSettings`
 - `FoundationGenSettings`
@@ -477,10 +478,13 @@ Not documented here as safe entrypoints:
 Owner files:
 - `gdextension/src/world_core.cpp`
 - `gdextension/src/world_prepass.cpp`
+- `gdextension/src/world_render_buffer.cpp`
 
 Role:
 - native deterministic world-generation boundary and owner of the RAM-only
-  `WorldPrePass` substrate
+  `WorldPrePass` substrate;
+- pure native construction/composition boundary for derived global world-render
+  snapshots
 
 Confirmed public native surface:
 
@@ -494,7 +498,9 @@ Confirmed public native surface:
 | `build_mountain_plateau_raster_image(packets: Array, target_chunk: Vector2i, preset: Dictionary, top_image: Image, face_image: Image)` | `Dictionary` | Authoring/probe raster helper still used by the worker backend. Returns `MountainPlateauRasterImageResult` from `packet_schemas.md`; broad debug/probe output, not the normal chunk packet or save shape. |
 | `resolve_world_foundation_spawn_tile(seed: int, world_version: int, settings_packed: PackedFloat32Array)` | `Dictionary` | Resolves the V1 foundation spawn tile from the substrate and returns the shape documented as `WorldFoundationSpawnResult` in `packet_schemas.md` |
 | `build_grass_scatter_buffer(seed: int, chunk_coord: Vector2i, terrain_ids: PackedInt32Array, lake_flags: PackedByteArray, mountain_halo: PackedByteArray, mountain_halo_radius_tiles: int, params: PackedFloat32Array)` | `Dictionary` | Presentation-only deterministic grass tuft placement for one chunk; returns the `GrassScatterBufferResult` shape from `packet_schemas.md` (ready `MultiMesh` buffer). `mountain_halo` is the same cross-chunk solid halo `WorldStreamer` builds for the mountain mask, reused so mountain-edge clearance sees neighbouring-chunk mountains too (added 2026-07-04). Density mirrors the ground material's aperiodic world fields; never packet truth, save state, collision, or walkability. |
-| `build_object_presentation_buffers(object_kind: PackedByteArray, object_local_x_px_q4: PackedByteArray, object_local_y_px_q4: PackedByteArray, object_size_px: PackedByteArray, object_atlas_index: PackedByteArray, object_variant: PackedByteArray, object_flags: PackedByteArray, object_tint: PackedByteArray, object_phase: PackedByteArray, tree_metrics: PackedFloat32Array, rock_metrics: PackedFloat32Array, bush_metrics: PackedFloat32Array, params: PackedFloat32Array)` | `Dictionary` | Pure presentation packing for one already-generated object packet. Returns `ObjectPresentationBufferResult`: ready per-depth-stripe raw `MultiMesh` buffers for enabled living flora, both spiky-flora atlas banks, layered trees and small rocks, one flat living contact-shadow buffer, plus flat tree collision descriptors. Tree metrics use stride `8` and include each variant's authored `collision_footprint { offset_x_px, width_px, depth_px }`. Native applies the fixed visual scale, emits one stride-`4` rectangle record `(center_x, center_y, width, height)`, and fixes its southern edge to the object root; `WorldObjectPacketLayer` realizes it as a chunk-owned `RectangleShape2D`. Optional flora tables stay lazy-empty at zero/suppressed count; the final two params mirror actually prepared flora sources so disabled known records are explicitly suppressed without failing publication. Called on a worker-local `WorldCore`; it does not load assets, touch the scene tree, alter canonical placement, or enter save data. |
+| `build_object_presentation_buffers(object_kind: PackedByteArray, object_local_x_px_q4: PackedByteArray, object_local_y_px_q4: PackedByteArray, object_size_px: PackedByteArray, object_atlas_index: PackedByteArray, object_variant: PackedByteArray, object_flags: PackedByteArray, object_tint: PackedByteArray, object_phase: PackedByteArray, tree_metrics: PackedFloat32Array, rock_metrics: PackedFloat32Array, bush_metrics: PackedFloat32Array, params: PackedFloat32Array)` | `Dictionary` | Pure worker packing for one already-generated object packet. Returns generic raw family buffers consumed by `WorldRenderWorld` through registry source bindings plus compact tree collision rectangles consumed by `WorldObjectCollisionOwner`. The collision owner creates chunk-owned `RectangleShape2D` owners only; it owns no visual asset or GPU buffer. Optional disabled flora outputs stay lazy-empty. The call loads no assets, touches no scene tree, alters no canonical placement and enters no save data. |
+| `build_world_render_snapshot(chunk_origins: PackedVector2Array, object_results: Array, grass_results: Array, source_bindings: Array, grass_lod_fraction: float)` | `Dictionary` | Pure background/native construction of the static `WorldRenderSnapshot` documented in `packet_schemas.md`. `source_bindings` is validated data from `WorldRenderClassRegistry`, so family ids and worker keys are not compiled into the packer. The result preserves absolute 1024-pixel pages, emits only the five fixed pass streams plus shared object shadow/spore streams, reports descriptor counts and bounded CPU capacities, and owns no scene/resource/save state. |
+| `compose_world_render_actors(static_snapshot: Dictionary, actor_records: Array)` | `Dictionary` | Validates `WorldRenderActorRecord` entries and returns a composed `WorldRenderSnapshot`. Runtime calls it as bounded interactive native work: immutable static packed arrays are shallow-reused by copy-on-write, only actor-touched body pages are repacked, and all visible actor shadows share one bulk buffer. It touches no scene tree and creates no GPU resources. |
 
 Dev-only native surface:
 
@@ -520,6 +526,14 @@ Current code notes:
 - Mountain halo, skylight-exposure, and plateau raster outputs are derived native presentation or
   debug/probe results. They must not be persisted or treated as authoritative
   terrain, walkability, navigation, or chunk packet data.
+- World-render snapshots and actor records are derived presentation boundaries.
+  They carry no authoritative placement, collision, navigation, command, event,
+  save, or replication ownership.
+- `compose_world_render_actors` requires worker-sorted static body painter
+  metadata. It validates actor-touched pages and linearly merges their immutable
+  static records with sorted actors; it does not re-sort static bodies. A static
+  bank staged across multiple frames receives the current actor set at atomic
+  publication, including any intervening proxy registration or removal.
 
 Not documented here as safe entrypoints:
 - direct calls to `world_prepass::*` helpers from script, because they are native
@@ -531,7 +545,8 @@ Not documented here as safe entrypoints:
 Owner file: `core/systems/world/world_streamer.gd`
 
 Role:
-- V0 world runtime orchestrator and current `chunk_manager` compatibility surface
+- V0 world runtime orchestrator, current `chunk_manager` compatibility surface,
+  and the safe registration boundary for streamer-owned global visual proxies
 
 Confirmed readable entrypoints:
 
@@ -550,7 +565,6 @@ Confirmed readable entrypoints:
 | `get_mountain_contour_debug_state(chunk_coord: Vector2i)` | `Dictionary` | Debug-only readback for the loaded chunk's L1 grid/mask/contour overlay state. Returns `ready: false` if the chunk view is not loaded. |
 | `get_streaming_readiness_debug_snapshot()` | `Dictionary` | Developer-only bounded read of the existing streaming working set. Returns `StreamingReadinessDiagnosticSnapshot`; it may inspect only resident/demand dictionaries, never schedules work, and is called only by explicit captures/probes/finalization rather than the four-Hz HUD context path. |
 | `get_initial_loading_state()` | `Dictionary` | O(1) read of the transient `InitialWorldLoadingState` owned by `WorldStreamer`. Used by the loading UI and deterministic probes; it never scans chunks or schedules work. |
-| `get_height_shadow_debug_state()` | `Dictionary` | O(1) presentation diagnostic for the viewport-bounded tall-caster mask (`ready`, source/mask sizes, scale, cull layer); never scans chunks or objects. |
 
 Confirmed mutation entrypoints:
 
@@ -562,17 +576,38 @@ Confirmed mutation entrypoints:
 | `load_world_state(data: Dictionary) -> bool` | Restores only current-version `world.json` payloads. Returns `false` before mutating runtime state when `world_version` is missing/non-current or the current `worldgen_settings` shape is incomplete; on success restores `world_seed` / `world_version`, rebuilds `worldgen_settings.world_bounds`, `worldgen_settings.foundation`, `worldgen_settings.mountains`, `worldgen_settings.lakes`, `worldgen_settings.plains_trees`, `worldgen_settings.plains_small_rocks`, and `worldgen_settings.plains_bare_ground_stones` from `world.json`, and clears runtime state |
 | `load_chunk_diffs(entries: Array)` | Loads serialized chunk diffs into `WorldDiffStore` |
 | `acknowledge_initial_world_presented()` | Called only by `WorldRuntimeV0Scene` after the first unobscured world frame. Records presentation timing and releases the startup-only maximum-zoom plus movement-reserve materialization pin. It cannot close an unready gate. |
-| `bind_height_shadow_field(field: WorldHeightShadowField)` | Scene-composition wiring called by `WorldRuntimeV0Scene`; binds the field's shared mask texture and authored receiver-height metadata to grass and small-rock shared materials. It does not mutate world data or walk loaded chunks. |
+| `register_visual_proxy(proxy: Node) -> bool` | Registers one visible interactive presentation owner with `WorldRenderWorld`. Returns `false` unless the renderer is configured and the proxy implements the complete protocol below. Actor atlases/descriptors are boot-owned by `WorldRenderClassRegistry`; a proxy supplies records, not textures. Registration triggers a composed publication but does not change gameplay/collision authority. |
+| `unregister_visual_proxy(proxy: Node) -> void` | Removes the proxy, republishes the remaining actor set, and requests that the proxy restore its legacy fallback presentation. Safe to call during owner teardown. |
 | `try_harvest_at_world(world_pos: Vector2)` | Single-tile harvest path; converts one nearest qualifying diggable surface tile into its dug state and rejects diagonal-only sealed rock |
 | `set_active_mountain_component(mountain_id: int, component_id: int)` | World-domain cover selection surface used by `MountainResolver`. Updates the immediate gameplay target selection; the construction-roof presentation independently retains a displayed component and fades its reveal blend (`150 ms` enter; `60 + 180 ms` exit), see `mountain_generation.md` M7 |
 | `toggle_debug_tile_grid()` | Toggles the developer-only `F6` 64 px grid overlay for loaded chunks |
 | `toggle_debug_mountain_solid_mask()` | Toggles the developer-only `F7` current solid mountain mask overlay for loaded chunks |
 | `toggle_debug_mountain_contour()` | Toggles the developer-only `F10` native contour mesh overlay for loaded chunks; does not bind or use `F8` |
 
+Visual proxy protocol consumed by `WorldRenderWorld`:
+
+| Required surface | Contract |
+|---|---|
+| `get_world_render_record() -> Dictionary` | Returns the current `WorldRenderActorRecord` from `packet_schemas.md`; one call per explicitly registered visible proxy when the renderer evaluates actor state. |
+| `set_world_render_proxy_active(active: bool) -> void` | Hides fallback body/shadow CanvasItems only after successful composed publication and restores them on unregister/renderer teardown. It must not disable gameplay, collision, or animation-state updates. |
+
+`WorldRenderWorld` owns weak references to registered proxies and iterates only
+that bounded registry. Direct group/scene-tree scans for actor presentation and
+per-actor GPU/CanvasItem allocation are outside the contract. Callers should use
+the `WorldStreamer` forwarding methods rather than retaining or mutating the
+streamer-owned renderer node.
+
+The retired `bind_height_shadow_field`/`WorldHeightShadowField`/
+`get_height_shadow_debug_state` API has no production replacement. Its script,
+profile resource, shader include and debug counter were removed; directional
+shadows are ordinary fixed-pass records in the render-class registry and
+snapshot schema.
+
 Not documented here as safe entrypoints:
 - `_streaming_tick()`
 - `_worker_loop()`
 - direct access to `_chunk_packets`, `_chunk_views`, or `_diff_store`
+- direct access to `_world_render_world` or its active/staging GPU banks
 - direct mutation of native packet dictionaries outside the documented methods
 - mutation of dictionaries returned by `get_chunk_packet()`
 

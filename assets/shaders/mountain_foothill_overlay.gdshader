@@ -4,6 +4,10 @@ render_mode blend_mix;
 uniform sampler2D foothill_texture : filter_linear_mipmap, repeat_enable;
 uniform sampler2D foothill_normal_texture : filter_linear_mipmap, repeat_enable;
 uniform sampler2D mask_texture : filter_linear, repeat_disable;
+// Worker-built immutable presentation field: edge, outer fringe, footprint,
+// and broad tone. The contour changes only when the mountain mask changes, so
+// recomputing its 80 radial mask probes per fragment/per frame is pure waste.
+uniform sampler2D band_field_texture : filter_linear, repeat_disable;
 uniform vec2 foothill_texture_size = vec2(1024.0, 1024.0);
 uniform vec2 mask_texture_size = vec2(1.0, 1.0);
 uniform vec2 world_origin_px = vec2(0.0, 0.0);
@@ -133,37 +137,17 @@ void fragment() {
 	}
 
 	vec2 mask_size = max(mask_texture_size, vec2(1.0, 1.0));
-	vec2 texel = 1.0 / mask_size;
 	vec2 world_px = world_origin_px + UV * mask_size * sample_step_px;
-	float solid = mountain_mask(UV);
-
-	float width_field = fbm2(world_px / 840.0 + vec2(-51.0, 74.0));
-	float width_lobes = smoothstep(0.46, 0.86, width_field);
-	float width_breakup = fbm2(world_px / 310.0 + vec2(103.0, -9.0));
-	float organic_outer_width_px = outer_width_px + outer_width_variation_px * width_lobes * mix(0.68, 1.0, width_breakup);
-	float outer_texels = max(organic_outer_width_px / max(sample_step_px, 0.001), 1.0);
-	float inner_texels = max(inner_width_px / max(sample_step_px, 0.001), 1.0);
-	float outer_score = 0.0;
-	float inner_score = 0.0;
-	for (int i = 1; i <= 5; i++) {
-		float t = float(i) / 5.0;
-		float w = pow(1.0 - t * 0.82, 1.16);
-		outer_score = max(outer_score, eight_dir_score(UV, texel, outer_texels * t) * w);
-		inner_score = max(inner_score, eight_dir_open_score(UV, texel, inner_texels * t) * w);
-	}
-
-	float outside_band = (1.0 - solid) * outer_score;
-	float inside_band = solid * inner_score * 0.42;
-	float edge_band = max(outside_band, inside_band);
-	float footprint_fill = solid
-		* clamp(footprint_fill_strength, 0.0, 1.0)
-		* mix(0.46, 0.62, fbm2(world_px / 1180.0 + vec2(67.0, -42.0)));
+	vec4 band_field = texture(band_field_texture, UV);
+	float edge_band = band_field.r;
+	float outside_band = band_field.g;
+	float footprint_fill = band_field.b;
 	float band = max(edge_band, footprint_fill);
 	if (band <= 0.01) {
 		discard;
 	}
 
-	float broad = fbm2(world_px / 520.0 + vec2(23.0, -11.0));
+	float broad = band_field.a;
 	float gravel_break = fbm2(world_px / 150.0 + vec2(-7.0, 39.0));
 	float feather = max(smoothstep(0.06, 0.82, edge_band), footprint_fill * footprint_fill_alpha);
 	float organic_alpha = 0.76 + (broad - 0.5) * 0.30 + (gravel_break - 0.5) * 0.18;

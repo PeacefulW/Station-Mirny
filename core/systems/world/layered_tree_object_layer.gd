@@ -2,9 +2,6 @@ class_name LayeredTreeObjectLayer
 extends Node2D
 
 const WorldRuntimeConstants = preload("res://core/systems/world/world_runtime_constants.gd")
-const WorldHeightShadowProfile = preload(
-	"res://core/systems/world/world_height_shadow_profile.gd"
-)
 const WorldVisualLightingProfile = preload("res://core/systems/world/world_visual_lighting_profile.gd")
 
 const FOLIAGE_WIND_SHADER: Shader = preload("res://assets/shaders/layered_tree_foliage_wind.gdshader")
@@ -316,7 +313,6 @@ func _build_shadow_tree(index: int, asset: Dictionary, position: Vector2, scale_
 		polygon.texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS
 		polygon.modulate = Color(1.0, 1.0, 1.0, _shadow_opacity)
 		root.add_child(polygon)
-		WorldHeightShadowProfile.mark_tall_caster_path(polygon)
 	_rebuild_shadow_polygons_for(root, asset, scale_factor)
 	return root
 

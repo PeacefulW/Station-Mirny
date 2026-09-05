@@ -19,6 +19,11 @@ uniform sampler2D top_texture : filter_linear_mipmap, repeat_enable;
 uniform sampler2D face_texture : filter_linear, repeat_enable;
 uniform sampler2D top_normal_texture : filter_linear_mipmap, repeat_enable;
 uniform sampler2D face_normal_texture : filter_linear, repeat_enable;
+// Immutable world-space cosmetic fields are evaluated once by the native mask
+// worker. Reconstructing them here replaces many per-fragment hash/FBM chains
+// with two bilinear reads while keeping the authored aperiodic field itself.
+uniform sampler2D surface_noise_field_texture : filter_linear, repeat_disable;
+uniform sampler2D detail_noise_field_texture : filter_linear, repeat_disable;
 uniform vec2 top_texture_size = vec2(1024.0, 1024.0);
 uniform vec2 face_texture_size = vec2(1024.0, 1024.0);
 uniform vec2 world_origin_px = vec2(0.0, 0.0);
@@ -481,6 +486,8 @@ void fragment() {
 	vec2 tex_size = vec2(textureSize(TEXTURE, 0));
 	vec2 texel = 1.0 / tex_size;
 	vec2 world_px = world_origin_px + UV * tex_size * sample_step_px;
+	vec4 surface_noise = texture(surface_noise_field_texture, UV);
+	vec4 detail_noise = texture(detail_noise_field_texture, UV);
 	vec2 base_uv = visual_mask_uv(UV, texel, world_px);
 	float top_here = mask_to_top(texture(TEXTURE, base_uv).r);
 	float top_l = mask_to_top(texture(TEXTURE, base_uv - vec2(texel.x, 0.0)).r);
@@ -687,8 +694,24 @@ void fragment() {
 		float soft_shadow_texels = max(projected_shadow_softness_px / max(sample_step_px, 0.001), 1.0);
 		float shadow_sum = 0.0;
 		float shadow_weight_sum = 0.0;
+		// Integrate at screen-relevant density. At the 0.2 world zoom one
+		// fragment spans about five world pixels, so the old fixed 14 samples
+		// repeatedly hit the same output footprint. Close zooms still reach the
+		// full 14-sample ceiling and preserve the authored soft silhouette.
+		float world_px_per_screen_px = max(
+			max(length(dFdx(world_px)), length(dFdy(world_px))),
+			1.0
+		);
+		int shadow_sample_count = int(clamp(
+			ceil(projected_shadow_length_px / (world_px_per_screen_px * 6.0)),
+			4.0,
+			14.0
+		));
 		for (int i = 1; i <= 14; i++) {
-			float t = (float(i) - 0.5) / 14.0;
+			if (i > shadow_sample_count) {
+				break;
+			}
+			float t = (float(i) - 0.5) / float(shadow_sample_count);
 			float dist_texels = max_shadow_texels * t;
 			float side_texels = soft_shadow_texels * (0.28 + t * 1.10);
 			vec2 base_uv = UV - shadow_dir * texel * dist_texels;
@@ -714,7 +737,7 @@ void fragment() {
 			shadow_weight_sum += source_weight * weight;
 		}
 		projected_shadow = smoothstep(0.045, 0.66, shadow_sum / max(shadow_weight_sum, 0.0001));
-		float shadow_breakup = 0.92 + fbm2(world_px / 460.0 + vec2(8.0, -19.0)) * 0.08;
+		float shadow_breakup = 0.92 + detail_noise.a * 0.08;
 		float shadow_strength = clamp(projected_shadow * shadow_open_space * projected_shadow_opacity * shadow_breakup, 0.0, projected_shadow_opacity);
 		float owner_weight = shadow_draw_area * shadow_owner_weight(UV, shadow_uv_min, shadow_uv_max, texel, shadow_blend_texels);
 		// Split-ownership alpha: in the seam band the neighbouring chunks each
@@ -732,14 +755,14 @@ void fragment() {
 	float a = light_angle_rad;
 	vec3 light_dir = normalize(vec3(cos(a), sin(a), 0.62));
 	float grad_px = 2.0;
-	float macro = fbm2(world_px / 920.0);
-	float mid_mottle = fbm2(world_px / 210.0 + vec2(3.7, 15.2));
-	float small_mottle = fbm2(world_px / 86.0 + vec2(-21.0, 5.0));
+	float macro = surface_noise.r;
+	float mid_mottle = surface_noise.g;
+	float small_mottle = surface_noise.b;
 	float top_variation = 0.94 + (macro - 0.5) * 0.18 + (mid_mottle - 0.5) * 0.08;
 	if (roof_drift_strength > 0.001 && roof_drift_scale_px > 1.0) {
 		// Large aperiodic tone drift so big massifs stop reading as one flat
 		// slab from far away (same trick as the ground material).
-		float roof_drift = fbm2(world_px / roof_drift_scale_px + vec2(7.3, -2.9));
+		float roof_drift = surface_noise.a;
 		top_variation *= mix(1.0 - roof_drift_strength, 1.0 + roof_drift_strength, roof_drift);
 	}
 
@@ -817,9 +840,9 @@ void fragment() {
 	if (roof_vein_strength > 0.001) {
 		// Sparse crack veins: a thin iso-band of gradient fbm, gated by a
 		// second field so the lines break up instead of running forever.
-		float vein_base = fbm2(world_px / 760.0 + vec2(-41.0, 23.0));
+		float vein_base = detail_noise.r;
 		float vein_line = smoothstep(0.475, 0.5, vein_base) * (1.0 - smoothstep(0.5, 0.525, vein_base));
-		float vein_gate = smoothstep(0.42, 0.62, fbm2(world_px / 340.0 + vec2(19.0, 57.0)));
+		float vein_gate = smoothstep(0.42, 0.62, detail_noise.g);
 		top_lit *= 1.0 - vein_line * vein_gate * roof_vein_strength;
 	}
 	if (side_shade_strength > 0.001 && top_here >= 0.5) {
@@ -978,7 +1001,7 @@ void fragment() {
 	vec3 inner_lip = top_col.rgb * mix(1.10, 1.32, lip_daylight) * lip_warm_tint;
 	float lip_mix = 0.12;
 	if (biofield_rim_strength > 0.001) {
-		float lip_bio_field = fbm2(world_px / max(biofield_rim_scale_px, 1.0) + vec2(-27.3, 8.1));
+		float lip_bio_field = detail_noise.b;
 		float lip_bio_gate = smoothstep(0.60, 0.72, lip_bio_field) * biofield_rim_strength;
 		inner_lip = mix(inner_lip, biofield_rim_color * (0.82 + small_mottle * 0.36), lip_bio_gate);
 		lip_mix += lip_bio_gate * 0.20;

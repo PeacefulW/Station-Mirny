@@ -17,11 +17,7 @@ func _init() -> void:
 		"World runtime scene must preload the postprocess overlay script."
 	)
 	_assert(
-		scene_source.contains("res://scenes/ui/hud/hud_postprocess_toggle.gd"),
-		"World runtime scene must preload the HUD postprocess toggle script."
-	)
-	_assert(
-		scene_source.contains("[node name=\"PostProcessLayer\" type=\"CanvasLayer\" parent=\".\"]")
+		scene_source.contains("[node name=\"PostProcessLayer\" type=\"CanvasLayer\" parent=\".\" groups=[\"world_render_source\"]]")
 				and scene_source.contains("layer = 5"),
 		"Postprocess must live in its own CanvasLayer below HUD."
 	)
@@ -34,10 +30,6 @@ func _init() -> void:
 		scene_source.contains("[node name=\"HudLayer\" type=\"CanvasLayer\" parent=\".\"]")
 				and scene_source.contains("layer = 10"),
 		"HUD CanvasLayer must stay above postprocess so UI is not color-graded."
-	)
-	_assert(
-		scene_source.contains("[node name=\"PostProcessToggle\" type=\"Button\" parent=\"HudLayer\"]"),
-		"HUD must expose a clickable postprocess toggle button."
 	)
 	_assert(
 		runtime_source.contains("toggle_postprocess()"),
@@ -110,6 +102,22 @@ func _assert_loads_and_instantiates() -> void:
 			overlay_node.call("set_postprocess_enabled", true)
 			_assert(overlay_node.visible, "Enabled postprocess overlay must restore its fullscreen pass.")
 			overlay_node.queue_free()
+			var render_target := SubViewport.new()
+			render_target.size = Vector2i(1792, 1008)
+			get_root().add_child(render_target)
+			var postprocess_layer := CanvasLayer.new()
+			postprocess_layer.custom_viewport = render_target
+			get_root().add_child(postprocess_layer)
+			var resized_overlay: ColorRect = (overlay_script as Script).new() as ColorRect
+			postprocess_layer.add_child(resized_overlay)
+			resized_overlay.call("sync_render_target_rect")
+			_assert(
+				resized_overlay.position == Vector2.ZERO
+						and resized_overlay.size == Vector2(1792.0, 1008.0),
+				"Postprocess overlay must cover its routed render target after resize.",
+			)
+			postprocess_layer.queue_free()
+			render_target.queue_free()
 	if toggle_script is Script:
 		var toggle_instance: Object = (toggle_script as Script).new()
 		_assert(toggle_instance is Button, "HudPostProcessToggle must instantiate as a Button.")

@@ -9,6 +9,7 @@
 #include <godot_cpp/variant/packed_vector2_array.hpp>
 #include <godot_cpp/variant/variant.hpp>
 #include <godot_cpp/variant/vector2.hpp>
+#include <godot_cpp/variant/vector2i.hpp>
 
 namespace mountain_contour {
 namespace {
@@ -101,6 +102,132 @@ float fbm_noise(float p_x, float p_y) {
 		frequency *= 2.03f;
 	}
 	return total > 0.0f ? value / total : 0.5f;
+}
+
+std::vector<float> build_blurred_solid_field(
+	const godot::PackedByteArray &p_solid_halo,
+	int32_t p_halo_side,
+	int32_t p_pixels_per_tile,
+	int32_t p_width,
+	int32_t p_height,
+	int32_t p_blur_radius,
+	int32_t p_origin_x = 0,
+	int32_t p_origin_y = 0,
+	int32_t p_full_width = 0,
+	int32_t p_full_height = 0
+) {
+	if (p_full_width <= 0) {
+		p_full_width = p_width;
+	}
+	if (p_full_height <= 0) {
+		p_full_height = p_height;
+	}
+	const int32_t pixel_count = p_width * p_height;
+	std::vector<float> field(static_cast<size_t>(pixel_count), 0.0f);
+	std::vector<float> temp(static_cast<size_t>(pixel_count), 0.0f);
+	std::vector<float> blurred(static_cast<size_t>(pixel_count), 0.0f);
+	for (int32_t py = 0; py < p_height; ++py) {
+		const int32_t global_y = std::max(0, std::min(p_full_height - 1, p_origin_y + py));
+		const int32_t tile_y = std::max(0, std::min(p_halo_side - 1, global_y / p_pixels_per_tile));
+		for (int32_t px = 0; px < p_width; ++px) {
+			const int32_t global_x = std::max(0, std::min(p_full_width - 1, p_origin_x + px));
+			const int32_t tile_x = std::max(0, std::min(p_halo_side - 1, global_x / p_pixels_per_tile));
+			field[static_cast<size_t>(py * p_width + px)] =
+					read_solid(p_solid_halo, p_halo_side, tile_x, tile_y) ? 1.0f : 0.0f;
+		}
+	}
+
+	for (int32_t pass = 0; pass < 3; ++pass) {
+		const std::vector<float> &src_h = pass == 0 ? field : blurred;
+		for (int32_t y = 0; y < p_height; ++y) {
+			float sum = 0.0f;
+			for (int32_t x = -p_blur_radius; x <= p_blur_radius; ++x) {
+				const int32_t sample_x = std::max(0, std::min(p_width - 1, x));
+				sum += src_h[static_cast<size_t>(y * p_width + sample_x)];
+			}
+			for (int32_t x = 0; x < p_width; ++x) {
+				temp[static_cast<size_t>(y * p_width + x)] =
+						sum / static_cast<float>(p_blur_radius * 2 + 1);
+				const int32_t remove_x = std::max(0, std::min(p_width - 1, x - p_blur_radius));
+				const int32_t add_x = std::max(0, std::min(p_width - 1, x + p_blur_radius + 1));
+				sum += src_h[static_cast<size_t>(y * p_width + add_x)];
+				sum -= src_h[static_cast<size_t>(y * p_width + remove_x)];
+			}
+		}
+		for (int32_t x = 0; x < p_width; ++x) {
+			float sum = 0.0f;
+			for (int32_t y = -p_blur_radius; y <= p_blur_radius; ++y) {
+				const int32_t sample_y = std::max(0, std::min(p_height - 1, y));
+				sum += temp[static_cast<size_t>(sample_y * p_width + x)];
+			}
+			for (int32_t y = 0; y < p_height; ++y) {
+				blurred[static_cast<size_t>(y * p_width + x)] =
+						sum / static_cast<float>(p_blur_radius * 2 + 1);
+				const int32_t remove_y = std::max(0, std::min(p_height - 1, y - p_blur_radius));
+				const int32_t add_y = std::max(0, std::min(p_height - 1, y + p_blur_radius + 1));
+				sum += temp[static_cast<size_t>(add_y * p_width + x)];
+				sum -= temp[static_cast<size_t>(remove_y * p_width + x)];
+			}
+		}
+	}
+	return blurred;
+}
+
+void write_organic_mask_region(
+	uint8_t *p_bytes_write,
+	const std::vector<float> &p_blurred,
+	int32_t p_width,
+	int32_t p_height,
+	int32_t p_blurred_width,
+	int32_t p_blurred_height,
+	int32_t p_blurred_origin_x,
+	int32_t p_blurred_origin_y,
+	int32_t p_pixels_per_tile,
+	float p_step_px,
+	float p_origin_world_x,
+	float p_origin_world_y,
+	int32_t p_min_x,
+	int32_t p_min_y,
+	int32_t p_max_x,
+	int32_t p_max_y
+) {
+	for (int32_t py = p_min_y; py < p_max_y; ++py) {
+		const float world_y = p_origin_world_y + (static_cast<float>(py) + 0.5f) * p_step_px;
+		for (int32_t px = p_min_x; px < p_max_x; ++px) {
+			const float world_x = p_origin_world_x + (static_cast<float>(px) + 0.5f) * p_step_px;
+			const float broad = fbm_noise((world_x - 173.0f) / 420.0f, (world_y + 211.0f) / 420.0f);
+			const float macro = fbm_noise(world_x / 220.0f, world_y / 220.0f);
+			const float fine = fbm_noise((world_x + 91.0f) / 104.0f, (world_y - 37.0f) / 104.0f);
+			const float disp_x = ((fbm_noise((world_x + 43.0f) / 360.0f, (world_y - 139.0f) / 360.0f) - 0.5f) * static_cast<float>(p_pixels_per_tile) * 1.15f)
+					+ ((fbm_noise((world_x - 211.0f) / 170.0f, (world_y + 79.0f) / 170.0f) - 0.5f) * static_cast<float>(p_pixels_per_tile) * 0.46f);
+			const float disp_y = ((fbm_noise((world_x - 97.0f) / 380.0f, (world_y + 181.0f) / 380.0f) - 0.5f) * static_cast<float>(p_pixels_per_tile) * 1.15f)
+					+ ((fbm_noise((world_x + 157.0f) / 176.0f, (world_y - 223.0f) / 176.0f) - 0.5f) * static_cast<float>(p_pixels_per_tile) * 0.46f);
+			const float threshold = 0.455f
+					+ ((broad - 0.5f) * 0.150f)
+					+ ((macro - 0.5f) * 0.150f)
+					+ ((fine - 0.5f) * 0.035f);
+			const float edge_width = 0.110f;
+			const float sample_x = std::max(
+				0.0f,
+				std::min(static_cast<float>(p_width - 1), static_cast<float>(px) + disp_x)
+			) - static_cast<float>(p_blurred_origin_x);
+			const float sample_y = std::max(
+				0.0f,
+				std::min(static_cast<float>(p_height - 1), static_cast<float>(py) + disp_y)
+			) - static_cast<float>(p_blurred_origin_y);
+			const float sampled_field = sample_grid_bilinear(
+				p_blurred,
+				p_blurred_width,
+				p_blurred_height,
+				sample_x,
+				sample_y
+			);
+			float alpha = smooth_float((sampled_field - (threshold - edge_width)) / (edge_width * 2.0f));
+			alpha = std::max(0.0f, std::min(1.0f, alpha));
+			const int32_t byte_value = std::max(0, std::min(255, static_cast<int32_t>(std::lround(alpha * 255.0f))));
+			p_bytes_write[py * p_width + px] = static_cast<uint8_t>(byte_value);
+		}
+	}
 }
 
 float rounded_box_sdf(float p_x, float p_y, float p_half_extent, float p_radius) {
@@ -327,73 +454,33 @@ godot::Dictionary build_halo_mask(
 		}
 	}
 
-	std::vector<float> field(static_cast<size_t>(pixel_count), 0.0f);
-	std::vector<float> temp(static_cast<size_t>(pixel_count), 0.0f);
-	std::vector<float> blurred(static_cast<size_t>(pixel_count), 0.0f);
-	for (int32_t py = 0; py < height; ++py) {
-		const int32_t tile_y = std::max(0, std::min(halo_side - 1, py / pixels_per_tile));
-		for (int32_t px = 0; px < width; ++px) {
-			const int32_t tile_x = std::max(0, std::min(halo_side - 1, px / pixels_per_tile));
-			field[static_cast<size_t>(py * width + px)] = read_solid(p_solid_halo, halo_side, tile_x, tile_y) ? 1.0f : 0.0f;
-		}
-	}
-
 	const int32_t blur_radius = std::max(2, (pixels_per_tile * 5) / 8);
-	for (int32_t pass = 0; pass < 3; ++pass) {
-		const std::vector<float> &src_h = pass == 0 ? field : blurred;
-		for (int32_t y = 0; y < height; ++y) {
-			float sum = 0.0f;
-			for (int32_t x = -blur_radius; x <= blur_radius; ++x) {
-				const int32_t sample_x = std::max(0, std::min(width - 1, x));
-				sum += src_h[static_cast<size_t>(y * width + sample_x)];
-			}
-			for (int32_t x = 0; x < width; ++x) {
-				temp[static_cast<size_t>(y * width + x)] = sum / static_cast<float>(blur_radius * 2 + 1);
-				const int32_t remove_x = std::max(0, std::min(width - 1, x - blur_radius));
-				const int32_t add_x = std::max(0, std::min(width - 1, x + blur_radius + 1));
-				sum += src_h[static_cast<size_t>(y * width + add_x)];
-				sum -= src_h[static_cast<size_t>(y * width + remove_x)];
-			}
-		}
-		for (int32_t x = 0; x < width; ++x) {
-			float sum = 0.0f;
-			for (int32_t y = -blur_radius; y <= blur_radius; ++y) {
-				const int32_t sample_y = std::max(0, std::min(height - 1, y));
-				sum += temp[static_cast<size_t>(sample_y * width + x)];
-			}
-			for (int32_t y = 0; y < height; ++y) {
-				blurred[static_cast<size_t>(y * width + x)] = sum / static_cast<float>(blur_radius * 2 + 1);
-				const int32_t remove_y = std::max(0, std::min(height - 1, y - blur_radius));
-				const int32_t add_y = std::max(0, std::min(height - 1, y + blur_radius + 1));
-				sum += temp[static_cast<size_t>(add_y * width + x)];
-				sum -= temp[static_cast<size_t>(remove_y * width + x)];
-			}
-		}
-	}
-
-	for (int32_t py = 0; py < height; ++py) {
-		const float world_y = static_cast<float>(p_origin_world_y) + (static_cast<float>(py) + 0.5f) * step_px;
-		for (int32_t px = 0; px < width; ++px) {
-			const float world_x = static_cast<float>(p_origin_world_x) + (static_cast<float>(px) + 0.5f) * step_px;
-			const float broad = fbm_noise((world_x - 173.0f) / 420.0f, (world_y + 211.0f) / 420.0f);
-			const float macro = fbm_noise(world_x / 220.0f, world_y / 220.0f);
-			const float fine = fbm_noise((world_x + 91.0f) / 104.0f, (world_y - 37.0f) / 104.0f);
-			const float disp_x = ((fbm_noise((world_x + 43.0f) / 360.0f, (world_y - 139.0f) / 360.0f) - 0.5f) * static_cast<float>(pixels_per_tile) * 1.15f)
-					+ ((fbm_noise((world_x - 211.0f) / 170.0f, (world_y + 79.0f) / 170.0f) - 0.5f) * static_cast<float>(pixels_per_tile) * 0.46f);
-			const float disp_y = ((fbm_noise((world_x - 97.0f) / 380.0f, (world_y + 181.0f) / 380.0f) - 0.5f) * static_cast<float>(pixels_per_tile) * 1.15f)
-					+ ((fbm_noise((world_x + 157.0f) / 176.0f, (world_y - 223.0f) / 176.0f) - 0.5f) * static_cast<float>(pixels_per_tile) * 0.46f);
-			const float threshold = 0.455f
-					+ ((broad - 0.5f) * 0.150f)
-					+ ((macro - 0.5f) * 0.150f)
-					+ ((fine - 0.5f) * 0.035f);
-			const float edge_width = 0.110f;
-			const float field = sample_grid_bilinear(blurred, width, height, static_cast<float>(px) + disp_x, static_cast<float>(py) + disp_y);
-			float alpha = smooth_float((field - (threshold - edge_width)) / (edge_width * 2.0f));
-			alpha = std::max(0.0f, std::min(1.0f, alpha));
-			const int32_t byte_value = std::max(0, std::min(255, static_cast<int32_t>(std::lround(alpha * 255.0f))));
-			bytes_write[py * width + px] = static_cast<uint8_t>(byte_value);
-		}
-	}
+	const std::vector<float> blurred = build_blurred_solid_field(
+		p_solid_halo,
+		halo_side,
+		pixels_per_tile,
+		width,
+		height,
+		blur_radius
+	);
+	write_organic_mask_region(
+		bytes_write,
+		blurred,
+		width,
+		height,
+		width,
+		height,
+		0,
+		0,
+		pixels_per_tile,
+		step_px,
+		static_cast<float>(p_origin_world_x),
+		static_cast<float>(p_origin_world_y),
+		0,
+		0,
+		width,
+		height
+	);
 
 	result["mask"] = bytes;
 	result["width"] = width;
@@ -403,6 +490,115 @@ godot::Dictionary build_halo_mask(
 	result["halo_side"] = halo_side;
 	result["halo_radius_tiles"] = halo_radius_tiles;
 	result["pixels_per_tile"] = pixels_per_tile;
+	return result;
+}
+
+godot::Dictionary patch_halo_mask(
+	const godot::PackedByteArray &p_previous_mask,
+	const godot::PackedByteArray &p_solid_halo,
+	int32_t p_chunk_size,
+	int32_t p_tile_size_px,
+	int32_t p_pixels_per_tile,
+	int32_t p_changed_halo_x,
+	int32_t p_changed_halo_y,
+	double p_origin_world_x,
+	double p_origin_world_y
+) {
+	godot::Dictionary result;
+	result["mask"] = godot::PackedByteArray();
+	result["width"] = 0;
+	result["height"] = 0;
+	result["step_px"] = 0.0;
+	result["patch_min"] = godot::Vector2i();
+	result["patch_size"] = godot::Vector2i();
+
+	if (p_chunk_size <= 0 || p_tile_size_px <= 0) {
+		return result;
+	}
+	const int32_t halo_side = static_cast<int32_t>(std::lround(std::sqrt(static_cast<double>(p_solid_halo.size()))));
+	if (p_solid_halo.size() != halo_side * halo_side
+			|| p_changed_halo_x < 0 || p_changed_halo_y < 0
+			|| p_changed_halo_x >= halo_side || p_changed_halo_y >= halo_side) {
+		return result;
+	}
+	const int32_t halo_margin = halo_side - p_chunk_size;
+	if (halo_margin < 2 || (halo_margin % 2) != 0) {
+		return result;
+	}
+	const int32_t pixels_per_tile = std::max(4, std::min(p_pixels_per_tile, 32));
+	const int32_t width = halo_side * pixels_per_tile;
+	const int32_t height = halo_side * pixels_per_tile;
+	if (p_previous_mask.size() != width * height) {
+		return result;
+	}
+	const float step_px = static_cast<float>(p_tile_size_px) / static_cast<float>(pixels_per_tile);
+	const int32_t blur_radius = std::max(2, (pixels_per_tile * 5) / 8);
+	const int32_t max_displacement = static_cast<int32_t>(
+		std::ceil(static_cast<float>(pixels_per_tile) * (1.15f + 0.46f) * 0.5f)
+	) + 6;
+	const int32_t influence_radius = blur_radius * 3 + max_displacement;
+	const int32_t min_x = std::max(0, p_changed_halo_x * pixels_per_tile - influence_radius);
+	const int32_t min_y = std::max(0, p_changed_halo_y * pixels_per_tile - influence_radius);
+	const int32_t max_x = std::min(width, (p_changed_halo_x + 1) * pixels_per_tile + influence_radius);
+	const int32_t max_y = std::min(height, (p_changed_halo_y + 1) * pixels_per_tile + influence_radius);
+
+	// A single mined tile only influences a small organic-contour window. The
+	// old hot path rebuilt three full 384x384 blur passes before writing that
+	// window, which alone could consume a 60 FPS frame. Build an expanded local
+	// blur field instead. Three blur passes and the displacement sampler cannot
+	// observe beyond this fixed support, so the resulting bytes are identical to
+	// the authoritative full rebuild inside patch_min/patch_size.
+	const int32_t blur_support = blur_radius * 3;
+	const int32_t bilinear_guard = 2;
+	const int32_t sample_min_x = min_x - max_displacement - bilinear_guard;
+	const int32_t sample_min_y = min_y - max_displacement - bilinear_guard;
+	const int32_t sample_max_x = max_x + max_displacement + bilinear_guard;
+	const int32_t sample_max_y = max_y + max_displacement + bilinear_guard;
+	const int32_t blurred_origin_x = sample_min_x - blur_support;
+	const int32_t blurred_origin_y = sample_min_y - blur_support;
+	const int32_t blurred_width = sample_max_x - sample_min_x + blur_support * 2;
+	const int32_t blurred_height = sample_max_y - sample_min_y + blur_support * 2;
+	const std::vector<float> blurred = build_blurred_solid_field(
+		p_solid_halo,
+		halo_side,
+		pixels_per_tile,
+		blurred_width,
+		blurred_height,
+		blur_radius,
+		blurred_origin_x,
+		blurred_origin_y,
+		width,
+		height
+	);
+	godot::PackedByteArray bytes = p_previous_mask.duplicate();
+	uint8_t *bytes_write = bytes.ptrw();
+	write_organic_mask_region(
+		bytes_write,
+		blurred,
+		width,
+		height,
+		blurred_width,
+		blurred_height,
+		blurred_origin_x,
+		blurred_origin_y,
+		pixels_per_tile,
+		step_px,
+		static_cast<float>(p_origin_world_x),
+		static_cast<float>(p_origin_world_y),
+		min_x,
+		min_y,
+		max_x,
+		max_y
+	);
+
+	result["mask"] = bytes;
+	result["width"] = width;
+	result["height"] = height;
+	result["step_px"] = static_cast<double>(step_px);
+	result["halo_side"] = halo_side;
+	result["pixels_per_tile"] = pixels_per_tile;
+	result["patch_min"] = godot::Vector2i(min_x, min_y);
+	result["patch_size"] = godot::Vector2i(max_x - min_x, max_y - min_y);
 	return result;
 }
 

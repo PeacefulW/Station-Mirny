@@ -15,7 +15,7 @@ extends SceneTree
 const DEV_SCENE_PATH: String = "res://scenes/dev/mountain_runtime_dig_dev_scene.tscn"
 const MAX_STARTUP_FRAMES: int = 20000
 const PLAYER_SPEED_PX_PER_SECOND: float = 320.0
-const DEFAULT_ROUTE_SECONDS: int = 30
+const DEFAULT_ROUTE_SECONDS: int = 60
 const TARGET_FPS: int = 60
 const MAX_ZOOM_OUT: float = 0.2
 ## A chunk entering the visible envelope was already prepared in the reserve
@@ -89,8 +89,11 @@ func _run() -> void:
 	for frame_index: int in range(route_frames):
 		camera.set("_target_zoom", MAX_ZOOM_OUT)
 		camera.zoom = Vector2(MAX_ZOOM_OUT, MAX_ZOOM_OUT)
+		# North is the honest dense-world route for this seed. The old southbound
+		# route crossed the mountain biome whose lower object density made both the
+		# render and streaming result look better than normal forest traversal.
 		player.global_position = start_position \
-				+ Vector2(0.0, step_px * float(frame_index + 1))
+				+ Vector2(0.0, -step_px * float(frame_index + 1))
 		await process_frame
 
 		var hud: Dictionary = streamer.call("get_perf_hud_snapshot") as Dictionary
@@ -134,13 +137,14 @@ func _run() -> void:
 						) + 1
 					if failures.size() < 10:
 						failures.append(
-							"frame=%d hole chunk=%s hidden_for=%d first_entry=%s blocked_by=%s"
+							"frame=%d hole chunk=%s hidden_for=%d first_entry=%s blocked_by=%s diagnostics=%s"
 							% [
 								frame_index,
 								str(chunk_coord),
 								frame_index - int(hidden_since_frame[chunk_coord]),
 								str(not seen_visible.has(chunk_coord)),
 								blocking,
+								_describe_hole(streamer, view, chunk_coord),
 							],
 						)
 				continue
@@ -234,6 +238,28 @@ func _get_coord_array(streamer: Node, property_name: String) -> Array[Vector2i]:
 	for coord_variant: Variant in raw as Array:
 		coords.append(coord_variant as Vector2i)
 	return coords
+
+
+func _describe_hole(streamer: Node, view: Node, chunk_coord: Vector2i) -> String:
+	var description: Dictionary = {
+		"readiness": streamer.call(
+			"_build_streaming_readiness_entry",
+			chunk_coord,
+			Time.get_ticks_msec(),
+		),
+		"mask_result_ready": not (
+			streamer.get("_mountain_native_masks_by_chunk") as Dictionary
+		).get(chunk_coord, { }).is_empty(),
+		"mask_inflight": (
+			streamer.get("_mountain_native_mask_inflight_chunks") as Dictionary
+		).has(chunk_coord),
+		"mask_upload_queued": (
+			streamer.get("_pending_mountain_native_mask_visual_upload_set") as Dictionary
+		).has(chunk_coord),
+	}
+	if view != null and is_instance_valid(view):
+		description["mountain"] = view.call("get_mountain_native_mask_debug_state")
+	return JSON.stringify(description)
 
 
 func _apply_command_line_overrides() -> void:

@@ -1,4 +1,4 @@
-[gd_scene load_steps=18 format=3]
+[gd_scene load_steps=17 format=3]
 
 [ext_resource type="Script" path="res://scenes/world/world_runtime_v0_scene.gd" id="1"]
 [ext_resource type="Script" path="res://core/systems/world/world_streamer.gd" id="2"]
@@ -10,19 +10,21 @@
 [ext_resource type="Script" path="res://core/systems/world/mountain_torch_shadow_field.gd" id="8"]
 [ext_resource type="Script" path="res://core/systems/world/world_postprocess_overlay.gd" id="9"]
 [ext_resource type="Script" path="res://core/systems/world/mountain_cavity_skylight_field.gd" id="11"]
-[ext_resource type="Script" path="res://core/systems/world/world_height_shadow_field.gd" id="12"]
-[ext_resource type="Resource" path="res://data/world_objects/presentation_profiles/world_height_shadow_profile.tres" id="13"]
 [ext_resource type="Script" path="res://core/systems/world/rain_overlay.gd" id="14"]
 [ext_resource type="Script" path="res://core/systems/world/environment_exposure_resolver.gd" id="15"]
 [ext_resource type="Script" path="res://core/systems/world/ground_wetness_presenter.gd" id="16"]
 [ext_resource type="Resource" path="res://data/balance/ground_wetness_profile.tres" id="17"]
 [ext_resource type="Script" path="res://core/systems/world/snow_overlay.gd" id="18"]
+[ext_resource type="Script" path="res://core/systems/world/world_resolution_compositor.gd" id="19"]
 
 [node name="WorldRuntimeV0" type="Node2D"]
 script = ExtResource("1")
 
-[node name="WorldStreamer" type="Node2D" parent="."]
+[node name="WorldStreamer" type="Node2D" parent="." groups=["world_render_source"]]
 script = ExtResource("2")
+
+[node name="WorldResolutionCompositor" type="Node" parent="."]
+script = ExtResource("19")
 
 [node name="EnvironmentExposureResolver" type="Node" parent="."]
 script = ExtResource("15")
@@ -31,35 +33,31 @@ script = ExtResource("15")
 script = ExtResource("16")
 profile = ExtResource("17")
 
-[node name="Player" parent="." instance=ExtResource("3")]
+[node name="Player" parent="." groups=["world_render_source"] instance=ExtResource("3")]
 position = Vector2(512, 512)
 
-[node name="WorldHeightShadowField" type="Node" parent="."]
-script = ExtResource("12")
-profile = ExtResource("13")
-
-[node name="Daylight" type="CanvasModulate" parent="."]
+[node name="Daylight" type="CanvasModulate" parent="." groups=["world_render_source"]]
 script = ExtResource("5")
 
-[node name="CloudOccluderField" type="Sprite2D" parent="."]
+[node name="CloudOccluderField" type="Sprite2D" parent="." groups=["world_render_source"]]
 script = ExtResource("7")
 
-[node name="MountainTorchShadowField" type="Sprite2D" parent="."]
+[node name="MountainTorchShadowField" type="Sprite2D" parent="." groups=["world_render_source"]]
 script = ExtResource("8")
 
-[node name="MountainCavitySkylightField" type="Node2D" parent="."]
+[node name="MountainCavitySkylightField" type="Node2D" parent="." groups=["world_render_source"]]
 script = ExtResource("11")
 
-[node name="DustWindOverlay" type="Sprite2D" parent="."]
+[node name="DustWindOverlay" type="Sprite2D" parent="." groups=["world_render_source"]]
 visible = false
 process_mode = 4
 script = ExtResource("6")
 
-[node name="RainOverlay" type="Sprite2D" parent="."]
+[node name="RainOverlay" type="Sprite2D" parent="." groups=["world_render_source"]]
 visible = false
 script = ExtResource("14")
 
-[node name="SnowOverlay" type="Sprite2D" parent="."]
+[node name="SnowOverlay" type="Sprite2D" parent="." groups=["world_render_source"]]
 visible = false
 script = ExtResource("18")
 

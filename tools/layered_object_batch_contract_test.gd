@@ -97,6 +97,7 @@ func _run() -> void:
 	var native_result: Dictionary = _make_native_result(catalog)
 	_verify_native_payload_metadata_rejection(catalog, native_result)
 	_verify_chunk_view_staging_does_not_alias_cache(catalog, native_result)
+	_verify_duplicate_live_prestage_cannot_starve_queue(catalog, native_result)
 	_verify_completed_hot_layer_adopts_directly(catalog, native_result)
 	var tree_layer: TreeBatchLayer = TreeBatchLayer.new()
 	var rock_layer: RockBatchLayer = RockBatchLayer.new()
@@ -401,7 +402,7 @@ func _verify_coherent_object_commit(catalog: AssetCatalog, native_result: Dictio
 			return
 	var committed: Dictionary = object_layer.get_debug_state()
 	_expect(saw_disabled_staged_collision, "collision is built incrementally before commit")
-	_expect(object_layer.visible, "object subtree is prepared at one commit")
+	_expect(not object_layer.visible, "collision-only packet subtree stays hidden after commit")
 	_expect(
 		int(committed.get("tree_collision_layer", -1)) == 0,
 		"prepared collision waits for owning chunk reveal",
@@ -449,6 +450,55 @@ func _verify_chunk_view_staging_does_not_alias_cache(
 		"ChunkView preserves cached packed buffers for warm zoom reuse",
 	)
 	view.queue_free()
+
+
+func _verify_duplicate_live_prestage_cannot_starve_queue(
+		catalog: AssetCatalog,
+		native_result: Dictionary,
+) -> void:
+	var streamer_script: Script = load("res://core/systems/world/world_streamer.gd") as Script
+	_expect(streamer_script != null, "WorldStreamer loads for duplicate prestage proof")
+	if streamer_script == null:
+		return
+	var streamer: Node = streamer_script.new() as Node
+	var coord := Vector2i(7, 9)
+	streamer._player_chunk_coord = coord
+	streamer._current_stream_radius_chunks = 6
+	streamer._layered_object_asset_catalog = catalog
+	streamer._object_presentation_results_by_chunk[coord] = native_result
+	var view: ChunkView = ChunkView.new()
+	view.configure(coord)
+	view._object_packet_visual_dirty = true
+	streamer.add_child(view)
+	streamer._chunk_views[coord] = view
+	_expect(
+		view.stage_object_presentation_result(native_result, catalog),
+		"live view owns its first immutable presentation envelope",
+	)
+	streamer._pending_hot_object_prestage_set[coord] = true
+	streamer._pending_hot_object_prestage_chunks.append(coord)
+	streamer._queue_object_packet_visual_upload(coord)
+	_expect(
+		streamer._stage_pending_hot_object_presentation(coord),
+		"duplicate live prestage is recognized as already staged",
+	)
+	_expect(
+		not streamer._pending_hot_object_prestage_set.has(coord),
+		"duplicate prestage half is consumed",
+	)
+	_expect(
+		streamer._pending_object_packet_visual_upload_set.has(coord),
+		"in-progress live transaction keeps its execution token",
+	)
+	_expect(
+		view.apply_pending_object_packet_visual(),
+		"focused live transaction advances after duplicate prestage cleanup",
+	)
+	_expect(
+		view.is_object_presentation_complete(),
+		"focused live transaction completes instead of starving the queue",
+	)
+	streamer.free()
 
 
 func _verify_completed_hot_layer_adopts_directly(

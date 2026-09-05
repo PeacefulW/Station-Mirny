@@ -17,7 +17,7 @@ func _overlay_shader() -> Shader:
 
 
 func _overlay_z() -> int:
-	return WorldRuntimeConstants.Z_MOUNTAIN_PAGE
+	return WorldRuntimeConstants.Z_MOUNTAIN_TORCH_SHADOW
 
 
 func _on_overlay_ready(overlay_material: ShaderMaterial) -> void:
@@ -67,6 +67,7 @@ func _update_mask_texture(mask_result: Dictionary, overlay_material: ShaderMater
 	var signature: String = str(mask_result.get("signature", ""))
 	if signature == _mask_signature:
 		return
+	var upload_started_usec: int = WorldPerfProbe.begin()
 	var bytes: PackedByteArray = mask_result.get("mask", PackedByteArray()) as PackedByteArray
 	var width: int = int(mask_result.get("width", 0))
 	var height: int = int(mask_result.get("height", 0))
@@ -84,6 +85,7 @@ func _update_mask_texture(mask_result: Dictionary, overlay_material: ShaderMater
 	overlay_material.set_shader_parameter("mask_size_px", Vector2(float(width), float(height)) * step_px)
 	overlay_material.set_shader_parameter("facade_height_px", 72.0)
 	_mask_signature = signature
+	WorldPerfProbe.end("MountainTorchShadowField.texture_upload", upload_started_usec)
 
 
 func _torch_radius_px(torch: PointLight2D) -> float:
